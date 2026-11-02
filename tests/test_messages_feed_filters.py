@@ -924,3 +924,58 @@ async def test_sparse_key_first_page_on_50000_rows_is_fast(test_db):
         limit=20, msg_type="CHAN", conversation_keys=[sparse], now=NOW
     )
     assert len(only_sparse) == 20 and all(m.conversation_key == sparse for m in only_sparse)
+
+
+# --- conversation counts (the Feed's facet lists and Muted / Pending counts) ----------------
+
+
+@pytest.mark.asyncio
+async def test_conversation_counts_group_filter_and_hide_blocked(test_db):
+    other = "CD" * 16
+    for i in range(3):
+        await _create(f"a{i}", received_at=100 + i)
+    await _create("b", received_at=110, key=other, outgoing=True)
+    await _create("c", received_at=120, msg_type="PRIV")
+    await _create("d", received_at=130, msg_type="PRIV", outgoing=True)
+    await MessageRepository.create(
+        msg_type="PRIV",
+        text="spam",
+        conversation_key="bb" * 32,
+        sender_timestamp=5,
+        received_at=5,
+        sender_key="bb" * 32,
+    )
+
+    got = await MessageRepository.count_by_conversation(blocked_keys=["bb" * 32])
+    assert got == [("CHAN", CHAN_KEY, 3), ("PRIV", DM_KEY, 2), ("CHAN", other, 1)]
+    assert await MessageRepository.count_by_conversation(msg_type="CHAN") == [
+        ("CHAN", CHAN_KEY, 3),
+        ("CHAN", other, 1),
+    ]
+    assert await MessageRepository.count_by_conversation(
+        outgoing=True, blocked_keys=["bb" * 32]
+    ) == [
+        ("CHAN", other, 1),
+        ("PRIV", DM_KEY, 1),
+    ]
+    assert len(await MessageRepository.count_by_conversation(limit=2)) == 2
+    # Unlike the listing, the spammer shows when nothing blocks it.
+    assert ("PRIV", "bb" * 32, 1) in await MessageRepository.count_by_conversation()
+
+
+@pytest.mark.asyncio
+async def test_conversation_counts_route(test_db, client):
+    await _create("a", received_at=100)
+    await _create("b", received_at=110, msg_type="PRIV", outgoing=True)
+    resp = await client.get("/api/messages/conversation-counts")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "conversations": [
+            {"type": "CHAN", "conversation_key": CHAN_KEY, "count": 1},
+            {"type": "PRIV", "conversation_key": DM_KEY, "count": 1},
+        ]
+    }
+    resp = await client.get(
+        "/api/messages/conversation-counts", params={"type": "PRIV", "outgoing": "false"}
+    )
+    assert resp.json() == {"conversations": []}

@@ -1670,7 +1670,7 @@ service's body (`tests/test_test_route_error_oracles.py`).
   normalised like `conversation_key`, 64 lowercase / 32 uppercase, duplicates collapsed;
   `normalize_conversation_keys` in `repository/messages.py`; 400 otherwise, and 400 with
   `conversation_key`; a contact key without `read_private` is a 403) are the filters the Feed
-  can push to the server (the client does not send them yet, see `frontend/AGENTS.md`, "Feed";
+  the Feed pushes to the server (`filtersToQuery`, see `frontend/AGENTS.md`, "Feed";
   `feedFilters.json` replays them). They read the `channels` LEFT JOIN, whose columns are NULL for every
   `PRIV` row and for a `CHAN` row whose channel was deleted (`ChannelRepository.delete` removes
   only the channel): the predicates are NULL-safe (`channels.key IS NULL OR NOT
@@ -1690,6 +1690,13 @@ service's body (`tests/test_test_route_error_oracles.py`).
   These plans hold because nothing runs `ANALYZE` or `PRAGMA optimize`: with statistics SQLite
   picks temp-sort plans (for instance CHAN + 10 keys with a cursor and `membership=pending`), and
   the plan tests would fail. Do not add either without redoing them.
+- `GET /messages/conversation-counts?type&outgoing` (`read`) is the Feed's facet source: messages per
+  conversation `{type, conversation_key, count}`, busiest first, at most `MAX_CONVERSATION_COUNTS`
+  (2 000), with the listing's `type` / `outgoing` / blocked-list rules and `CHAN` only without
+  `read_private` (`PRIV` is a 403). Mute and membership are deliberately not applied: the client holds
+  the channel list and the clock, and one answer serves the Muted / Pending counts and the
+  Channels / Contacts lists. It is a `GROUP BY type, conversation_key` that the covering
+  `idx_messages_conversation` serves when no `outgoing` filter narrows it (no plan test).
 
 ## Route behaviours that are easy to break
 

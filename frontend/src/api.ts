@@ -847,6 +847,19 @@ export const api = {
     const query = searchParams.toString();
     return fetchJson<Message[]>(`/messages${query ? `?${query}` : ''}`, { signal });
   },
+  /** Messages per conversation (the Feed's facets and hidden counts); mute is left to the caller. */
+  getConversationCounts: (
+    params?: { type?: 'PRIV' | 'CHAN'; outgoing?: boolean },
+    signal?: AbortSignal
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.type) searchParams.set('type', params.type);
+    if (params?.outgoing !== undefined) searchParams.set('outgoing', String(params.outgoing));
+    const query = searchParams.toString();
+    return fetchJson<{
+      conversations: { type: 'PRIV' | 'CHAN'; conversation_key: string; count: number }[];
+    }>(`/messages/conversation-counts${query ? `?${query}` : ''}`, { signal });
+  },
   getMessagesAround: (
     messageId: number,
     type?: 'PRIV' | 'CHAN',

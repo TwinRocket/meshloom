@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import './qSlices';
 import './wSlices';
 
-const mocks = vi.hoisted(() => ({ getMessages: vi.fn(), getPacketsHistory: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getMessages: vi.fn(),
+  getPacketsHistory: vi.fn(),
+  getConversationCounts: vi.fn(),
+}));
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
@@ -14,6 +18,7 @@ vi.mock('../api', async (importOriginal) => {
       ...actual.api,
       getMessages: mocks.getMessages,
       getPacketsHistory: mocks.getPacketsHistory,
+      getConversationCounts: mocks.getConversationCounts,
     },
   };
 });
@@ -66,6 +71,15 @@ function renderFeed() {
   return render(<FeedView contacts={contacts} channels={channels} onBackToTools={vi.fn()} />);
 }
 
+/** What the server answers for `page`, as the conversation counts. */
+const serverCounts = (publicCount = 2) => ({
+  conversations: [
+    { type: 'CHAN', conversation_key: PUBLIC_KEY, count: publicCount },
+    { type: 'CHAN', conversation_key: OTHER_KEY, count: 1 },
+    { type: 'PRIV', conversation_key: PEER_KEY, count: 1 },
+  ],
+});
+
 const column = async () => within(await screen.findByRole('complementary'));
 const itemFor = (scope: ReturnType<typeof within>, label: string) =>
   scope.getByText(label).closest('label') as HTMLLabelElement;
@@ -75,6 +89,8 @@ const messageCount = (n: number) =>
 beforeEach(() => {
   mocks.getMessages.mockReset();
   mocks.getMessages.mockResolvedValue([...page].reverse());
+  mocks.getConversationCounts.mockReset();
+  mocks.getConversationCounts.mockResolvedValue(serverCounts());
   mocks.getPacketsHistory.mockReset();
   mocks.getPacketsHistory.mockResolvedValue({ items: [], total: 0, truncated: false, scanned: 0 });
   resetFeedStore();
@@ -95,7 +111,7 @@ describe('feed conversation facets', () => {
     expect(screen.getByTestId('feed-facets-open')).toHaveTextContent(i18n.t('feed.facets.filters'));
   });
 
-  it('lists channels and contacts of the loaded rows with their counts', async () => {
+  it("lists the server's channels and contacts with their counts", async () => {
     renderFeed();
     const facets = await column();
     expect(await facets.findByText('Public')).toBeInTheDocument();
@@ -112,10 +128,14 @@ describe('feed conversation facets', () => {
     const facets = await column();
     await facets.findByText('Public');
 
+    // A live row makes the store refetch the counts (debounced).
+    mocks.getConversationCounts.mockResolvedValue(serverCounts(3));
     act(() => {
       recordFeedMessage(msg(5));
     });
-    await waitFor(() => expect(itemFor(facets, 'Public')).toHaveTextContent(messageCount(3)));
+    await waitFor(() => expect(itemFor(facets, 'Public')).toHaveTextContent(messageCount(3)), {
+      timeout: 3000,
+    });
 
     fireEvent.click(within(itemFor(facets, 'Hikers')).getByRole('checkbox'));
     await waitFor(() => expect(screen.queryByText(/hello 1\b/)).not.toBeInTheDocument());
@@ -149,16 +169,16 @@ describe('feed conversation facets', () => {
     expect(window.location.hash).not.toContain('conversations');
   });
 
-  it('keeps a picked conversation that left the window listed, so it can be unpicked', async () => {
+  it('keeps a picked conversation that is not in the server list listed, so it can be unpicked', async () => {
     localStorage.setItem(
       FEED_FILTERS_STORAGE_KEY,
       JSON.stringify({ conversations: [`chan:${'22'.repeat(16)}`] })
     );
     renderFeed();
     const facets = await column();
-    const boxes = await facets.findAllByRole('checkbox');
-    // The window's three conversations plus the picked one that is not in it (count 0).
-    expect(boxes).toHaveLength(4);
+    // The server's three conversations plus the picked one that is not among them (count 0).
+    await waitFor(() => expect(facets.getAllByRole('checkbox')).toHaveLength(4));
+    const boxes = facets.getAllByRole('checkbox');
     expect((boxes as HTMLInputElement[]).filter((box) => box.checked)).toHaveLength(1);
     expect(facets.getByTestId('feed-facets-reset')).toBeEnabled();
   });

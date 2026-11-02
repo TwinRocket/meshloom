@@ -18,6 +18,8 @@ MUTED_FILTERS = ("all", "exclude", "only")
 MEMBERSHIP_FILTERS = ("all", "adopted", "pending")
 # One `conversation_keys` value is a channel key (32 hex) or a contact public key (64 hex).
 MAX_CONVERSATION_KEYS = 50
+# Most conversations `count_by_conversation` returns (a radio never nears it).
+MAX_CONVERSATION_COUNTS = 2000
 _CONVERSATION_KEY_RE = re.compile(r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{64})")
 
 
@@ -617,6 +619,47 @@ class MessageRepository:
             async with conn.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
         return [MessageRepository._row_to_message(row) for row in rows]
+
+    @staticmethod
+    async def count_by_conversation(
+        msg_type: str | None = None,
+        outgoing: bool | None = None,
+        blocked_keys: list[str] | None = None,
+        blocked_names: list[str] | None = None,
+        limit: int = MAX_CONVERSATION_COUNTS,
+    ) -> list[tuple[str, str, int]]:
+        """Messages per conversation as ``(type, conversation_key, count)``, busiest first.
+
+        Same ``type``, ``outgoing`` and blocked-list predicates as ``get_all``. Mute and
+        membership are not applied: the feed reads them from its channel list, so one answer
+        serves the Muted / Pending counts and the Channels / Contacts facets. At most ``limit``
+        conversations (ties by key, so the cut is stable).
+        """
+        query = (
+            "SELECT messages.type, messages.conversation_key, COUNT(*) AS n FROM messages WHERE 1=1"
+        )
+        params: list[Any] = []
+        blocked_clause, blocked_params = MessageRepository._build_blocked_incoming_clause(
+            "messages", blocked_keys, blocked_names
+        )
+        if blocked_clause:
+            query += f" AND {blocked_clause}"
+            params.extend(blocked_params)
+        if msg_type:
+            query += " AND messages.type = ?"
+            params.append(msg_type)
+        if outgoing is not None:
+            query += " AND messages.outgoing = ?"
+            params.append(1 if outgoing else 0)
+        query += (
+            " GROUP BY messages.type, messages.conversation_key"
+            " ORDER BY n DESC, messages.conversation_key ASC LIMIT ?"
+        )
+        params.append(limit)
+        async with db.readonly() as conn:
+            async with conn.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+        return [(row[0], row[1], row[2]) for row in rows]
 
     @staticmethod
     async def get_around(

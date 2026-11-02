@@ -5,13 +5,12 @@ import { isPendingChannel } from './channelMembership';
  * The feed's filter model and its single evaluator.
  *
  * `rowPassesFilters` decides what the timeline shows, for rows fetched over REST and rows
- * pushed over the WebSocket alike. Two of the filters (`type`, `outgoing`) are also sent
- * to `GET /api/messages` through `filtersToQuery` so hidden rows are not fetched; the
- * server answers the same question as the evaluator, which `feedFilters.json` pins on
- * both sides. Everything else (muted, pending, the conversation pick, the node) is
- * client-side only: the route also takes `muted`, `membership` and `conversation_keys`
- * (`feedFilters.json` replays them), but the chips' hidden counts and the facet lists are
- * computed from the loaded rows, which a server-side filter would empty.
+ * pushed over the WebSocket alike. Most of the filters are also sent to `GET /api/messages`
+ * through `filtersToQuery` (`type`, `outgoing`, `muted`, `membership`, `conversation_keys`) so
+ * hidden rows are not fetched; the server answers the same question as the evaluator, which
+ * `feedFilters.json` pins on both sides. Only the node stays client-side. The chips' hidden
+ * counts and the facet lists cannot come from the loaded rows then, so they are computed from
+ * `GET /api/messages/conversation-counts` (`FeedConversationCount`), with the same evaluator.
  */
 
 export interface FeedFilters {
@@ -60,9 +59,16 @@ export const controlPreset: FeedFilters = {
   sources: { messages: false, control: true, events: false },
 };
 
+/** The query parameters of `GET /api/messages` the filters translate to. */
 export interface FeedQuery {
   type?: 'CHAN' | 'PRIV';
   outgoing?: boolean;
+  /** Absent with Muted on; `only` is never sent (the feed has no "muted only" chip). */
+  muted?: 'exclude';
+  /** Absent with Pending on. */
+  membership?: 'adopted';
+  /** The conversation pick, when the route can take it (see `pickedConversationKeys`). */
+  conversation_keys?: string[];
 }
 
 /** Fill a stored or partial object with defaults; a field of the wrong type is ignored. */
@@ -145,14 +151,42 @@ export function hasEmptySelection(filters: FeedFilters): boolean {
  * loaded; the caller keeps the original `priv` for storage so it is never rewritten.
  */
 export function withoutPrivate(filters: FeedFilters): FeedFilters {
-  return { ...filters, chan: filters.chan || filters.priv, priv: false };
+  return {
+    ...filters,
+    chan: filters.chan || filters.priv,
+    priv: false,
+    // A contact key in the pick would be a 403 on the route.
+    conversations: filters.conversations.filter((id) => !id.startsWith('priv:')),
+  };
 }
 
-/** The part of the filters the server evaluates (`type`, `outgoing` on `GET /api/messages`). */
+const CONVERSATION_KEY = /^(?:[0-9a-f]{32}|[0-9a-f]{64})$/i;
+/** The most `conversation_keys` the route takes (`MAX_CONVERSATION_KEYS`, `repository/messages.py`). */
+const MAX_PICKED_KEYS = 50;
+
+/**
+ * The keys of the conversation pick for `conversation_keys`, or null when the route cannot take
+ * it as it is (a contact known by a prefix only, more than 50 of them): the client evaluator
+ * then keeps filtering the loaded rows, with hollow-page auto-fetch.
+ */
+function pickedConversationKeys(filters: FeedFilters): string[] | null {
+  const keys = [...new Set(filters.conversations.map((id) => id.slice(id.indexOf(':') + 1)))];
+  if (keys.length === 0 || keys.length > MAX_PICKED_KEYS) return null;
+  return keys.every((key) => CONVERSATION_KEY.test(key)) ? keys : null;
+}
+
+/**
+ * The part of the filters the server evaluates: `type`, `outgoing`, `muted`, `membership` and
+ * `conversation_keys` on `GET /api/messages`. The node is not among them.
+ */
 export function filtersToQuery(filters: FeedFilters): FeedQuery {
   const query: FeedQuery = {};
   if (filters.chan !== filters.priv) query.type = filters.chan ? 'CHAN' : 'PRIV';
   if (filters.incoming !== filters.outgoing) query.outgoing = filters.outgoing;
+  if (!filters.includeMuted) query.muted = 'exclude';
+  if (!filters.includePending) query.membership = 'adopted';
+  const keys = pickedConversationKeys(filters);
+  if (keys) query.conversation_keys = keys;
   return query;
 }
 
@@ -166,7 +200,7 @@ export type HiddenReason = 'muted' | 'pending';
  * channel, has no mute or membership to apply.
  */
 function hiddenReasons(
-  row: FeedFilterRow,
+  row: Pick<Message, 'type' | 'conversation_key'>,
   channels: readonly Channel[],
   nowSec: number
 ): HiddenReason[] {
@@ -186,19 +220,32 @@ export function conversationFacetId(row: Pick<Message, 'type' | 'conversation_ke
 }
 
 /** A node filters messages only when it is a channel, to that channel's rows. */
-function rowMatchesNode(row: FeedFilterRow, node: string): boolean {
+function rowMatchesNode(row: Pick<Message, 'type' | 'conversation_key'>, node: string): boolean {
   return (
     row.type === 'CHAN' && node.toUpperCase() === `CHANNEL:${row.conversation_key.toUpperCase()}`
   );
 }
 
-/** Everything but the muted/pending chips. */
-function passesBasicFilters(row: FeedFilterRow, filters: FeedFilters): boolean {
+/** The node, the pick and the type chip: what a conversation must pass whatever its direction. */
+function passesScope(
+  row: Pick<Message, 'type' | 'conversation_key'>,
+  filters: FeedFilters,
+  ignorePick = false
+): boolean {
   if (hasNoMessages(filters)) return false;
   if (filters.node && !rowMatchesNode(row, filters.node)) return false;
-  if (filters.conversations.length > 0 && !filters.conversations.includes(conversationFacetId(row)))
+  if (
+    !ignorePick &&
+    filters.conversations.length > 0 &&
+    !filters.conversations.includes(conversationFacetId(row))
+  )
     return false;
-  if (row.type === 'CHAN' ? !filters.chan : !filters.priv) return false;
+  return row.type === 'CHAN' ? filters.chan : filters.priv;
+}
+
+/** Everything but the muted/pending chips. */
+function passesBasicFilters(row: FeedFilterRow, filters: FeedFilters): boolean {
+  if (!passesScope(row, filters)) return false;
   return row.outgoing ? filters.outgoing : filters.incoming;
 }
 
@@ -216,42 +263,54 @@ export function rowPassesFilters(
 }
 
 /**
- * Messages per conversation in `rows`, for the facets: what the current filters keep, except the
+ * One conversation of `GET /api/messages/conversation-counts`: its messages in the directions
+ * and types the request asked for (the server applies neither mute nor membership).
+ */
+export interface FeedConversationCount {
+  type: Message['type'];
+  conversation_key: string;
+  count: number;
+}
+
+/**
+ * Messages per conversation, for the facets: what the current filters keep, except the
  * conversation pick itself (so ticking one conversation does not zero the others). Keyed by
  * `conversationFacetId`; the caller resolves names.
  */
 export function countConversations(
-  rows: readonly Message[],
+  entries: readonly FeedConversationCount[],
   filters: FeedFilters,
   channels: readonly Channel[],
   nowSec: number
 ): Map<string, number> {
-  const open = { ...filters, conversations: [] };
   const counts = new Map<string, number>();
-  for (const row of rows) {
-    if (!rowPassesFilters(row, open, channels, nowSec)) continue;
-    const id = conversationFacetId(row);
-    counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const entry of entries) {
+    if (!passesScope(entry, filters, true)) continue;
+    const reasons = hiddenReasons(entry, channels, nowSec);
+    if (reasons.includes('muted') && !filters.includeMuted) continue;
+    if (reasons.includes('pending') && !filters.includePending) continue;
+    const id = conversationFacetId(entry);
+    counts.set(id, (counts.get(id) ?? 0) + entry.count);
   }
   return counts;
 }
 
 /**
- * Rows only the muted / pending chips keep out, for the counts on those chips. A row
+ * Messages only the muted / pending chips keep out, for the counts on those chips. A message
  * hidden for both reasons counts under each: ticking either chip alone would not show it.
  */
-export function countHiddenRows(
-  rows: readonly FeedFilterRow[],
+export function countHiddenMessages(
+  entries: readonly FeedConversationCount[],
   filters: FeedFilters,
   channels: readonly Channel[],
   nowSec: number
 ): { muted: number; pending: number } {
   const counts = { muted: 0, pending: 0 };
-  for (const row of rows) {
-    if (!passesBasicFilters(row, filters)) continue;
-    const reasons = hiddenReasons(row, channels, nowSec);
-    if (reasons.includes('muted') && !filters.includeMuted) counts.muted += 1;
-    if (reasons.includes('pending') && !filters.includePending) counts.pending += 1;
+  for (const entry of entries) {
+    if (!passesScope(entry, filters)) continue;
+    const reasons = hiddenReasons(entry, channels, nowSec);
+    if (reasons.includes('muted') && !filters.includeMuted) counts.muted += entry.count;
+    if (reasons.includes('pending') && !filters.includePending) counts.pending += entry.count;
   }
   return counts;
 }
