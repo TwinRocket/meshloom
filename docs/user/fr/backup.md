@@ -93,4 +93,9 @@ Les versions plus récentes de Meshloom ajoutent d’autres parties à ce fichie
 - L’horloge de la radio (Meshloom la règle) et quelques réglages qu’aucune commande n’atteint (buzzer et vibration).
 - Les clés avec lesquelles Meshloom s’identifie auprès des services en ligne (accès à distance, partage de liens). Elles ne quittent jamais le serveur, pas même dans une sauvegarde complète qui contient la clé privée de la radio, ni dans un téléchargement de `meshcore.db` : Meshloom en crée de nouvelles après chaque restauration, y compris une copie de `meshcore.db` remise en place (faite par cette version ou une plus récente), et ces services doivent donc être liés de nouveau.
 
-La restauration écrit les canaux dans les emplacements de la radio et vide les emplacements suivants. Meshloom gère lui-même ces emplacements à chaque connexion : ils se remplissent de nouveau quand vous utilisez les canaux.
+La restauration écrit les canaux dans les emplacements de la radio et vide les emplacements suivants. La suite dépend de **Garder les canaux sur la radio** (**Réglages → Radio → Messagerie**), comme l’écran de restauration l’indique avant de commencer :
+
+- **Désactivé** (par défaut) : Meshloom vide de nouveau les emplacements à la prochaine connexion, y compris au redémarrage que la restauration peut proposer, puis les remplit à mesure que vous utilisez les canaux. La restauration se termine par une note qui le dit.
+- **Activé** : les canaux restaurés restent dans leurs emplacements, après une reconnexion ou un redémarrage aussi. Le dernier emplacement reste vide : Meshloom le garde pour envoyer vers les canaux absents de la radio.
+
+Quand la sauvegarde contient ce réglage et que vous restaurez les données de Meshloom, c’est sa valeur qui s’applique.

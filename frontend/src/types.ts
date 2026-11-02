@@ -1734,6 +1734,8 @@ export interface AppSettings {
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
   auto_clock_wraparound?: boolean;
+  /** Keep the channels in the radio's slots (Settings → Radio → Messaging, MSHL-41). */
+  keep_channels_on_radio?: boolean;
   /** CORS allowlist (Settings → Local Configuration → Allowed origins). Empty: same-origin only. */
   auth_allowed_origins?: string[];
   /** Accept Web Push endpoints on a private network (self-hosted UnifiedPush). */
@@ -1794,6 +1796,7 @@ export interface AppSettingsUpdate {
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
   auto_clock_wraparound?: boolean;
+  keep_channels_on_radio?: boolean;
   auth_allowed_origins?: string[];
   push_allow_private_endpoints?: boolean;
   push_private_endpoints_grandfathered?: boolean;
@@ -2034,6 +2037,8 @@ export interface BackupInspectResult {
   identity_refusal: string | null;
   /** secrets.key is unusable and the Meshloom step would need it: the restore is refused (503). */
   secret_store_unavailable?: boolean;
+  /** The channels step's slots stay on the radio (file's setting, else this Meshloom's). */
+  channels_kept_on_radio?: boolean;
   live_radio_public_key: string | null;
   live_radio_name: string | null;
   ble_pin_differs_on_ble: boolean;

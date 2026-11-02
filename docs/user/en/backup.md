@@ -93,4 +93,9 @@ Newer versions of Meshloom add more parts to this file. A part the running versi
 - The radio's clock (Meshloom sets it) and a few settings no command reaches (buzzer and vibration).
 - The keys Meshloom uses to identify itself to online services (remote access, link sharing). They never leave the server, not even in a full backup that holds the radio's private key, nor in a `meshcore.db` download: Meshloom creates new ones after every restore, including a `meshcore.db` copy put back in place (made by this version or a later one), so those services need linking again.
 
-Channels are written into the radio's slots by the restore, and the slots above them are emptied. Meshloom manages those slots itself on every connection: they are filled again as you use the channels.
+Channels are written into the radio's slots by the restore, and the slots above them are emptied. What happens next depends on **Keep channels on the radio** (**Settings → Radio → Messaging**), as the restore screen says before you start:
+
+- **Off** (default): Meshloom empties the slots again at the next connection, including the reboot the restore may offer, and fills them as you use the channels. The restore ends with a note saying so.
+- **On**: the restored channels stay in their slots, after a reconnection or a reboot too. The last slot is left empty: Meshloom keeps it to send to channels that are not on the radio.
+
+When the backup carries this setting and you restore the Meshloom data, the backup's value applies.

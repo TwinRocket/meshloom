@@ -41,6 +41,19 @@ Deux exceptions à cette réutilisation :
 - Avec une **radio réseau (TCP)**, chaque envoi vers un salon réécrit le salon dans la radio, car un autre programme peut utiliser la même radio.
 - **Réécrire le salon avant chaque envoi**, dans **Réglages → Radio → Avancé**, fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
 
+### Garder les salons sur la radio
+
+**Garder les canaux sur la radio**, dans **Réglages → Radio → Messagerie**, est désactivé par défaut. Activez-le si vous utilisez aussi la radio sans Meshloom (l’application MeshCore officielle, un autre client) ou si vous voulez que les salons d’une restauration restent sur la radio. Le réglage s’applique à la prochaine connexion :
+
+- Meshloom copie toujours chaque salon de la radio à la connexion, mais ne vide plus les emplacements.
+- Un envoi vers un salon déjà présent sur la radio utilise son emplacement tel quel.
+- Meshloom garde un emplacement pour lui, le dernier, pour envoyer vers les salons absents de la radio. Il n’écrase jamais les autres. Une radio à 8 emplacements garde 7 salons ; la page des réglages affiche le nombre pour votre radio.
+- Avec une radio réseau (TCP), ou avec **Réécrire le salon avant chaque envoi**, chaque envoi vers un salon passe par ce dernier emplacement.
+- Supprimer un salon dans Meshloom vide aussi son emplacement sur la radio, sinon la connexion suivante le ferait revenir.
+- Le **Test radio** (dans la barre latérale) emprunte lui aussi le dernier emplacement.
+
+Le choix des salons gardés vous revient : ajoutez-les ou retirez-les sur la radio avec une autre application MeshCore, ou restaurez une sauvegarde (voir [Sauvegarder votre radio](/docs/backup/)).
+
 ## L’audit horaire
 
 Meshloom s’appuie sur les événements de la radio pour recevoir les messages, et fait en plus une vérification lente, une fois par heure. Elle cherche les messages restés sur la radio, et les emplacements de salon qui ne correspondent plus à ce que Meshloom attend.

@@ -510,7 +510,12 @@ async def _channel_activity() -> dict[str, int]:
 
 async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
     """Write the adopted channels into slots 0..n-1 (Public, favourites,
-    pinned, then by last activity), raw frames keeping each secret."""
+    pinned, then by last activity), raw frames keeping each secret.
+
+    With ``keep_channels_on_radio`` on (MSHL-41) the highest slot stays the
+    empty scratch slot and the pushed slots survive the next connect. Off, the
+    next connect sync empties them again: the ``channels_offloaded_next_connect``
+    warning says so."""
     from app.channel_constants import PUBLIC_CHANNEL_KEY
     from app.repository import ChannelRepository
     from app.services.radio_runtime import radio_runtime
@@ -529,7 +534,12 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
     )
     warnings: list[str] = []
     written = 0
-    capacity = max(0, int(manager.max_channels))
+    from app import radio_workarounds
+
+    keep = radio_workarounds.current().keep_channels_on_radio
+    slot_count = max(0, int(manager.max_channels))
+    # Keep mode: the highest slot is the scratch slot for on-demand sends.
+    capacity = max(0, slot_count - 1) if keep else slot_count
     for slot, channel in enumerate(channels[:capacity]):
         try:
             secret = bytes.fromhex(channel.key)
@@ -550,7 +560,7 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
         written += 1
     # Empty the slots above: on the same radio they may still hold a channel
     # the user removed since (name "" and a zero secret, as setup clears them).
-    for slot in range(min(len(channels), capacity), capacity):
+    for slot in range(min(len(channels), capacity), slot_count):
         frame = b"\x20" + bytes([slot]) + bytes(32) + bytes(16)
         result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
         if _rejected(result):
@@ -558,6 +568,8 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
         manager.forget_channel_slot(slot)
     if len(channels) > written and len(channels) > capacity:
         warnings.append("channels_over_radio_limit")
+    if written and not keep:
+        warnings.append("channels_offloaded_next_connect")
     return written, list(dict.fromkeys(warnings))
 
 
