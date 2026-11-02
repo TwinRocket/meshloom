@@ -28,7 +28,7 @@ import {
   applyFeedQuery,
   conversationFacetId,
   countConversations,
-  countHiddenRows,
+  countHiddenMessages,
   controlPreset,
   feedQueryOf,
   parseFeedQuery,
@@ -39,6 +39,7 @@ import {
   rowPassesFilters,
   saveFeedFilters,
   withoutPrivate,
+  type FeedConversationCount,
   type FeedFilters,
 } from '../../utils/feedFilters';
 import type { SearchNavigateTarget } from '../SearchView';
@@ -84,6 +85,7 @@ import {
 import { normalizeFeedText, rowMatchesText } from '../../utils/feedTextFilter';
 import { FeedMessageRow } from './FeedMessageRow';
 import { createFeedNameResolver } from './feedNames';
+import { useFeedConversationCounts } from './useFeedConversationCounts';
 
 interface FeedViewProps {
   /** Opens with the Control preset's filters, which are not persisted. */
@@ -161,8 +163,8 @@ function useTimeFormatter(language: string) {
  * off and offers a button with the count of rows that arrived since.
  *
  * The filter chips are evaluated here by one function, `rowPassesFilters`, over the
- * rows the store holds. `type` and `outgoing` are also sent to the server so hidden
- * rows are not fetched; changing them empties the store and reloads the first page.
+ * rows the store holds. Every filter but the node is also sent to the server so hidden
+ * rows are not fetched; changing one empties the store and reloads the first page.
  */
 export function FeedView({
   preset,
@@ -400,20 +402,27 @@ export function FeedView({
     () => (normalizedText ? [] : visibleFeedEvents(events, shown.sources.events, activeNode)),
     [events, shown.sources.events, activeNode, normalizedText]
   );
+  // Messages per conversation from the server: the listing is filtered there, so the loaded rows
+  // cannot give the Muted / Pending counts or the facet lists.
+  const conversationCounts = useFeedConversationCounts(
+    query,
+    !noMessages,
+    rows[rows.length - 1]?.id ?? 0
+  );
   const hidden = useMemo(
-    () => countHiddenRows(rows, effective, channels, nowSec),
-    [rows, effective, channels, nowSec]
+    () => countHiddenMessages(conversationCounts, effective, channels, nowSec),
+    [conversationCounts, effective, channels, nowSec]
   );
   const items = useMemo(
     () => buildFeedItems(visibleRows, newSinceId, visibleControl, visibleEvents),
     [visibleRows, newSinceId, visibleControl, visibleEvents]
   );
   const itemCount = items.length;
-  // Channels and Contacts facets: the conversations of the loaded rows, counted on what the
+  // Channels and Contacts facets: the server's conversations, counted on what the
   // filters keep (except the pick itself). A picked conversation absent from the window stays
   // listed with 0 so it can always be unpicked.
   const facetLists = useMemo(() => {
-    const counts = countConversations(rows, effective, channels, nowSec);
+    const counts = countConversations(conversationCounts, effective, channels, nowSec);
     const labels = new Map<string, FeedFacetItem>();
     const add = (type: Message['type'], key: string, count: number) => {
       const id = conversationFacetId({ type, conversation_key: key });
@@ -426,11 +435,11 @@ export function FeedView({
       } as Message).conversation;
       labels.set(id, { id, label, count });
     };
-    const seen = new Map<string, Message>();
-    for (const row of rows) seen.set(conversationFacetId(row), row);
+    const seen = new Map<string, FeedConversationCount>();
+    for (const entry of conversationCounts) seen.set(conversationFacetId(entry), entry);
     for (const [id, count] of counts) {
-      const row = seen.get(id);
-      if (row) add(row.type, row.conversation_key, count);
+      const entry = seen.get(id);
+      if (entry) add(entry.type, entry.conversation_key, count);
     }
     for (const id of effective.conversations) {
       if (labels.has(id)) continue;
@@ -444,7 +453,7 @@ export function FeedView({
       channels: all.filter((item) => item.id.startsWith('chan:')).sort(byLabel),
       contacts: all.filter((item) => item.id.startsWith('priv:')).sort(byLabel),
     };
-  }, [rows, effective, channels, nowSec, resolveLabels, i18n.language]);
+  }, [conversationCounts, effective, channels, nowSec, resolveLabels, i18n.language]);
 
   /** Rows the current filters keep among those the store holds right now. */
   const countVisibleNow = useCallback(() => {
@@ -592,9 +601,13 @@ export function FeedView({
     }
   }, [countVisibleNow]);
 
-  // Muted / pending and the node are client-side: ticking them in place can leave a short list that
-  // cannot be scrolled, so the same bounded fetch applies.
-  const clientFilterKey = `${shown.includeMuted}|${shown.includePending}|${activeNode}|${shown.conversations.join(',')}`;
+  // The node, and the conversation pick when the route cannot take it (a contact known by a prefix
+  // only, more than 50 picks), are client-side (the other filters reload the list through
+  // `queryKey`): picking one can leave a short list that cannot be scrolled, so the same bounded
+  // fetch applies.
+  const clientFilterKey = `${activeNode}|${
+    query.conversation_keys ? '' : shown.conversations.join(',')
+  }`;
   useEffect(() => {
     if (firstClientFilterRef.current) {
       firstClientFilterRef.current = false;

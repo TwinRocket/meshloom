@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getMessages: vi.fn(),
   getPacketsHistory: vi.fn(),
   getNotificationRules: vi.fn(),
+  getConversationCounts: vi.fn(),
 }));
 const sessionMocks = vi.hoisted(() => ({ canReadPrivate: true, canSend: true, isAdmin: true }));
 
@@ -34,6 +35,7 @@ vi.mock('../api', async (importOriginal) => {
       getMessages: mocks.getMessages,
       getPacketsHistory: mocks.getPacketsHistory,
       getNotificationRules: mocks.getNotificationRules,
+      getConversationCounts: mocks.getConversationCounts,
     },
   };
 });
@@ -134,11 +136,16 @@ beforeEach(() => {
   mocks.getMessages.mockReset();
   mocks.getPacketsHistory.mockReset();
   mocks.getPacketsHistory.mockResolvedValue({ items: [], total: 0, truncated: false, scanned: 0 });
+  mocks.getConversationCounts.mockReset();
+  mocks.getConversationCounts.mockResolvedValue({ conversations: [] });
   mocks.getNotificationRules.mockReset();
   mocks.getNotificationRules.mockResolvedValue({ radio_offline_grace_s: 60 });
   resetFeedStore();
   localStorage.clear();
 });
+
+/** What the default chips (Muted and Pending off) add to every listing request. */
+const HIDE_SERVER = { muted: 'exclude', membership: 'adopted' } as const;
 
 describe('FeedView pagination', () => {
   it('asks for the newest page, then pages back from the oldest row; three pages merge cleanly', async () => {
@@ -149,7 +156,7 @@ describe('FeedView pagination', () => {
     const scroller = await findScroller();
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       1,
-      { limit: FEED_PAGE_SIZE },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER },
       expect.anything()
     );
 
@@ -158,7 +165,7 @@ describe('FeedView pagination', () => {
     const oldestOfFirst = msg(801);
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       2,
-      { limit: FEED_PAGE_SIZE, before: oldestOfFirst.received_at, before_id: 801 },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, before: oldestOfFirst.received_at, before_id: 801 },
       undefined
     );
 
@@ -167,7 +174,7 @@ describe('FeedView pagination', () => {
     await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(3));
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       3,
-      { limit: FEED_PAGE_SIZE, before: msg(601).received_at, before_id: 601 },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, before: msg(601).received_at, before_id: 601 },
       undefined
     );
 
@@ -375,21 +382,37 @@ describe('FeedView filter chips', () => {
     msg(5, { type: 'PRIV', conversation_key: 'aa'.repeat(32), text: 'psst' }),
   ];
 
-  it('hides muted and pending channels by default and counts what is hidden', async () => {
+  it('hides muted and pending channels by default and counts what is hidden, from the server', async () => {
     mocks.getMessages.mockResolvedValue(serverPage([]).concat(mixedRows()));
+    // The listing is filtered server-side, so the counts cannot come from the loaded rows.
+    mocks.getConversationCounts.mockResolvedValue({
+      conversations: [
+        { type: 'CHAN', conversation_key: channels[0].key, count: 40 },
+        { type: 'CHAN', conversation_key: MUTED_KEY, count: 12 },
+        { type: 'CHAN', conversation_key: PENDING_KEY, count: 5 },
+        { type: 'PRIV', conversation_key: 'aa'.repeat(32), count: 3 },
+      ],
+    });
     renderFeed(mixedChannels);
 
     const list = await screen.findByRole('list');
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
-    expect(within(chip(chipLabel('muted'))).getByText(hidden('hiddenMuted', 2))).toBeTruthy();
-    expect(within(chip(chipLabel('pending'))).getByText(hidden('hiddenPending', 1))).toBeTruthy();
+    expect(
+      await within(chip(chipLabel('muted'))).findByText(hidden('hiddenMuted', 12))
+    ).toBeTruthy();
+    expect(within(chip(chipLabel('pending'))).getByText(hidden('hiddenPending', 5))).toBeTruthy();
+    expect(mocks.getConversationCounts).toHaveBeenCalledWith({}, expect.anything());
 
+    // Muted is a server filter now: ticking it reloads the first page without `muted=exclude`.
     fireEvent.click(chip(chipLabel('muted')));
-    expect(within(list).getAllByRole('listitem')).toHaveLength(4);
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    expect(mocks.getMessages).toHaveBeenLastCalledWith(
+      { limit: FEED_PAGE_SIZE, membership: 'adopted' },
+      expect.anything()
+    );
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(4));
     // Shown rows are no longer "hidden": the count goes away.
     expect(within(chip(chipLabel('muted'))).queryByText(/hidden|masqu/)).toBeNull();
-    // Toggling a client-side chip never refetches.
-    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
   });
 
   it('re-evaluates rows when a channel frame flips muted, without reload', async () => {
@@ -432,7 +455,7 @@ describe('FeedView filter chips', () => {
     renderFeed(mixedChannels);
     await screen.findByRole('list');
     expect(mocks.getMessages).toHaveBeenLastCalledWith(
-      { limit: FEED_PAGE_SIZE },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER },
       expect.anything()
     );
 
@@ -442,7 +465,7 @@ describe('FeedView filter chips', () => {
     await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
     // Two clicks inside the debounce: one request carrying both.
     expect(mocks.getMessages).toHaveBeenLastCalledWith(
-      { limit: FEED_PAGE_SIZE, type: 'CHAN', outgoing: false },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, type: 'CHAN', outgoing: false },
       expect.anything()
     );
     await waitFor(() => expect(getFeedSnapshot().rows.map((r) => r.id)).toEqual([1]));
@@ -461,7 +484,7 @@ describe('FeedView filter chips', () => {
 
     await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
     expect(mocks.getMessages).toHaveBeenLastCalledWith(
-      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, type: 'CHAN' },
       expect.anything()
     );
   });
@@ -547,7 +570,7 @@ describe('FeedView hollow pages', () => {
     expect(screen.getByText(i18n.t('feed.emptyFiltered'))).toBeInTheDocument();
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       2,
-      { limit: FEED_PAGE_SIZE, before: expect.any(Number), before_id: 801 },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, before: expect.any(Number), before_id: 801 },
       expect.anything()
     );
   });
@@ -590,21 +613,65 @@ describe('FeedView hollow pages', () => {
     expect(await screen.findAllByRole('listitem')).not.toHaveLength(0);
   });
 
-  it('fetches an older page when picking a conversation leaves the list hollow', async () => {
+  it('fetches an older page when a contact known by a key prefix only hollows the list', async () => {
+    const keys = ['abcdef123456'];
+    const target = keys[0];
+    // 200 rows of the default channel, a few of the pick; the pick never goes to the server.
+    const first = range(100, 299)
+      .reverse()
+      .map((id) => (id < 104 ? msg(id, { type: 'PRIV', conversation_key: target }) : msg(id)));
+    mocks.getMessages.mockResolvedValueOnce(first);
+    mocks.getConversationCounts.mockResolvedValue({
+      conversations: keys.map((k) => ({ type: 'PRIV', conversation_key: k, count: 4 })),
+    });
+    renderFeed();
+    const facets = within(await screen.findByRole('complementary'));
+    const contactsTitle = i18n.t('feed.facets.contacts');
+    await waitFor(() => expect(facets.getByText(contactsTitle)).toBeInTheDocument());
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+
+    mocks.getMessages.mockResolvedValue([]);
+    const boxes = facets
+      .getAllByRole('checkbox')
+      .filter((box) => (box.closest('label')?.textContent ?? '').includes(target.slice(0, 6)));
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) fireEvent.click(box);
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    // An older page, cut at the oldest loaded row, with no conversation_keys.
+    const call = mocks.getMessages.mock.calls[1][0];
+    expect(call).toMatchObject({ before_id: 100 });
+    expect(call.conversation_keys).toBeUndefined();
+  });
+
+  it('reloads the list from the server, narrowed to the picked conversation', async () => {
     const other = '22222222222222222222222222222222';
-    const first = range(100, 299).map((id) =>
-      msg(id, id % 20 === 0 ? { conversation_key: other } : {})
+    mocks.getMessages.mockResolvedValue(
+      range(100, 299)
+        .reverse()
+        .map((id) => msg(id))
     );
-    mocks.getMessages.mockResolvedValueOnce([...first].reverse()).mockResolvedValue([]);
+    // The facet lists come from the server: `other` has no row in the loaded window.
+    mocks.getConversationCounts.mockResolvedValue({
+      conversations: [
+        { type: 'CHAN', conversation_key: channels[0].key, count: 200 },
+        { type: 'CHAN', conversation_key: other, count: 4 },
+      ],
+    });
     renderFeed([...channels, channel(other, 'Other')]);
     const facets = within(await screen.findByRole('complementary'));
     await waitFor(() => expect(facets.getByText('Other')).toBeInTheDocument());
     expect(mocks.getMessages).toHaveBeenCalledTimes(1);
 
+    mocks.getMessages.mockResolvedValue([msg(7, { conversation_key: other })]);
     fireEvent.click(
       within(facets.getByText('Other').closest('label') as HTMLElement).getByRole('checkbox')
     );
     await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    expect(mocks.getMessages).toHaveBeenLastCalledWith(
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, conversation_keys: [other] },
+      expect.anything()
+    );
+    await waitFor(() => expect(getFeedSnapshot().rows.map((r) => r.id)).toEqual([7]));
   });
 });
 
@@ -881,7 +948,7 @@ describe('FeedView display mode', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(1);
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       1,
-      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, type: 'CHAN' },
       expect.anything()
     );
     expect(document.documentElement.hasAttribute('data-feed-display')).toBe(true);
@@ -1057,7 +1124,7 @@ describe('FeedView under a session without read_private (kiosk role)', () => {
     expect(screen.getByRole('button', { name: i18n.t('feed.filters.channels') })).toBeTruthy();
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       1,
-      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, type: 'CHAN' },
       expect.anything()
     );
   });
@@ -1070,7 +1137,7 @@ describe('FeedView under a session without read_private (kiosk role)', () => {
     expect(screen.getByRole('button', { name: directLabel() })).toBeTruthy();
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       1,
-      { limit: FEED_PAGE_SIZE },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER },
       expect.anything()
     );
   });
@@ -1081,7 +1148,7 @@ describe('FeedView under a session without read_private (kiosk role)', () => {
     await screen.findByRole('list');
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       1,
-      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, type: 'CHAN' },
       expect.anything()
     );
   });
@@ -1094,7 +1161,7 @@ describe('FeedView under a session without read_private (kiosk role)', () => {
     await screen.findByRole('list');
     expect(mocks.getMessages).toHaveBeenNthCalledWith(
       1,
-      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      { limit: FEED_PAGE_SIZE, ...HIDE_SERVER, type: 'CHAN' },
       expect.anything()
     );
     expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toEqual(stored);

@@ -120,29 +120,42 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   `CHAN` row of a deleted channel and every `PRIV` row ignore mute and pending.
   `src/test/fixtures/feedFilters.json` drives the evaluator and `filtersToQuery` in
   `feedFilters.test.ts` and, for the `server` cases, `tests/test_messages_feed_filters.py`
-  against the route (fixture channels in the table, the fixture clock; `serverParams` are the
-  `muted` / `membership` / `conversation_keys` the route takes for the same question, checked
-  against the case's filters on the vitest side).
-- **Which filters are server-side, and why.** Only `type` (Channels/Direct messages) and
-  `outgoing` (Received/Sent) are sent to `GET /api/messages` (`filtersToQuery`), so a
-  hidden kind is not fetched at all. Changing one empties the store (`clearFeedRows`:
-  its cursor belongs to the old query) and reloads the first page after a 250 ms
-  debounce; both chips of a pair off is an empty state and sends nothing. Muted and
-  pending stay client-side. The route has taken `muted=all|exclude|only`,
-  `membership=all|adopted|pending` and `conversation_keys` since MSHL-162 (NULL-safe, timed
-  mutes judged at the server's clock; `app/AGENTS.md`, "Messages listing"), but `filtersToQuery`
-  does not send them: the "N hidden" counts on the Muted and Pending chips and the Channels /
-  Contacts facet lists are computed from the loaded rows, which a server-side filter would
-  empty. Wiring them needs counts and facet lists from the server first. The price is hollow pages:
+  against the route (fixture channels in the table, the fixture clock). A case's `query` plus
+  `serverParams` (`muted` / `membership` / `conversation_keys`) is the whole request: the vitest
+  side asserts the production `filtersToQuery` builds exactly that, the pytest side replays it.
+- **Which filters are server-side, and why.** `filtersToQuery` sends `type` (Channels/Direct
+  messages), `outgoing` (Received/Sent), `muted=exclude` (Muted off), `membership=adopted`
+  (Pending off) and `conversation_keys` (the Channels/Contacts pick) to `GET /api/messages`, so a
+  hidden row is not fetched at all (`app/AGENTS.md`, "Messages listing"). Only the node stays
+  client-side. A pick the route cannot take (a contact known by a prefix only, more than 50) is
+  not sent: the evaluator keeps filtering the loaded rows. `withoutPrivate` drops `priv:` picks (a
+  contact key is a 403 without `read_private`). Changing any server filter empties the store
+  (`clearFeedRows`: its cursor belongs to the old query) and reloads the first page after a
+  250 ms debounce, Muted and Pending included; both chips of a pair off is an empty state and
+  sends nothing. Limits of a server-side mute: the server judges a timed mute at its own clock and
+  the store is not refetched when a `channel` frame flips a mute or when a timed mute ends, so
+  rows hidden at load time come back on the next reload (the evaluator still hides rows in place).
+  The price of the node (and of the pick when it stays client-side) is hollow pages:
   `fillHiddenPages` fetches the next page while fewer than `FEED_MIN_VISIBLE` (20) rows
   show, at most `FEED_MAX_PAGES_PER_GESTURE` (5) pages per gesture (mount, filter
-  change, scroll to the top, ticking Muted/Pending).
+  change, scroll to the top, picking a node).
+- **Hidden counts and facet lists come from the server.** The loaded rows no longer hold what the
+  Muted / Pending chips and the pick hide, so `useFeedConversationCounts`
+  (`components/feed/`) reads `GET /api/messages/conversation-counts?type&outgoing` (messages per
+  conversation, busiest first, at most 2 000, blocked lists applied, `CHAN` only without
+  `read_private`; mute and membership are not applied). `countHiddenMessages` and
+  `countConversations` (`utils/feedFilters.ts`) apply the same evaluator (node, pick, type chip,
+  `hiddenReasons` against the `channels` prop and the clock) to those entries, so mute stays the
+  client's single rule. Fetched when `type` / `outgoing` change and, debounced 1.5 s
+  (`FEED_COUNTS_DEBOUNCE_MS`), when the newest stored row changes; the previous answer stays on
+  screen and a failure is silent.
 - **Conversation facets.** `FeedFilters.conversations` (ids `chan:<key>` / `priv:<key>`, lowercase,
-  `conversationFacetId`) is evaluated in `rowPassesFilters` like the other client-side filters, so
-  hollow-page auto-fetch covers it (it is part of `clientFilterKey`). `components/feed/FeedFacets.tsx`
+  `conversationFacetId`) is sent as `conversation_keys` and evaluated in `rowPassesFilters`
+  like the other filters (live rows). `components/feed/FeedFacets.tsx`
   shows the Channels and Contacts sections (right column from `md`, "Filters (n)" sheet on a phone;
-  native checkboxes) from `countConversations`, which counts the loaded rows the other filters keep
-  and ignores the pick itself. A picked conversation absent from the window stays listed with 0. Names
+  native checkboxes) from `countConversations` over the server's conversations, which counts what
+  the other filters keep and ignores the pick itself. A picked conversation absent from the answer
+  stays listed with 0. Names
   come from `createFeedNameResolver`. Not in the URL grammar (`encodeFeedQuery` ignores it), cleared by
   `displayFilters`, not written for a preset. Control and event rows ignore it. Numbers go through
   `formatNumber`, never `toLocaleString()`.

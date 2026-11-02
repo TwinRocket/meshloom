@@ -242,6 +242,19 @@ class TestKiosk:
         got = (await client.get("/api/messages", params=both)).json()
         assert {m["id"] for m in got} == {chan_id, dm_id}
 
+    async def test_kiosk_conversation_counts_are_channels_only(self, sign_in_as, client):
+        chan_id, dm_id = await _seed_messages()
+        sign_in_as("kiosk")
+        got = (await client.get("/api/messages/conversation-counts")).json()
+        assert [(c["type"], c["count"]) for c in got["conversations"]] == [("CHAN", 1)]
+        _forbidden(
+            await client.get("/api/messages/conversation-counts", params={"type": "PRIV"}),
+            "read_private",
+        )
+        sign_in_as("viewer")
+        got = (await client.get("/api/messages/conversation-counts")).json()
+        assert {c["type"] for c in got["conversations"]} == {"CHAN", "PRIV"}
+
     async def test_viewer_still_gets_dms(self, sign_in_as, client):
         chan_id, dm_id = await _seed_messages()
         sign_in_as("viewer")

@@ -3,6 +3,7 @@ import time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from app.auth.permissions import can_read_private, forbidden, require
 from app.auth.ws_events import WsEvent
@@ -76,6 +77,46 @@ async def get_messages_around(
         blocked_names=blocked_names,
     )
     return MessagesAroundResponse(messages=messages, has_older=has_older, has_newer=has_newer)
+
+
+class ConversationCount(BaseModel):
+    type: str  # "PRIV" or "CHAN"
+    conversation_key: str
+    count: int
+
+
+class ConversationCountsResponse(BaseModel):
+    conversations: list[ConversationCount]
+
+
+@router.get(
+    "/conversation-counts",
+    response_model=ConversationCountsResponse,
+    dependencies=[Depends(require("read"))],
+)
+async def conversation_counts(
+    request: Request,
+    type: str | None = Query(default=None, description="Filter by type: PRIV or CHAN"),
+    outgoing: bool | None = Query(
+        default=None,
+        description="true: only sent messages; false: only received ones; absent: both",
+    ),
+) -> ConversationCountsResponse:
+    """Messages per conversation: the Feed's facet lists and its Muted / Pending counts.
+
+    Same ``type``, ``outgoing`` and blocked-list rules as the listing (``CHAN`` only without
+    ``read_private``). Mute and membership are left to the caller, which holds the channel list.
+    """
+    settings = await AppSettingsRepository.get()
+    counts = await MessageRepository.count_by_conversation(
+        msg_type=_visible_type(request, type, None),
+        outgoing=outgoing,
+        blocked_keys=settings.blocked_keys or None,
+        blocked_names=settings.blocked_names or None,
+    )
+    return ConversationCountsResponse(
+        conversations=[ConversationCount(type=t, conversation_key=k, count=n) for t, k, n in counts]
+    )
 
 
 @router.get("", response_model=list[Message], dependencies=[Depends(require("read"))])

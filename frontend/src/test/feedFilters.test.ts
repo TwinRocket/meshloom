@@ -7,7 +7,7 @@ import type { Channel, Contact, Message } from '../types';
 import {
   conversationFacetId,
   countConversations,
-  countHiddenRows,
+  countHiddenMessages,
   defaultFeedFilters,
   FEED_FILTERS_STORAGE_KEY,
   filtersToQuery,
@@ -71,45 +71,74 @@ describe('rowPassesFilters (shared fixture)', () => {
     const row = { type: c.row.type, conversation_key: fixtureKey(c.row), outgoing: c.row.outgoing };
     const filters = filtersOf(c.filters);
     expect(rowPassesFilters(row, filters, channels, fixture.now)).toBe(c.expected);
-    expect(filtersToQuery(filters)).toEqual(c.query ?? filtersToQuery(filtersOf({})));
     expect(hasNoMessages(filters)).toBe(c.query === null);
   });
 });
 
-describe('filtersToQuery and the route parameters the fixture replays', () => {
-  it('sends the type and direction chips only; muted, pending, the pick and the node stay client-side', () => {
-    expect(filtersToQuery(defaultFeedFilters)).toEqual({});
-    const query = filtersToQuery({
-      ...defaultFeedFilters,
-      includeMuted: false,
-      includePending: false,
-      conversations: [`chan:${'ab'.repeat(16)}`],
-      node: `channel:${'ab'.repeat(16)}`,
-    });
-    expect(query).toEqual({});
-    for (const key of ['muted', 'membership', 'conversation_keys']) {
-      expect(query).not.toHaveProperty(key);
-    }
-  });
-
-  // `GET /api/messages?muted=...&membership=...&conversation_keys=...` answers the same question as
-  // rowPassesFilters: the fixture's serverParams must be what the filters translate to, or the
-  // pytest replay would test something else than the evaluator.
+// `GET /api/messages` answers the same question as rowPassesFilters. The fixture holds, per case,
+// the whole query the route is replayed with (`query` + `serverParams`, tests/test_messages_feed_
+// filters.py): the production `filtersToQuery` must build exactly that, so the pytest replay tests
+// what the client really sends.
+describe('filtersToQuery (shared fixture)', () => {
   it.each(cases.filter((c) => c.query !== null).map((c) => [c.name, c] as const))(
-    'serverParams of "%s" follow from its filters',
+    'sends what the fixture replays for "%s"',
     (_name, c) => {
-      const filters = filtersOf(c.filters);
-      const expected: Record<string, unknown> = {};
-      if (!filters.includeMuted) expected.muted = 'exclude';
-      if (!filters.includePending) expected.membership = 'adopted';
-      if (c.server && filters.conversations.length > 0) {
-        expected.conversation_keys = [
-          ...new Set(filters.conversations.map((id) => id.slice(id.indexOf(':') + 1))),
-        ];
-      }
-      expect(c.serverParams ?? {}).toEqual(expected);
+      expect(filtersToQuery(filtersOf(c.filters))).toEqual({
+        ...c.query,
+        ...c.serverParams,
+      });
     }
   );
+});
+
+describe('filtersToQuery', () => {
+  const key = 'ab'.repeat(16);
+
+  it('hides muted and pending server-side by default and sends nothing with both chips on', () => {
+    expect(filtersToQuery(defaultFeedFilters)).toEqual({
+      muted: 'exclude',
+      membership: 'adopted',
+    });
+    expect(
+      filtersToQuery({ ...defaultFeedFilters, includeMuted: true, includePending: true })
+    ).toEqual({});
+    expect(filtersToQuery({ ...defaultFeedFilters, includeMuted: true })).toEqual({
+      membership: 'adopted',
+    });
+  });
+
+  it('sends the pick as conversation_keys, but not the node', () => {
+    const query = filtersToQuery({
+      ...defaultFeedFilters,
+      conversations: [`chan:${key}`, `priv:${'cd'.repeat(32)}`],
+      node: `channel:${key}`,
+    });
+    expect(query.conversation_keys).toEqual([key, 'cd'.repeat(32)]);
+    expect(query).not.toHaveProperty('node');
+  });
+
+  it('keeps a pick the route cannot take client-side', () => {
+    expect(
+      filtersToQuery({ ...defaultFeedFilters, conversations: ['priv:abcd12'] })
+    ).not.toHaveProperty('conversation_keys');
+    const many = Array.from({ length: 51 }, (_, i) => `chan:${i.toString(16).padStart(32, '0')}`);
+    expect(filtersToQuery({ ...defaultFeedFilters, conversations: many })).not.toHaveProperty(
+      'conversation_keys'
+    );
+  });
+
+  it('drops the contact picks of a session without read_private, never asking for a contact key', () => {
+    const kiosk = withoutPrivate({
+      ...defaultFeedFilters,
+      conversations: [`chan:${key}`, `priv:${'cd'.repeat(32)}`],
+    });
+    expect(filtersToQuery(kiosk).conversation_keys).toEqual([key]);
+    expect(
+      filtersToQuery(
+        withoutPrivate({ ...defaultFeedFilters, conversations: [`priv:${'cd'.repeat(32)}`] })
+      )
+    ).not.toHaveProperty('conversation_keys');
+  });
 });
 
 describe('isChannelMuted', () => {
@@ -143,33 +172,60 @@ describe('isChannelMuted', () => {
   });
 });
 
-describe('countHiddenRows', () => {
+describe('countHiddenMessages', () => {
   it('counts what only the muted and pending chips hide', () => {
-    const row = (name: string, outgoing = false) => ({
+    const entry = (name: string, count: number) => ({
       type: 'CHAN' as const,
       conversation_key: fixtureChannels[name].key,
-      outgoing,
+      count,
     });
-    const rows = [
-      row('public'),
-      row('mutedForever'),
-      row('mutedForever'),
-      row('mutedExpired'),
-      row('pending'),
-      row('pendingMuted'),
-      { type: 'PRIV' as const, conversation_key: fixture.dmKey, outgoing: false },
+    const entries = [
+      entry('public', 5),
+      entry('mutedForever', 2),
+      entry('mutedExpired', 4),
+      entry('mutedFuture', 1),
+      entry('pending', 3),
+      entry('pendingMuted', 7),
+      { type: 'PRIV' as const, conversation_key: fixture.dmKey, count: 9 },
+      { type: 'CHAN' as const, conversation_key: fixture.deletedChannelKey, count: 6 },
     ];
-    expect(countHiddenRows(rows, defaultFeedFilters, channels, fixture.now)).toEqual({
-      muted: 3,
-      pending: 2,
+    // pendingMuted counts under each chip: ticking either alone would not show it.
+    expect(countHiddenMessages(entries, defaultFeedFilters, channels, fixture.now)).toEqual({
+      muted: 2 + 1 + 7,
+      pending: 3 + 7,
     });
     expect(
-      countHiddenRows(rows, { ...defaultFeedFilters, includeMuted: true }, channels, fixture.now)
-    ).toEqual({ muted: 0, pending: 2 });
-    // A row another chip already hides is not counted twice.
+      countHiddenMessages(
+        entries,
+        { ...defaultFeedFilters, includeMuted: true },
+        channels,
+        fixture.now
+      )
+    ).toEqual({ muted: 0, pending: 10 });
+    // A conversation another chip already hides is not counted.
     expect(
-      countHiddenRows(rows, { ...defaultFeedFilters, chan: false }, channels, fixture.now)
+      countHiddenMessages(entries, { ...defaultFeedFilters, chan: false }, channels, fixture.now)
     ).toEqual({ muted: 0, pending: 0 });
+    // The pick and the node narrow the counts like the rows.
+    expect(
+      countHiddenMessages(
+        entries,
+        {
+          ...defaultFeedFilters,
+          conversations: [`chan:${fixtureChannels.mutedForever.key.toLowerCase()}`],
+        },
+        channels,
+        fixture.now
+      )
+    ).toEqual({ muted: 2, pending: 0 });
+    expect(
+      countHiddenMessages(
+        entries,
+        { ...defaultFeedFilters, node: `channel:${fixtureChannels.pending.key}` },
+        channels,
+        fixture.now
+      )
+    ).toEqual({ muted: 0, pending: 3 });
   });
 });
 
@@ -410,13 +466,31 @@ describe('conversation facets model', () => {
   });
 
   it('counts what the other filters keep, ignoring the pick itself', () => {
-    const rows = [row({ id: 1 }), row({ id: 2 }), row({ id: 3, outgoing: true })];
-    const filters = {
-      ...defaultFeedFilters,
-      outgoing: false,
-      conversations: ['chan:ffff'],
-    };
-    const counts = countConversations(rows, filters, [], 0);
-    expect([...counts]).toEqual([[conversationFacetId(row()), 2]]);
+    const entries = [
+      { type: 'CHAN' as const, conversation_key: key, count: 2 },
+      { type: 'CHAN' as const, conversation_key: 'CD'.repeat(16), count: 4 },
+      { type: 'PRIV' as const, conversation_key: 'ab'.repeat(32), count: 1 },
+    ];
+    const filters = { ...defaultFeedFilters, priv: false, conversations: ['chan:ffff'] };
+    expect([...countConversations(entries, filters, [], 0)]).toEqual([
+      [conversationFacetId(row()), 2],
+      ['chan:' + 'cd'.repeat(16), 4],
+    ]);
+  });
+
+  it('leaves out the conversations a muted or pending channel hides, unless its chip is on', () => {
+    const entries = [
+      { type: 'CHAN' as const, conversation_key: fixtureChannels.public.key, count: 2 },
+      { type: 'CHAN' as const, conversation_key: fixtureChannels.mutedForever.key, count: 3 },
+    ];
+    expect(countConversations(entries, defaultFeedFilters, channels, fixture.now).size).toBe(1);
+    expect(
+      countConversations(
+        entries,
+        { ...defaultFeedFilters, includeMuted: true },
+        channels,
+        fixture.now
+      ).size
+    ).toBe(2);
   });
 });
