@@ -67,6 +67,13 @@ import type {
   TotpStatus,
 } from './auth/types';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
+import type {
+  RemoteAccessRequest,
+  RemoteDevice,
+  RemoteEnrollTicket,
+  RemoteGateResult,
+  RemoteStatus,
+} from './components/settings/remote/remoteTypes';
 
 import type {
   AppSettings,
@@ -540,6 +547,31 @@ export const api = {
     fetchJson<AuthTokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify(body) }),
   revokeAuthToken: (id: string) =>
     fetchJson<void>(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Meshloom Remote (docs/dev/remote.md): state and own devices for every account role
+  // but the kiosk; enable, disable, unregister, rotate and revoke-all are admin-only.
+  getRemote: () => fetchJson<RemoteStatus>('/remote', { cache: 'no-store' }),
+  enableRemote: () => fetchJson<RemoteStatus>('/remote/enable', { method: 'POST' }),
+  disableRemote: () => fetchJson<RemoteStatus>('/remote/disable', { method: 'POST' }),
+  unregisterRemote: () => fetchJson<RemoteStatus>('/remote', { method: 'DELETE' }),
+  rotateRemote: () => fetchJson<RemoteStatus>('/remote/rotate', { method: 'POST' }),
+  issueRemoteEnroll: () => fetchJson<RemoteEnrollTicket>('/remote/enroll', { method: 'POST' }),
+  revokeRemoteDevice: (id: string) =>
+    fetchJson<RemoteGateResult>(`/remote/devices/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  revokeAllRemoteDevices: () =>
+    fetchJson<RemoteGateResult>('/remote/devices/revoke-all', { method: 'POST' }),
+  listRemoteAccessRequests: () =>
+    fetchJson<RemoteAccessRequest[]>('/remote/access-requests', { cache: 'no-store' }),
+  approveRemoteAccessRequest: (code: string, label?: string) =>
+    fetchJson<RemoteDevice>('/remote/access-requests/approve', {
+      method: 'POST',
+      body: JSON.stringify(label ? { code, label } : { code }),
+    }),
+  denyRemoteAccessRequest: (requestId: string) =>
+    fetchJson<void>(`/remote/access-requests/${encodeURIComponent(requestId)}/deny`, {
+      method: 'POST',
+    }),
   // Device pairing codes (admin, own session)
   listAuthPairings: () => fetchJson<AuthPairingRow[]>('/auth/pairings', { cache: 'no-store' }),
   createAuthPairing: (body: AuthPairingCreate) =>

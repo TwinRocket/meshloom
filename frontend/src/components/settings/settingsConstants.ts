@@ -9,6 +9,7 @@ import {
   Link2,
   Puzzle,
   MonitorCog,
+  MonitorSmartphone,
   RadioTower,
   RefreshCw,
   Share2,
@@ -23,6 +24,7 @@ export type SettingsSection =
   | 'proxy'
   | 'local'
   | 'access'
+  | 'remote'
   | 'notifications'
   | 'updates'
   | 'community'
@@ -41,6 +43,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'proxy',
   'local',
   'access',
+  'remote',
   'notifications',
   'updates',
   'community',
@@ -61,6 +64,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   proxy: 'settingsNav.proxy',
   local: 'settingsNav.local',
   access: 'settingsNav.access',
+  remote: 'settingsNav.remote',
   notifications: 'settingsNav.notifications',
   updates: 'settingsNav.updates',
   community: 'settingsNav.community',
@@ -80,6 +84,7 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   proxy: Waypoints,
   local: MonitorCog,
   access: UsersRound,
+  remote: MonitorSmartphone,
   notifications: Bell,
   updates: RefreshCw,
   community: Globe,

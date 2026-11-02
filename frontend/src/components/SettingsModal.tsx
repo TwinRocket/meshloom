@@ -44,6 +44,9 @@ import { useCapabilities } from '../auth/SessionProvider';
 const SettingsAccessSection = lazy(() =>
   import('./settings/SettingsAccessSection').then((m) => ({ default: m.SettingsAccessSection }))
 );
+const SettingsRemoteSection = lazy(() =>
+  import('./settings/SettingsRemoteSection').then((m) => ({ default: m.SettingsRemoteSection }))
+);
 
 interface SettingsModalBaseProps {
   open: boolean;
@@ -169,6 +172,7 @@ export function SettingsModal(props: SettingsModalProps) {
     proxy: false,
     local: false,
     access: false,
+    remote: false,
     notifications: false,
     updates: false,
     community: false,
@@ -341,6 +345,21 @@ export function SettingsModal(props: SettingsModalProps) {
           {isSectionVisible('access') && (
             <Suspense fallback={null}>
               <SettingsAccessSection className={sectionContentClass} />
+            </Suspense>
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('remote') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('remote')}
+          {isSectionVisible('remote') && (
+            <Suspense fallback={null}>
+              <SettingsRemoteSection
+                className={sectionContentClass}
+                health={health}
+                onOpenSection={openSection}
+              />
             </Suspense>
           )}
         </section>
