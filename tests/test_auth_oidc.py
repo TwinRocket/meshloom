@@ -37,9 +37,11 @@ HOME = "../../../"
 def _fresh_state():
     oidc.reset_caches()
     oidc.reset_auth_requests()
+    oidc.reset_failure_audit()
     yield
     oidc.reset_caches()
     oidc.reset_auth_requests()
+    oidc.reset_failure_audit()
 
 
 @pytest.fixture
@@ -272,7 +274,11 @@ async def test_a_link_of_another_issuer_matches_nothing(provider):
         assert _error_of(await _sign_in(provider, client)) == "auth_oidc_no_account"
 
 
-async def test_the_state_is_bound_to_the_browser_and_the_client_and_used_once(provider):
+async def test_the_state_is_bound_to_the_browser_and_the_client_and_used_once(
+    provider, monkeypatch
+):
+    # Every refusal audited here (no throttle window): see the throttle tests below.
+    monkeypatch.setattr(oidc, "FAILURE_AUDIT_WINDOW_S", 0.0)
     alice = await create_user("alice", role="member")
     await _configure(provider)
     await OidcLinkRepository.add(alice.id, provider.issuer, subject="user-1")
@@ -302,6 +308,77 @@ async def test_the_state_is_bound_to_the_browser_and_the_client_and_used_once(pr
     rows = [r for r in await _audit() if r["action"] == "login" and r["outcome"] == "failure"]
     assert all(r["details"]["method"] == "oidc" for r in rows)
     assert len(rows) == 3
+
+
+def _oidc_failures(rows: list[dict]) -> list[dict]:
+    return [
+        r
+        for r in rows
+        if r["action"] == "login"
+        and r["outcome"] == "failure"
+        and (r["details"] or {}).get("method") == "oidc"
+    ]
+
+
+async def test_callbacks_while_oidc_is_off_write_no_audit_row(provider):
+    # Off by default: an anonymous flood of callbacks (any page can make a browser
+    # load the URL) must not fill the audit log.
+    async with make_client() as client:
+        for _ in range(30):
+            response = await client.get(oidc.CALLBACK_PATH, params={"state": "x"})
+            assert _error_of(response) == "auth_oidc_disabled"
+    await _configure(provider, enabled=False)
+    async with make_client() as client:
+        response = await client.get(oidc.CALLBACK_PATH, params={"state": "x", "code": "y"})
+        assert _error_of(response) == "auth_oidc_disabled"
+    assert _oidc_failures(await _audit()) == []
+
+
+async def test_bad_callbacks_are_audited_once_per_address_per_window(provider, monkeypatch):
+    await _configure(provider)
+    now = [1000.0]
+    monkeypatch.setattr(oidc, "failure_audit", oidc.FailureAudit(lambda: now[0]))
+    async with make_client() as client:
+        for _ in range(30):
+            response = await client.get(oidc.CALLBACK_PATH, params={"state": "x"})
+            assert _error_of(response) == "auth_oidc_state_invalid"
+        # A started flow whose callback fails is throttled the same way.
+        started = await client.get("/api/auth/oidc/start")
+        _, _, state = provider.authorize(started.headers["location"])
+        denied = await client.get(oidc.CALLBACK_PATH, params={"state": state, "error": "nope"})
+        assert _error_of(denied) == "auth_oidc_denied"
+    assert len(_oidc_failures(await _audit())) == 1
+    # Another address gets its own row.
+    async with make_client(client=("192.168.1.50", 40000)) as other:
+        for _ in range(5):
+            await other.get(oidc.CALLBACK_PATH, params={"state": "x"})
+    assert len(_oidc_failures(await _audit())) == 2
+    # The next window writes one row again.
+    now[0] += oidc.FAILURE_AUDIT_WINDOW_S
+    async with make_client() as client:
+        for _ in range(5):
+            await client.get(oidc.CALLBACK_PATH, params={"state": "x"})
+    assert len(_oidc_failures(await _audit())) == 3
+
+
+async def test_bad_callbacks_from_many_addresses_hit_a_global_cap(provider, monkeypatch):
+    await _configure(provider)
+    monkeypatch.setattr(oidc, "failure_audit", oidc.FailureAudit(lambda: 1000.0))
+    for index in range(3 * oidc.FAILURE_AUDIT_MAX_PER_WINDOW):
+        async with make_client(client=(f"203.0.113.{index}", 40000)) as client:
+            await client.get(oidc.CALLBACK_PATH, params={"state": "x"})
+    assert len(_oidc_failures(await _audit())) == oidc.FAILURE_AUDIT_MAX_PER_WINDOW
+
+
+async def test_on_a_shared_address_bad_callbacks_share_one_row(provider, monkeypatch):
+    from app.auth import ratelimit
+
+    monkeypatch.setattr(ratelimit.login_limiter, "address_rules_active", lambda: False)
+    await _configure(provider)
+    for index in range(10):
+        async with make_client(client=(f"172.17.0.{index + 2}", 40000)) as client:
+            await client.get(oidc.CALLBACK_PATH, params={"state": "x"})
+    assert len(_oidc_failures(await _audit())) == 1
 
 
 async def test_a_provider_error_is_reported(provider):

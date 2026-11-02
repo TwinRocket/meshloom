@@ -12,7 +12,9 @@ Included by ``app/routers/auth.py``. Rules in ``app/auth/oidc.py``; contract in
   session cookie and 303 back to the app; for an account with TOTP on, back with
   ``#oidc_2fa=<pending token>&methods=...&expires_in=...`` (a fragment: never sent
   to a server or logged), finished by ``POST /auth/login/2fa``; else
-  ``?oidc_error=<code>``. Refused under ingress (no cookie there).
+  ``?oidc_error=<code>``. Refused under ingress (no cookie there). While the provider
+  is off or incomplete: ``auth_oidc_disabled``, no audit row. Other refusals write a
+  ``login`` failure row, throttled per address (``oidc.FailureAudit``).
 - Every way back is the relative ``../../../`` (from ``<base>api/auth/oidc/*`` to
   ``<base>``): it keeps the subpath without trusting any header.
 - ``GET/PATCH /auth/oidc/settings``, ``POST /auth/oidc/test``, ``GET/POST
@@ -32,7 +34,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool
 
 from app import secret_store
-from app.auth import audit, oidc, totp
+from app.auth import audit, oidc, ratelimit, totp
 from app.auth.middleware import client_ip
 from app.auth.permissions import public, require
 from app.repository.auth import AuthSettingsRepository, UserRepository
@@ -169,6 +171,11 @@ def _clear_state(response: RedirectResponse, request: Request) -> RedirectRespon
 
 
 async def _audit_failure(request: Request, reason: str, target: str | None = None) -> None:
+    """A refused callback: at most one row per address per window (``oidc.FailureAudit``),
+    since any page can make a browser load the callback."""
+    address = ratelimit.login_limiter.address_key(request.scope)
+    if not oidc.failure_audit.allow(address or "*"):
+        return
     await audit.record_request(
         request,
         "login",
@@ -223,11 +230,14 @@ async def callback(
 
     if _via(request) == "ingress":
         return _back("auth_ingress_only")
+    config = await OidcProviderRepository.get()
+    if not config.ready:
+        # Off or incomplete: nothing was attempted, nothing is audited.
+        return _clear_state(_back("auth_oidc_disabled"), request)
     secure = _secure(request)
     browser = oidc.read_state_cookie(request.headers.get("cookie"), secure=secure)
     pending = oidc.auth_requests.take(state, browser, _client(request))
-    config = await OidcProviderRepository.get()
-    if pending is None or not config.ready or pending.issuer != config.issuer:
+    if pending is None or pending.issuer != config.issuer:
         await _audit_failure(request, "state_invalid")
         return _clear_state(_back("auth_oidc_state_invalid"), request)
     if error:

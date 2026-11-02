@@ -1300,6 +1300,15 @@ guard. The frontend side: `frontend/src/auth/oidc.ts`, the button of
   RFC 6749 §2.3.1 form-encoded, or in the form: `token_auth_method`), verifies the
   ID token, finds the account, then opens the session through
   `auth._start_session`, as a password login does.
+- **Audit of refused callbacks.** While the provider is off or incomplete
+  (`ready` false) the callback answers `auth_oidc_disabled` and writes nothing.
+  Otherwise each refusal writes a `login` failure row (`method: oidc`, `reason`),
+  throttled by `oidc.FailureAudit`: the callback is a public GET that any page can
+  make a browser load, so at most one row per client address
+  (`ratelimit.LoginLimiter.address_key`, one shared key on a shared address) and
+  `FAILURE_AUDIT_MAX_PER_WINDOW` (10) rows in all per `FAILURE_AUDIT_WINDOW_S`
+  (60 s), with one log line when rows start being skipped. The answer to the
+  browser is the same either way.
 - **Redirect URI and way back.** `base` is the app's address the browser computes
   (`new URL('./', location)`), so the redirect URI keeps the path prefix behind a
   proxy serving Meshloom under a subpath. `app_base()` uses it only when it is this

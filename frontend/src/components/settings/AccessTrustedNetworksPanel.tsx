@@ -37,7 +37,7 @@ function sameRules(draft: DraftRule[], saved: TrustedNetworkRule[]): boolean {
 
 /**
  * The Access security notice: the one warning Access keeps, shown at the top of
- * Settings → Users & Access. The server decides when it applies (`security_notices`
+ * Settings → Users & Access and of Settings → Connection. The server decides when it applies (`security_notices`
  * of `GET /api/auth/settings`).
  */
 export function AccessSecurityNoticeBanner({ notices }: { notices: AccessSecurityNotice[] }) {

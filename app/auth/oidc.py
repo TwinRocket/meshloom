@@ -32,6 +32,9 @@ of it. Contract and rules: ``docs/dev/auth.md``, "OpenID Connect".
   (pinned addresses, no redirect for the token request, 256 KiB at most, 10 s). https
   only, unless ``allow_private_network`` (a provider on the local network): then http
   too, but only to a private address (``auth_oidc_http_public`` otherwise).
+- **Audit.** A refused callback writes a ``login`` failure row (``method: oidc``),
+  throttled by ``FailureAudit`` (one row per address per minute, 10 in all); none
+  while the provider is off or incomplete.
 - **Never** in a log or an audit row: the code, a token, the client secret, the
   state or the nonce. Errors are stable codes (``OidcError.code``).
 """
@@ -86,6 +89,8 @@ METADATA_TTL_S = 3600.0
 JWKS_REFRESH_MIN_S = 60.0
 REQUEST_TTL_S = 600.0
 REQUEST_MAX_ENTRIES = 1024
+FAILURE_AUDIT_WINDOW_S = 60.0
+FAILURE_AUDIT_MAX_PER_WINDOW = 10
 CLOCK_LEEWAY_S = 60
 ALLOWED_ALGORITHMS = (
     "RS256",
@@ -427,6 +432,46 @@ auth_requests = AuthRequests()
 def reset_auth_requests() -> None:
     global auth_requests
     auth_requests = AuthRequests()
+
+
+class FailureAudit:
+    """Which refused callbacks get a ``login`` failure row. The callback is a public
+    GET that any page can make a browser load, so its failures are not all written:
+    in each ``FAILURE_AUDIT_WINDOW_S`` window, at most one row per client address
+    (``ratelimit.LoginLimiter.address_key``; one shared key when addresses do not
+    identify clients) and ``FAILURE_AUDIT_MAX_PER_WINDOW`` rows in all. Memory is
+    bounded by that cap. The sign-in itself is answered the same either way."""
+
+    def __init__(self, clock_fn: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock_fn
+        self._window_start = clock_fn()
+        self._keys: set[str] = set()
+        self._suppressed = 0
+
+    def allow(self, key: str) -> bool:
+        now = self._clock()
+        if now - self._window_start >= FAILURE_AUDIT_WINDOW_S:
+            self._window_start, self._suppressed = now, 0
+            self._keys.clear()
+        if key in self._keys or len(self._keys) >= FAILURE_AUDIT_MAX_PER_WINDOW:
+            if self._suppressed == 0:
+                logger.warning(
+                    "OpenID Connect callback failures are arriving faster than they are "
+                    "audited: further ones are not written to the audit log for up to %d s",
+                    int(FAILURE_AUDIT_WINDOW_S),
+                )
+            self._suppressed += 1
+            return False
+        self._keys.add(key)
+        return True
+
+
+failure_audit = FailureAudit()
+
+
+def reset_failure_audit() -> None:
+    global failure_audit
+    failure_audit = FailureAudit()
 
 
 def code_challenge(verifier: str) -> str:
