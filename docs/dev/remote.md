@@ -294,6 +294,12 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
   (the reader types what the device shows), carries a warning against social
   engineering, and renders the user agent as plain text without control or direction
   characters (`untrustedText`).
+- Wording (MSHL-442, shared with the relay pages of meshloom-remote `src/i18n.ts`): the UI never says
+  "enrol" or "pass". A pass is the device's *access*; enrolment and approval both *allow a device*
+  (fr *autoriser un appareil*), listed as *Allowed devices* (*Appareils autorisés*); unregister is
+  *Leave Meshloom Remote* (*Quitter Meshloom Remote*); devices are any device or browser, never
+  "phone" only. The privacy note says plainly that the relay decrypts the traffic and could
+  read it, the sign-in password included. The code keeps the technical names (`enroll`, pass).
 - Error codes: `errors.<code>` for every `REMOTE_ERRORS` and relay refusal code (slice
   `remote`). `tests/test_remote_ui_strings.py` fails when a code or a link state has no
   French or English string, or when `remoteTypes.ts` drifts from `LINK_STATES`.
