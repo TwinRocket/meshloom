@@ -25,9 +25,11 @@ const ROLE_CAPABILITIES: Record<AuthRole, readonly Capability[]> = {
 /**
  * Settings sections a non-admin account may open: its own browser's preferences, and its
  * own profile and sessions (`own_account`). `access` shows the administrator parts only
- * to an admin (`SettingsAccessSection`).
+ * to an admin (`SettingsAccessSection`); so does `remote` (Meshloom Remote: the state,
+ * one's own devices, enrolment and access requests are `own_account`; enable, disable,
+ * unregister, rotate and revoke-all are admin-only, `SettingsRemoteSection`).
  */
-const ACCOUNT_SETTINGS_SECTIONS: readonly SettingsSection[] = ['local', 'access'];
+const ACCOUNT_SETTINGS_SECTIONS: readonly SettingsSection[] = ['local', 'access', 'remote'];
 
 /**
  * Settings sections opened by a role holding `send` (member and up): the plugin list and

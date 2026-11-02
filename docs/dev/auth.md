@@ -575,8 +575,11 @@ inside one local range (`local_address.network_is_local`: a documentation or
 reserved range is flagged too), or inside the shared address space `100.64.0.0/10` (Tailscale,
 CGNAT) and wider than `/32`; accepted, since Home Assistant allows it too, but
 almost always a mistake; the UI asks for the same confirmation as for a wide
-rule, `frontend/src/lib/cidr.ts` mirrors it). The
-Remote conditions come with Remote.
+rule, `frontend/src/lib/cidr.ts` mirrors it), and
+`remote_reduced_plugin_isolation` (`remote_state.enabled` while plugins run with
+isolation `none`, by the same rule as the first notice, trusted networks or not:
+Remote puts the admin accounts within reach of the internet, MSHL-82). The Remote
+settings ask for an acknowledgement before turning Remote on in that case.
 
 ### Proxy headers
 

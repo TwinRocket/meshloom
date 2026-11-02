@@ -88,6 +88,7 @@ from app.repository.auth import (
     UsernameTakenError,
     UserRepository,
 )
+from app.repository.remote import RemoteRepository
 from app.routers import auth_bans, auth_kiosk, auth_pairing, auth_tokens
 
 logger = logging.getLogger(__name__)
@@ -862,6 +863,7 @@ SecurityNotice = Literal[
     "trusted_admin_reduced_plugin_isolation",
     "trusted_loopback_or_gateway_public",
     "trusted_network_public_or_wide",
+    "remote_reduced_plugin_isolation",
 ]
 
 
@@ -929,7 +931,8 @@ class AuthSettingsView(BaseModel):
             "The Access security notice: a trusted network signs in an administrator while "
             "plugins run with reduced isolation, covers loopback or the Docker gateway "
             "while a public address is configured, or is public or as wide as allowed "
-            "(/8 IPv4, /16 IPv6)."
+            "(/8 IPv4, /16 IPv6); or Meshloom Remote is on while plugins run with reduced "
+            "isolation."
         )
     )
     require_2fa_for_admins: bool = Field(
@@ -1041,27 +1044,29 @@ def _plugins_isolation_reduced() -> bool:
 
 
 async def _security_notices(settings: AuthSettings) -> list[SecurityNotice]:
-    rules = settings.trusted_networks
-    if not rules:
-        return []
     notices: list[SecurityNotice] = []
-    admins = {
-        user.id
-        for user in await UserRepository.list_all()
-        if user.role == "admin" and not user.disabled
-    }
-    if any(rule.user_id in admins for rule in rules) and _plugins_isolation_reduced():
-        notices.append("trusted_admin_reduced_plugin_isolation")
-    if settings.public_urls:
-        gateways = trusted_network.docker_gateways()
-        if any(
-            trusted_network.covers_loopback(rule.cidr)
-            or trusted_network.covered_gateway(rule.cidr, gateways)
-            for rule in rules
-        ):
-            notices.append("trusted_loopback_or_gateway_public")
-    if any(trusted_network.public_or_wide(rule.cidr) for rule in rules):
-        notices.append("trusted_network_public_or_wide")
+    rules = settings.trusted_networks
+    if rules:
+        admins = {
+            user.id
+            for user in await UserRepository.list_all()
+            if user.role == "admin" and not user.disabled
+        }
+        if any(rule.user_id in admins for rule in rules) and _plugins_isolation_reduced():
+            notices.append("trusted_admin_reduced_plugin_isolation")
+        if settings.public_urls:
+            gateways = trusted_network.docker_gateways()
+            if any(
+                trusted_network.covers_loopback(rule.cidr)
+                or trusted_network.covered_gateway(rule.cidr, gateways)
+                for rule in rules
+            ):
+                notices.append("trusted_loopback_or_gateway_public")
+        if any(trusted_network.public_or_wide(rule.cidr) for rule in rules):
+            notices.append("trusted_network_public_or_wide")
+    # Remote puts the admin accounts within reach of the internet (MSHL-82).
+    if (await RemoteRepository.get_state()).enabled and _plugins_isolation_reduced():
+        notices.append("remote_reduced_plugin_isolation")
     return notices
 
 

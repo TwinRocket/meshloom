@@ -14,7 +14,7 @@ by sha256 in `tests/test_remote_identity.py`; refresh the copy in a `CONTRACTS:`
 
 This page covers identity, registration, passes, enrolment, access requests, revocation
 and the control API (MSHL-79), then the relay client: the outbound socket, HELLO and the
-in-process dispatch of relayed requests (MSHL-87). The settings UI (MSHL-82) builds on
+in-process dispatch of relayed requests (MSHL-87), and the settings UI (MSHL-82) built on
 both.
 
 ## Code map
@@ -239,10 +239,37 @@ own), enrolment, client passes, own revocations, access requests. Audit rows: th
 `remote.*` actions in `docs/dev/auth.md`. Never log or audit a pass, a token, an
 enrolment URL or an access code.
 
+## Settings UI (`frontend/src/components/settings/SettingsRemoteSection.tsx`)
+
+Settings → Remote access (section `remote`, lazy-loaded, every account role but the kiosk:
+`ACCOUNT_SETTINGS_SECTIONS`). Details in `frontend/AGENTS.md`, "Remote access section".
+
+- What the relay sees, always on screen: TLS ends at the relay, so it could read the
+  traffic, the password at sign-in included (passkeys or 2FA recommended); what the
+  registration sends; a relayed request is never the local network.
+- State badge from `state` and `link_status` (`remoteShared.ts` `remoteBadge`): every
+  `LINK_STATES` value, `off`, `unregistered` and `unknown` has a label and a help in
+  `settings.remote.badge.*` / `badgeHelp.*`, and an action where one helps (enable or
+  retry, off and on again for `not_registered`, replace the key for `replaced`, open
+  Updates for `update_required`). Hostname with copy, key fingerprint.
+- Administrators: enable (a dialog that blocks until acknowledged while plugins run with
+  reduced isolation, the rule of the `remote_reduced_plugin_isolation` notice),
+  disable, unregister, rotate, revoke-all, each confirmed.
+- Enrolment QR (`RemoteEnrollDialog`): the URL stays in the dialog's state only; a local
+  15 min countdown; polls `GET /api/remote` every 3 s and reports the new `qr` device.
+  Through the relay the button is replaced by the LAN-only notice.
+- Access requests (`RemoteAccessRequestsPanel`): the pending list never shows the code
+  (the reader types what the device shows), carries a warning against social
+  engineering, and renders the user agent as plain text without control or direction
+  characters (`untrustedText`).
+- Error codes: `errors.<code>` for every `REMOTE_ERRORS` and relay refusal code (slice
+  `remote`). `tests/test_remote_ui_strings.py` fails when a code or a link state has no
+  French or English string, or when `remoteTypes.ts` drifts from `LINK_STATES`.
+
 ## Not done here
 
-- The settings UI and its translations of the error codes and link states (MSHL-82),
-  the user documentation (MSHL-83).
+- The user documentation (MSHL-83). Issuing a client pass
+  (`POST /api/remote/devices/client`) has no UI yet.
 - CONTROL `instance_update` when the plugin settings change without a reconnect: the
   next HELLO carries them. Closing the instance's own open WebSockets of a revoked
   device: the relay cancels those streams after a `gate`, and every new request checks
@@ -260,6 +287,8 @@ of the registry's JWT checks proved on every case, then the minted tokens),
 `tests/test_remote_service.py` (fake registry, fake relay and edge: registration,
 enrolment, access requests, revocation, rotation, restore, routes),
 `tests/test_remote_off_no_egress.py`, `tests/test_migrations/test_migration_138.py`.
+Settings UI: `frontend/src/test/settingsRemoteSection.test.tsx` (mocked `/api/remote`
+states) and `tests/test_remote_ui_strings.py`.
 
 Relay client: `tests/test_remote_frames.py` (the codec on every frame, message and
 invalid-message vector, the limits, the HELLO role rules) and

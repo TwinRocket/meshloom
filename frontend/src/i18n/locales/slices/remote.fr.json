@@ -1,0 +1,185 @@
+{
+  "settingsNav": {
+    "remote": "Accès à distance"
+  },
+  "settings": {
+    "remote": {
+      "loading": "Chargement…",
+      "about": {
+        "title": "Meshloom Remote",
+        "intro": "Accédez à ce Meshloom depuis l’extérieur de votre réseau, sans ouvrir de port sur votre box et sans compte TwinRocket. Quand un administrateur l’active, cette instance reçoit sa propre adresse sous meshloom.link. Chaque téléphone ou navigateur qui doit y accéder est enrôlé une fois, avec un QR code affiché ici sur le réseau local, ou approuvé ici en saisissant le code qu’il affiche.",
+        "privacyTitle": "Ce que voit le relais",
+        "privacyEdge": "Meshloom Remote est un relais exploité par TwinRocket. La connexion chiffrée de votre téléphone se termine au relais, qui transmet ensuite le trafic à cette instance : le relais pourrait techniquement lire tout ce qui passe, y compris votre mot de passe à la connexion, vos messages et vos réglages. Le relais vérifie le laissez-passer de chaque appareil avant de transmettre quoi que ce soit : un appareil que vous n’avez pas enrôlé est arrêté là.",
+        "privacyPasskeys": "Préférez une clé d’accès (passkey) ou activez la double authentification (Réglages → Utilisateurs et accès) : un mot de passe vu au relais ne suffit alors plus pour se connecter.",
+        "privacyRegistry": "À l’activation, Meshloom indique au relais sa version, son type d’installation et si des plugins tournent, avec quel niveau d’isolation. Rien ne part vers le relais tant que Remote est désactivé.",
+        "neverLocal": "Une requête qui passe par le relais ne compte jamais comme le réseau local : la connexion sans identifiant sur le réseau local et les réseaux de confiance ne s’y appliquent jamais, il faut toujours se connecter."
+      },
+      "status": {
+        "title": "État",
+        "hostname": "Adresse",
+        "copy": "Copier",
+        "copied": "Adresse copiée.",
+        "copyFailed": "Impossible de copier l’adresse.",
+        "fingerprint": "Empreinte de la clé",
+        "fingerprintHelp": "Identifie la clé Remote de cette instance. Elle ne change que si la clé est remplacée.",
+        "noKey": "Pas encore de clé",
+        "registeredAt": "Enregistrée le",
+        "lastError": "Dernière erreur du relais :",
+        "askAdmin": "Seul un administrateur peut activer Meshloom Remote."
+      },
+      "badge": {
+        "off": "Désactivé",
+        "unregistered": "Non enregistrée",
+        "connecting": "Connexion",
+        "connected": "Connectée",
+        "reconnecting": "Hors ligne",
+        "not_registered": "Inconnue du relais",
+        "paused": "En pause",
+        "replaced": "Remplacée",
+        "banned": "Bannie",
+        "update_required": "Mise à jour requise",
+        "relay_paused": "Service gelé",
+        "unknown": "État inconnu"
+      },
+      "badgeHelp": {
+        "off": "Meshloom Remote est désactivé : rien ne part vers le relais et cette instance n’est joignable que sur le réseau local.",
+        "unregistered": "Remote est activé, mais le relais n’a pas enregistré cette instance. Réessayez ; si l’échec persiste, le relais est peut-être injoignable depuis cette machine.",
+        "connecting": "Connexion au relais…",
+        "connected": "Connectée : les appareils enrôlés joignent cette instance à l’adresse ci-dessous.",
+        "reconnecting": "Le lien avec le relais est coupé. Meshloom réessaie seul, en attendant un peu plus à chaque fois (jusqu’à 5 minutes). Vérifiez la connexion internet de cette machine.",
+        "not_registered": "Le relais ne connaît plus cette instance et le nouvel enregistrement a échoué. Désactivez puis réactivez Remote ; si cela ne suffit pas, remplacez la clé.",
+        "paused": "L’exploitant du relais a mis cette instance en pause. Meshloom réessaie seul dans 15 à 20 minutes.",
+        "replaced": "Une autre installation s’est connectée avec la clé de cette instance, en général une copie restaurée depuis une sauvegarde. Une seule peut l’utiliser : remplacez la clé sur celle-ci (chaque appareil doit alors être enrôlé à nouveau).",
+        "banned": "L’exploitant du relais a banni cette instance. Meshloom ne tente plus de se connecter. Contactez TwinRocket si vous pensez qu’il s’agit d’une erreur.",
+        "update_required": "Le relais n’accepte plus cette version de Meshloom. Mettez Meshloom à jour, puis Remote se reconnecte.",
+        "relay_paused": "Le service Meshloom Remote est temporairement gelé (maintenance ou capacité). Meshloom réessaie seul dans 5 à 15 minutes.",
+        "unknown": "Le lien avec le relais indique un état que cette version ne connaît pas."
+      },
+      "actions": {
+        "enable": "Activer Meshloom Remote",
+        "retry": "Réessayer l’enregistrement",
+        "restart": "Désactiver puis réactiver",
+        "update": "Ouvrir les mises à jour",
+        "disable": "Désactiver",
+        "unregister": "Se désenregistrer",
+        "rotate": "Remplacer la clé"
+      },
+      "enabledToast": "Meshloom Remote est activé.",
+      "disabledToast": "Meshloom Remote est désactivé.",
+      "restartedToast": "Meshloom Remote a redémarré.",
+      "unregisteredToast": "Cette instance n’est plus enregistrée auprès de Meshloom Remote.",
+      "rotatedToast": "La clé Remote a été remplacée.",
+      "enable": {
+        "title": "Activer Meshloom Remote ?",
+        "help": "Cette instance enregistre sa clé auprès du relais et reçoit sa propre adresse. Les appareils doivent encore être enrôlés un par un avant de pouvoir y accéder.",
+        "isolationTitle": "Les plugins tournent avec une isolation réduite",
+        "isolationWarning": "Les plugins de cette machine tournent sans bac à sable (hooks seulement). Une fois cette instance joignable depuis internet, quiconque entre dans un compte administrateur pourrait installer ou configurer un plugin qui exécute du code sur cette machine. Protégez chaque administrateur par une clé d’accès ou la double authentification, et supprimez les plugins dont vous n’avez pas besoin (Réglages → Extensions).",
+        "isolationAck": "J’ai compris et je veux activer Remote quand même.",
+        "confirm": "Activer"
+      },
+      "confirm": {
+        "disable": {
+          "title": "Désactiver Meshloom Remote ?",
+          "help": "Plus rien ne part vers le relais et les appareils enrôlés ne peuvent plus se connecter depuis l’extérieur. L’adresse et les appareils sont conservés : les réactiver les ramène.",
+          "confirm": "Désactiver"
+        },
+        "unregister": {
+          "title": "Se désenregistrer de Meshloom Remote ?",
+          "help": "Le relais oublie l’adresse de cette instance et Remote se désactive. La clé est conservée : un nouvel enregistrement dans les 30 jours peut retrouver la même adresse.",
+          "confirm": "Se désenregistrer"
+        },
+        "rotate": {
+          "title": "Remplacer la clé Remote ?",
+          "help": "Une nouvelle clé est créée : l’adresse change, tous les appareils enrôlés et les demandes en attente sont oubliés, et chaque appareil doit être enrôlé à nouveau.",
+          "confirm": "Remplacer la clé"
+        }
+      },
+      "enroll": {
+        "title": "Enrôler un téléphone ou un navigateur",
+        "help": "Affichez un QR code et scannez-le avec l’appareil à utiliser depuis l’extérieur. L’appareil est enrôlé pour votre compte. Le code ne sert qu’une fois et expire au bout de 15 minutes.",
+        "lanOnly": "Vous êtes connecté via Meshloom Remote. Les codes d’enrôlement ne s’affichent que sur le réseau local : ouvrez Meshloom depuis chez vous pour enrôler un nouvel appareil, ou approuvez sa demande d’accès ci-dessous.",
+        "show": "Afficher le QR code",
+        "dialogTitle": "Scanner pour enrôler un appareil",
+        "dialogHelp": "Scannez ce QR code avec l’appareil photo du téléphone à enrôler (ou ouvrez l’adresse dans son navigateur), puis connectez-vous dessus comme d’habitude.",
+        "secretWarning": "Ce QR code fait passer un appareil par le relais pour votre compte. Ne le partagez pas, n’en publiez pas de capture d’écran, et scannez-le uniquement avec votre propre appareil.",
+        "qrAlt": "QR code pour enrôler un appareil dans Meshloom Remote",
+        "countdown": "Expire dans {{time}}",
+        "expired": "Ce code a expiré et le QR code est masqué.",
+        "done": "L’appareil est enrôlé. Il apparaît dans la liste des appareils.",
+        "regenerate": "Afficher un nouveau code",
+        "another": "Enrôler un autre appareil",
+        "close": "Fermer"
+      },
+      "requests": {
+        "title": "Demandes d’accès",
+        "help": "Un appareil non enrôlé peut demander l’accès depuis la page du relais : il affiche un code. Saisissez ce code ici pour le laisser entrer. Il est alors enrôlé pour votre compte.",
+        "socialWarning": "N’approuvez qu’un appareil que vous tenez vous-même et dont l’écran affiche ce code. Ne saisissez jamais un code que quelqu’un vous a envoyé, lu ou demandé d’approuver : cette personne entrerait dans votre compte.",
+        "none": "Aucune demande en attente.",
+        "unknownDevice": "Appareil inconnu",
+        "askedAt": "Demandé le {{when}}",
+        "userAgent": "Envoyé par l’appareil (non vérifié) :",
+        "deny": "Refuser",
+        "denied": "Demande refusée.",
+        "code": "Code affiché sur l’appareil",
+        "label": "Nom de l’appareil (facultatif)",
+        "labelPlaceholder": "Mon téléphone",
+        "approve": "Approuver",
+        "approved": "Appareil approuvé.",
+        "offline": "Le lien avec le relais est coupé : l’approbation en a besoin."
+      },
+      "devices": {
+        "title": "Appareils enrôlés",
+        "help": "Vos appareils qui peuvent joindre cette instance par le relais. Révoquez celui que vous avez perdu ou n’utilisez plus.",
+        "helpAdmin": "Les appareils de tous les comptes qui peuvent joindre cette instance par le relais. Révoquez celui qui est perdu ou inutilisé, ou tous à la fois.",
+        "none": "Aucun appareil enrôlé.",
+        "unnamed": {
+          "browser": "Navigateur",
+          "client": "Application ou script"
+        },
+        "origin": {
+          "qr": "Enrôlé par QR code",
+          "approval": "Demande approuvée",
+          "client": "Laissez-passer client"
+        },
+        "owner": "Compte {{user}}",
+        "ownerYou": "Votre compte",
+        "lastSeen": "Vu le {{when}}",
+        "neverSeen": "Pas encore vu",
+        "passExpires": "Laissez-passer valable jusqu’au {{when}}",
+        "revokedAt": "Révoqué le {{when}}",
+        "oldGeneration": "Révoqué avec tous les appareils",
+        "inactive_one": "{{count}} appareil révoqué",
+        "inactive_other": "{{count}} appareils révoqués",
+        "revoke": "Révoquer",
+        "revokeNamed": "Révoquer {{name}}",
+        "revokeTitle": "Révoquer « {{name}} » ?",
+        "revokeHelp": "L’appareil ne peut plus joindre cette instance par le relais. Pour l’utiliser à nouveau, enrôlez-le de nouveau.",
+        "revoked": "Appareil révoqué.",
+        "revokeAll": "Révoquer tous les appareils",
+        "revokeAllTitle": "Révoquer tous les appareils ?",
+        "revokeAllHelp": "Tous les appareils enrôlés de tous les comptes perdent immédiatement l’accès par le relais, et chacun doit être enrôlé à nouveau.",
+        "revokedAll": "Tous les appareils ont été révoqués.",
+        "notPushed": "Le relais est hors ligne : il appliquera ce changement dès sa reconnexion."
+      }
+    },
+    "access": {
+      "securityNotice": {
+        "remote_reduced_plugin_isolation": "Meshloom Remote est activé alors que les plugins tournent avec une isolation réduite (hooks seulement) : quiconque entre dans un compte administrateur depuis internet pourrait installer ou configurer du code qui s’exécute sur cette machine."
+      }
+    }
+  },
+  "errors": {
+    "remote_disabled": "Meshloom Remote est désactivé.",
+    "remote_not_registered": "Cette instance n’est pas encore enregistrée auprès de Meshloom Remote.",
+    "remote_unavailable": "Meshloom Remote n’a pas répondu. Vérifiez la connexion internet de cette machine et réessayez.",
+    "remote_registry_error": "Meshloom Remote a refusé la demande.",
+    "remote_rate_limited": "Trop de demandes envoyées à Meshloom Remote : réessayez plus tard.",
+    "remote_lan_only": "Les codes d’enrôlement ne s’affichent que sur le réseau local.",
+    "remote_device_not_found": "Cet appareil n’existe plus.",
+    "remote_access_request_not_found": "Aucune demande en attente ne correspond à ce code. Vérifiez le code sur l’appareil, ou redemandez l’accès depuis celui-ci.",
+    "remote_offline": "Le lien avec le relais est coupé : réessayez une fois qu’il est connecté.",
+    "remote_pass_required": "Cet appareil n’est pas enrôlé dans Meshloom Remote.",
+    "remote_host_mismatch": "Cette requête ne vise pas l’adresse Remote de cette instance.",
+    "remote_request_invalid": "Le relais a envoyé une requête invalide."
+  }
+}

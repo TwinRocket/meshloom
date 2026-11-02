@@ -124,7 +124,8 @@ export interface TrustedNetworkRule {
 export type AccessSecurityNotice =
   | 'trusted_admin_reduced_plugin_isolation'
   | 'trusted_loopback_or_gateway_public'
-  | 'trusted_network_public_or_wide';
+  | 'trusted_network_public_or_wide'
+  | 'remote_reduced_plugin_isolation';
 
 export interface AuthSetupRequest {
   username: string;

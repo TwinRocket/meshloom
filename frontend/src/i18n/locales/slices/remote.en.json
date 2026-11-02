@@ -1,0 +1,185 @@
+{
+  "settingsNav": {
+    "remote": "Remote access"
+  },
+  "settings": {
+    "remote": {
+      "loading": "Loading…",
+      "about": {
+        "title": "Meshloom Remote",
+        "intro": "Reach this Meshloom from outside your home network, without opening a port on your internet box and without a TwinRocket account. When an administrator turns it on, this instance gets its own address under meshloom.link. Each phone or browser that should reach it is enrolled once, with a QR code shown here on the local network, or approved here by typing the code it shows.",
+        "privacyTitle": "What the relay sees",
+        "privacyEdge": "Meshloom Remote is a relay run by TwinRocket. The encrypted connection from your phone ends at the relay, which then forwards the traffic to this instance: the relay could technically read everything that goes through it, including your password when you sign in, your messages and your settings. The relay checks each device's pass before forwarding anything, so a device you did not enrol is stopped there.",
+        "privacyPasskeys": "Prefer a passkey or turn on two-factor authentication (Settings → Users & Access): a password seen at the relay is then not enough to sign in.",
+        "privacyRegistry": "When Remote is turned on, Meshloom tells the relay its version, its kind of installation and whether plugins run and at which isolation level. Nothing reaches the relay while Remote is off.",
+        "neverLocal": "A request that comes through the relay never counts as the local network: login-free on the local network and trusted networks never apply to it, and you always sign in."
+      },
+      "status": {
+        "title": "Status",
+        "hostname": "Address",
+        "copy": "Copy",
+        "copied": "Address copied.",
+        "copyFailed": "Could not copy the address.",
+        "fingerprint": "Key fingerprint",
+        "fingerprintHelp": "Identifies this instance's Remote key. It changes only when the key is replaced.",
+        "noKey": "No key yet",
+        "registeredAt": "Registered",
+        "lastError": "Last error from the relay:",
+        "askAdmin": "Only an administrator can turn Meshloom Remote on."
+      },
+      "badge": {
+        "off": "Off",
+        "unregistered": "Not registered",
+        "connecting": "Connecting",
+        "connected": "Connected",
+        "reconnecting": "Offline",
+        "not_registered": "Unknown to the relay",
+        "paused": "Paused",
+        "replaced": "Replaced",
+        "banned": "Banned",
+        "update_required": "Update required",
+        "relay_paused": "Service frozen",
+        "unknown": "Unknown state"
+      },
+      "badgeHelp": {
+        "off": "Meshloom Remote is off: nothing reaches the relay and this instance is reachable on the local network only.",
+        "unregistered": "Remote is on, but the relay did not register this instance. Try again; if it keeps failing, the relay may be unreachable from this machine.",
+        "connecting": "Connecting to the relay…",
+        "connected": "Connected: enrolled devices reach this instance at the address below.",
+        "reconnecting": "The link to the relay is down. Meshloom tries again on its own, waiting a little longer each time (up to 5 minutes). Check this machine's internet connection.",
+        "not_registered": "The relay no longer knows this instance and registering again failed. Turn Remote off and on again; if that does not help, replace the key.",
+        "paused": "The relay operator paused this instance. Meshloom tries again on its own in 15 to 20 minutes.",
+        "replaced": "Another installation connected with this instance's key, usually a copy restored from a backup. Only one may use it: replace the key on this one (every device then enrols again).",
+        "banned": "The relay operator banned this instance. Meshloom no longer tries to connect. Contact TwinRocket if you think this is a mistake.",
+        "update_required": "The relay no longer accepts this version of Meshloom. Update Meshloom, then Remote connects again.",
+        "relay_paused": "The Meshloom Remote service is temporarily frozen (maintenance or capacity). Meshloom tries again on its own in 5 to 15 minutes.",
+        "unknown": "The relay link reports a state this version does not know."
+      },
+      "actions": {
+        "enable": "Turn on Meshloom Remote",
+        "retry": "Try registering again",
+        "restart": "Turn off and on again",
+        "update": "Open Updates",
+        "disable": "Turn off",
+        "unregister": "Unregister",
+        "rotate": "Replace the key"
+      },
+      "enabledToast": "Meshloom Remote is on.",
+      "disabledToast": "Meshloom Remote is off.",
+      "restartedToast": "Meshloom Remote restarted.",
+      "unregisteredToast": "This instance is unregistered from Meshloom Remote.",
+      "rotatedToast": "The Remote key was replaced.",
+      "enable": {
+        "title": "Turn on Meshloom Remote?",
+        "help": "This instance registers its key with the relay and gets its own address. Devices still have to be enrolled one by one before they can reach it.",
+        "isolationTitle": "Plugins run with reduced isolation",
+        "isolationWarning": "Plugins on this machine run without a sandbox (hooks only). Once this instance is reachable from the internet, anyone who gets into an administrator account could install or configure a plugin that runs code on this machine. Protect every administrator with a passkey or two-factor authentication, and remove the plugins you do not need (Settings → Extensions).",
+        "isolationAck": "I understand and want to turn Remote on anyway.",
+        "confirm": "Turn on"
+      },
+      "confirm": {
+        "disable": {
+          "title": "Turn off Meshloom Remote?",
+          "help": "Nothing reaches the relay any more and enrolled devices can no longer connect from outside. The address and the devices are kept: turning it on again brings them back.",
+          "confirm": "Turn off"
+        },
+        "unregister": {
+          "title": "Unregister from Meshloom Remote?",
+          "help": "The relay forgets this instance's address and Remote turns off. The key is kept, so registering again later may get the same address back for 30 days.",
+          "confirm": "Unregister"
+        },
+        "rotate": {
+          "title": "Replace the Remote key?",
+          "help": "A new key is created: the address changes, every enrolled device and pending request is forgotten, and each device has to enrol again.",
+          "confirm": "Replace the key"
+        }
+      },
+      "enroll": {
+        "title": "Enrol a phone or browser",
+        "help": "Show a QR code and scan it with the device you want to use from outside. The device is enrolled for your account. The code works once and expires after 15 minutes.",
+        "lanOnly": "You are connected through Meshloom Remote. Enrolment codes are shown on the local network only: open Meshloom from home to enrol a new device, or approve its access request below.",
+        "show": "Show the QR code",
+        "dialogTitle": "Scan to enrol a device",
+        "dialogHelp": "Scan this QR code with the camera of the phone (or open the address in the browser) you want to enrol. Then sign in on it as usual.",
+        "secretWarning": "This QR code lets one device through the relay for your account. Do not share it or post a screenshot of it; scan it only with your own device.",
+        "qrAlt": "QR code to enrol a device with Meshloom Remote",
+        "countdown": "Expires in {{time}}",
+        "expired": "This code has expired and the QR code is hidden.",
+        "done": "The device is enrolled. It appears in the list of devices.",
+        "regenerate": "Show a new code",
+        "another": "Enrol another device",
+        "close": "Close"
+      },
+      "requests": {
+        "title": "Access requests",
+        "help": "A device that is not enrolled can ask for access from the relay page: it shows a code. Type that code here to let the device in. It is then enrolled for your account.",
+        "socialWarning": "Approve only a device you are holding yourself and whose screen shows this code. Never type a code that someone sent you, read to you or asked you to approve: they would get into your account.",
+        "none": "No pending request.",
+        "unknownDevice": "Unknown device",
+        "askedAt": "Asked {{when}}",
+        "userAgent": "Sent by the device (unverified):",
+        "deny": "Deny",
+        "denied": "Request denied.",
+        "code": "Code shown on the device",
+        "label": "Device name (optional)",
+        "labelPlaceholder": "My phone",
+        "approve": "Approve",
+        "approved": "Device approved.",
+        "offline": "The relay link is down: approving needs it."
+      },
+      "devices": {
+        "title": "Enrolled devices",
+        "help": "Your devices that can reach this instance through the relay. Revoke one you lost or no longer use.",
+        "helpAdmin": "Every account's devices that can reach this instance through the relay. Revoke one that is lost or no longer used, or all of them at once.",
+        "none": "No enrolled device.",
+        "unnamed": {
+          "browser": "Browser",
+          "client": "App or script"
+        },
+        "origin": {
+          "qr": "Enrolled by QR code",
+          "approval": "Approved request",
+          "client": "Client pass"
+        },
+        "owner": "Account {{user}}",
+        "ownerYou": "Your account",
+        "lastSeen": "Last seen {{when}}",
+        "neverSeen": "Not seen yet",
+        "passExpires": "Pass valid until {{when}}",
+        "revokedAt": "Revoked {{when}}",
+        "oldGeneration": "Revoked with every device",
+        "inactive_one": "{{count}} revoked device",
+        "inactive_other": "{{count}} revoked devices",
+        "revoke": "Revoke",
+        "revokeNamed": "Revoke {{name}}",
+        "revokeTitle": "Revoke “{{name}}”?",
+        "revokeHelp": "The device can no longer reach this instance through the relay. To use it again, enrol it again.",
+        "revoked": "Device revoked.",
+        "revokeAll": "Revoke every device",
+        "revokeAllTitle": "Revoke every device?",
+        "revokeAllHelp": "Every enrolled device of every account loses access through the relay at once, and each one has to enrol again.",
+        "revokedAll": "Every device was revoked.",
+        "notPushed": "The relay is offline: it applies this as soon as it reconnects."
+      }
+    },
+    "access": {
+      "securityNotice": {
+        "remote_reduced_plugin_isolation": "Meshloom Remote is on while plugins run with reduced isolation (hooks only): anyone who gets into an administrator account from the internet could install or configure code that runs on this machine."
+      }
+    }
+  },
+  "errors": {
+    "remote_disabled": "Meshloom Remote is off.",
+    "remote_not_registered": "This instance is not registered with Meshloom Remote yet.",
+    "remote_unavailable": "Meshloom Remote did not answer. Check this machine's internet connection and try again.",
+    "remote_registry_error": "Meshloom Remote refused the request.",
+    "remote_rate_limited": "Too many requests to Meshloom Remote: try again later.",
+    "remote_lan_only": "Enrolment codes are shown on the local network only.",
+    "remote_device_not_found": "This device no longer exists.",
+    "remote_access_request_not_found": "No pending request matches this code. Check the code on the device, or ask it for access again.",
+    "remote_offline": "The link to the relay is down: try again once it is connected.",
+    "remote_pass_required": "This device is not enrolled with Meshloom Remote.",
+    "remote_host_mismatch": "This request is not for this instance's Remote address.",
+    "remote_request_invalid": "The relay sent an invalid request."
+  }
+}
