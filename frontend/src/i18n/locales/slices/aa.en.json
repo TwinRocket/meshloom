@@ -61,7 +61,7 @@
       "open": "Account of {{name}}",
       "signOut": "Sign out",
       "ingressNote": "Home Assistant signs you in: there is no Meshloom session to end.",
-      "stillSignedInNote": "This device stays signed in: the local network is set to login-free."
+      "stillSignedInNote": "This device stays signed in: the local network is set to login-free (Settings → Connection → Local network)."
     }
   }
 }

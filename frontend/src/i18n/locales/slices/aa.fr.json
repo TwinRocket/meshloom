@@ -61,7 +61,7 @@
       "open": "Compte de {{name}}",
       "signOut": "Se déconnecter",
       "ingressNote": "Home Assistant vous connecte : il n'y a pas de session Meshloom à terminer.",
-      "stillSignedInNote": "Cet appareil reste connecté : le réseau local est en accès sans connexion."
+      "stillSignedInNote": "Cet appareil reste connecté : le réseau local est en accès sans connexion (Réglages → Connexion → Réseau local)."
     }
   }
 }
