@@ -274,10 +274,12 @@ async def test_every_method_is_refused_without_its_permission(manager, tmp_path)
         ("contacts.list", {}),
         ("contacts.get", {"key": ANN}),
         ("channels.list", {}),
+        ("notifications.send", {"title": "hi"}),
         ("status.set", {"summary": "ok"}),
         ("no.such", {}),
     )
     assert [r.get("error") for r in result] == [
+        "permission_denied",
         "permission_denied",
         "permission_denied",
         "permission_denied",
@@ -889,6 +891,7 @@ def test_registry_lists_the_v1_methods():
         "contacts.get": "contacts.read",
         "channels.list": "channels.read",
         "http.fetch": "http",
+        "notifications.send": "notifications.send",
         "status.set": None,
         "log": None,
     }

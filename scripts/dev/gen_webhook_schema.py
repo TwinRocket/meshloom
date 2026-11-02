@@ -138,6 +138,15 @@ SAMPLES: dict[str, dict[str, Any]] = {
         "uptime_s": 93784,
         "version": "5.0.0",
     },
+    "plugin.notification": {
+        "event": "plugin.notification",
+        "instance_id": "3f2a9c1e-7b4d-4e8a-9c10-2b5d6e7f8a90",
+        "plugin_id": "acme.weather",
+        "label": "Weather",
+        "title": "Storm warning",
+        "body": "Gusts up to 90 km/h expected tonight.",
+        "level": "warning",
+    },
     "summary.grouped": {
         "event": "notifications_grouped",
         "count": 7,

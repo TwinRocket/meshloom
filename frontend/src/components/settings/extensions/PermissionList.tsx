@@ -28,6 +28,14 @@ function useDetailLines(name: string, params: Record<string, unknown>): string[]
         per_day: typeof params.per_day === 'number' ? params.per_day : 500,
       })
     );
+  } else if (name === 'notifications.send') {
+    // The server's defaults (app/plugins/capabilities/notifications.py).
+    lines.push(
+      t(`${key}.quota`, {
+        per_hour: typeof params.per_hour === 'number' ? params.per_hour : 10,
+        per_day: typeof params.per_day === 'number' ? params.per_day : 50,
+      })
+    );
   }
   return lines;
 }

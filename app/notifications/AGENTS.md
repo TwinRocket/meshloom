@@ -324,7 +324,8 @@ A preset is an Apprise service described as data, no code per service: a `Preset
 - **Keyword alerts and watched nodes on Web Push** (MSHL-400): `message.keyword`,
   `contact.node_seen` and `contact.node_back` (`user_rules.INSTANCE_RULE_EVENTS`) come from
   instance rules the admin manages (`rules["keywords"]`, `rules["watched_nodes"]`), so no account
-  owns them. `_emit` replaces the `builtin:push` audience with `instance_rule_audience()`: the
+  owns them. `plugin.notification` (MSHL-213) is in the same set: a plugin is installed and
+  granted by an admin and its text may quote what it reads. `_emit` replaces the `builtin:push` audience with `instance_rule_audience()`: the
   admins owning a deliverable device, `default` None, minus an admin whose own pause holds the
   event, whose conversation exception is `false` for the message's conversation, or whom
   `push_already` (the message's own audience) already reaches. No admin device, nobody left, or
@@ -332,7 +333,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   limits and held counters (per admin account) apply as for any Web Push job.
   `PushManager.dispatch_event` re-checks `is_admin_owner` for these payloads
   (`user_rules.admin_push_payload`: a keyword alert is a message payload carrying `keyword`,
-  a watched node is `node_seen` / `node_back`).
+  a watched node is `node_seen` / `node_back`, a plugin notification `plugin.notification`).
 - **Message text on Web Push** (MSHL-400): `PushManager.dispatch_event` builds a message
   payload (`user_rules.is_message_payload`) in full only for a device whose owner may read it in
   the app (`may_read_message`: `read_private` for a DM, `read` for a channel; an unknown role
@@ -392,7 +393,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   and `data` (the webhook v2 typed data, `webhook_v2.event_data(..., "always")`), never
   rendered text. `rules.emit_ws_events: false` turns it off. No frame for an unmatched or
   suppressed event, a summary, `notify.heartbeat` or a test send (they skip the rules).
-  `app/websocket.py` filters it per socket: a kiosk never gets DM data, `notify.*` is admin.
+  `app/websocket.py` filters it per socket: a kiosk never gets DM data, `notify.*` and `plugin.*` are admin.
   A channel message that names the radio is framed as `message.mention` even when only Web
   Push gets the mention (`push_mention`, MSHL-402), so a kiosk never reads a private-key
   channel's mention as `message.channel`. Only `message.*` frames are deduplicated, on
@@ -743,7 +744,13 @@ without redefining anything.
   `message.mention` (see "Mentions"), `message.keyword`, `contact.first_seen`, `contact.node_seen`,
   `contact.node_back` (see "Watched nodes"), `channel.found`, `telemetry.alert`, `radio.offline`, `radio.online`,
   `app.started`, `app.update`, `notify.destination_changed`, `notify.channel_changed`, `notify.test`,
-  `notify.channel_failed` (`EVENT_IDS`). These are notification ids, not WebSocket types
+  `notify.channel_failed`, `notify.heartbeat`, `plugin.notification` (`EVENT_IDS`).
+  `plugin.notification` (MSHL-213) is a plugin's `notifications.send`
+  (`app/plugins/capabilities/notifications.py`, through `producers.emit_plugin_notification`):
+  `data` holds `instance_id`, `plugin_id`, `label`, `title`, `body`, `level` (`info`, `warning`,
+  `critical`; never urgent). Routed by the matrix like any event (no channel by default); the
+  rendered title is `[Warning · |Critical · ]<label>: <title>` (`render.plugin_notification_title`),
+  the body the plugin's text, dropped under the text policy `never` (webhook v2 `data.body` null). These are notification ids, not WebSocket types
   (`app/auth/ws_events.py` stays the only list of those).
 - **Common fields**: `event`, `event_id` (random, per occurrence), `occurred_at`
   (epoch seconds), `dedup_key`, `urgent` (default false; true for `telemetry.alert`,

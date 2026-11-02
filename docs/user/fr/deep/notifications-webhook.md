@@ -41,6 +41,7 @@ Le schéma JSON du corps v2 est publié à côté de la page anglaise : [notific
 ```
 
 - `data` ne contient jamais plus que le corps v1 du même événement, et moins à deux endroits. Le `text` d’un message vaut `null` quand le réglage **Texte des messages** du canal le retient (**Canaux publics seulement** pour un message direct ou un canal privé, ou **Jamais**) ; `rendered.body` ne contient alors pas de texte non plus. Et aucun message ne porte sa clé de conversation : pour un canal privé, cette clé est le secret du canal. Un corps v1 envoie le texte quel que soit le réglage.
+- `plugin.notification` est ce qu’une extension a envoyé avec sa permission **Envoyer des notifications** : `title` et `body` sont son propre texte, et `label` (le nom de l’extension) vient en premier dans `rendered.title`. Avec **Texte des messages : Jamais**, `data.body` vaut `null` et `rendered.body` reprend le titre.
 - `radio_public_key` est la clé publique de votre radio, celle que chaque nœud à portée entend déjà dans ses annonces. Elle permet à un même récepteur de distinguer plusieurs instances Meshloom.
 - `rendered` est dans la **Langue des notifications** du canal.
 - La version 2 peut gagner de nouveaux champs dans `data`. Un récepteur doit ignorer les champs qu’il ne connaît pas. Un changement qui retire ou renomme un champ passera par une version 3.
@@ -593,6 +594,35 @@ Ces corps sont produits par le code de Meshloom (radio nommée `Base`, canal en 
   "rendered": {
     "title": "Base Paris fonctionne",
     "body": "En service depuis 26 h 03, version 5.0.0."
+  }
+}
+```
+
+### `plugin.notification`
+
+```json
+{
+  "version": 2,
+  "event": "plugin.notification",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "d56eaefaf7503652",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "instance_id": "3f2a9c1e-7b4d-4e8a-9c10-2b5d6e7f8a90",
+    "plugin_id": "acme.weather",
+    "label": "Weather",
+    "title": "Storm warning",
+    "body": "Gusts up to 90 km/h expected tonight.",
+    "level": "warning"
+  },
+  "rendered": {
+    "title": "Avertissement · Weather: Storm warning",
+    "body": "Gusts up to 90 km/h expected tonight."
   }
 }
 ```

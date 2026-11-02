@@ -546,7 +546,7 @@ async def test_create_local_plugin_from_a_template(api, manager):
 async def test_create_local_plugin_rejects_a_bad_manifest(api, manager):
     response = await api.post(
         "/api/plugins",
-        json={"label": "Bad", "permissions": {"notifications.send": {}}},
+        json={"label": "Bad", "permissions": {"feed.post": {}}},
     )
     assert response.status_code == 400 and code_of(response) == "manifest_invalid"
     assert (await api.post("/api/plugins", json={"label": ""})).status_code == 422
@@ -1037,9 +1037,7 @@ async def test_local_plugin_permissions_are_editable_through_the_manifest(api, m
     body = response.json()
     assert body["granted_permissions"] == ECHO_GRANT
     assert body["manifest"]["permissions"] == ECHO_GRANT
-    bad = await api.patch(
-        f"/api/plugins/{iid}", json={"granted_permissions": {"notifications.send": {}}}
-    )
+    bad = await api.patch(f"/api/plugins/{iid}", json={"granted_permissions": {"feed.post": {}}})
     assert bad.status_code == 400 and code_of(bad) == "manifest_invalid"
 
 

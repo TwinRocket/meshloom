@@ -219,7 +219,8 @@ purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
   attributes and cancelled at stop, per the background-work rule. What a child
   may ask and read is `plugins/capabilities/` (one module per capability, every
   method checked against the instance's effective permissions before any side
-  effect, typed refusals) and `plugins/quotas.py` (per-instance send quotas in
+  effect, typed refusals; `notifications.send` goes through the notification dispatcher as
+  `plugin.notification`, MSHL-213) and `plugins/quotas.py` (per-instance send quotas in
   `plugin_send_quota`, the host-side send guards in `plugin_send_guard` and
   `plugin_send_limits` (`send_guard`), and `send_spacer`, the 2 s spacing of every automatic
   send); `docs/dev/plugins.md`, "Capabilities". Host lock:

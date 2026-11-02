@@ -273,3 +273,27 @@ async def emit_oss_update(current: str, latest: str) -> bool:
     if event is None:
         return False
     return bool(await emit(event, payload=payload))
+
+
+async def emit_plugin_notification(
+    *, instance_id: str, plugin_id: str, label: str, title: str, body: str, level: str
+) -> int:
+    """``plugin.notification`` for a plugin's ``notifications.send`` (MSHL-213,
+    ``app/plugins/capabilities/notifications.py``). The rules matrix picks the channels like
+    for any event (none until the user ticks some); returns how many channels it was queued
+    for (0 when none is ticked, enabled or unpaused). Never raises."""
+    from app.notifications.render import PLUGIN_NOTIFICATION_EVENT
+
+    payload = {
+        "event": PLUGIN_NOTIFICATION_EVENT,
+        "instance_id": instance_id,
+        "plugin_id": plugin_id,
+        "label": label,
+        "title": title,
+        "body": body,
+        "level": level,
+    }
+    event = event_from_payload(payload)
+    if event is None:
+        return 0
+    return await emit(event, payload=payload)

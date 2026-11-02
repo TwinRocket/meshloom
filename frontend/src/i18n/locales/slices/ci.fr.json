@@ -90,6 +90,10 @@
           "notify_channel_changed": {
             "label": "Canal modifié",
             "help": "Un canal de notification a été créé, modifié ou supprimé. Toujours envoyé en Web Push."
+          },
+          "plugin_notification": {
+            "label": "Notifications des extensions",
+            "help": "Une extension qui a la permission « Envoyer des notifications » vous notifie. Son nom vient en premier ; Web Push ne va qu'aux administrateurs."
           }
         },
         "alwaysUrgent": "Toujours actif : cet événement est urgent, la pause ne le retient jamais.",

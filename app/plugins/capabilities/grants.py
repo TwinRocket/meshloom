@@ -4,7 +4,8 @@
   declares it **and** the user granted it (`plugins.granted_permissions`), and its
   parameters are the narrower of the two: `messages.read` `channels: all` and
   `direct`/`outgoing` need both, `messages.send` `targets` is the lower of
-  `reply` < `scope` < `any` and the quotas the smaller, `http` the hosts both list.
+  `reply` < `scope` < `any` and the quotas the smaller, `notifications.send` the
+  smaller quotas, `http` the hosts both list.
   Parameters that do not validate drop the permission (fail closed).
 - **Reads.** `message_visible()` decides whether an `event.message` reaches an
   instance: `messages.read` first (`channels: public` = the Public channel and the
@@ -78,6 +79,13 @@ def _narrow(name: str, declared: dict[str, Any], granted: dict[str, Any]) -> dic
             key=_TARGET_RANK.__getitem__,
         )
         result: dict[str, Any] = {"targets": targets}
+        for key in ("per_hour", "per_day"):
+            values = [v for v in (declared.get(key), granted.get(key)) if v is not None]
+            if values:
+                result[key] = min(values)
+        return result
+    if name == "notifications.send":
+        result = {}
         for key in ("per_hour", "per_day"):
             values = [v for v in (declared.get(key), granted.get(key)) if v is not None]
             if values:
