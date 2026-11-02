@@ -12,9 +12,10 @@ Contracts (the source of truth, with their vectors): `meshloom-community`
 vectors are copied byte for byte in `tests/fixtures/remote_frames_vectors.json`, pinned
 by sha256 in `tests/test_remote_identity.py`; refresh the copy in a `CONTRACTS:` commit.
 
-This page covers what MSHL-79 built: identity, registration, passes, enrolment, access
-requests, revocation and the control API. The relay client (the outbound socket,
-HELLO, frame dispatch: MSHL-87) and the settings UI (MSHL-82) build on it.
+This page covers identity, registration, passes, enrolment, access requests, revocation
+and the control API (MSHL-79), then the relay client: the outbound socket, HELLO and the
+in-process dispatch of relayed requests (MSHL-87). The settings UI (MSHL-82) builds on
+both.
 
 ## Code map
 
@@ -23,6 +24,8 @@ HELLO, frame dispatch: MSHL-87) and the settings UI (MSHL-82) build on it.
 | `app/services/instance_identity.py` | The `remote` instance key (`app_settings.remote_instance_seed`), `mint_remote_jwt()`, `sign_with_instance_key()`. The only identity module |
 | `app/services/remote_passes.py` | Pass format, the contract verifier `verify_pass`, access code normalisation. Pure functions |
 | `app/services/remote.py` | Opt-in, registry client, state changes, devices, enrolment, access requests, CONTROL ops, the relay link interface, the `remote` on_restore hook |
+| `app/services/remote_frames.py` | The relay frame codec (contract "Frames"), limits and their clamping. Pure functions |
+| `app/services/remote_relay.py` | The relay client: connect loop and close-code policy, HELLO, stream table, credits, batching, in-process ASGI dispatch |
 | `app/repository/remote.py` | `remote_state`, `remote_devices`, `remote_enroll_tokens` (migration 138, `docs/dev/database.md`) |
 | `app/routers/remote.py` | `/api/remote` |
 
@@ -43,6 +46,14 @@ HELLO, frame dispatch: MSHL-87) and the settings UI (MSHL-82) build on it.
 checks the opt-in first (409 `remote_disabled`, no connection), then sends through the
 egress guard with `RELAY_HOST` as the only host, HTTPS only, no redirect, the answer
 capped at 16 KiB. `tests/test_remote_off_no_egress.py` sweeps it.
+
+The relay socket follows the same rule: `remote_relay` connects only while Remote is on
+**and** registered, to `wss://<RELAY_HOST>/v1/connect` and nowhere else (never a host read from storage: the
+registered `relay_url` is informative), without any system proxy.
+Community plays no part in either direction: with Community on and Remote off nothing
+reaches the relay (`tests/test_remote_off_no_egress.py`); with Community off and Remote
+on, only the relay host is reached (`tests/test_community_off_no_egress.py`,
+`TestRemoteEgressIsSeparate`).
 
 ## State changes
 
@@ -111,17 +122,112 @@ not be revoked and belong to the pass's `uid`.
   when a relay link is up (`gate_pushed` in the answer); otherwise the next HELLO
   carries it.
 
-## Relay link interface (for MSHL-87)
+## Relay link interface
+
+What `remote.py` offers the relay client (`remote_relay.py`, below):
 
 - `set_relay_link(sender, status)`: the async callable that sends one CONTROL op
   (returns True when sent), or None when disconnected; `set_link_status(status)` for
-  the UI states of the close codes (`replaced`, `banned`, `update required`...).
+  the UI states of the close codes (`replaced`, `banned`, `update_required`...).
 - `handle_control(frame)`: handles `enroll` (returns the `pass` reply to send),
   `access_request` and `status` (a new name from the operator); other ops are ignored.
 - `instance_info()`, `plugins_info()` and `gate_state()` fill the HELLO.
 - `register(actor)` after a `4003`; `add_change_listener(callback)` to connect or
   disconnect when Remote is enabled, disabled, registered, rotated, unregistered or
-  reset by a restore.
+  reset by a restore (adding the same callback twice is a no-op).
+- `verify_device_pass(token, slot)` on every relayed request.
+
+## Relay client (`remote_relay.py`)
+
+Started by the lifespan (`remote_relay.start(app)`) and stopped at shutdown. One loop,
+one socket at most; every Remote change restarts it.
+
+**Connect.** A fresh instance JWT per attempt (`Authorization: Bearer`),
+`X-Meshloom-Relay-Protocol: 1`, `User-Agent: Meshloom/<version>`, no compression,
+messages up to 1 MiB. Liveness is the `websockets` RFC 6455 ping: every 30 s, dropped
+after 60 s without a pong (two missed pongs). There is no application ping, and the
+text `ping` is never sent on this socket.
+
+**HELLO.** The instance sends first: `instance` (`version`, `install_kind`), `plugins:
+{enabled, isolation}` (`remote.plugins_info()`, isolation `null` when unknown; the
+legacy `bots_enabled` is never sent), `gate` (`{gen, revoked}`), the limits it wants
+(the defaults) and `features: []`. The relay must answer its HELLO within 10 s
+(`1002 hello_timeout` otherwise; an invalid one is `1002 hello_invalid`). Its limits are
+clamped to the contract and used from then on; its `instance.slug`/`hostname` are
+applied like a CONTROL `status`. Only then is the CONTROL sender installed
+(`relay_connected` true, `link_status` `connected`).
+
+**Dispatch.** Each `REQ_HEAD` or `WS_OPEN` (odd streams, at most `max_streams`) runs
+the ASGI app in process, `await app(scope, receive, send)`, never over a local socket:
+
+- the head must name the current Remote hostname (else 421 `remote_host_mismatch`,
+  never dispatched), the `client_ip` must be an IP address and the path and query
+  ASCII (else 400 `remote_request_invalid`);
+- `x-meshloom-pass` must be one valid `browser` or `client` pass of a known,
+  unrevoked device of its `uid` (`verify_device_pass`; the slot follows the kind),
+  else 401 `remote_pass_required` (a WebSocket gets `WS_ACCEPT` 401). A relay bug or
+  compromise alone therefore never reaches the app;
+- the scope is `scheme` `https` (`wss` for a WebSocket), `server` `(<hostname>, 443)`,
+  `client` `(client_ip, 0)`, `state` `{"via": "relay", "remote_device": {id, uid,
+  kind}}`, `path` percent-decoded and `raw_path` as sent. The headers start with
+  `host: <hostname>`, then the relay's pairs minus the hop-by-hop ones (and any name
+  `connection` lists), `proxy-*`, `x-forwarded-*`, `forwarded`, `x-real-ip`,
+  `true-client-ip`, `cf-*`, `cdn-loop`, `x-ingress-path`, `x-remote-user-*`,
+  `sec-websocket-*` and the `x-meshloom-*` relay headers.
+
+So a relayed request is never LAN (`request_via()` is `relay`: no trusted network, no
+login-free LAN, no ingress, the host guard defers to the check above), it is secure
+(`__Host-meshloom_session` with `Secure`, `Path=/`, no `Domain`), `X-Forwarded-Host`
+never widens same-origin, and HSTS is never sent (the relay owns it). Responses drop
+the hop-by-hop headers, `strict-transport-security` and `x-meshloom-pass`.
+
+**HTTP streams.** The request body is handed to the app in its frames; a `RESP_HEAD`
+waits for the first body message, so a response without a body is one `RESP_HEAD`
+with `END` (204, 304, `HEAD`). A head above 64 KiB becomes `CANCEL frame_too_large`.
+An app exception before the head answers 500; after it, `CANCEL internal`. A `CANCEL`
+from the relay (or the link going down) gives the app `http.disconnect`, and later
+sends are dropped, as uvicorn does.
+
+**WebSocket streams.** `websocket.accept` sends `WS_ACCEPT 101`; a close before accept
+(or the app returning) sends `WS_ACCEPT 403` with `END`, an exception 500; the
+`websocket.http.response` extension is offered for denials with a body. Messages are
+cut at `max_chunk` with `MORE`, reassembled on the way in (above 32 MiB: `WS_CLOSE
+1009`; invalid UTF-8 text: 1007). A relay `WS_CLOSE` is echoed with the same code and
+reaches the app as `websocket.disconnect`; an app close waits 5 s for the relay's
+echo, then the app sees the end anyway. A send after the end raises
+`RelayStreamClosed` (an `OSError`, like uvicorn's `ClientDisconnected`).
+
+**Credits and batching.** Each stream and direction starts at `initial_credit`; the
+instance grants back what the app consumed once half the window is used, and answers
+an overrun, a zero or an overflowing `CREDIT` with `CANCEL credit_exceeded` (the link
+stays up). Outbound frames are queued for 50 ms and sent as one message (flushed
+earlier before passing 1 MiB, and at once for a final `RESP_HEAD`, a `WS_ACCEPT`, a
+`CANCEL` or a `WS_CLOSE`). Even streams, unknown streams (the last 256 closed ones
+silently), unknown frame types and text messages are ignored and counted
+(`RelayLink.counters`); steps 1 to 3 of the contract's decoding, and an over-limit
+frame on stream 0 or an even stream, close with `1002` and the reason; an over-limit
+frame on an odd stream is `CANCEL frame_too_large` on that stream only. When the link
+drops, every stream ends at once and the app tasks get 5 s before they are cancelled.
+
+**Close codes and states** (`link_status` in `GET /api/remote`, `LINK_STATES`):
+
+| Close | Behaviour | `link_status` |
+|---|---|---|
+| (connecting) | | `connecting` |
+| HELLO done | | `connected` |
+| `4001` | New token and reconnect at once; backoff if it repeats | `reconnecting` |
+| `4003` | `register()` again (idempotent), reconnect once; a second `4003` or a failed registration stops | `not_registered` |
+| `4004` | Retry after 15 to 20 min (or when Remote changes) | `paused` |
+| `4005` | Reconnect once; replaced again stops (two installs share a key) | `replaced` |
+| `4009` | Stop, never retried on its own | `banned` |
+| `4010` | Stop until Meshloom is updated | `update_required` |
+| `1013`, unknown `4xxx` | Retry after 5 to 15 min | `relay_paused` |
+| `1002`, `1009` | Logged as a protocol error, then the backoff below | `reconnecting` |
+| anything else, HTTP refusals | Backoff from 1 s doubling to 5 min, full jitter, reset after 60 s connected; a 429 waits at least its `Retry-After` (at most 15 min) | `reconnecting` |
+
+`link_status` is null while Remote is off, and `not_registered` while it is on without
+a slug. A stopped state stays until Remote changes (enable, disable, register, rotate,
+unregister, restore), which restarts the loop.
 
 ## Permissions and audit
 
@@ -133,8 +239,13 @@ enrolment URL or an access code.
 
 ## Not done here
 
-- The relay client and the in-process dispatch (MSHL-87), the settings UI and its
-  translations of the error codes (MSHL-82), the user documentation (MSHL-83).
+- The settings UI and its translations of the error codes and link states (MSHL-82),
+  the user documentation (MSHL-83).
+- CONTROL `instance_update` when the plugin settings change without a reconnect: the
+  next HELLO carries them. Closing the instance's own open WebSockets of a revoked
+  device: the relay cancels those streams after a `gate`, and every new request checks
+  the pass again.
+- A custom relay URL (MSHL-99); the remaining relay-aware hardening (MSHL-84).
 - Guest enrolment links (up to 7 days), pass renewal through `x-meshloom-set-pass`, the
   alert e-mail routes of the registry.
 - A device of a deleted account keeps a valid pass until it is revoked; the sign-in
@@ -147,3 +258,12 @@ of the registry's JWT checks proved on every case, then the minted tokens),
 `tests/test_remote_service.py` (fake registry, fake relay and edge: registration,
 enrolment, access requests, revocation, rotation, restore, routes),
 `tests/test_remote_off_no_egress.py`, `tests/test_migrations/test_migration_138.py`.
+
+Relay client: `tests/test_remote_frames.py` (the codec on every frame, message and
+invalid-message vector, the limits, the HELLO role rules) and
+`tests/test_remote_relay.py`, against the in-process fake relay of
+`tests/remote_relay_fakes.py` (a `websockets` server): handshake, relayed GET/POST with
+credits and batching, CANCEL, WebSocket sessions, the pass check, protocol errors, every
+close code, and through the real app the never-LAN rule, the `__Host-` session cookie
+at login and `X-Forwarded-Host` ignored. Egress in both directions:
+`tests/test_remote_off_no_egress.py` and `tests/test_community_off_no_egress.py`.

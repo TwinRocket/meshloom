@@ -283,7 +283,11 @@ Design and flows: `docs/dev/remote.md`.
   `remote._registry` (409 `remote_disabled` first, then the egress guard with
   `RELAY_HOST` as the only host). `tests/test_remote_off_no_egress.py` classifies every
   coroutine of the module and sweeps every `/api/remote` route but `POST /enable`;
-  `tests/test_community_off_no_egress.py` forbids `*.meshloom.link` while off.
+  `tests/test_community_off_no_egress.py` forbids `*.meshloom.link` while off. The
+  relay socket (`services/remote_relay.py`) connects only while Remote is on and
+  registered, to `wss://<RELAY_HOST>/v1/connect` only, without a system proxy, and
+  independently of Community in both directions (Remote off with Community on: nothing
+  to the relay; Remote on with Community off: only the relay host; both tests above).
 - **Identity.** The `remote` instance key (above) signs the instance JWT and the device
   passes. Rotation, unregistration and the `remote` on_restore hook are in
   `docs/dev/remote.md`; any restore leaves Remote off, unregistered and without devices.
@@ -291,9 +295,19 @@ Design and flows: `docs/dev/remote.md`.
   vector case); `remote.verify_device_pass` adds the instance's own device table
   (the third check of the edge lock). Never log a pass, a token, an enrolment URL or
   an access code.
-- **Relay link.** The relay client (MSHL-87) plugs in with `set_relay_link`,
-  `handle_control`, `instance_info`, `plugins_info`, `gate_state` and
-  `add_change_listener`; this module never opens a socket itself.
+- **Relay link.** The relay client (`services/remote_relay.py`, codec
+  `services/remote_frames.py`) plugs in with `set_relay_link`, `handle_control`,
+  `instance_info`, `plugins_info`, `gate_state`, `verify_device_pass` and
+  `add_change_listener`; `services/remote.py` never opens a socket itself.
+- **In-process dispatch.** Each relayed `REQ_HEAD`/`WS_OPEN` runs the app in process
+  (`await app(scope, receive, send)`), never through a local socket, with
+  `scope["state"]["via"] = "relay"`, `client = (client_ip, 0)`, scheme `https`/`wss`
+  and the slug `Host` (checked against the Remote hostname), the hop-by-hop,
+  forwarding, ingress and `x-meshloom-*` headers dropped. A request without a valid
+  `x-meshloom-pass` of a known device is answered 401 `remote_pass_required` and never
+  reaches the app. `via = relay` is set nowhere else; the auth gate, trusted networks,
+  ingress, host guard and HSTS read it. Close codes, credits and batching:
+  `docs/dev/remote.md`, "Relay client".
 - **Routes** (`/api/remote`, `Cache-Control: no-store`): `admin` for enable, disable,
   unregister (`DELETE`), rotate and revoke-all; `own_account()` for the rest (state,
   own devices, enrolment QR, client pass, access requests). `POST /enroll` is refused

@@ -17,7 +17,8 @@ from app.auth.models import Role, User
 # ``ingress`` is the Home Assistant Supervisor (``app/auth/providers/ingress.py``,
 # ``request_via`` in ``app/auth/middleware.py``); ``trusted`` is a direct request
 # a trusted network rule signed in (``app/auth/providers/trusted_network.py``).
-# ``relay`` comes with a later Access ticket.
+# ``relay`` is a request the Remote relay client dispatched in process
+# (``app/services/remote_relay.py``).
 Via = Literal["lan", "ingress", "trusted", "relay"]
 
 # Which credential proved the principal. ``session`` (the cookie),

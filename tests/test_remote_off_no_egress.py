@@ -6,6 +6,11 @@ every ``/api/remote/*`` route but ``POST /api/remote/enable`` (found from
 ``app.routes``) and every network function of ``app.services.remote`` answers without
 any request. Turned on, requests go only to ``RELAY_HOST`` and carry neither the
 Remote seed nor the share seed, in any form. Disabled again, nothing leaves.
+
+The relay socket (``app/services/remote_relay.py``, MSHL-87) never opens while Remote
+is off or unregistered, whatever the Community state: with Community reported on, a
+recorder in place of ``websockets.connect`` sees nothing. The other direction (Remote
+on, Community off: only the relay host) is in ``tests/test_community_off_no_egress.py``.
 """
 
 from __future__ import annotations
@@ -158,3 +163,50 @@ async def test_on_only_the_relay_host_and_no_seed(recorder):
     with pytest.raises(remote.RemoteError):
         await remote.register(SYSTEM_ACTOR)
     assert len(recorder.requests) == count
+
+
+# ---------------------------------------------------------------- the relay socket (MSHL-87)
+
+
+class _WsRecorder:
+    """Replaces ``websockets.connect``: records the URL, then refuses."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.urls: list[str] = []
+        monkeypatch.setattr("websockets.connect", self)
+
+    def __call__(self, url: str, **_kwargs: Any) -> Any:
+        self.urls.append(url)
+        raise OSError("refused by the test")
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {},
+        {"slug": "k3xwq2m7ta", "hostname": "k3xwq2m7ta.meshloom.link"},
+        {"enabled": True},
+    ],
+    ids=["off", "off-but-registered", "on-but-unregistered"],
+)
+async def test_the_relay_socket_never_opens_while_off_or_unregistered(test_db, monkeypatch, state):
+    """Community on (as far as any guard can tell) changes nothing for Remote."""
+    from app.repository.remote import RemoteRepository
+    from app.services import meshloom_community, remote_relay
+
+    async def community_on() -> object:
+        return object()
+
+    monkeypatch.setattr(meshloom_community, "community_egress_state", community_on)
+    monkeypatch.setattr(meshloom_community, "community_enrolled_state", community_on)
+    sockets = _WsRecorder(monkeypatch)
+    if state:
+        await RemoteRepository.update_state(**state)
+    client = remote_relay.RelayClient()
+    from app.main import app
+
+    await client.start(app)
+    await client.restart()
+    assert not client.running()
+    assert sockets.urls == []
+    await client.stop()
