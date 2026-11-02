@@ -613,6 +613,36 @@ describe('FeedView hollow pages', () => {
     expect(await screen.findAllByRole('listitem')).not.toHaveLength(0);
   });
 
+  it('fetches an older page when a contact known by a key prefix only hollows the list', async () => {
+    const keys = ['abcdef123456'];
+    const target = keys[0];
+    // 200 rows of the default channel, a few of the pick; the pick never goes to the server.
+    const first = range(100, 299)
+      .reverse()
+      .map((id) => (id < 104 ? msg(id, { type: 'PRIV', conversation_key: target }) : msg(id)));
+    mocks.getMessages.mockResolvedValueOnce(first);
+    mocks.getConversationCounts.mockResolvedValue({
+      conversations: keys.map((k) => ({ type: 'PRIV', conversation_key: k, count: 4 })),
+    });
+    renderFeed();
+    const facets = within(await screen.findByRole('complementary'));
+    const contactsTitle = i18n.t('feed.facets.contacts');
+    await waitFor(() => expect(facets.getByText(contactsTitle)).toBeInTheDocument());
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+
+    mocks.getMessages.mockResolvedValue([]);
+    const boxes = facets
+      .getAllByRole('checkbox')
+      .filter((box) => (box.closest('label')?.textContent ?? '').includes(target.slice(0, 6)));
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) fireEvent.click(box);
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    // An older page, cut at the oldest loaded row, with no conversation_keys.
+    const call = mocks.getMessages.mock.calls[1][0];
+    expect(call).toMatchObject({ before_id: 100 });
+    expect(call.conversation_keys).toBeUndefined();
+  });
+
   it('reloads the list from the server, narrowed to the picked conversation', async () => {
     const other = '22222222222222222222222222222222';
     mocks.getMessages.mockResolvedValue(

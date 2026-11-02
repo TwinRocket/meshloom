@@ -601,9 +601,13 @@ export function FeedView({
     }
   }, [countVisibleNow]);
 
-  // The node is client-side (the other filters reload the list through `queryKey`): picking it can
-  // leave a short list that cannot be scrolled, so the same bounded fetch applies.
-  const clientFilterKey = String(activeNode);
+  // The node, and the conversation pick when the route cannot take it (a contact known by a prefix
+  // only, more than 50 picks), are client-side (the other filters reload the list through
+  // `queryKey`): picking one can leave a short list that cannot be scrolled, so the same bounded
+  // fetch applies.
+  const clientFilterKey = `${activeNode}|${
+    query.conversation_keys ? '' : shown.conversations.join(',')
+  }`;
   useEffect(() => {
     if (firstClientFilterRef.current) {
       firstClientFilterRef.current = false;
