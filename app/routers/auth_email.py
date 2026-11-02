@@ -15,7 +15,10 @@
   whatever the name, and the mail is sent in the background, so neither the answer
   nor its time tells whether an account matched. ``POST /auth/magic-link/verify``
   (public) trades the link's token for a session, or for the TOTP step when TOTP is
-  on (never the e-mail code: the link already proved the mailbox).
+  on (never the e-mail code: the link already proved the mailbox). The mailed link
+  hangs only from a trusted origin (``_mail_base``): a declared public address, or
+  this request's own origin when its ``Host`` names this machine. A client-supplied
+  ``Host`` or ``base`` never chooses where the link points.
 
 Every route but the settings answers 503 ``auth_email_unavailable`` without a usable
 SMTP profile. Rules: ``app/auth/email_factor.py``, ``docs/dev/auth.md``, "E-mail
@@ -25,6 +28,7 @@ code and sign-in links". Nothing here logs a code, a token, a link or a password
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import logging
 from typing import Literal
 
@@ -38,6 +42,7 @@ from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH
 from app.auth.permissions import own_account, public, require
 from app.background_tasks import spawn
+from app.middleware import host_guard
 from app.repository.auth import UserRepository
 from app.repository.email_factor import (
     ADDRESS_MAX_LENGTH,
@@ -59,7 +64,7 @@ from app.routers.auth import (
     _start_session,
     _via,
 )
-from app.routers.auth_oidc import app_base
+from app.routers.auth_oidc import _declared_bases, app_base
 from app.routers.auth_totp import _MAX_CODE_LENGTH, _applicable, _check_code, _rate_limited
 
 logger = logging.getLogger(__name__)
@@ -72,6 +77,52 @@ MailLanguage = Literal["fr", "en"]
 
 
 # --- Helpers ----------------------------------------------------------------------
+
+
+def _host_is_this_machine(request: Request) -> bool:
+    """Whether the request's ``Host`` names this machine, whoever sent it: a loopback
+    address, the address this connection reached (``scope["server"]``), ``localhost``,
+    the machine's own name or ``<its name>.local``, or the Remote hostname. Unlike
+    ``host_guard.host_allowed``, any other IP literal or local-looking name is refused:
+    a client could name its own box there."""
+    host = host_guard.request_host(request.headers.get("host") or "")
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        if ip.is_loopback:
+            return True
+        server = request.scope.get("server")
+        try:
+            reached = ipaddress.ip_address(str(server[0])) if server else None
+        except (ValueError, TypeError, IndexError):
+            reached = None
+        if isinstance(reached, ipaddress.IPv6Address) and reached.ipv4_mapped:
+            reached = reached.ipv4_mapped
+        return reached is not None and reached == ip
+    if host == "localhost" or host in host_guard.remote_hostnames():
+        return True
+    names = host_guard.machine_names()
+    return host in names or (host.endswith(".local") and host[: -len(".local")] in names)
+
+
+async def _mail_base(request: Request, base: str | None) -> str | None:
+    """The app address a mailed sign-in link hangs from, or None when there is no
+    trusted one. Unlike OpenID Connect (where the provider checks the registered
+    redirect URIs), nothing downstream checks a mailed link: a forged ``Host`` would
+    send the victim's token to the attacker's page. So: ``app_base`` when it falls
+    under a declared public address, or when the request's own host is this machine;
+    else the first declared public address; else None."""
+    candidate = await app_base(request, base)
+    declared = await _declared_bases()
+    if any(candidate.startswith(entry) for entry in declared):
+        return candidate
+    if _host_is_this_machine(request):
+        return candidate
+    return declared[0] if declared else None
 
 
 def _unavailable() -> Exception:
@@ -490,7 +541,9 @@ async def request_magic_link(body: MagicLinkRequest, request: Request) -> MagicL
     """Mail a sign-in link to the account's verified address, when it allows links.
     Public. 503 ``auth_email_unavailable`` without an SMTP profile (a fact of the
     instance, not of an account); 429 ``auth_rate_limited`` past 20 requests an
-    hour from one client address. Otherwise always ``{sent: true}``."""
+    hour from one client address; 400 ``auth_magic_link_origin_untrusted`` when the
+    request's address is neither declared nor this machine's (``_mail_base``: a fact
+    of the request, not of an account). Otherwise always ``{sent: true}``."""
     _refuse_under_ingress(request)
     await _require_available()
     limiter = ratelimit.login_limiter
@@ -498,6 +551,9 @@ async def request_magic_link(body: MagicLinkRequest, request: Request) -> MagicL
     retry_after = email_factor.address_requests.retry_after(("address", address_key))
     if retry_after or not email_factor.address_requests.allow(("address", address_key)):
         raise _too_soon(retry_after or 60)
+    app_address = await _mail_base(request, body.base)
+    if app_address is None:
+        raise _error(400, "auth_magic_link_origin_untrusted")
     user = await UserRepository.get_by_username(body.username)
     if user is None or user.disabled or not _is_applicable(user):
         return MagicLinkSent()
@@ -508,7 +564,7 @@ async def request_magic_link(body: MagicLinkRequest, request: Request) -> MagicL
     if not email_factor.account_sends.allow(("user", user.id)):
         return MagicLinkSent()
     token = email_factor.magic_links.issue(user.id, user.updated_at, body.remember)
-    link = f"{await app_base(request, body.base)}#{email_factor.LINK_FRAGMENT}={token}"
+    link = f"{app_address}#{email_factor.LINK_FRAGMENT}={token}"
     # In the background: the answer takes the same time whether a mail goes or not.
     spawn(_send_link(user.id, factor.address, link, body.lang), name="magic-link-mail")
     await audit.record_request(

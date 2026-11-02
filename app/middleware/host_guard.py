@@ -141,6 +141,11 @@ def _machine_names() -> frozenset[str]:
     return frozenset(names)
 
 
+def machine_names() -> frozenset[str]:
+    """The machine's short and full names, lowercase."""
+    return _machine_names()
+
+
 def _public_hosts(public_urls: Iterable[str]) -> frozenset[str]:
     hosts: set[str] = set()
     for url in public_urls:

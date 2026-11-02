@@ -373,6 +373,16 @@ async def _account_with_links(mailbox: Mailbox):
     return user
 
 
+# A loopback address: this machine, so the mailed link may hang from it.
+LOCAL = "http://127.0.0.1:8000"
+
+
+def _link_client(**headers: str):
+    client = make_client(base_url=LOCAL)
+    client.headers.update(headers)
+    return client
+
+
 async def _wait_for_mail(mailbox: Mailbox) -> None:
     for _ in range(100):
         if mailbox.mails:
@@ -384,15 +394,15 @@ async def _wait_for_mail(mailbox: Mailbox) -> None:
 async def test_a_sign_in_link_opens_one_session(mailbox, clock):
     await _smtp_profile()
     await _account_with_links(mailbox)
-    async with make_client() as client:
+    async with _link_client() as client:
         assert (await client.get("/api/auth/session")).json()["methods"]["magic_link"] is True
         sent = await client.post(
-            "/api/auth/magic-link", json={"username": ADMIN, "base": "http://test/"}
+            "/api/auth/magic-link", json={"username": ADMIN, "base": LOCAL + "/"}
         )
         assert sent.status_code == 200 and sent.json()["sent"] is True
         await _wait_for_mail(mailbox)
         link = mailbox.last_link()
-        assert link.startswith("http://test/#magic_link=")
+        assert link.startswith(LOCAL + "/#magic_link=")
         token = link.split("=", 1)[1]
         done = await client.post("/api/auth/magic-link/verify", json={"token": token})
         assert done.status_code == 200, done.text
@@ -405,7 +415,7 @@ async def test_a_sign_in_link_opens_one_session(mailbox, clock):
 async def test_a_sign_in_link_expires_after_fifteen_minutes(mailbox, clock):
     await _smtp_profile()
     await _account_with_links(mailbox)
-    async with make_client() as client:
+    async with _link_client() as client:
         await client.post("/api/auth/magic-link", json={"username": ADMIN})
         await _wait_for_mail(mailbox)
         token = mailbox.last_link().split("=", 1)[1]
@@ -418,7 +428,7 @@ async def test_the_answer_is_the_same_for_unknown_or_opted_out_names(mailbox):
     await _smtp_profile()
     await _account_with_links(mailbox)
     await create_user("bob", role="member")
-    async with make_client() as client:
+    async with _link_client() as client:
         answers = [
             (await client.post("/api/auth/magic-link", json={"username": name})).json()
             for name in ("nobody", "bob")
@@ -435,7 +445,7 @@ async def test_with_totp_on_a_sign_in_link_leads_to_the_totp_step(mailbox):
     await TotpRepository.set_pending_secret(user.id, secret)
     assert await TotpRepository.enable(user.id, secret, 0, [])
     # Enabling TOTP moved updated_at: send the link afterwards.
-    async with make_client() as client:
+    async with _link_client() as client:
         await client.post("/api/auth/magic-link", json={"username": ADMIN})
         await _wait_for_mail(mailbox)
         token = mailbox.last_link().split("=", 1)[1]
@@ -447,13 +457,127 @@ async def test_with_totp_on_a_sign_in_link_leads_to_the_totp_step(mailbox):
 async def test_an_account_change_voids_a_sign_in_link(mailbox):
     await _smtp_profile()
     user = await _account_with_links(mailbox)
-    async with make_client() as client:
+    async with _link_client() as client:
         await client.post("/api/auth/magic-link", json={"username": ADMIN})
         await _wait_for_mail(mailbox)
         token = mailbox.last_link().split("=", 1)[1]
         await UserRepository.update(user.id, display_name="Changed")
         refused = await client.post("/api/auth/magic-link/verify", json={"token": token})
         assert refused.status_code == 401
+
+
+async def _ask_link(client, **extra) -> dict:
+    response = await client.post("/api/auth/magic-link", json={"username": ADMIN, **extra})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _no_mail(mailbox: Mailbox) -> None:
+    await asyncio.sleep(0.05)
+    assert mailbox.mails == []
+
+
+@pytest.mark.parametrize(
+    ("base_url", "host"),
+    [
+        ("http://test", "evil.example"),
+        # An IP literal that is not the address this connection reached.
+        (LOCAL, "203.0.113.9"),
+        (LOCAL, "192.168.1.66:8000"),
+        # A local-looking name that is not this machine's.
+        (LOCAL, "evil.local"),
+    ],
+)
+async def test_a_forged_host_or_base_never_ends_up_in_the_mailed_link(mailbox, base_url, host):
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    async with make_client(base_url=base_url) as client:
+        client.headers["host"] = host
+        for base in (f"http://{host}/", None):
+            refused = await client.post(
+                "/api/auth/magic-link", json={"username": ADMIN, "base": base}
+            )
+            assert refused.status_code == 400, refused.text
+            assert _code_of(refused) == "auth_magic_link_origin_untrusted"
+    await _no_mail(mailbox)
+
+
+async def test_with_a_public_address_the_link_uses_it_whatever_the_host(mailbox):
+    from app.repository.auth import AuthSettingsRepository
+
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    await AuthSettingsRepository.update(public_urls=["https://mesh.example.org/radio"])
+    async with make_client() as client:
+        client.headers["host"] = "evil.example"
+        await _ask_link(client, base="http://evil.example/")
+        await _wait_for_mail(mailbox)
+        assert mailbox.last_link().startswith("https://mesh.example.org/radio/#magic_link=")
+        assert "evil" not in mailbox.mails[-1][2]
+
+
+async def test_the_machine_name_and_its_local_name_are_trusted(mailbox, clock, monkeypatch):
+    from app.middleware import host_guard
+
+    monkeypatch.setattr(host_guard, "_machine_names", lambda: frozenset({"meshbox"}))
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    for host in ("meshbox", "meshbox.local:8000"):
+        async with make_client() as client:
+            client.headers["host"] = host
+            await _ask_link(client, base=f"http://{host}/")
+            await _wait_for_mail(mailbox)
+            assert mailbox.last_link().startswith(f"http://{host}/#magic_link=")
+        mailbox.mails.clear()
+        clock["t"] += email_factor.SEND_INTERVAL_S + 1
+
+
+async def test_a_verified_address_without_links_gets_no_mail(mailbox):
+    await _smtp_profile()
+    user = await _account_with_links(mailbox)
+    assert await EmailFactorRepository.set_flags(user.id, magic_link_enabled=False)
+    factor = await EmailFactorRepository.get(user.id)
+    assert factor is not None and factor.address == ADDRESS
+    async with _link_client() as client:
+        assert await _ask_link(client) == {"sent": True, "expires_in": 900}
+    await _no_mail(mailbox)
+
+
+async def test_a_link_sent_before_links_are_turned_off_is_refused(mailbox, test_db):
+    await _smtp_profile()
+    user = await _account_with_links(mailbox)
+    async with _link_client() as client:
+        await _ask_link(client)
+        await _wait_for_mail(mailbox)
+        token = mailbox.last_link().split("=", 1)[1]
+        # Only the opt-in changes (no account generation bump): the verify check alone.
+        async with test_db.tx() as conn:
+            await conn.execute(
+                "UPDATE user_email_factor SET magic_link_enabled = 0 WHERE user_id = ?",
+                (user.id,),
+            )
+        refused = await client.post("/api/auth/magic-link/verify", json={"token": token})
+        assert refused.status_code == 401 and _code_of(refused) == "auth_magic_link_invalid"
+
+
+async def test_sign_in_links_are_limited_per_account(mailbox, clock):
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    # Each request from another client address: only the per-account limit applies.
+    for index in range(email_factor.SEND_MAX_PER_HOUR):
+        async with make_client(base_url=LOCAL, client=(f"10.0.0.{index + 1}", 5000)) as client:
+            await _ask_link(client)
+            await _wait_for_mail(mailbox)
+            if index == 0:
+                mailbox.mails.clear()
+                # A second request within the minute: same answer, no mail.
+                assert await _ask_link(client) == {"sent": True, "expires_in": 900}
+                await _no_mail(mailbox)
+        mailbox.mails.clear()
+        clock["t"] += email_factor.SEND_INTERVAL_S + 1
+    async with make_client(base_url=LOCAL, client=("10.0.0.99", 5000)) as client:
+        assert await _ask_link(client) == {"sent": True, "expires_in": 900}
+    await _no_mail(mailbox)
 
 
 def test_codes_and_masks():

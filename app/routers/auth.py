@@ -184,6 +184,7 @@ _MESSAGES = {
     "auth_email_not_pending": "Ask for a new code to verify this address",
     "auth_email_channel_invalid": "Not an e-mail notification channel that can send",
     "auth_magic_link_invalid": "This sign-in link expired or was already used",
+    "auth_magic_link_origin_untrusted": "Sign-in links need a declared public address for this address",
 }
 
 

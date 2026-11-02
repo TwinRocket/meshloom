@@ -70,6 +70,7 @@
     "auth_email_not_verified": "Verify an e-mail address first.",
     "auth_email_not_pending": "Ask for a new code to verify this address.",
     "auth_email_channel_invalid": "Pick an e-mail notification channel.",
-    "auth_magic_link_invalid": "This sign-in link expired or was already used: ask for a new one."
+    "auth_magic_link_invalid": "This sign-in link expired or was already used: ask for a new one.",
+    "auth_magic_link_origin_untrusted": "Sign-in links cannot be sent from this address: an administrator declares Meshloom's public address under Public addresses in the access settings, or open Meshloom by this machine's own address."
   }
 }

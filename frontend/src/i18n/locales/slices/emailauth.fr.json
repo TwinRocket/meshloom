@@ -70,6 +70,7 @@
     "auth_email_not_verified": "Vérifiez d'abord une adresse e-mail.",
     "auth_email_not_pending": "Demandez un nouveau code pour vérifier cette adresse.",
     "auth_email_channel_invalid": "Choisissez un canal de notification e-mail.",
-    "auth_magic_link_invalid": "Ce lien de connexion a expiré ou a déjà servi : demandez-en un nouveau."
+    "auth_magic_link_invalid": "Ce lien de connexion a expiré ou a déjà servi : demandez-en un nouveau.",
+    "auth_magic_link_origin_untrusted": "Impossible d'envoyer un lien de connexion depuis cette adresse : un administrateur déclare l'adresse publique de Meshloom dans Adresses publiques (réglages d'accès), ou ouvrez Meshloom par l'adresse propre de cette machine."
   }
 }

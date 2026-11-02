@@ -1452,9 +1452,23 @@ OpenID Connect case in `tests/test_auth_oidc.py`. Frontend: `frontend/src/auth/m
   matched; a refusal per account is silent too. Only 503 `auth_email_unavailable` (a fact
   of the instance) and 429 past `ADDRESS_MAX_PER_HOUR` (20) requests an hour from one
   client address (`ratelimit.LoginLimiter.address_key`, else the client address) differ.
-  The link is `app_base(request, base)` (the OpenID Connect rule: this origin or a
-  declared public address, path prefix kept) plus `#magic_link=<token>`: a fragment, so a
-  mail scanner fetching the link never sends the token. The token is 256 bits
+  The link is `_mail_base(request, base)` plus `#magic_link=<token>`: a fragment, so a
+  mail scanner fetching the link never sends the token. `_mail_base` is stricter than
+  the OpenID Connect rule (`app_base`), which is safe only because the provider checks
+  its registered redirect URIs; nothing checks a mailed link, and a forged `Host` (with
+  a matching `base`) would otherwise mail the victim a genuine link to the attacker's
+  page, which reads the fragment and redeems the token. So the link hangs from
+  `app_base(request, base)` only when that falls under a declared public address
+  (`auth_settings.public_urls`, path prefix kept) or when the request's `Host` names
+  this machine (`_host_is_this_machine`: a loopback address, the address the
+  connection reached, `scope["server"]`, `localhost`, the machine's own name or
+  `<name>.local`, or the Remote hostname; not any IP literal or local-looking name, as
+  `host_allowed` accepts, since a client on the LAN can name its own box). Otherwise
+  it is the first declared public address, and without one the request is refused with
+  400 `auth_magic_link_origin_untrusted` before any account lookup (a fact of the
+  request, not of an account): behind a proxy or Docker bridge, declare the public
+  address. Tests: `test_a_forged_host_or_base_never_ends_up_in_the_mailed_link` and the
+  tests around it. The token is 256 bits
   (`MagicLinks`, in memory, 15 minutes, single use, 1024 at most, only its SHA-256 kept),
   bound to the account's `updated_at`, not to a browser (it is opened from a mail app).
   `POST /auth/magic-link/verify {token}` runs the per-address login rules under
@@ -1566,7 +1580,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony; "email" alone or added when the e-mail code is on, with `email_hint`), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code, method?}` (`method: "email"` for an e-mail code) or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
 | `POST /auth/login/2fa/email` | public | `{pending_token, lang?}`: mails an e-mail code for the pending login ("E-mail code and sign-in links"). `{sent, expires_in, resend_in}`; 401 `auth_2fa_pending_invalid`, 429 `auth_email_send_limit` or `auth_rate_limited`, 503 `auth_email_unavailable`, 502 `auth_email_send_failed` |
-| `POST /auth/magic-link` | public | `{username, remember?, base?, lang?}`: `{sent: true, expires_in}` whatever the name; 429 per client address, 503 `auth_email_unavailable` |
+| `POST /auth/magic-link` | public | `{username, remember?, base?, lang?}`: `{sent: true, expires_in}` whatever the name; 429 per client address, 503 `auth_email_unavailable`, 400 `auth_magic_link_origin_untrusted` (no declared public address and the `Host` is not this machine) |
 | `POST /auth/magic-link/verify` | public | `{token}`: opens the session (answers like `GET /auth/session`) or a TOTP pending login; 401 `auth_magic_link_invalid`, 429 `auth_rate_limited` |
 | `GET/PATCH /auth/email/settings` | admin | The SMTP profile: `{channel_id, available, channels[]}` |
 | `GET/PATCH/DELETE /auth/email`, `POST /auth/email/address`, `POST /auth/email/verify` | own account | The account's address and flags; writes need the password (and a TOTP code when TOTP is on) |
@@ -1797,6 +1811,10 @@ strictness:
 
 - The trusted-network provider calls it directly and **always** refuses a
   rejected host, in both modes (see "Trusted networks").
+- Mailed sign-in links do not use it: `host_allowed` accepts any IP literal and
+  `.local` name, which a client can point at its own box. They take the stricter
+  `_host_is_this_machine` of `app/routers/auth_email.py` ("E-mail code and sign-in
+  links").
 - `HostGuardMiddleware` follows `auth_settings.host_guard_mode`. `observe` (the
   default, so a reverse proxy name nobody declared yet keeps working
   after an upgrade) passes the request, logs each new name once (warning) and
