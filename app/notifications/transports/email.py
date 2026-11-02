@@ -16,6 +16,10 @@ private channel), the subject is the neutral "New message" and the body keeps th
 sender and the channel but not the text. SMTP runs inside Apprise (``smtplib``), so
 the host is checked by the egress guard right before the send, but the connection
 cannot be pinned to the validated address (the residual of the Apprise channels).
+
+``send_message()`` holds those checks and the send; the sign-in mails of
+``app/auth/email_factor.py`` (MSHL-426) go through it with their own recipient, so
+they follow the same egress, TLS and plaintext rules as a notification.
 """
 
 from __future__ import annotations
@@ -132,6 +136,47 @@ def render_email(payload: Mapping[str, Any], lang: str, policy: str) -> tuple[st
     return email_subject(payload, language), render_html_email(payload, language)
 
 
+async def send_message(
+    channel: Channel,
+    secrets: Mapping[str, str],
+    subject: str,
+    html: str,
+    *,
+    to: str | None = None,
+) -> SendResult:
+    """One mail through ``channel``'s SMTP settings: the egress guard and the TLS and
+    plaintext rules first, then one Apprise send. ``to`` replaces the channel's own
+    recipients and Cc (the sign-in mails of ``app/auth/email_factor.py``)."""
+    config: dict[str, Any] = {**channel.config, "password": secrets.get("password", "")}
+    if to is not None:
+        config["to"], config["cc"] = to, ""
+    if not config.get("host") or not parse_recipients(str(config.get("to") or "")):
+        return SendResult("failed", error_code="not_configured")
+    host = str(config["host"]).strip()
+    bracketed = f"[{host}]" if ":" in host else host
+    mode = str(config.get("mode") or "starttls")
+    try:
+        target = await validate_destination(
+            f"http://{bracketed}:{config.get('port') or _DEFAULT_PORTS.get(mode, 587)}/",
+            allow_private_network=channel.allow_private_network,
+        )
+    except EgressBlocked as exc:
+        return SendResult("failed", error_code=exc.code)
+    private = tls_check_may_be_off(target.ips)
+    if not channel.verify_tls and not private:
+        return SendResult("failed", error_code="verify_tls_requires_private_destination")
+    if mode == "none" and (config.get("user") or config.get("password")) and not private:
+        return SendResult("failed", error_code="smtp_plaintext_auth_refused")
+    url = build_email_apprise_url(config, verify_tls=channel.verify_tls)
+    try:
+        with secret_scope(*(v for v in (secrets.get("password"),) if v)):
+            ok = await run_blocking(send_email_sync, url, subject, html)
+    except Exception as exc:
+        logger.warning("notification email %s: %s", channel.id, type(exc).__name__)
+        return SendResult("failed", error_code="send_failed")
+    return SEND_OK if ok else SendResult("failed", error_code="send_failed")
+
+
 class EmailTransport:
     async def send(
         self,
@@ -140,32 +185,7 @@ class EmailTransport:
         event: Delivery,
         secrets: dict[str, str],
     ) -> SendResult:
-        config = {**channel.config, "password": secrets.get("password", "")}
-        if not config.get("host") or not parse_recipients(str(config.get("to") or "")):
-            return SendResult("failed", error_code="not_configured")
-        host = str(config["host"]).strip()
-        bracketed = f"[{host}]" if ":" in host else host
-        mode = str(config.get("mode") or "starttls")
-        try:
-            target = await validate_destination(
-                f"http://{bracketed}:{config.get('port') or _DEFAULT_PORTS.get(mode, 587)}/",
-                allow_private_network=channel.allow_private_network,
-            )
-        except EgressBlocked as exc:
-            return SendResult("failed", error_code=exc.code)
-        private = tls_check_may_be_off(target.ips)
-        if not channel.verify_tls and not private:
-            return SendResult("failed", error_code="verify_tls_requires_private_destination")
-        if mode == "none" and (config.get("user") or config.get("password")) and not private:
-            return SendResult("failed", error_code="smtp_plaintext_auth_refused")
         subject, html = render_email(
             event.payload, await channel_language(channel), channel.include_message_text
         )
-        url = build_email_apprise_url(config, verify_tls=channel.verify_tls)
-        try:
-            with secret_scope(*(v for v in (secrets.get("password"),) if v)):
-                ok = await run_blocking(send_email_sync, url, subject, html)
-        except Exception as exc:
-            logger.warning("notification email %s: %s", channel.id, type(exc).__name__)
-            return SendResult("failed", error_code="send_failed")
-        return SEND_OK if ok else SendResult("failed", error_code="send_failed")
+        return await send_message(channel, secrets, subject, html)

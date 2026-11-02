@@ -7,9 +7,10 @@ valid code turns it on and returns the recovery codes, shown once), ``POST
 /auth/2fa/disable`` (password and a code), ``POST /auth/2fa/recovery`` (password
 and a TOTP code; new recovery codes). ``POST /auth/login/2fa`` is the second
 step of a login whose password checked (public, ``PUBLIC_ROUTES``): a TOTP
-code, a recovery code, or a passkey assertion for options from ``POST
+code, a recovery code, a passkey assertion for options from ``POST
 /auth/webauthn/login/options`` with the same pending token
-(``app/routers/auth_webauthn.py``). Codes are
+(``app/routers/auth_webauthn.py``), or with ``method: "email"`` the code mailed by
+``POST /auth/login/2fa/email`` (``app/routers/auth_email.py``, MSHL-426). Codes are
 checked under the login delays (``app/auth/ratelimit.py``): a wrong code counts
 as a failed login for the client's address and the account's name. Rules:
 ``app/auth/totp.py``, ``docs/dev/auth.md``, "Second factor". Nothing here logs a
@@ -37,6 +38,7 @@ from app.routers.auth import (
     AuthSessionResponse,
     OkResponse,
     _check_current_password,
+    _email_code_on,
     _error,
     _instance_name,
     _refuse_under_ingress,
@@ -107,6 +109,9 @@ class LoginSecondFactorRequest(BaseModel):
     pending_token: SecretStr = Field(min_length=1, max_length=128)
     code: SecretStr | None = Field(default=None, min_length=1, max_length=_MAX_CODE_LENGTH)
     passkey: dict[str, Any] | None = None
+    # ``email``: ``code`` is the code mailed for this pending login (MSHL-426); else a
+    # TOTP or recovery code.
+    method: Literal["totp", "email"] | None = None
 
     _passkey_size = field_validator("passkey")(
         lambda value: value if value is None else auth_webauthn._bounded_credential(value)
@@ -116,6 +121,8 @@ class LoginSecondFactorRequest(BaseModel):
     def _one_proof(self) -> LoginSecondFactorRequest:
         if (self.code is None) == (self.passkey is None):
             raise ValueError("send a code or a passkey")
+        if self.method == "email" and self.code is None:
+            raise ValueError("an e-mail code goes in code")
         return self
 
 
@@ -173,6 +180,38 @@ async def _check_code(
     return kind
 
 
+async def _check_email_code(
+    request: Request, user: User, entry: totp.PendingLogin, code: SecretStr, device: str | None
+) -> Literal["email"]:
+    """The code mailed for this pending login, checked like a TOTP code: the login
+    delays first; a wrong one is a failed login for (address, name)."""
+    limiter = ratelimit.login_limiter
+    address = limiter.address_key(request.scope)
+    target = audit.user_target(user.id)
+    try:
+        limiter.check(address, user.username, device)
+    except ratelimit.LoginDelayed as delayed:
+        if delayed.first:
+            await audit.record_request(
+                request,
+                "login",
+                "refused" if delayed.reason == "ip" else "delayed",
+                target=target,
+                details={"reason": delayed.reason, "retry_after": delayed.retry_after_s},
+            )
+        raise _rate_limited(delayed) from None
+    challenge = entry.email_code
+    if challenge is None or not challenge.check(code.get_secret_value()):
+        await limiter.record_failure(address, user.username, device)
+        await audit.record_request(
+            request, "login", "failure", target=target, details={"reason": "second_factor_invalid"}
+        )
+        raise _error(401, "auth_2fa_invalid")
+    entry.email_code = None
+    limiter.record_success(address, user.username, device)
+    return "email"
+
+
 async def _check_passkey(
     request: Request, user: User, token: str, credential: dict[str, Any], device: str | None
 ) -> Literal["passkey"]:
@@ -220,6 +259,22 @@ async def _check_passkey(
     except ratelimit.LoginDelayed as delayed:
         raise _rate_limited(delayed) from None
     return "passkey"
+
+
+async def _factor_answers(
+    user: User, entry: totp.PendingLogin, body: LoginSecondFactorRequest | None
+) -> bool:
+    """The proof sent can answer this pending login: the e-mail code only for a
+    password step of an account with it on, a TOTP or recovery code only with TOTP
+    on, a passkey for either. ``body`` None: whether any factor still answers it."""
+    totp_on = user.totp_enabled_at is not None
+    if body is None:
+        return totp_on or (entry.email and await _email_code_on(user))
+    if body.method == "email":
+        return entry.email and await _email_code_on(user)
+    if body.passkey is not None:
+        return totp_on or (entry.email and await _email_code_on(user))
+    return totp_on
 
 
 @router.get("/2fa", response_model=TotpStatus, dependencies=[Depends(own_account())])
@@ -366,7 +421,7 @@ async def login_second_factor(
         or user is None
         or user.disabled
         or user.updated_at != entry.generation
-        or user.totp_enabled_at is None
+        or not await _factor_answers(user, entry, None)
     ):
         log_auth_failure(
             request.scope,
@@ -386,12 +441,20 @@ async def login_second_factor(
         )
         log_auth_failure(request.scope, "login_2fa", "pending_invalid", username=user.username)
         raise _error(401, "auth_2fa_pending_invalid")
+    if not await _factor_answers(user, entry, body):
+        # A proof of a kind this pending login does not take: a wrong code.
+        totp.pending_logins.put_back(token, entry, failed=True)
+        log_auth_failure(request.scope, "login_2fa", "bad_code", username=user.username)
+        raise _error(401, "auth_2fa_invalid")
     secure = _secure(request)
     presented = await device_cookie.read(request.headers.get("cookie"), secure=secure)
     device = await device_cookie.known_device(presented, user.username)
     try:
         if body.passkey is not None:
             kind = await _check_passkey(request, user, token, body.passkey, device)
+        elif body.method == "email":
+            assert body.code is not None
+            kind = await _check_email_code(request, user, entry, body.code, device)
         else:
             assert body.code is not None
             kind = await _check_code(
@@ -409,9 +472,10 @@ async def login_second_factor(
             )
         raise
     principal = await _start_session(request, response, user, remember=entry.remember)
-    await _remember_device(
-        response, user, device or (presented.device_id if presented else None), secure
-    )
+    if entry.device_cookie:
+        await _remember_device(
+            response, user, device or (presented.device_id if presented else None), secure
+        )
     details: dict[str, object] = {"factor": kind}
     if kind == "recovery":
         details["remaining"] = await TotpRepository.codes_left(user.id)

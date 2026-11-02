@@ -438,6 +438,8 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
     # OpenID Connect links name account ids, which may now be someone else's: an
     # admin links the identities again (docs/dev/auth.md, "OpenID Connect").
     await conn.execute("DELETE FROM oidc_links")
+    # E-mail sign-in opt-ins too (MSHL-426): each account verifies its address again.
+    await conn.execute("DELETE FROM user_email_factor")
     # Push devices outlive the accounts they belonged to (ON DELETE CASCADE would drop
     # them, those the restore just wrote included): unowned while the users are
     # replaced, then given back to the account of the same username (never the same

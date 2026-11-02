@@ -666,7 +666,10 @@ entry through the API calls `forget()` (rows and in-memory cooldown). Both event
 - **Rendering.** The dispatcher passes `rendered=None`: each transport renders from
   `event.payload` in `channel_language()` (the channel's own, `auto` = the instance's) and
   under the channel's `include_message_text`.
-- **E-mail** (`email.py`). One ephemeral `mailto(s)://` Apprise URL per send (never stored,
+- **E-mail** (`email.py`). `send_message(channel, secrets, subject, html, *, to=None)` is the
+  send itself (guard, TLS and plaintext rules, one Apprise send) under `EmailTransport.send`;
+  sign-in mails (`app/auth/email_factor.py`, MSHL-426) call it with `to` set, which replaces the
+  channel's `to` and empties its `cc`. One ephemeral `mailto(s)://` Apprise URL per send (never stored,
   password in `secret_scope`). `to` and `cc` are parsed by `parse_recipients` (newline, comma,
   semicolon). Apprise's mailto plugin sends one message per recipient inside the URL and returns
   one bool, so a refusal fails the delivery while others may be reached: `failed`, never retried.

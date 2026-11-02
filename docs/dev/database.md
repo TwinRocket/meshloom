@@ -429,6 +429,25 @@ provider's `sub`; NULL for an e-mail link until its first sign-in records it),
 the two is set. Index `idx_oidc_links_user`. At most 1000 rows.
 `OidcLinkRepository` (`oidc.py`). Excluded from backups.
 
+### `email_sign_in`
+
+The SMTP profile of the e-mail code and sign-in links (migration 141, MSHL-426,
+`app/auth/email_factor.py`, `docs/dev/auth.md`, "E-mail code and sign-in links"), one
+row (`id = 1`): `channel_id` (the `notification_channels` id of a native `email`
+channel, at most 64 characters; NULL: none, both features refused), `updated_at`. No
+foreign key: a deleted or unusable channel makes the features unavailable.
+`EmailSignInRepository` (`email_factor.py`). Excluded from backups.
+
+### `user_email_factor`
+
+One row per account that gave an address (migration 141): PK `user_id` (FK `users(id)`,
+cascade; also deleted by `UserRepository.delete` and by an accounts restore), `address`
+(verified, lowercased, one recipient, at most 254 characters), `otp_enabled` (0/1: the
+e-mail code after the password), `magic_link_enabled` (0/1: sign-in links),
+`verified_at`, `updated_at`. Every write also moves `users.updated_at`. Codes and links
+are never stored (memory only). `EmailFactorRepository` (`email_factor.py`). Excluded
+from backups.
+
 ### `remote_state`
 
 Meshloom Remote of this instance (migration 138, `app/services/remote.py`,

@@ -31,7 +31,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
-from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
+from app.auth import audit, device_cookie, email_factor, ratelimit, sessions, totp, webauthn
 from app.auth.fail_log import log_auth_failure
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import (
@@ -88,6 +88,7 @@ from app.repository.auth import (
     UsernameTakenError,
     UserRepository,
 )
+from app.repository.email_factor import EmailFactorRepository
 from app.repository.oidc import OidcProvider, OidcProviderRepository
 from app.repository.remote import RemoteRepository
 from app.routers import auth_bans, auth_kiosk, auth_oidc, auth_pairing, auth_tokens
@@ -172,6 +173,17 @@ _MESSAGES = {
     "auth_2fa_not_applicable": (
         "This account has no password: Home Assistant and kiosk accounts sign in another way"
     ),
+    "auth_email_unavailable": (
+        "No e-mail is set up for sign-in: an administrator picks an e-mail channel in "
+        "Settings → Connection → E-mail sign-in"
+    ),
+    "auth_email_send_failed": "The e-mail could not be sent: retry, or ask an administrator",
+    "auth_email_send_limit": "Too many codes sent for this sign-in: enter your password again",
+    "auth_email_address_invalid": "Not a single e-mail address",
+    "auth_email_not_verified": "Verify an e-mail address first",
+    "auth_email_not_pending": "Ask for a new code to verify this address",
+    "auth_email_channel_invalid": "Not an e-mail notification channel that can send",
+    "auth_magic_link_invalid": "This sign-in link expired or was already used",
 }
 
 
@@ -220,6 +232,9 @@ class AuthMethods(BaseModel):
     # (``app/auth/oidc.py``); ``oidc_label`` names its button.
     oidc: bool = False
     oidc_label: str | None = None
+    # "E-mail me a sign-in link" (MSHL-426, ``app/auth/email_factor.py``): an SMTP
+    # profile is set and at least one enabled account allows sign-in links.
+    magic_link: bool = False
 
 
 class SessionUser(BaseModel):
@@ -242,8 +257,10 @@ class SecondFactorChallenge(BaseModel):
     opens the session (``app/auth/totp.py``)."""
 
     pending_token: str
-    methods: list[Literal["totp", "recovery", "passkey"]]
+    methods: list[Literal["totp", "recovery", "passkey", "email"]]
     expires_in: int
+    # With ``email`` in ``methods``: the masked address the code goes to (``o***@x.org``).
+    email_hint: str | None = None
 
 
 class InstanceInfo(BaseModel):
@@ -356,6 +373,23 @@ async def _oidc_provider() -> OidcProvider | None:
         return None
 
 
+async def _magic_link_offered() -> bool:
+    """The login page's "E-mail me a sign-in link"; False when anything is unreadable."""
+    try:
+        return await EmailFactorRepository.any_magic_link() and await email_factor.available()
+    except Exception:
+        logger.warning("E-mail sign-in settings unreadable: sign-in link hidden")
+        return False
+
+
+async def _email_code_on(user: User) -> bool:
+    """The account asks for an e-mail code after its password (MSHL-426)."""
+    if user.provider != "local" or user.role == "kiosk":
+        return False
+    factor = await EmailFactorRepository.get(user.id)
+    return factor is not None and factor.otp_enabled
+
+
 async def _session_payload(
     principal: Principal | None, via: Via, request: Request
 ) -> AuthSessionResponse:
@@ -381,6 +415,7 @@ async def _session_payload(
             passkey=await webauthn.available(request.scope),
             oidc=oidc_on,
             oidc_label=(oidc_provider.label or None) if oidc_on and oidc_provider else None,
+            magic_link=not under_ingress and not setup_required and await _magic_link_offered(),
         ),
         secure=_secure(request),
     )
@@ -647,8 +682,8 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
         )
         log_auth_failure(request.scope, "login", "invalid_credentials", username=body.username)
         raise _error(401, "auth_invalid_credentials")
-    if user.totp_enabled_at is not None:
-        return await _second_factor_challenge(request, user, body.remember)
+    if user.totp_enabled_at is not None or await _email_code_on(user):
+        return await _second_factor_challenge(request, user, body.remember, email=True)
     limiter.record_success(address, body.username, device)
     principal = await _start_session(request, response, user, remember=body.remember)
     await _remember_device(
@@ -661,26 +696,48 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
 
 
 async def _second_factor_challenge(
-    request: Request, user: User, remember: bool
+    request: Request,
+    user: User,
+    remember: bool,
+    *,
+    email: bool = False,
+    device_cookie: bool = True,
 ) -> AuthSessionResponse:
-    """A password that checked for an account with a second factor: no session
+    """A first step that checked for an account with a second factor: no session
     and no limiter success yet (a wrong code counts as a failed login), only a
-    pending-login token for ``POST /auth/login/2fa`` (``app/auth/totp.py``)."""
+    pending-login token for ``POST /auth/login/2fa`` (``app/auth/totp.py``).
+
+    ``email``: the e-mail code may answer it (the password step only: an OpenID
+    Connect sign-in or a sign-in link never asks for it, MSHL-426). ``device_cookie``:
+    the session it opens gets a known-device cookie (a password was checked)."""
     # Read again: a rehash on this login moved updated_at after ``user`` was read.
     current = await UserRepository.get(user.id)
     if current is None:
         raise _error(401, "auth_invalid_credentials")
+    factor = await EmailFactorRepository.get(current.id) if email else None
+    email_on = factor is not None and factor.otp_enabled and await _email_code_on(current)
     token = totp.pending_logins.issue(
         current.id,
         current.updated_at,
         totp.client_binding(client_ip(request.scope), request.headers.get("user-agent")),
         remember,
+        email=email_on,
+        device_cookie=device_cookie,
     )
+    totp_on = current.totp_enabled_at is not None
     await audit.record_request(
-        request, "login", "pending", target=audit.user_target(user.id), details={"factor": "totp"}
+        request,
+        "login",
+        "pending",
+        target=audit.user_target(user.id),
+        details={"factor": "totp" if totp_on else "email"},
     )
     payload = await _session_payload(None, _via(request), request)
-    methods: list[Literal["totp", "recovery", "passkey"]] = ["totp", "recovery"]
+    methods: list[Literal["totp", "recovery", "passkey", "email"]] = (
+        ["totp", "recovery"] if totp_on else []
+    )
+    if email_on:
+        methods.append("email")
     # A passkey too, when the account has one and this request can run a ceremony.
     if payload.methods.passkey and await PasskeyRepository.count_for_user(current.id):
         methods.append("passkey")
@@ -688,6 +745,7 @@ async def _second_factor_challenge(
         pending_token=token,
         methods=methods,
         expires_in=int(totp.PENDING_TTL_S),
+        email_hint=email_factor.mask_address(factor.address) if email_on and factor else None,
     )
     return payload
 

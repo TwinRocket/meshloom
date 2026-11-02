@@ -562,6 +562,27 @@ def test_disable_2fa_removes_the_factor_and_writes_an_audit_row(dbfile, capsys):
     assert len(_query(dbfile, "SELECT 1 FROM auth_audit")) == 1
 
 
+def test_disable_2fa_turns_the_email_code_off(dbfile, capsys):
+    _add_user(dbfile, "alice")
+    uid = _query(dbfile, "SELECT id FROM users")[0][0]
+    conn = sqlite3.connect(dbfile)
+    conn.execute(
+        "INSERT INTO user_email_factor (user_id, address, otp_enabled, magic_link_enabled,"
+        " verified_at, updated_at) VALUES (?, 'a@example.org', 1, 1, 1, 1)",
+        (uid,),
+    )
+    conn.commit()
+    conn.close()
+    assert run(dbfile, "disable-2fa", "alice") == 0
+    assert "removed" in capsys.readouterr().out
+    assert _query(dbfile, "SELECT otp_enabled, magic_link_enabled FROM user_email_factor") == [
+        (0, 1)
+    ]
+    assert _query(dbfile, "SELECT action, details FROM auth_audit") == [
+        ("totp.disabled", '{"email_factor":"off","username":"alice"}')
+    ]
+
+
 def test_disable_2fa_refuses_an_unknown_user_and_an_unmigrated_database(dbfile, capsys):
     assert run(dbfile, "disable-2fa", "nobody") == 1
     assert "no such user" in capsys.readouterr().err

@@ -61,6 +61,11 @@ AuditAction = Literal[
     "totp.recovery_regenerated",
     "passkey.added",
     "passkey.removed",
+    # The e-mail code and sign-in links (`app/routers/auth_email.py`, MSHL-426), target
+    # `user:<id>`: an address verified, the opt-ins changed, the address forgotten.
+    "email_factor.verified",
+    "email_factor.changed",
+    "email_factor.removed",
     # Code that runs on the instance: the plugins (`app/routers/plugins.py`, target
     # `plugin:<instance_id>`). The `bot.*`/`bots.*` actions are no longer written since
     # 5.0.0 (bots are plugins, MSHL-192); kept so 4.18 rows still read.

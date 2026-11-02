@@ -20,9 +20,11 @@ export interface AuthUser {
 export interface SecondFactorChallenge {
   /** Sent back with a code to `POST /auth/login/2fa`. */
   pending_token: string;
-  methods: ('totp' | 'recovery' | 'passkey')[];
+  methods: ('totp' | 'recovery' | 'passkey' | 'email')[];
   /** Seconds before the password has to be entered again. */
   expires_in: number;
+  /** With `email`: the masked address the code goes to (`o***@example.org`). */
+  email_hint?: string;
 }
 
 /** `GET /auth/session`, and the answer of `POST /auth/login` and `POST /auth/setup`. */
@@ -38,6 +40,8 @@ export interface AuthSessionInfo {
     oidc?: boolean;
     /** The provider's button label (absent: a generic one). */
     oidc_label?: string;
+    /** "E-mail me a sign-in link": an SMTP profile is set and an account allows links. */
+    magic_link?: boolean;
   };
   /** Whether the server saw the request as https (a trusted proxy's `X-Forwarded-Proto`). */
   secure?: boolean;
@@ -407,4 +411,32 @@ export interface OidcLinkCreate {
   user_id: number;
   subject?: string;
   email?: string;
+}
+
+/** `GET /auth/email` (own account): the sign-in address and its opt-ins (MSHL-426). */
+export interface EmailFactorStatus {
+  /** A local account with a password, outside `kiosk`. */
+  applicable: boolean;
+  /** An SMTP profile is set: codes and links can be sent. */
+  available: boolean;
+  address?: string | null;
+  otp_enabled: boolean;
+  magic_link_enabled: boolean;
+  /** A code was sent to this address, waiting for `POST /auth/email/verify`. */
+  pending_address?: string | null;
+}
+
+/** A code was mailed (`POST /auth/email/address`, `POST /auth/login/2fa/email`). */
+export interface EmailCodeSent {
+  sent: boolean;
+  expires_in: number;
+  resend_in: number;
+  email_hint: string;
+}
+
+/** `GET/PATCH /auth/email/settings` (admin): the channel that sends the sign-in mails. */
+export interface EmailSignInSettings {
+  channel_id?: string | null;
+  available: boolean;
+  channels: { id: string; name: string; enabled: boolean; usable: boolean }[];
 }

@@ -69,7 +69,13 @@ async def test_public_routes_answer_anonymously_and_minimally():
             "authenticated": False,
             "setup_required": False,
             "setup_code_required": False,
-            "methods": {"password": True, "ingress": False, "passkey": False, "oidc": False},
+            "methods": {
+                "password": True,
+                "ingress": False,
+                "passkey": False,
+                "oidc": False,
+                "magic_link": False,
+            },
             "secure": False,
         }
         assert "instance" not in body and "version" not in session.text

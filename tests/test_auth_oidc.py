@@ -460,6 +460,28 @@ async def test_an_account_with_totp_still_owes_its_code(provider):
         assert done.json()["user"]["username"] == "alice"
 
 
+async def test_an_oidc_sign_in_never_asks_for_the_email_code(provider):
+    """MSHL-426: the e-mail code follows a password only; TOTP is still asked."""
+    from app.repository.email_factor import EmailFactorRepository
+
+    alice = await create_user("alice", role="member")
+    await EmailFactorRepository.set_address(alice.id, "alice@example.org")
+    await EmailFactorRepository.set_flags(alice.id, otp_enabled=True)
+    await _configure(provider)
+    await OidcLinkRepository.add(alice.id, provider.issuer, subject="user-1")
+    async with make_client() as client:
+        response = await _sign_in(provider, client)
+        assert response.headers["location"] == HOME
+        assert (await _session(client))["user"]["username"] == "alice"
+    secret = totp.new_secret()
+    await TotpRepository.set_pending_secret(alice.id, secret)
+    assert await TotpRepository.enable(alice.id, secret, 0, [])
+    async with make_client() as client:
+        response = await _sign_in(provider, client)
+        fragment = parse_qs(urlsplit(response.headers["location"]).fragment)
+        assert fragment["methods"] == ["totp,recovery"]
+
+
 async def test_off_or_incomplete_means_no_button_and_no_flow(provider):
     await create_user()
     await _configure(provider, enabled=False)

@@ -349,18 +349,30 @@ async def _disable_user(args: argparse.Namespace) -> int:
 
 
 async def _disable_2fa(args: argparse.Namespace) -> int:
-    """The recovery path of a lost authenticator: removes the TOTP factor (or a
-    pending enrolment) and the recovery codes. Sessions stay."""
+    """The recovery path of a lost authenticator or mailbox: removes the TOTP factor
+    (or a pending enrolment) and the recovery codes, and turns the e-mail code off
+    (MSHL-426; the verified address and sign-in links stay). Sessions stay."""
     if not await _has_table("recovery_codes"):
         raise CliError(
             "this database has no recovery_codes table: start Meshloom once on this version "
             "so it migrates the database, then retry"
         )
     user = await _find_user(args.username)
-    if not await TotpRepository.disable(user.id):
+    totp_removed = await TotpRepository.disable(user.id)
+    email_off = False
+    if await _has_table("user_email_factor"):
+        from app.repository.email_factor import EmailFactorRepository
+
+        factor = await EmailFactorRepository.get(user.id)
+        if factor is not None and factor.otp_enabled:
+            email_off = (
+                await EmailFactorRepository.set_flags(user.id, otp_enabled=False) is not None
+            )
+    if not totp_removed and not email_off:
         print(f"{user.username} has no second factor.")
         return 0
-    await _audit(args, audit.user_target(user.id), username=user.username)
+    details: dict[str, str] = {"email_factor": "off"} if email_off else {}
+    await _audit(args, audit.user_target(user.id), username=user.username, **details)
     print(f"Second factor of {user.username} removed; it signs in with its password alone.")
     return 0
 
@@ -610,7 +622,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     cmd = add(
         "disable-2fa",
-        "remove a user's two-factor authentication and recovery codes (lost authenticator)",
+        "remove a user's two-factor authentication, recovery codes and e-mail code"
+        " (lost authenticator or mailbox)",
     )
     cmd.add_argument("username")
 

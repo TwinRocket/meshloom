@@ -58,6 +58,9 @@ import type {
   AuthUserRow,
   AuthSessionInfo,
   AuthSettings,
+  EmailCodeSent,
+  EmailFactorStatus,
+  EmailSignInSettings,
   IpBansView,
   IpBanWhitelistEntry,
   OidcLink,
@@ -256,6 +259,11 @@ export function formatApiError(err: unknown, t: TFunction): string {
 
 /** Session-layer side effects of a failed API call: a lost session, a forced change, a refusal. */
 /** `base=<the app's address>`: the OpenID Connect redirect URI keeps its subpath. */
+/** The mail language the server takes (`fr` or `en`) from an i18n language tag. */
+function mailLanguage(lang: string): 'fr' | 'en' {
+  return lang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+}
+
 function oidcBaseQuery(): string {
   return new URLSearchParams({ base: appBase() }).toString();
 }
@@ -321,6 +329,10 @@ const AUTH_FORM_PATHS = new Set([
   // The passkey sign-in answers its own 401 (a wrong assertion, an expired pending login).
   '/auth/webauthn/login/options',
   '/auth/webauthn/login/verify',
+  // The e-mail code and sign-in links answer their own 401 (MSHL-426).
+  '/auth/login/2fa/email',
+  '/auth/magic-link',
+  '/auth/magic-link/verify',
 ]);
 
 /** Seconds from a `Retry-After` header (delta-seconds form), or null. */
@@ -487,7 +499,9 @@ export const api = {
     fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   /** `POST /auth/login/2fa`: the second step, the pending token of the first and a code. */
   authLogin2fa: (
-    body: { pending_token: string; code: string } | { pending_token: string; passkey: object }
+    body:
+      | { pending_token: string; code: string; method?: 'totp' | 'email' }
+      | { pending_token: string; passkey: object }
   ) =>
     fetchJson<AuthSessionInfo>('/auth/login/2fa', { method: 'POST', body: JSON.stringify(body) }),
   /** Passkeys (`/auth/webauthn/*`): options and answers are the browser's JSON, passed through. */
@@ -516,6 +530,52 @@ export const api = {
     fetchJson<{ ok: boolean }>(`/auth/webauthn/credentials/${id}`, {
       method: 'DELETE',
       body: JSON.stringify({ password }),
+    }),
+  /** E-mail code and sign-in links (MSHL-426). `lang` is the language of the mail. */
+  sendLoginEmailCode: (pending_token: string, lang: string) =>
+    fetchJson<EmailCodeSent>('/auth/login/2fa/email', {
+      method: 'POST',
+      body: JSON.stringify({ pending_token, lang: mailLanguage(lang) }),
+    }),
+  requestMagicLink: (body: { username: string; remember: boolean; base: string; lang: string }) =>
+    fetchJson<{ sent: boolean; expires_in: number }>('/auth/magic-link', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, lang: mailLanguage(body.lang) }),
+    }),
+  verifyMagicLink: (token: string) =>
+    fetchJson<AuthSessionInfo>('/auth/magic-link/verify', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  getEmailFactor: () => fetchJson<EmailFactorStatus>('/auth/email', { cache: 'no-store' }),
+  startEmailAddress: (body: { password: string; address: string; code?: string; lang: string }) =>
+    fetchJson<EmailCodeSent>('/auth/email/address', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, lang: mailLanguage(body.lang) }),
+    }),
+  verifyEmailAddress: (code: string) =>
+    fetchJson<EmailFactorStatus>('/auth/email/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  patchEmailFactor: (body: {
+    password: string;
+    code?: string;
+    otp_enabled?: boolean;
+    magic_link_enabled?: boolean;
+  }) =>
+    fetchJson<EmailFactorStatus>('/auth/email', { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteEmailFactor: (password: string) =>
+    fetchJson<{ ok: boolean }>('/auth/email', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    }),
+  getEmailSignInSettings: () =>
+    fetchJson<EmailSignInSettings>('/auth/email/settings', { cache: 'no-store' }),
+  patchEmailSignInSettings: (channel_id: string | null) =>
+    fetchJson<EmailSignInSettings>('/auth/email/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ channel_id }),
     }),
   getTotpStatus: () => fetchJson<TotpStatus>('/auth/2fa', { cache: 'no-store' }),
   enrolTotp: (password: string) =>

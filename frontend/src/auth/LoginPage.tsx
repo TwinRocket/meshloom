@@ -1,6 +1,6 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyRound, LogIn, TriangleAlert } from 'lucide-react';
+import { KeyRound, LogIn, Mail, TriangleAlert } from 'lucide-react';
 
 import { api, formatApiError } from '../api';
 import { Button } from '../components/ui/button';
@@ -8,7 +8,8 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
-import { startOidcSignIn, takeOidcReturn } from './oidc';
+import { takeMagicLink } from './magicLink';
+import { appBase, startOidcSignIn, takeOidcReturn } from './oidc';
 import {
   formatPasskeyError,
   passkeyLoginAvailable,
@@ -31,6 +32,8 @@ export function LoginForm({
   oidc,
   initialChallenge = null,
   initialError = null,
+  magicLink = false,
+  magicLinkToken = null,
   onDone,
 }: {
   initialUsername?: string;
@@ -43,9 +46,13 @@ export function LoginForm({
   initialChallenge?: SecondFactorChallenge | null;
   /** Back from the OpenID Connect provider with a refusal, already translated. */
   initialError?: string | null;
+  /** Offer "E-mail me a sign-in link" (the server's `methods.magic_link`). */
+  magicLink?: boolean;
+  /** Opened from a sign-in link: its token, traded for a session at once. */
+  magicLinkToken?: string | null;
   onDone: (session: AuthSessionInfo) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
@@ -53,6 +60,57 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(initialError);
   // The password checked and the account owes a code: the second step replaces the form.
   const [challenge, setChallenge] = useState<SecondFactorChallenge | null>(initialChallenge);
+  // "E-mail me a sign-in link": the form asks for the username only; `linkSent` after.
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkSent, setLinkSent] = useState(false);
+  const linkTried = useRef(false);
+
+  // Opened from a sign-in link: trade its token once (a StrictMode double effect too).
+  useEffect(() => {
+    if (!magicLinkToken || linkTried.current) return;
+    linkTried.current = true;
+    setBusy(true);
+    api
+      .verifyMagicLink(magicLinkToken)
+      .then((session) => {
+        if (!session.authenticated && session.second_factor) {
+          setChallenge(session.second_factor);
+          setBusy(false);
+          return;
+        }
+        const reason = noSessionReason(session);
+        if (reason) {
+          setError(t(`errors.${reason}`));
+          setBusy(false);
+          return;
+        }
+        onDone(session);
+      })
+      .catch((err) => {
+        setError(formatApiError(err, t));
+        setBusy(false);
+      });
+  }, [magicLinkToken, onDone, t]);
+
+  async function submitLink(event: FormEvent) {
+    event.preventDefault();
+    if (busy || !username.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.requestMagicLink({
+        username: username.trim(),
+        remember,
+        base: appBase(),
+        lang: i18n.language,
+      });
+      setLinkSent(true);
+    } catch (err) {
+      setError(formatApiError(err, t));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const restart = useCallback((reason?: string) => {
     setChallenge(null);
@@ -111,6 +169,56 @@ export function LoginForm({
     return <SecondFactorStep challenge={challenge} onDone={onDone} onRestart={restart} />;
   }
 
+  if (linkMode) {
+    return (
+      <form onSubmit={submitLink} className="space-y-4" noValidate>
+        <p className="text-sm text-muted-foreground">{t('auth.magicLink.help')}</p>
+        <div className="space-y-1.5">
+          <Label htmlFor="auth-link-username">{t('auth.username')}</Label>
+          <Input
+            id="auth-link-username"
+            name="username"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoFocus
+            value={username}
+            onChange={(event) => {
+              setUsername(event.target.value);
+              setLinkSent(false);
+            }}
+          />
+        </div>
+        {linkSent && (
+          <p role="status" className="text-sm text-foreground">
+            {t('auth.magicLink.sent')}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <Button type="submit" className="w-full" disabled={busy || !username.trim()}>
+          <Mail className="mr-2 h-4 w-4" aria-hidden="true" />
+          {t(linkSent ? 'auth.magicLink.sendAgain' : 'auth.magicLink.send')}
+        </Button>
+        <button
+          type="button"
+          className="text-sm text-foreground underline underline-offset-2 hover:text-primary"
+          onClick={() => {
+            setLinkMode(false);
+            setLinkSent(false);
+            setError(null);
+          }}
+        >
+          {t('auth.magicLink.back')}
+        </button>
+      </form>
+    );
+  }
+
   return (
     <form onSubmit={submit} className="space-y-4" noValidate>
       <div className="space-y-1.5">
@@ -164,7 +272,7 @@ export function LoginForm({
       <Button type="submit" className="w-full" disabled={busy || !username.trim() || !password}>
         {t('auth.login.submit')}
       </Button>
-      {(passkey || oidc) && (
+      {(passkey || oidc || magicLink) && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground" aria-hidden="true">
           <span className="h-px flex-1 bg-border" />
           {t('auth.passkey.or')}
@@ -200,6 +308,21 @@ export function LoginForm({
           {t('auth.oidc.signIn', { name: oidc.label || t('auth.oidc.defaultLabel') })}
         </Button>
       )}
+      {magicLink && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={busy}
+          onClick={() => {
+            setLinkMode(true);
+            setError(null);
+          }}
+        >
+          <Mail className="mr-2 h-4 w-4" aria-hidden="true" />
+          {t('auth.magicLink.button')}
+        </Button>
+      )}
     </form>
   );
 }
@@ -216,6 +339,8 @@ export function LoginPage({
   const { t } = useTranslation();
   // Back from the OpenID Connect provider (read once, the address bar cleaned).
   const [oidcReturn] = useState(takeOidcReturn);
+  // Opened from a sign-in link (read once, the fragment cleaned).
+  const [magicLinkToken] = useState(takeMagicLink);
   return (
     <AuthLayout title={t('auth.login.title')} description={t('auth.login.description')}>
       {behindUntrustedHttpsProxy(session) && (
@@ -244,6 +369,8 @@ export function LoginPage({
         oidc={session?.methods.oidc ? { label: session.methods.oidc_label } : undefined}
         initialChallenge={oidcReturn?.challenge ?? null}
         initialError={oidcReturn?.error ? t(`errors.${oidcReturn.error}`) : null}
+        magicLink={session?.methods.magic_link === true}
+        magicLinkToken={magicLinkToken}
       />
       {passkeyUnavailableHere(session) && (
         <p role="note" className="text-xs text-muted-foreground">
