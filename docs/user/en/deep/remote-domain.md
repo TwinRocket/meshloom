@@ -41,7 +41,7 @@ Most registrars call it “URL redirect”, “web forwarding” or “domain fo
 
 ## Test it from Meshloom
 
-As an administrator, open **Settings → Remote access**. Once Meshloom Remote is on and registered, the **Your own domain** group appears. Type your domain and press **Test**. Your instance sends one request to that domain (it tries HTTPS, then HTTP if HTTPS fails) and does not follow the redirect. It never contacts the relay for this. The result is one of:
+As an administrator, open **Settings → Remote access**. Meshloom Remote needs Meshloom Community on (see [Features that need Community](/en/docs/deep/community/#features-that-need-community)). Once Meshloom Remote is on and registered, the **Your own domain** group appears. Type your domain and press **Test**. Your instance sends one request to that domain (it tries HTTPS, then HTTP if HTTPS fails) and does not follow the redirect. It never contacts the relay for this. The result is one of:
 
 | Result | Meaning | What to do |
 |---|---|---|

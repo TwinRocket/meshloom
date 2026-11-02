@@ -28,6 +28,12 @@ from app.services.instance_identity import REMOTE_SERVICE, fingerprint, instance
 from app.services.remote_passes import PassState, verify_pass
 from tests.share_fakes import PUBLIC_IP, Dns, Recorder, json_response
 
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 _RealAsyncClient = httpx.AsyncClient
 VECTOR_PASSES = json.loads(
     (Path(__file__).parent / "fixtures" / "remote_frames_vectors.json").read_text()

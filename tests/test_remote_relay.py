@@ -32,6 +32,11 @@ from tests.remote_relay_fakes import HOST, SLUG, FakeConnection, FakeRelay
 from tests.share_fakes import PUBLIC_IP, Dns, Recorder, json_response
 
 
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 class EchoApp:
     """A small ASGI app that records each scope and echoes what it gets."""
 

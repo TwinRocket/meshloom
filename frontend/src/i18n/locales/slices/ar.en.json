@@ -9,6 +9,8 @@
       "intro": "Shorten long links and share files. Off until you turn it on.",
       "enable": "Turn on link and file sharing",
       "unreachable": "The sharing service is not answering. Try again later.",
+      "communityOff": "Sharing needs Meshloom Community. Community is off, so sharing is paused; your settings are kept.",
+      "openCommunity": "Open Community settings",
       "banned": {
         "title": "Sharing banned for this Meshloom",
         "body": "The sharing service banned this Meshloom for 12 hours; links already shared still work. A mistake? Write to <email>ban@meshloom.app</email>."

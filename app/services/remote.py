@@ -9,6 +9,12 @@ passes this instance signs (``app/services/remote_passes.py``).
 
 - **Opt-in and egress.** ``remote_state.enabled`` (off by default). Every registry
   request checks it first and answers 409 ``remote_disabled`` without any connection.
+- **Community required** (MSHL-445). Remote runs on TwinRocket infrastructure, so it
+  needs Community on (``meshloom_community.community_enabled()``): ``enable()`` and
+  every registry request answer 409 ``remote_community_off`` while Community is off,
+  and the relay client stays disconnected. Turning Community off pauses Remote: the
+  stored opt-in, the registration and the devices are kept, the relay link closes and
+  the pending access requests are dropped; turning Community on again resumes it.
   Requests go through the egress guard to exactly ``RELAY_HOST`` (HTTPS, no redirect,
   answer capped), each with a fresh instance JWT (``mint_remote_jwt``).
 - **Registration.** ``POST /v1/instances`` (idempotent) stores ``slug``, ``hostname``
@@ -140,6 +146,7 @@ REMOTE_ERRORS: dict[str, tuple[int, str]] = {
     "remote_device_not_found": (404, "No such Remote device"),
     "remote_access_request_not_found": (404, "No pending access request matches"),
     "remote_offline": (503, "The relay link is not connected"),
+    "remote_community_off": (409, "Meshloom Remote needs Community: turn Community on first"),
 }
 
 
@@ -314,6 +321,8 @@ async def _registry(
     state = await RemoteRepository.get_state()
     if not state.enabled:
         raise RemoteError("remote_disabled")
+    if not await community_on():
+        raise RemoteError("remote_community_off")
     host = RELAY_HOST
     headers = {
         "Accept": "application/json",
@@ -385,8 +394,11 @@ async def register(actor: AuditActor) -> RemoteState:
 
 async def enable(actor: AuditActor) -> RemoteState:
     """Turn Remote on and register when not registered yet. A registry failure is kept
-    in ``last_error`` (Remote stays on; enabling again retries)."""
+    in ``last_error`` (Remote stays on; enabling again retries). Refused with 409
+    ``remote_community_off`` while Community is off: nothing is written."""
     async with _lock():
+        if not await community_on():
+            raise RemoteError("remote_community_off")
         before = await RemoteRepository.get_state()
         if not before.enabled:
             await RemoteRepository.update_state(enabled=True)
@@ -479,6 +491,30 @@ async def _reset_after_restore(source: RestoreSource) -> None:
 
 
 register_on_restore("remote", _reset_after_restore)
+
+
+async def community_on() -> bool:
+    """Community is on: Remote may reach the relay (MSHL-445)."""
+    from app.services.meshloom_community import community_enabled
+
+    return await community_enabled()
+
+
+async def _on_community_change() -> None:
+    """Community turned on or off: the relay client connects or disconnects again.
+    Off, the pending access requests go (no relay link can answer them)."""
+    if not await community_on():
+        _rt.access = {}
+    await _notify()
+
+
+def _listen_to_community() -> None:
+    from app.services.meshloom_community import add_enabled_change_listener
+
+    add_enabled_change_listener(_on_community_change)
+
+
+_listen_to_community()
 
 
 # ---------------------------------------------------------------- gate and passes

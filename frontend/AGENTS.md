@@ -555,6 +555,11 @@ revoke-all is `own_account`, and those five (and the custom domain test) are sho
   `app/services/remote_relay.py`; `tests/test_remote_ui_strings.py` pins the copy and checks
   every state and every `errors.remote_*` code (`REMOTE_ERRORS`, the relay refusals) in en and fr.
   The section polls `GET /api/remote` every 15 s.
+- **Community required** (MSHL-445). With `community_enabled: false` the badge is
+  `needs_community` (Remote off: no enable button) or `community_off` (Remote on, paused), and
+  the action is a button that opens the Community section (`onOpenSection('community')`). The
+  Community leave dialog (`CommunityLeaveDialog`) says that Remote and sharing pause too
+  (`settings.community.optOut.dependents`, slice `c`).
 - **Custom domain** (`RemoteDomainPanel`, admin, registered): the domain input and the "Test"
   button (`POST /api/remote/domain/test`). The result and its reasons are
   `settings.remote.domain.result.<result>` / `.reason.<code>`; the host a domain redirects to is
@@ -752,7 +757,7 @@ checkbox (`settings.share.consent.accept`) linking the share service's own `/ter
 `{share_enabled: true}` is sent only on confirm, and cancelling, closing or an
 unticked box leaves it off. Turning it off needs no consent. The status comes from
 `stores/shareStatusStore.ts` (`useShareStatus()`, `loadShareStatus()`; module
-store, refreshed after every settings change; a request aborts after 10 s and sets `error`, which the composer's File tab shows as a message with a Try again button, disabled and labelled Checking while that retry is in flight). A failing request sets `error` only if no status was stored while it was in flight (`version` counter): a newer answer wins. `unreachable: true` (the share client's breaker is open, known locally) keeps the
+store, refreshed after every settings change; a request aborts after 10 s and sets `error`, which the composer's File tab shows as a message with a Try again button, disabled and labelled Checking while that retry is in flight). A failing request sets `error` only if no status was stored while it was in flight (`version` counter): a newer answer wins. `community_enabled: false` (sharing needs Community, MSHL-445; `enabled` is then false) keeps the enable checkbox disabled with `settings.share.communityOff` and, when the modal passes `onOpenSection`, a button to the Community section; the 409 `share_community_off` is in slice `ah`. `unreachable: true` (the share client's breaker is open, known locally) keeps the
 enable checkbox disabled with an explanation, and the confirm button too, since the
 terms live on the service and could not be read; turning off stays possible.
 `dm_encryption_available: false`

@@ -112,17 +112,23 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
   call path around it. The few bounded exceptions and the "waiting for a
   position" level are in `app/AGENTS.md`. The radio's position leaves only in
   the IATA bind and the on-click IATA suggestion.
-- **Share egress.** Sharing off (`share_enabled`, the default) means no
+- **Share egress.** Sharing off (`share_enabled`, the default) or Community off means no
   connection at all to the share service. Every request goes through
   `share_request()` in `app/services/share.py` (`share_egress_state()`, then the
   egress guard with `SHARE_HOST` as the only allowed host), never a separate path;
   `tests/test_share_off_no_egress.py` sweeps it (`app/AGENTS.md`).
-- **Remote egress.** Meshloom Remote off (`remote_state.enabled`, the default) means
-  no connection at all to `relay.meshloom.link`. Every registry request goes through
-  `_registry()` in `app/services/remote.py` (the opt-in, then the egress guard with
-  `RELAY_HOST` as the only allowed host); the relay socket
-  (`app/services/remote_relay.py`) opens only while Remote is on and registered, to
-  `wss://<RELAY_HOST>/v1/connect` only, whatever the Community state.
+- **Features on TwinRocket infrastructure need Community** (MSHL-445). Meshloom Remote
+  and Links & Files refuse to turn on while Community is off (409 `remote_community_off`,
+  `share_community_off`) and pause, settings kept, when it is turned off
+  (`meshloom_community.add_enabled_change_listener`). The live map and the observer
+  publisher are Community itself. A new feature backed by TwinRocket servers follows the
+  same rule.
+- **Remote egress.** Meshloom Remote off (`remote_state.enabled`, the default) or
+  Community off means no connection at all to `relay.meshloom.link`. Every registry
+  request goes through `_registry()` in `app/services/remote.py` (the opt-in and
+  Community, then the egress guard with `RELAY_HOST` as the only allowed host); the relay
+  socket (`app/services/remote_relay.py`) opens only while Remote and Community are on
+  and Remote is registered, to `wss://<RELAY_HOST>/v1/connect` only.
   `tests/test_remote_off_no_egress.py` and `tests/test_community_off_no_egress.py`
   sweep both directions (`docs/dev/remote.md`).
 - **Relayed requests.** The relay client dispatches each relayed stream in process

@@ -28,6 +28,7 @@ function status(enabled: boolean): ShareStatus {
     enabled,
     host: 'meshl.ink',
     hosts: ['meshl.ink'],
+    community_enabled: true,
     identity_ready: true,
     dm_encryption_available: true,
     banned: false,

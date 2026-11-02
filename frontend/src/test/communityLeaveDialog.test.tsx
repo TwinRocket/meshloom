@@ -68,6 +68,8 @@ describe('Community exit dialog and unconfirmed opt-out', () => {
     expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.kept'));
     expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.position'));
     expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.advert'));
+    // Remote and sharing need Community (MSHL-445): the dialog says they pause too.
+    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.dependents'));
     const mail = within(dialog).getByRole('link', { name: 'privacy@meshloom.app' });
     expect(mail).toHaveAttribute('href', 'mailto:privacy@meshloom.app');
     expect(dialog.textContent ?? '').not.toMatch(/sealed|scell/i);

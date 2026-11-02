@@ -5,7 +5,8 @@ pinned clients are ``httpx.AsyncClient`` too). With ``share_enabled`` false, eve
 network function of ``app.services.share``, ``share_secrets`` and ``share_upload``
 (found from the modules, so a new one must be added to ``SERVICE_CALLS``) and every ``/api/share/*`` route (found from
 ``app.routes``) answers without any request.
-With it on, requests go only to ``SHARE_HOST``, and none of them carries the
+Community is on in every test here (sharing needs it, MSHL-445; Community off is
+``tests/test_community_required.py``). With it on, requests go only to ``SHARE_HOST``, and none of them carries the
 instance seed, a channel key, the radio private key or a DM shared secret, in
 any form (hex either case, or the raw bytes): an encrypted upload sends only
 the sealed envelope.
@@ -33,6 +34,13 @@ from app.services.share import ShareError
 from tests.share_fakes import Dns, Recorder, json_response
 
 _RealAsyncClient = httpx.AsyncClient
+
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Sharing needs Community on (MSHL-445): off is ``share_enabled`` false here.
+    Community off is ``tests/test_community_required.py``."""
+
 
 CHANNEL_KEY = "8B3387E9C5CDEA6AC9E5EDBAA115CD72"
 RADIO_PRIVATE_KEY = bytes(range(64))
@@ -78,6 +86,8 @@ SERVICE_CALLS = {
 # and the keystore, ``_forget_object`` drops local copies).
 _LOCAL = {
     "share_egress_state",
+    "community_on",
+    "_on_community_change",
     "clear_object_cache",
     "_seal",
     "upload_secret",

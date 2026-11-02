@@ -33,6 +33,12 @@ from app.services.share import (
 )
 from tests.share_fakes import Dns, Recorder, json_response
 
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 URL = "https://example.com/some/long/path"
 LINK = {"id": "AbCdEfG", "url": "https://meshl.ink/AbCdEfG", "expires_at": 1791636000}
 META = {"id": "AbCdEfG", "kind": "link", "target_host": "example.com", "expires_at": 1}

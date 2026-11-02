@@ -51,7 +51,7 @@ Some steps can be skipped:
 
 When the restore writes secrets (integration secrets of the backup such as MQTT passwords, webhook or Apprise addresses and SQS keys, the notification destinations of a 4.18 backup, or the secret a notification channel keeps when the backup restores it at the same destination), Meshloom encrypts them with the `secrets.key` file of the data folder. If that file can be neither read nor created (a read-only data folder), the restore is refused before anything is written, with a message that says so: make the data folder writable by Meshloom, then restore again. The summary shown before restoring already warns about it, so you can fix the data folder first, or untick the Meshloom data. A Meshloom-only (v1) file sent straight to the API is refused the same way.
 
-After a restore, join **Meshloom Community** again if you want it: participation is never restored from a file. Push notifications may need to be turned on again in each browser.
+After a restore, join **Meshloom Community** again if you want it: participation is never restored from a file. Meshloom Remote and link and file sharing need Community on, so they stay off until you join (and turn them on) again. Push notifications may need to be turned on again in each browser.
 
 ## Encryption
 

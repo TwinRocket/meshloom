@@ -3,15 +3,21 @@
 The share service is a Cloudflare Worker on its own domain (contract:
 ``meshloom-community/docs/contracts/links-files.md``). It is a distinct opt-in
 from Community, with its own hosts and its own switch, never an exception to
-the Community guard.
+the Community guard, and it needs Community on (below).
 
 - **Hosts.** ``SHARE_HOST`` is the write host, ``SHARE_HOSTS`` every host a
   link may carry (the current one and the former ones). Module constants read
   at call time (tests monkeypatch them), never an environment variable.
-- **Opt-in.** ``share_egress_state()`` is None unless ``app_settings.share_enabled`` and the
-  recorded ``share_terms_version`` is ``SHARE_TERMS_VERSION`` (re-consent when the terms change);
-  ``share_request()`` checks it before anything else and answers 403
+- **Opt-in.** ``share_egress_state()`` is None unless ``app_settings.share_enabled``, the
+  recorded ``share_terms_version`` is ``SHARE_TERMS_VERSION`` (re-consent when the terms change)
+  and Community is on; ``share_request()`` checks it before anything else and answers 403
   ``share_disabled`` without any connection.
+- **Community required** (MSHL-445). The share service runs on TwinRocket infrastructure,
+  so sharing needs Community on (``meshloom_community.community_enabled()``): turning
+  sharing on answers 409 ``share_community_off`` while Community is off, and turning
+  Community off makes sharing effectively off (reads and writes alike, requests in flight
+  cancelled) while ``share_enabled`` and the accepted terms are kept, so turning
+  Community on again resumes it.
 - **Egress.** Every request goes through the egress guard
   (``app/net/egress_guard.py``, ``follow_checked_redirects``): an allowlist of
   exactly ``SHARE_HOST``, HTTPS only, no redirect followed, the answer capped,
@@ -160,6 +166,7 @@ ReadKind = Literal["meta", "bytes"]
 # Local code -> (HTTP status, message). The UI translates errors.<code>.
 SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_disabled": (403, "Sharing is turned off on this instance"),
+    "share_community_off": (409, "Sharing needs Community: turn Community on first"),
     "share_unavailable": (502, "The share service is unavailable"),
     "share_quota_exceeded": (429, "The share quota of this instance is reached"),
     "share_quota_key": (429, "The share quota of this instance key is reached"),
@@ -361,19 +368,27 @@ def share_terms_current(settings: Any) -> bool:
     return settings.share_terms_version == SHARE_TERMS_VERSION
 
 
-def share_is_effective(settings: Any) -> bool:
-    """Sharing is actually on: consent given and the accepted terms are current.
+def share_is_effective(settings: Any, *, community_on: bool) -> bool:
+    """Sharing is actually on: consent given, the accepted terms are current and
+    Community is on (``community_on``, from ``community_enabled()``; MSHL-445).
 
     The single definition behind ``share_egress_state()``, ``GET /api/share/status``
     (``enabled``) and ``GET /api/settings`` (``share_effective``).
     """
-    return bool(settings.share_enabled) and share_terms_current(settings)
+    return community_on and bool(settings.share_enabled) and share_terms_current(settings)
+
+
+async def community_on() -> bool:
+    """Community is on: sharing may run (MSHL-445)."""
+    from app.services.meshloom_community import community_enabled
+
+    return await community_enabled()
 
 
 async def share_egress_state() -> ShareEgress | None:
     """The share egress config when sharing is on, else None (no connection)."""
     settings = await AppSettingsRepository.get()
-    if not share_is_effective(settings):
+    if not share_is_effective(settings, community_on=await community_on()):
         return None
     return ShareEgress(host=SHARE_HOST)
 
@@ -411,10 +426,32 @@ def note_share_settings_changed(*, enabled: bool) -> None:
     """
     _state.banned_until = None
     if not enabled:
-        _state.meta.clear()
-        _state.generation += 1
-        for task in list(_state.inflight):
-            task.cancel()
+        _stop_inflight()
+
+
+def _stop_inflight() -> None:
+    """Sharing just went off: drop the cached meta and cancel every request in flight."""
+    _state.meta.clear()
+    _state.generation += 1
+    for task in list(_state.inflight):
+        task.cancel()
+
+
+async def _on_community_change() -> None:
+    """Community turned on or off (MSHL-445). Off, sharing is effectively off at once:
+    requests in flight are cancelled (their callers get ``share_disabled``). The banned
+    state is kept: this is not a share settings change."""
+    if not await community_on():
+        _stop_inflight()
+
+
+def _listen_to_community() -> None:
+    from app.services.meshloom_community import add_enabled_change_listener
+
+    add_enabled_change_listener(_on_community_change)
+
+
+_listen_to_community()
 
 
 def _check_generation(generation: int) -> None:

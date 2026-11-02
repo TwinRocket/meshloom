@@ -1,6 +1,7 @@
 {
   "errors": {
     "share_disabled": "Le partage est désactivé sur ce Meshloom. Un administrateur peut l’activer dans les réglages.",
+    "share_community_off": "Le partage a besoin de Meshloom Community. Activez d’abord Community.",
     "share_unavailable": "Le service de partage est injoignable pour le moment. Réessayez plus tard.",
     "share_quota_exceeded": "Ce Meshloom a atteint son quota de partage. Réessayez plus tard.",
     "share_quota_key": "Ce Meshloom a atteint son quota de partage quotidien. Réessayez plus tard.",

@@ -7,10 +7,13 @@ every ``/api/remote/*`` route but ``POST /api/remote/enable`` (found from
 any request. Turned on, requests go only to ``RELAY_HOST`` and carry neither the
 Remote seed nor the share seed, in any form. Disabled again, nothing leaves.
 
-The relay socket (``app/services/remote_relay.py``, MSHL-87) never opens while Remote
-is off or unregistered, whatever the Community state: with Community reported on, a
-recorder in place of ``websockets.connect`` sees nothing. The other direction (Remote
-on, Community off: only the relay host) is in ``tests/test_community_off_no_egress.py``.
+Remote needs Community on (MSHL-445), so these tests turn Community on in the database
+(the ``community_on`` fixture) to reach the Remote opt-in at all. The relay socket
+(``app/services/remote_relay.py``, MSHL-87) never opens while Remote is off or
+unregistered, even with Community on: a recorder in place of ``websockets.connect`` sees
+nothing. The other direction (Remote on, Community off: nothing either, the link status
+says ``community_off``) is in ``tests/test_community_off_no_egress.py`` and
+``tests/test_community_required.py``.
 """
 
 from __future__ import annotations
@@ -67,6 +70,8 @@ _LOCAL = {
     "revoke_all_devices",
     "handle_control",
     "key_fingerprint",
+    "community_on",
+    "_on_community_change",
 }
 
 
@@ -84,7 +89,7 @@ def _registry(request: httpx.Request) -> httpx.Response:
 
 
 @pytest.fixture
-async def recorder(test_db, monkeypatch):
+async def recorder(community_on, monkeypatch):
     await UserRepository.create("test-admin", "admin")
     Dns(monkeypatch, {remote.RELAY_HOST: [PUBLIC_IP]})
     return Recorder(monkeypatch, _registry)
@@ -193,16 +198,13 @@ class _WsRecorder:
     ],
     ids=["off", "off-but-registered", "on-but-unregistered"],
 )
-async def test_the_relay_socket_never_opens_while_off_or_unregistered(test_db, monkeypatch, state):
-    """Community on (as far as any guard can tell) changes nothing for Remote."""
+async def test_the_relay_socket_never_opens_while_off_or_unregistered(
+    community_on, monkeypatch, state
+):
+    """Community on changes nothing for a Remote that is off or unregistered."""
     from app.repository.remote import RemoteRepository
-    from app.services import meshloom_community, remote_relay
+    from app.services import remote_relay
 
-    async def community_on() -> object:
-        return object()
-
-    monkeypatch.setattr(meshloom_community, "community_egress_state", community_on)
-    monkeypatch.setattr(meshloom_community, "community_enrolled_state", community_on)
     sockets = _WsRecorder(monkeypatch)
     if state:
         await RemoteRepository.update_state(**state)

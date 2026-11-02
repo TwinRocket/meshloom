@@ -27,6 +27,7 @@ const offStatus: ShareStatus = {
   enabled: false,
   host: 'meshl.ink',
   hosts: ['meshl.ink'],
+  community_enabled: true,
   identity_ready: false,
   dm_encryption_available: true,
   banned: false,
@@ -129,6 +130,28 @@ describe('SettingsShareSection', () => {
     fireEvent.click(box);
     expect(screen.queryByTestId('share-consent-dialog')).toBeNull();
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it('keeps the toggle disabled and points to Community while Community is off', async () => {
+    current = { ...offStatus, community_enabled: false };
+    const onOpenSection = vi.fn();
+    render(<SettingsShareSection onSaveAppSettings={save} onOpenSection={onOpenSection} />);
+    const box = await enableBox();
+    expect(box).toBeDisabled();
+    expect(screen.getByTestId('share-community-off')).toHaveTextContent(
+      i18n.t('settings.share.communityOff')
+    );
+    fireEvent.click(box);
+    expect(screen.queryByTestId('share-consent-dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.share.openCommunity') }));
+    expect(onOpenSection).toHaveBeenCalledWith('community');
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('shows no Community notice while Community is on', async () => {
+    renderSection();
+    await enableBox();
+    expect(screen.queryByTestId('share-community-off')).toBeNull();
   });
 
   it('shows the ban banner with the contact in both languages, and none otherwise', async () => {

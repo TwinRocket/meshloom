@@ -72,6 +72,16 @@ Meshloom n’envoie jamais la clé privée de votre radio à Community. Elle ser
 
 Le Store d'extensions est indépendant de Community : il a son propre interrupteur, désactivé par défaut, et parle à d'autres serveurs (GitHub, voir [Ce qui quitte votre instance](/docs/deep/plugins/#ce-qui-quitte-votre-instance)). Activer ou désactiver Community ne change rien pour le Store, et inversement.
 
+## Fonctions qui ont besoin de Community
+
+Ces fonctions passent par les serveurs de TwinRocket : elles ne marchent que tant que Community est activé :
+
+- **Meshloom Remote** (**Réglages → Accès à distance**), le relais sur `meshloom.link` ;
+- le **partage de liens et de fichiers** (**Réglages → Partage : liens et fichiers**), le service sur `meshl.ink` ;
+- la carte et le flux **Live**, et tout ce que votre radio remonte comme observateur (ci-dessus).
+
+Tant que Community est désactivé, Meshloom Remote et le partage ne peuvent pas être activés : leurs réglages l’indiquent et proposent un bouton vers les réglages Community. Si vous désactivez Community alors qu’ils sont activés, ils se **mettent en pause** : Meshloom cesse aussitôt de contacter le relais et le service de partage, vos appareils ne peuvent plus ouvrir l’instance de l’extérieur, aucun nouveau lien ni fichier ne peut être partagé, et les liens et photos partagés ne s’affichent plus. Rien n’est supprimé : l’adresse Remote, les appareils autorisés, le choix de partage et les conditions acceptées sont conservés, et les deux reprennent dès que vous réactivez Community. La fenêtre qui confirme le départ de Community le rappelle.
+
 ## Quitter Community
 
 **Quitter Meshloom Community** (dans les réglages, ou **Quitter Community** dans l’explication de la bannière d’attente) affiche d’abord ce que le départ implique :
@@ -79,6 +89,7 @@ Le Store d'extensions est indépendant de Community : il a son propre interrupte
 - les paquets déjà remontés par votre radio restent dans les statistiques de Community, sous le nom de votre radio ;
 - la position de votre radio est supprimée de Community ;
 - si les annonces de votre radio diffusent sa position, elle reste visible sur la carte comme celle de tout autre nœud entendu sur le mesh ;
+- Meshloom Remote et le partage de liens et de fichiers se mettent aussi en pause (voir [Fonctions qui ont besoin de Community](#fonctions-qui-ont-besoin-de-community)) ;
 - pour tout faire supprimer, écrivez à [privacy@meshloom.app](mailto:privacy@meshloom.app).
 
 Vous pouvez aussi indiquer pourquoi vous partez (vie privée, pas utile, problème technique, autre) ; c’est facultatif. Une fois le départ confirmé, Meshloom envoie une dernière requête à Community pour enregistrer la désinscription, avec la raison si vous en avez donné une : Community supprime la position de votre radio, efface son état sur le broker (aussitôt, ou peu après) et refuse cette radio jusqu’à ce qu’elle rejoigne de nouveau. Meshloom coupe ensuite tout, comme décrit ci-dessous.

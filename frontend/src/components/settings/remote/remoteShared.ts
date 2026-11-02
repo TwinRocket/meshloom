@@ -11,14 +11,15 @@ export const USER_AGENT_SHOWN_MAX = 160;
 export type RemoteBadgeTone = 'ok' | 'neutral' | 'warn' | 'danger';
 
 /** What the reader can do about a state; the section draws the matching button. */
-export type RemoteBadgeAction = 'enable' | 'restart' | 'rotate' | 'update' | null;
+export type RemoteBadgeAction = 'enable' | 'restart' | 'rotate' | 'update' | 'community' | null;
 
 /**
  * The state badge: `off` and `unregistered` come from `state`, every other id is a
  * `link_status` value (`REMOTE_LINK_STATES`). Each id has `settings.remote.badge.<id>`
  * (label) and `settings.remote.badgeHelp.<id>` (what it means and what to do).
  */
-export type RemoteBadgeId = 'off' | 'unregistered' | RemoteLinkStatus | 'unknown';
+export type RemoteBadgeId =
+  'off' | 'needs_community' | 'unregistered' | RemoteLinkStatus | 'unknown';
 
 export interface RemoteBadge {
   id: RemoteBadgeId;
@@ -41,6 +42,8 @@ const LINK_BADGES: Record<RemoteLinkStatus, Omit<RemoteBadge, 'id'>> = {
   update_required: { tone: 'danger', action: 'update' },
   // The whole service is frozen (maintenance, capacity): retried in 5 to 15 min.
   relay_paused: { tone: 'warn', action: null },
+  // Remote is on but Community is off (MSHL-445): paused until Community is on again.
+  community_off: { tone: 'warn', action: 'community' },
 };
 
 export function isRemoteLinkStatus(value: string | null): value is RemoteLinkStatus {
@@ -48,6 +51,14 @@ export function isRemoteLinkStatus(value: string | null): value is RemoteLinkSta
 }
 
 export function remoteBadge(status: RemoteStatus): RemoteBadge {
+  // Remote needs Community (MSHL-445): off, it cannot be turned on, and an enabled
+  // Remote is paused whatever its registration.
+  if (status.community_enabled === false) {
+    if (status.state === 'disabled') {
+      return { id: 'needs_community', tone: 'neutral', action: 'community' };
+    }
+    return { id: 'community_off', ...LINK_BADGES.community_off };
+  }
   if (status.state === 'disabled') return { id: 'off', tone: 'neutral', action: 'enable' };
   if (status.state === 'unregistered') {
     return { id: 'unregistered', tone: 'danger', action: 'enable' };

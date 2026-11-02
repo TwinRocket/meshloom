@@ -1784,8 +1784,8 @@ class AppSettings(BaseModel):
     share_effective: bool = Field(
         default=False,
         description=(
-            "Computed: sharing is actually on, that is share_enabled and the accepted terms "
-            "are the current version (the state share_egress_state() and "
+            "Computed: sharing is actually on, that is share_enabled, the accepted terms "
+            "are the current version and Community is on (the state share_egress_state() and "
             "GET /api/share/status report). share_enabled alone is the stored choice and "
             "stays true when the terms changed since. Not stored, never restored from a backup"
         ),
@@ -3444,7 +3444,17 @@ class RadioProxyUpdate(BaseModel):
 class ShareStatus(BaseModel):
     """``GET /api/share/status``: what the UI needs to offer sharing. No egress."""
 
-    enabled: bool = Field(description="Instance-level consent to the share service")
+    enabled: bool = Field(
+        description=(
+            "Sharing is actually on: instance-level consent, current terms and Community on"
+        )
+    )
+    community_enabled: bool = Field(
+        description=(
+            "Community is on. Sharing needs it (MSHL-445): while it is off, turning sharing "
+            "on answers 409 share_community_off and enabled is false"
+        ),
+    )
     host: str = Field(description="The share service host links are written to")
     hosts: list[str] = Field(description="Every host a share link may carry")
     identity_ready: bool = Field(

@@ -1594,7 +1594,10 @@ export interface StoreStatus {
 
 /** `GET /api/share/status`: makes no request to the share service. */
 export interface ShareStatus {
+  /** Sharing is actually on: consent, current terms and Community on. */
   enabled: boolean;
+  /** Community is on. Sharing needs it (MSHL-445): off, sharing cannot be turned on and pauses. */
+  community_enabled: boolean;
   host: string;
   hosts: string[];
   identity_ready: boolean;

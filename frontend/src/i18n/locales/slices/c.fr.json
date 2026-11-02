@@ -743,6 +743,7 @@
         "kept": "Les paquets déjà remontés par votre radio restent dans les statistiques de Community, sous le nom de votre radio.",
         "position": "La position de votre radio est supprimée de Community.",
         "advert": "Si les annonces de votre radio diffusent sa position, elle reste visible sur la carte comme celle de tout autre nœud entendu sur le mesh.",
+        "dependents": "Remote et le partage se mettent aussi en pause ; leurs réglages sont conservés.",
         "fullDeletion": "Pour tout faire supprimer, écrivez à <email>privacy@meshloom.app</email>.",
         "reasonLabel": "Pourquoi partez-vous ? (facultatif)",
         "reasons": {

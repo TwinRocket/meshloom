@@ -72,6 +72,7 @@ const statusOf = (over: Partial<RemoteStatus> = {}): RemoteStatus => ({
   last_error: null,
   relay_connected: true,
   link_status: 'connected',
+  community_enabled: true,
   gate: { gen: 1, revoked: 0 },
   devices: [],
   ...over,
@@ -113,6 +114,7 @@ describe('remoteBadge', () => {
       remoteBadge(statusOf({ state: 'unregistered', slug: null, link_status: null })).id,
       ...REMOTE_LINK_STATES.map((link) => remoteBadge(statusOf({ link_status: link })).id),
       remoteBadge(statusOf({ link_status: 'something_new' })).id,
+      remoteBadge({ ...OFF, community_enabled: false }).id,
     ];
     expect(new Set(ids).size).toBe(ids.length);
     for (const locale of [en, fr]) {
@@ -136,6 +138,25 @@ describe('remoteBadge', () => {
     expect(remoteBadge(statusOf({ link_status: 'connected' })).action).toBeNull();
     // Registered with no link state yet: connecting.
     expect(remoteBadge(statusOf({ link_status: null })).id).toBe('connecting');
+  });
+
+  it('needs Community: off it cannot be turned on, on it is paused (MSHL-445)', () => {
+    expect(remoteBadge({ ...OFF, community_enabled: false })).toEqual({
+      id: 'needs_community',
+      tone: 'neutral',
+      action: 'community',
+    });
+    for (const over of [
+      { link_status: 'connected' },
+      { link_status: 'community_off' },
+      { state: 'unregistered' as const, slug: null, link_status: null },
+    ]) {
+      expect(remoteBadge(statusOf({ ...over, community_enabled: false }))).toEqual({
+        id: 'community_off',
+        tone: 'warn',
+        action: 'community',
+      });
+    }
   });
 });
 
@@ -400,6 +421,33 @@ describe('SettingsRemoteSection', () => {
       await screen.findByRole('button', { name: t('settings.remote.actions.update') })
     );
     expect(onOpenSection).toHaveBeenCalledWith('updates');
+  });
+
+  it('sends to the Community settings instead of turning Remote on while Community is off', async () => {
+    vi.spyOn(api, 'getRemote').mockResolvedValue({ ...OFF, community_enabled: false });
+    const enable = vi.spyOn(api, 'enableRemote');
+    const { onOpenSection } = await renderAs('admin');
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('settings.remote.actions.community') })
+    );
+    expect(onOpenSection).toHaveBeenCalledWith('community');
+    expect(screen.queryByRole('button', { name: t('settings.remote.actions.enable') })).toBeNull();
+    expect(screen.getByTestId('remote-badge-help')).toHaveTextContent(
+      t('settings.remote.badgeHelp.needs_community')
+    );
+    expect(enable).not.toHaveBeenCalled();
+  });
+
+  it('shows an enabled Remote as paused while Community is off', async () => {
+    vi.spyOn(api, 'getRemote').mockResolvedValue(
+      statusOf({ community_enabled: false, link_status: 'community_off', relay_connected: false })
+    );
+    await renderAs('admin');
+    expect(await screen.findByTestId('remote-badge')).toHaveAttribute(
+      'data-badge',
+      'community_off'
+    );
+    expect(screen.getByRole('button', { name: t('settings.remote.actions.disable') })).toBeTruthy();
   });
 
   it('rotates the key after a confirmation', async () => {

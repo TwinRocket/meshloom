@@ -116,6 +116,20 @@ async def test_db():
 
 
 @pytest.fixture
+async def community_on(test_db):
+    """Community turned on in the database (no join, no connection).
+
+    Meshloom Remote and Links & Files need Community on (MSHL-445): tests that
+    exercise them with egress allowed use this. It writes the stored opt-in only;
+    the Community publisher and Live are not started.
+    """
+    from app.repository.settings import AppSettingsRepository
+
+    await AppSettingsRepository.update_community(enabled=True)
+    return test_db
+
+
+@pytest.fixture
 async def push_owner(test_db):
     """The account row of the default test admin (id 1), which owns push subscriptions.
 

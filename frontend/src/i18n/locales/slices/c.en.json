@@ -743,6 +743,7 @@
         "kept": "The packets your radio already reported stay in Community’s statistics, under your radio’s name.",
         "position": "Your radio’s position is deleted from Community.",
         "advert": "If your radio’s adverts broadcast its position, it stays visible on the map like any other node heard on the mesh.",
+        "dependents": "Remote and sharing pause too; their settings are kept.",
         "fullDeletion": "To have everything deleted, write to <email>privacy@meshloom.app</email>.",
         "reasonLabel": "Why are you leaving? (optional)",
         "reasons": {

@@ -11,6 +11,8 @@ This version shortens **web addresses** and sends **photos** from the composer's
 
 ## Turning it on
 
+Sharing runs on TwinRocket's servers, so it needs **Meshloom Community** on. While Community is off, the box is greyed out and the section offers a button to the Community settings. Turning Community off pauses sharing without losing your choice or the accepted terms: see [Features that need Community](/en/docs/deep/community/#features-that-need-community).
+
 Open **Settings > Share: links and files** (administrators; a member sees only **My uploads**, see below). The section shows whether sharing is on, whether this Meshloom's sharing identity is ready, and whether encrypted files for direct messages are available.
 
 Ticking **Turn on link and file sharing** always opens a consent window: one sentence, a link to this page, and a box to tick that you accept the service's terms of use and privacy policy (both linked). What leaves this Meshloom and for how long is described below; who runs the service is in its legal pages. Cancelling, closing the window or leaving the box unticked changes nothing. Your acceptance is recorded on this Meshloom, with the version of the terms and the date: if the terms change in a later version, sharing stays off and the section tells you, until an administrator reads and accepts the new terms by turning it on again. Turning sharing off needs no consent and takes effect at once: requests already on their way are stopped.

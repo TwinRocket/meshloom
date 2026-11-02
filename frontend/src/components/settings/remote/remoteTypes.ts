@@ -16,6 +16,7 @@ export const REMOTE_LINK_STATES = [
   'banned',
   'update_required',
   'relay_paused',
+  'community_off',
 ] as const;
 
 export type RemoteLinkStatus = (typeof REMOTE_LINK_STATES)[number];
@@ -46,6 +47,8 @@ export interface RemoteStatus {
   relay_connected: boolean;
   /** A `REMOTE_LINK_STATES` value; any other string is shown as unknown. */
   link_status: string | null;
+  /** Community is on. Remote needs it (MSHL-445): off, Remote cannot be turned on and pauses. */
+  community_enabled: boolean;
   gate: { gen: number; revoked: number };
   devices: RemoteDevice[];
 }
