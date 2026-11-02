@@ -34,7 +34,9 @@ passes this instance signs (``app/services/remote_passes.py``).
 - **Custom domain.** ``check_custom_domain()`` (MSHL-428) is the "Test" button of a
   personal domain that redirects (URL redirect, no CNAME) to ``<slug>.meshloom.link``:
   one GET, no redirect followed, to the user's domain through the egress guard (a
-  user-chosen destination, so private addresses are refused), HTTPS then HTTP.
+  user-chosen destination, so private addresses are refused), HTTPS then HTTP. The route
+  takes ``take_domain_test_slot()`` first: one test per 5 s and 6 per minute for the
+  whole instance (429 ``rate_limited`` with ``Retry-After``).
 
 Never log a token, a pass, an enrolment URL or an access code.
 """
@@ -52,6 +54,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from aiolimiter import AsyncLimiter
 from fastapi import HTTPException
 
 from app.auth.audit import AuditActor, record
@@ -845,6 +848,36 @@ def relay_connected() -> bool:
 DOMAIN_TEST_TIMEOUT = httpx.Timeout(connect=5.0, read=8.0, write=5.0, pool=5.0)
 DOMAIN_TEST_TOTAL_TIMEOUT_S = 20.0
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# One limiter for the whole instance (the destination is typed by the caller, up to two
+# GETs held for 20 s each): one test every 5 s and a few a minute, never queued.
+DOMAIN_TEST_PERIOD_S = 5.0
+DOMAIN_TEST_BUDGET = 6
+DOMAIN_TEST_BUDGET_PERIOD_S = 60.0
+_domain_test_limiters: list[AsyncLimiter] = []
+
+
+def reset_domain_test_limiter() -> None:
+    _domain_test_limiters.clear()
+
+
+async def take_domain_test_slot() -> bool:
+    """Whether a domain test may run now; takes the slot when it may. ``has_capacity()``
+    then ``acquire()`` with no suspension between: a refusal never queues and two
+    concurrent requests cannot both take the one slot."""
+    if not _domain_test_limiters:
+        _domain_test_limiters.extend(
+            [
+                AsyncLimiter(1, DOMAIN_TEST_PERIOD_S),
+                AsyncLimiter(DOMAIN_TEST_BUDGET, DOMAIN_TEST_BUDGET_PERIOD_S),
+            ]
+        )
+    if not all(limiter.has_capacity() for limiter in _domain_test_limiters):
+        return False
+    for limiter in _domain_test_limiters:
+        await limiter.acquire()
+    return True
+
+
 _DOMAIN_LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 

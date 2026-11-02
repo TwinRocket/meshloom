@@ -255,6 +255,10 @@ from the instance:
   text), `invalid_domain`, or `unreachable` with `detail` an `error_code`
   (`egress_unresolvable`, `egress_private_address`, `timeout`, `tls_error`,
   `connect_error`...). Translations: `settings.remote.domain.result.*` and `.reason.*`.
+- Rate limit: one instance-wide limiter (`take_domain_test_slot`, aiolimiter, never
+  queued): 1 test per 5 s and 6 per minute. Over it the route answers 429 `rate_limited`
+  with `Retry-After` (the panel shows `errors.rate_limited`, FR and EN) and sends nothing,
+  so an admin session, relay included, cannot use the instance as a request cannon.
 - The domain is not stored: it is not a setting.
 
 ## Permissions and audit

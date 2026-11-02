@@ -8,6 +8,8 @@ followed, private addresses refused, nothing sent to the relay.
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 
@@ -142,3 +144,34 @@ async def test_needs_remote_on_and_registered(test_db, monkeypatch):
         await remote.check_custom_domain(DOMAIN)
     assert exc.value.code == "remote_not_registered"
     assert rec.requests == []
+
+
+async def test_route_rate_limited_second_call_sends_nothing(registered, monkeypatch):
+    from app.main import app
+    from tests.test_remote_service import _RealAsyncClient
+
+    Dns(monkeypatch, {DOMAIN: [PUBLIC_IP]})
+    rec = Recorder(monkeypatch, _redirect(f"https://{HOSTNAME}/"))
+    async with _RealAsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        first = await client.post("/api/remote/domain/test", json={"domain": DOMAIN})
+        sent = len(rec.requests)
+        second = await client.post("/api/remote/domain/test", json={"domain": DOMAIN})
+    assert first.status_code == 200 and first.json()["result"] == "ok"
+    assert second.status_code == 429
+    assert second.json()["detail"]["code"] == "rate_limited"
+    assert second.headers["retry-after"] == "5"
+    assert len(rec.requests) == sent  # the refused call sent no request
+
+
+async def test_slot_period_and_minute_budget(monkeypatch):
+    assert await remote.take_domain_test_slot()
+    assert not await remote.take_domain_test_slot()  # 1 per period, no queueing
+    monkeypatch.setattr(remote, "DOMAIN_TEST_PERIOD_S", 0.0001)
+    remote.reset_domain_test_limiter()
+    taken = 0
+    for _ in range(remote.DOMAIN_TEST_BUDGET + 3):
+        taken += await remote.take_domain_test_slot()
+        await asyncio.sleep(0.001)
+    assert taken == remote.DOMAIN_TEST_BUDGET

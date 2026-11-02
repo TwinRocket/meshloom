@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.auth.audit import SYSTEM_ACTOR, RequestActor
@@ -216,7 +216,14 @@ async def test_custom_domain(body: RemoteDomainTestRequest) -> RemoteDomainTestR
     """Check that a personal domain redirects to this instance's ``<slug>.meshloom.link``
     (MSHL-428). One GET to the domain through the egress guard, no redirect followed.
     409 ``remote_disabled`` / ``remote_not_registered``; every other outcome is a 200
-    with a ``result``."""
+    with a ``result``. 429 ``rate_limited`` (``Retry-After``) over the instance-wide limit
+    (1 per 5 s, 6 per minute), before anything is sent."""
+    if not await remote.take_domain_test_slot():
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "rate_limited", "params": {}},
+            headers={"Retry-After": str(int(remote.DOMAIN_TEST_PERIOD_S))},
+        )
     check = await remote.check_custom_domain(body.domain)
     return RemoteDomainTestResponse(
         result=check.result,  # type: ignore[arg-type]

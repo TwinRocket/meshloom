@@ -570,5 +570,20 @@ describe('SettingsRemoteSection', () => {
       fireEvent.click(screen.getByRole('button', { name: t('settings.remote.domain.test') }));
       expect(await screen.findByRole('alert')).toHaveTextContent(t('errors.remote_disabled'));
     });
+
+    it('shows the translated message of a rate limited test (429 rate_limited)', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      vi.spyOn(api, 'testRemoteDomain').mockRejectedValue(
+        new ApiError('x', 429, { code: 'rate_limited', params: {} }, 5)
+      );
+      await renderAs('admin');
+      fireEvent.change(await screen.findByLabelText(t('settings.remote.domain.label')), {
+        target: { value: 'chat.example.org' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.remote.domain.test') }));
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(t('errors.rate_limited'));
+      expect(t('errors.rate_limited')).not.toBe('errors.rate_limited');
+    });
   });
 });
