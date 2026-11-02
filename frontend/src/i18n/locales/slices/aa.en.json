@@ -3,7 +3,9 @@
     "auth_rate_limited": "Too many attempts. Try again in {{retry_after}} seconds.",
     "auth_host_rejected": "Request refused: this address is not one this instance answers to.",
     "auth_last_admin": "This is the last administrator: keep at least one.",
-    "auth_no_session": "Signing in did not open a session. Reload the page and try again."
+    "auth_no_session": "Signing in did not open a session. Reload the page and try again.",
+    "auth_https_required": "HTTPS is required from the internet: open Meshloom with its https:// address (your reverse proxy, Tailscale or Meshloom Remote).",
+    "auth_https_would_lock_out": "Declaring a public address would refuse the plain http:// connection you are using from the internet, and lock you out. Open Meshloom over https:// or from your local network first."
   },
   "auth": {
     "loading": "Loading…",

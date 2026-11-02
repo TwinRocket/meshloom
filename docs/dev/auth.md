@@ -1566,12 +1566,13 @@ strictness:
 - The trusted-network provider calls it directly and **always** refuses a
   rejected host, in both modes (see "Trusted networks").
 - `HostGuardMiddleware` follows `auth_settings.host_guard_mode`. `observe` (the
-  5.0.0 default, so a reverse proxy name nobody declared yet keeps working
+  default, so a reverse proxy name nobody declared yet keeps working
   after an upgrade) passes the request, logs each new name once (warning) and
   records it. `enforce` answers 421 `auth_host_rejected` (`detail.params.host`
   names the host; the message says to declare it in Users & Access) and closes a
-  WebSocket upgrade with 1008. `enforce` becomes the default in 5.1 (decision
-  Q-A4).
+  WebSocket upgrade with 1008. Declaring the first public address switches the
+  mode to `enforce` (MSHL-437, see "Settings" below); an install that never
+  declares one stays in `observe`.
 
 Accepted names: an IP literal, `localhost`, `*.local`, `*.home.arpa`, `*.lan`,
 `*.internal`, the machine's short name and `socket.getfqdn()`, the hosts of
@@ -1620,13 +1621,57 @@ mode and list and answers 400 `auth_host_guard_would_lock_out` (`params.host`) w
 `host_guard.would_lock_out(scope, mode, urls)` says the request being answered
 would be rejected (ingress and relay requests are exempt, as in the middleware).
 It applies to switching to `enforce`, and to removing the current host while
-`enforce` is on. Saving a list `forget_rejected`s every declared host (the "Allow"
+`enforce` is on. **Automatic enforce** (MSHL-437): a PATCH that takes `public_urls`
+from empty to non-empty while the stored mode is `observe` also saves `enforce`,
+unless the same body sets `host_guard_mode` (the explicit value wins) or
+`would_lock_out(scope, "enforce", urls)` (then `observe` stays, silently: the view
+returns the mode). It never fires again once a list exists, so an administrator who
+went back to `observe` keeps it when adding more addresses; removing every address
+leaves the mode as it is. The automatic switch is audited like a manual one, with
+`details.automatic = true`, and logs one info line. Saving a list `forget_rejected`s every declared host (the "Allow"
 button is a PATCH adding `https://<host>`). Both changes are audited
 (`settings.changed`, targets `auth_settings.public_urls` and
 `auth_settings.host_guard_mode`). No environment variable and no migration: the
 columns exist since migration 101. Not done here: a dashboard banner for hosts
 rejected in the last 24 hours, and the pairing payloads / Remote page that will read
 `public_urls`.
+
+## HTTPS from the internet
+
+`app/middleware/https_required.py` (`HttpsRequiredMiddleware`, MSHL-437) refuses a
+plain-http request from a public client once an instance is exposed. It runs
+inside `TrustedProxyHeadersMiddleware` (it reads the rewritten `scope["client"]`
+and `scope["scheme"]`) and outside the Host guard. A request is refused only when
+**all** of these hold (`must_refuse`):
+
+- at least one public address is declared (`host_guard.public_urls()`, the Host
+  guard's in-memory copy of `auth_settings.public_urls`): an install that never
+  declared one is never checked;
+- it is not exempt like the Host guard (`host_guard.exempt`: Home Assistant ingress,
+  or `state["via"] == "relay"`; the relay client's scopes are `https`/`wss` anyway);
+- `scope["scheme"]` is `http` or `ws`: a listed proxy's `X-Forwarded-Proto` counts,
+  any other peer's is ignored by the proxy-headers layer;
+- the client is not local (`ip_ban.is_local`: `app/net/local_address.py` plus the
+  host's on-link IPv6 prefixes); a value that does not parse is public.
+
+HTTP gets 403 `auth_https_required` (JSON under `/api`, a short EN+FR text
+elsewhere) with the Host guard's static security headers and `no-store`; a WebSocket
+upgrade is closed with 1008. Each refusal logs a warning on `meshloom.auth` (client
+address, path, scheme), at most `WARNING_BURST` per minute then one summary line; no
+audit row (anonymous internet clients would only fill the table). **Lock-out rule**:
+`PATCH /api/auth/settings` answers 400 `auth_https_would_lock_out` (nothing saved)
+when the new `public_urls` is non-empty and `would_refuse(scope, urls)` says the
+request being answered would be refused (plain http from a public client: direct
+exposure, or a trusted proxy that does not send `X-Forwarded-Proto: https`); the
+panel shows `errors.auth_https_would_lock_out` (slice `aa`). The local network
+always passes, so an administrator on the local network can always reach the
+settings to fix a misconfigured proxy. An administrator who is remote only is not
+covered once the list is saved: if their https path breaks later (a proxy
+reconfigured, removed from the trusted proxies), they are refused until they reach
+Meshloom over https or from the local network (`meshloom-admin host-guard-observe`
+does not clear `public_urls`). No setting of its own and no environment variable.
+Tests: `tests/test_https_required.py` (rule, registration order in `app.main`) and
+`tests/test_auth_public_addresses.py` (end to end through `app.main`, lock-out rule).
 
 ## Manual checklist before the 5.0.0 tag
 

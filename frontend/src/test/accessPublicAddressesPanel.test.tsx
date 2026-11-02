@@ -68,6 +68,27 @@ describe('AccessPublicAddressesPanel', () => {
     expect(await screen.findByText('https://b.example.net')).toBeInTheDocument();
   });
 
+  it('explains why a plain-http admin from the internet cannot declare an address', async () => {
+    const user = userEvent.setup();
+    settings.public_urls = [];
+    patch.mockRejectedValueOnce(
+      new ApiError('Bad Request', 400, {
+        code: 'auth_https_would_lock_out',
+        message: 'x',
+        params: {},
+      })
+    );
+    render(<AccessPublicAddressesPanel />);
+    await user.type(
+      await screen.findByLabelText(t('settings.access.public.address')),
+      'https://mesh.example.com'
+    );
+    await user.click(screen.getByRole('button', { name: t('settings.access.public.add') }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(toastError.mock.calls[0][0]).toBe(t('errors.auth_https_would_lock_out'));
+    expect(screen.queryByText('https://mesh.example.com')).not.toBeInTheDocument();
+  });
+
   it('removes an address', async () => {
     const user = userEvent.setup();
     render(<AccessPublicAddressesPanel />);

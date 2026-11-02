@@ -21,14 +21,16 @@ Two users, two strictnesses:
   default, so an upgrade behind any reverse proxy name keeps working) lets the
   request through, logs each new name once and records it in the bounded
   ``rejected_hosts()`` list. ``enforce`` answers 421 ``auth_host_rejected``
-  (HTTP) or closes the WebSocket with 1008; both modes record the name. The
-  default becomes ``enforce`` in 5.1.
+  (HTTP) or closes the WebSocket with 1008; both modes record the name.
+  ``PATCH /api/auth/settings`` switches to ``enforce`` when the first public address
+  is declared (MSHL-437); without one the mode stays ``observe``.
 
 Exempt from the middleware: Home Assistant ingress (the Supervisor's proxy,
 ``ingress.is_ingress_request``, independent of any setting) and requests the
 relay tagged (``scope["state"]["via"] == "relay"``, set by our own code, never
 by a client). It runs inside ``TrustedProxyHeadersMiddleware`` (the ingress
-check needs the TCP peer it records) and outside the auth gate.
+check needs the TCP peer it records), inside ``https_required`` (which reuses
+``exempt``, ``public_urls`` and the refusal headers) and outside the auth gate.
 
 The list of observed names is what the access settings screen reads
 (``rejected_hosts`` in ``GET /api/auth/settings``): newest first, at most
@@ -281,6 +283,11 @@ def mode() -> str:
     return _mode
 
 
+def public_urls() -> tuple[str, ...]:
+    """The declared public addresses as last applied (``https_required`` reads them)."""
+    return _public_urls
+
+
 def apply(auth_settings: AuthSettings) -> None:
     """Replace the in-memory mode and public URLs from the settings row."""
     global _mode, _public_urls, _loaded
@@ -289,7 +296,8 @@ def apply(auth_settings: AuthSettings) -> None:
     _loaded = True
 
 
-async def _ensure_loaded() -> None:
+async def ensure_loaded() -> None:
+    """Load the settings row once (also called by ``https_required``)."""
     if not _loaded:
         from app.repository.auth import AuthSettingsRepository
 
@@ -389,7 +397,8 @@ def forget_rejected(host: str) -> None:
 # ---------------------------------------------------------------- middleware
 
 
-def _exempt(scope: Scope) -> bool:
+def exempt(scope: Scope) -> bool:
+    """Home Assistant ingress or a relay-tagged request (also read by ``https_required``)."""
     from app.auth.providers import ingress
 
     state = scope.get("state")
@@ -400,7 +409,7 @@ def _exempt(scope: Scope) -> bool:
 
 def would_lock_out(scope: Scope, new_mode: str, new_public_urls: Iterable[str]) -> bool:
     """Whether ``new_mode`` and ``new_public_urls`` would reject the request in ``scope``."""
-    if new_mode != "enforce" or _exempt(scope):
+    if new_mode != "enforce" or exempt(scope):
         return False
     return not host_allowed(_raw_host(scope), new_public_urls)
 
@@ -428,7 +437,7 @@ def rejection_body(host: str | None) -> bytes:
     ).encode()
 
 
-def _refusal_headers() -> list[tuple[bytes, bytes]]:
+def refusal_headers() -> list[tuple[bytes, bytes]]:
     """The static security headers: this layer answers outside ``app/main.py``'s.
 
     No HSTS: the name is not ours, and pinning it to https is not this layer's call.
@@ -449,10 +458,10 @@ class HostGuardMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] not in ("http", "websocket") or _exempt(scope):
+        if scope["type"] not in ("http", "websocket") or exempt(scope):
             await self.app(scope, receive, send)
             return
-        await _ensure_loaded()
+        await ensure_loaded()
         raw = _raw_host(scope)
         if host_allowed(raw, _public_urls):
             await self.app(scope, receive, send)
@@ -483,7 +492,7 @@ class HostGuardMiddleware:
                 "headers": [
                     (b"content-type", b"application/json"),
                     (b"cache-control", b"no-store"),
-                    *_refusal_headers(),
+                    *refusal_headers(),
                     (b"content-length", str(len(body)).encode("ascii")),
                 ],
             }

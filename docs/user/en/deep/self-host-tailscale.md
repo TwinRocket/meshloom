@@ -22,7 +22,7 @@ From 5.0 every page and API route asks for an account, so this never opens Meshl
 
    Your name is `machine-name.tailnet-name.ts.net` (`tailscale serve status` shows it).
 3. In Meshloom, as an administrator:
-   - **Settings → Users & Access → Public addresses**: add `https://machine-name.tailnet-name.ts.net`. This declares the MagicDNS name as yours, so the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) accepts it (from 5.1 it refuses undeclared names). Only add a name you created.
+   - **Settings → Users & Access → Public addresses**: add `https://machine-name.tailnet-name.ts.net`. This declares the MagicDNS name as yours, so the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) accepts it; declaring it also turns that check to strict, so undeclared names are refused. Only add a name you created.
    - **Settings → Local Configuration → Trusted proxies**: add `127.0.0.1`. `tailscale serve` connects from the machine itself and tells Meshloom the visitor's address and that the page is HTTPS only in `X-Forwarded-For` and `X-Forwarded-Proto`, which Meshloom believes only from a listed address. Without it, every device looks like `127.0.0.1` and the session cookie is the plain one.
 4. Open `https://machine-name.tailnet-name.ts.net` from another device of the tailnet and sign in. The sign-in page must not warn that Meshloom saw plain HTTP. If it does, Trusted proxies is missing or wrong.
 

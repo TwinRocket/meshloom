@@ -36,7 +36,9 @@ const toView = (settings: AuthSettings): View => ({
  * names the Host guard saw and would refuse (`rejected_hosts`, each with an "Allow"
  * button that declares it), and the observe/enforce switch. Every change is saved at
  * once; the server validates the entries (coded `errors.auth_public_urls_invalid`) and
- * refuses an enforce that would reject the address in use (`auth_host_guard_would_lock_out`).
+ * refuses an enforce that would reject the address in use (`auth_host_guard_would_lock_out`),
+ * and a first address that the HTTPS rule would refuse to the admin saving it
+ * (`auth_https_would_lock_out`: plain http from a public address).
  */
 export function AccessPublicAddressesPanel() {
   const { t } = useTranslation();

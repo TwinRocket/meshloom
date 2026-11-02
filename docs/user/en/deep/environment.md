@@ -131,7 +131,7 @@ You change these in the web interface. Nothing here is set through the environme
 | **Alerts** | `telemetry_alert_rules` |
 | **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail, webhook and Apprise, the 4.18.x destinations), `notification_language`, `notification_rules`, `radio_offline_grace_s`, `push_allow_private_endpoints`; the new tables `notification_channels`, `notification_deliveries`, `notification_counters` and `notification_state` |
 | **Updates** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
-| **Users & Access** | `public_urls` (**Public addresses**: the names Meshloom answers to from outside, declared by an administrator; no environment variable exists for them), `host_guard_mode` (observe or enforce) |
+| **Users & Access** | `public_urls` (**Public addresses**: the names Meshloom answers to from outside, declared by an administrator; no environment variable exists for them), `host_guard_mode` (observe or enforce; switched to enforce when the first public address is declared) |
 | **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail; `auth_allowed_origins`: the other sites allowed to call the API (**Allowed origins**) |
 | Discovered channels | `rejected_channels`: the channels you refused |
 | Not in the interface | `raw_packet_retention_days`: automatically deletes unreadable packets older than this many days (`0` keeps everything). Set it through `PATCH /api/settings` |
