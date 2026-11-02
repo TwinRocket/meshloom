@@ -452,7 +452,8 @@ purpose.
   (`settings.access.tokens.*`), audit strings in slice `ba`
   (`settings.access.audit.*`), trusted networks and the Access security notice in slice
   `bc` (`settings.access.trustedNetworks.*`, `settings.access.securityNotice.*`,
-  `errors.auth_trusted_*`, `errors.auth_lan_login_free_admin_rules`). `AccessTrustedNetworksPanel`
+  `errors.auth_trusted_*`, `errors.auth_lan_login_free_admin_rules`; the Remote notice
+  `remote_reduced_plugin_isolation` is in slice `remote`). `AccessTrustedNetworksPanel`
   edits the rules (the account picker never offers an administrator, which the server refuses;
   a saved rule naming one is listed as refused and keeps the switch off), a live warning under a
   rule typed as a public, /8-or-wider or Tailscale/CGNAT-wider-than-/32 network via `lib/cidr.ts`,
@@ -488,6 +489,48 @@ purpose.
 - Strings: slice `aa` (`auth.*`, plus the error codes slice `x` lacks), slice `ai`
   (`auth.ingress.*`, `errors.auth_ingress_only`).
   Tests: `src/test/auth.test.tsx`.
+
+### Remote access section (`components/settings/SettingsRemoteSection.tsx`, `remote/`)
+
+Settings → Remote access (section id `remote`, icon `MonitorSmartphone`, `lazy()` from
+`SettingsModal`), Meshloom Remote over `/api/remote` (`docs/dev/remote.md`; `api.getRemote`,
+`enableRemote`, `disableRemote`, `unregisterRemote`, `rotateRemote`, `issueRemoteEnroll`,
+`revokeRemoteDevice`, `revokeAllRemoteDevices`, `listRemoteAccessRequests`,
+`approveRemoteAccessRequest`, `denyRemoteAccessRequest`; types in `remote/remoteTypes.ts`, not
+`types.ts`). In `ACCOUNT_SETTINGS_SECTIONS`: every route but enable, disable, unregister, rotate and
+revoke-all is `own_account`, and those five are shown to `isAdmin` only (an admin also reads
+`/auth/users` to name device owners).
+
+- **Never local.** The explanation and privacy note (what the relay sees, passkeys or 2FA
+  recommended, a relayed request is never the local network) are always shown. Through the relay
+  (`via === 'relay'`) the enrolment button is replaced by the LAN-only notice (the server answers
+  403 `remote_lan_only`).
+- **State.** `remoteBadge()` (`remote/remoteShared.ts`) maps `state` + `link_status` to a badge id,
+  a tone and an action; the label is `settings.remote.badge.<id>` and the help
+  `settings.remote.badgeHelp.<id>`. `REMOTE_LINK_STATES` mirrors `LINK_STATES` of
+  `app/services/remote_relay.py`; `tests/test_remote_ui_strings.py` pins the copy and checks
+  every state and every `errors.remote_*` code (`REMOTE_ERRORS`, the relay refusals) in en and fr.
+  The section polls `GET /api/remote` every 15 s.
+- **Enable.** A dialog that repeats what the relay sees; while plugins run with reduced isolation
+  (`pluginsIsolationReduced(health)`, the server's `_plugins_isolation_reduced` rule, an unknown
+  health counting as reduced) it blocks until a checkbox is ticked. The same condition with Remote
+  on raises `remote_reduced_plugin_isolation` in the Access security notice.
+- **Enrolment QR** (`RemoteEnrollDialog`): the URL (one-time token in the fragment) lives in the
+  dialog's state only and is dropped on close, expiry or use; the QR goes through the lazy
+  `PairingQr`; the 15 min countdown runs on the local clock (`ENROLL_LIFETIME_S`, never the
+  server's); while it shows, `GET /api/remote` every 3 s (`ENROLL_POLL_MS`) and a new `qr` device
+  id ends it with "enrolled".
+- **Access requests** (`RemoteAccessRequestsPanel`, polled every 10 s): the pending list never
+  shows the code, the reader types the code the device shows; a warning against social
+  engineering stays above the list. The user agent is attacker-supplied: React text only (no HTML
+  sink), through `untrustedText()` (control, bidi and zero-width characters dropped, 160
+  characters), summarised by `deviceLabel`.
+- **Devices** (`RemoteDevicesPanel`): active devices with revoke (confirmed), revoked ones folded
+  in a `<details>`, revoke-all for an admin; a `gate_pushed: false` answer says the relay applies it
+  on reconnect.
+- Strings: slice `remote` (`settingsNav.remote`, `settings.remote.*`, `errors.remote_*`, and
+  `settings.access.securityNotice.remote_reduced_plugin_isolation`). Tests:
+  `src/test/settingsRemoteSection.test.tsx`.
 
 ### Extensions section (`components/settings/extensions/`)
 

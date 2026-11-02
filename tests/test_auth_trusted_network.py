@@ -404,6 +404,30 @@ async def test_the_notice_names_an_admin_rule_with_reduced_plugin_isolation(monk
         assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
 
 
+async def test_the_notice_names_remote_on_with_reduced_plugin_isolation(monkeypatch):
+    """Remote puts the admin accounts within reach of the internet: with reduced plugin
+    isolation the Access security notice says so, trusted networks or not (MSHL-82)."""
+    from app.plugins import lifecycle
+    from app.repository.remote import RemoteRepository
+
+    fields = {"plugins_disabled_source": None, "plugins_isolation": "none"}
+    monkeypatch.setattr(lifecycle, "health_fields", lambda: fields)
+    async with _admin_client() as client:
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+        await RemoteRepository.update_state(enabled=True)
+        body = (await client.get("/api/auth/settings")).json()
+        assert body["security_notices"] == ["remote_reduced_plugin_isolation"]
+        fields["plugins_disabled_source"] = "paused"
+        notices = (await client.get("/api/auth/settings")).json()["security_notices"]
+        assert notices == ["remote_reduced_plugin_isolation"]
+        fields["plugins_disabled_source"] = None
+        fields["plugins_isolation"] = "bwrap"
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+        fields["plugins_isolation"] = "none"
+        await RemoteRepository.update_state(enabled=False)
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+
+
 async def test_only_an_admin_reads_or_changes_the_rules():
     await create_user()
     await create_user("bob", role="member")
