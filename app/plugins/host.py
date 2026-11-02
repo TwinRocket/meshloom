@@ -437,9 +437,12 @@ class PluginProcess:
         backend.prepare_plugin_dir(self._plugin_dir)
         self.work_dir = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
         argv, kwargs = backend.launch(self._plugin_dir, self.work_dir)
-        self._proc = await asyncio.create_subprocess_exec(
-            *argv, stderr=asyncio.subprocess.PIPE, **kwargs
-        )
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                *argv, stderr=asyncio.subprocess.PIPE, **kwargs
+            )
+        finally:
+            launch.close_passed_fds(kwargs)
         self.started_at = time.monotonic()
         self._readers = [
             asyncio.create_task(self._read_stdout()),

@@ -63,13 +63,18 @@ class Runner:
         self.stderr_path = work / f"stderr-{self.cwd.name}.log"
         self._stderr = self.stderr_path.open("wb")
         argv, kwargs = backend.launch(plugin_dir, self.cwd)
+        # The backend's own descriptors (the bwrap seccomp program), closed below.
+        backend_fds = {"pass_fds": kwargs.get("pass_fds", ())}
         if env is not None:
             kwargs["env"] = env
         if pass_fds:
-            kwargs["pass_fds"] = pass_fds
+            kwargs["pass_fds"] = (*backend_fds["pass_fds"], *pass_fds)
         if cwd is not None:
             kwargs["cwd"] = str(cwd)
-        self.proc = subprocess.Popen(argv, stderr=self._stderr, **kwargs)
+        try:
+            self.proc = subprocess.Popen(argv, stderr=self._stderr, **kwargs)
+        finally:
+            launch.close_passed_fds(backend_fds)
         assert self.proc.stdin is not None and self.proc.stdout is not None
         self._stdin = self.proc.stdin
         self._stdout_fd = self.proc.stdout.fileno()

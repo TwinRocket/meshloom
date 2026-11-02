@@ -42,13 +42,14 @@ end in `none` with the reason logged.
 | `/proc/<server>/environ`, `mem` | not there (own pid namespace and `/proc`) | refused (root's process, or another uid's undumpable one) | refused by `PR_SET_DUMPABLE` (non-root servers), readable when the server is root |
 | Write outside the work dir | refused (read-only binds, `--remount-ro /`) | refused (a tree owned by root or the server's uid) | only the hooks |
 | Signal the server or another plugin | not there (own pid namespace) | refused (another uid, no `CAP_KILL`) | only the hooks (same uid) |
-| Network | none (own network namespace, loopback down) | open (the hooks refuse sockets in-process) | the hooks only |
+| Network | none (own network namespace, loopback down; both seccomp filters refuse every socket) | no socket, loopback and the radio proxy included: the runner's seccomp filter refuses `socket` and `socketpair` (MSHL-415) | same as `setuid` (Linux); the hooks only elsewhere |
 | A process it execs (`fork_exec` rebuilt) | none: the seccomp filter and `RLIMIT_NPROC` 0 fail the fork | same | same; as root only the filter holds, and a root child without one does not start |
 | SIGKILL of the group | kills everything (the sandbox's pid 1 goes, the kernel kills the namespace) | kills the group; a grandchild that called `setsid()` survives until the service or container stops | same as `setuid` |
 
 ### `bwrap` (`bwrap.py`)
 
-`bwrap --unshare-all --unshare-net --die-with-parent --new-session --cap-drop ALL`,
+`bwrap --unshare-all --unshare-net [--unshare-user --disable-userns] [--seccomp FD]
+--die-with-parent --new-session --cap-drop ALL`,
 read-only binds of `/usr` (and `/bin`, `/sbin`, `/lib*` as links or directories),
 `/etc/ld.so.cache`, `/etc/localtime`, the interpreter's prefix when outside
 `/usr` (python-build-standalone under `/opt/meshloom/python`), the runner package
@@ -64,6 +65,38 @@ status, and `128 + signal` for a child killed by a signal. The package
 (`dpkg -i` skips Recommends). The systemd unit sets no `RestrictNamespaces`, and
 `NoNewPrivileges=yes` is fine: Debian, Raspberry Pi OS and Fedora ship bwrap
 without the setuid bit.
+
+Two hardening flags, detected once at startup (`bwrap.probe()`, which
+`selection.detect()` calls instead of a bare self-test):
+
+- **`--seccomp FD`, a filter of the box's own** (MSHL-413):
+  `seccomp.BWRAP_DENIED`, built at startup from the runner's tables
+  (`build_filter`, `program_bytes`: the `struct sock_filter` array bwrap reads),
+  written to a pipe whose read end goes in `pass_fds` (`BwrapBackend.launch()`;
+  the supervisor closes its copy once the child started,
+  `launch.close_passed_fds`). bwrap installs it right before it executes the
+  interpreter, so it binds the start-up too, and the runner stacks its own
+  filter on top (`Seccomp_filters: 2` in `/proc/<pid>/status`). It is the runner's list
+  but `execve` (bwrap's own exec of the interpreter) plus kernel attack surface:
+  `io_uring_setup`/`enter`/`register`, `userfaultfd`, `bpf`,
+  `perf_event_open`, `keyctl`, `add_key`, `request_key`, and the mount API
+  (`mount`, `umount2`, `pivot_root`, `open_tree`, `move_mount`, `fsopen`,
+  `fsconfig`, `fsmount`, `fspick`, `mount_setattr`). A plugin past the
+  runner's filter (a bug in it, or in the runner before it installs it) still
+  meets this one, and the reverse. On an architecture without a table the box
+  has no filter of its own (a startup warning says so); the runner's filter
+  decides as before. Measured (Python 3.14, bubblewrap 0.12): a program with
+  no runner in the box gets `EPERM` from `fork`, `socket` and `unshare`
+  (`test_bwrap_box_has_its_own_filter_and_no_nested_user_namespace`).
+- **`--unshare-user --disable-userns`** (MSHL-414, bubblewrap 0.8 and later):
+  the kernel refuses any nested user namespace (`unshare(CLONE_NEWUSER)` gets
+  `ENOSPC`, measured with the filters off), on top of both filters' `unshare`
+  and `setns` refusal. `--disable-userns` needs a user namespace, which
+  `--unshare-all` only tries for, hence `--unshare-user`. `bwrap --version`
+  decides whether to pass it; when the self-test fails with it but passes
+  without, or the version is older or unreadable (Ubuntu 22.04 ships 0.6), the
+  level stays `bwrap` without the flag and the reason is logged at WARNING
+  (`Plugin isolation hardening: ...`, `Selection.warnings`).
 
 ### `setuid` (`setuid.py`, `permissions.py`)
 
@@ -224,15 +257,23 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
   sets `PR_SET_DUMPABLE` 0 (every level), which keeps `/proc/<pid>/mem` and
   `ptrace` refused to the server's other processes and, under `none`, to a
   sibling (`test_a_sibling_under_the_same_uid_cannot_open_the_child_memory`).
-- Under `setuid` the network is open to an exec'd program (only the hooks
-  refuse sockets in-process), **loopback included**: that reaches the radio
-  proxy, which has no authentication and accepts SEND commands
-  (`app/radio_proxy/policy.py`; only private key export is refused), so a plugin
-  past its hooks can send messages beyond its own send quota. A network namespace
-  is not available in default Docker: `unshare(CLONE_NEWNET)` needs
-  `CAP_SYS_ADMIN`, which Docker's default root does not have; the alternatives
-  are an extra capability, or nftables owner matching on the plugin uid with
-  `CAP_NET_ADMIN` (follow-up, MSHL-191 measures it).
+- Under `setuid` there is no network namespace (default Docker refuses
+  `unshare(CLONE_NEWNET)`: it needs `CAP_SYS_ADMIN`), and loopback reaches the
+  radio proxy, which has no authentication and accepts SEND commands
+  (`app/radio_proxy/policy.py`; only private key export is refused). MSHL-415
+  closes it in the kernel instead of the network: the runner's seccomp filter
+  refuses `socket` and `socketpair` (and `socketcall` on i386) at every level,
+  so no IPv4 or IPv6 socket (all of `127.0.0.0/8` and `::1`, the app's own
+  port, the proxy's 5051), no raw or netlink socket and no Unix socket
+  (abstract ones have no permission check) can be opened, by plugin code or by
+  anything the child could load. The child never needs one: its RPC runs on
+  pipes, its event loop wakes through an `os.pipe`, and `http.fetch` is made by
+  the server. The alternatives assessed were nftables owner matching on the
+  plugin uids (needs `CAP_NET_ADMIN` and nftables in the image, and covers IP
+  only) and an extra capability for a network namespace; neither is needed
+  now. At `setuid` the filter is required, like for a root child: a child that
+  cannot install it does not start (the shipped architectures all have a
+  table). Corpus: `loopback_egress`.
 - Without a pid namespace (`setuid`, `none`), a process that left the session
   survives the group kill; the service's cgroup (`KillMode=control-group`) or
   the container's end still stops it.
@@ -248,23 +289,11 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
   child runs without it, still held by `RLIMIT_NPROC` 0 (no thread, no process)
   and with every capability dropped, while a root child, which `RLIMIT_NPROC`
   does not bind, refuses to start.
-- A second seccomp filter passed to bwrap (`--seccomp FD`, a BPF program built
-  once by a small script; assessed in MSHL-212, not done). The runner's own
-  filter already refuses `clone`, `fork` and `exec` at every level, so a bwrap
-  filter would add two things: coverage of the interpreter's start-up, before
-  the runner installs its filter (no plugin code runs then), and a deny list
-  of kernel attack surface the runner's filter leaves open (`io_uring_*`,
-  `userfaultfd`, `bpf`, `perf_event_open`, `keyctl`/`add_key`, `ptrace`,
-  `mount`). Plugin code reaches a raw syscall only through the standard
-  library (no `ctypes`, no native module), so the gain is defence in depth
-  against a runner bypass plus a kernel bug. Cost: a per-architecture table
-  (the runner's assembler can be reused), the descriptor passed through
-  `launch.py`, and the bwrap self-test extended. The one gap the standard
-  library opened is closed in the runner's filter instead: `os.unshare` and
-  `os.setns` (3.12+) raise no audit event, and a plugin could create a user
-  namespace at every level (measured on Python 3.14); `unshare` and `setns`
-  now answer `EPERM` (corpus case `namespaces`). bwrap 0.8 and later also offer
-  `--disable-userns`, not on Ubuntu 22.04's 0.6.
+- The second seccomp filter (MSHL-413) and `--disable-userns` (MSHL-414) are
+  described under "`bwrap`" above. Plugin code reaches a raw syscall only
+  through the standard library (no `ctypes`, no native module), so the bwrap
+  filter's kernel-surface list is defence in depth against a runner bypass plus
+  a kernel bug.
 
 ## What the runner does
 
@@ -276,7 +305,7 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 | Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` 0 (Linux, every level); small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap; no thread and no process can be created, whatever path the hook does not see (the kernel counts the uid's tasks against the limit; root, `CAP_SYS_RESOURCE` and `CAP_SYS_ADMIN` ignore it) |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
 | Inherited capabilities dropped (Linux, non-root child): ambient cleared, effective, permitted and inheritable emptied, checked in `/proc/self/status` | `CAP_SETUID`/`CAP_SETGID` kept by a `MESHLOOM_RUN_AS_USER` server do not reach plugin code |
-| seccomp filter (Linux, `meshloom_plugin/seccomp.py`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `unshare`, `setns` and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); no new or joined namespace (MSHL-212: `os.unshare` and `os.setns`, Python 3.12+, raise no audit event, and a plugin could create a user namespace at every level); required for a root child, best effort otherwise |
+| seccomp filter (Linux, `meshloom_plugin/seccomp.py`, `RUNNER_DENIED`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `unshare`, `setns`, `socket`, `socketpair` (`socketcall` on i386), `pidfd_open`, `pidfd_send_signal`, `pidfd_getfd`, `ptrace`, `process_vm_readv`, `process_vm_writev` and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); no new or joined namespace (MSHL-212: `os.unshare` and `os.setns`, Python 3.12+, raise no audit event, and a plugin could create a user namespace at every level); no socket, loopback included (MSHL-415); no other process reached past the audit hook (MSHL-417, "Audit events per Python version"); required for a root child and at the `setuid` level, best effort otherwise |
 | `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no other process of the same uid can open its `/proc/<pid>/mem` or `ptrace` it |
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
@@ -304,6 +333,8 @@ The audit hook raises `PermissionError` on:
 - `sqlite3.connect` and extension loading;
 - `gc.get_objects`, `gc.get_referrers`, `gc.get_referents`;
 - `object.__setattr__` of `__code__` or `__class__`;
+- `sys.remote_exec` (3.14, PEP 768: run code in another Python process; the
+  seccomp filter also refuses the `process_vm_writev` it rests on);
 - `sys.addaudithook` (CPython swallows the exception and does not add the hook,
   so after the install the runner also replaces `sys.addaudithook` with a stub,
   compiled like the hook without globals or builtins, that raises
@@ -322,6 +353,41 @@ in as constants (tuples and frozenset displays), reads no global and no builtin
 at call time (it uses only default arguments), and its globals and builtins
 dicts are emptied once it is defined. Nothing mutable is reachable from its
 frame.
+
+## Audit events per Python version (MSHL-417)
+
+The hook's denylist (`_DENIED_EVENTS`, `_DENIED_EVENT_PREFIXES`) was compared
+on 2026-11-02 with the audit events table of the documentation
+(`library/audit_events.html`) of 3.11, 3.12, 3.13 and 3.14, and the calls a
+plugin could use to leave its box were run under a recording hook in the
+official `python:3.11` to `3.14-slim` images. What each version added to the
+table:
+
+| Version | New events | Relevant to the sandbox |
+|---|---|---|
+| 3.12 | `_thread.start_new_thread`, `os.listdrives`, `os.listmounts`, `os.listvolumes`, `sys._getframemodulename` | the thread start: denied (`_thread.start_joinable_thread` too, raised from 3.13 though the table omits it); the `os.list*` ones are Windows only |
+| 3.13 | `sys.monitoring.register_callback`, `time.sleep` (`ctypes.set_exception` replaces `ctypes.seh_exception`; `nntplib` and `telnetlib` are gone) | no: monitoring, like `sys.settrace` and `sys.setprofile`, observes the same process, which is not a boundary; every `ctypes.*` event is denied by prefix |
+| 3.14 | `sys.remote_exec`, `cpython.remote_debugger_script`, `cpython.PyConfig_Set`, `ctypes.memoryview_at` | `sys.remote_exec` runs code in another process: now denied, and the seccomp filter refuses `process_vm_readv`/`process_vm_writev` and `ptrace`; the others act on this process only (`ctypes.*` denied by prefix) |
+
+The escape paths that raise **no audit event** on any of 3.11 to 3.14 (the
+hook cannot see them) and what closes each:
+
+| Call | Why it matters | Closed by |
+|---|---|---|
+| `os.unshare`, `os.setns` (3.12+) | a new user or network namespace | seccomp `unshare`, `setns` (both filters); `--disable-userns` under bwrap |
+| `_posixsubprocess.fork_exec`, a module rebuilt from its spec (`module_from_spec` of a built-in: no `import` event) | a process, a program | seccomp `clone`/`fork`/`execve` and `RLIMIT_NPROC` 0 (bypass 2) |
+| `_thread.start_new_thread` on 3.11 | a thread | seccomp `clone`, `RLIMIT_NPROC` 0 |
+| `_socket.socketpair` | a connected pair of Unix sockets without `socket.__new__` | seccomp `socket`, `socketpair` (corpus `loopback_egress`) |
+| `os.pidfd_open`, `signal.pidfd_send_signal` | signal the server where `os.kill` is denied (same uid under `none`) | seccomp `pidfd_open`, `pidfd_send_signal`, `pidfd_getfd` (corpus `pidfd_signal`) |
+| `os.memfd_create` | an anonymous file to load native code from | the `import` rule (its `/proc/self/fd/<n>` path is not under the standard library); `mmap` is denied |
+| `os.setuid`, `os.setresuid`, `os.setgid` | nothing: no capability is left (non-root), and a root child is root already | — |
+| `os.eventfd`, `os.pipe2`, `os.openpty`, `os.splice`, `os.sendfile`, `os.copy_file_range`, `os.dup2`, `os.setpriority`, `os.sched_setaffinity`, `signal.signal` | act on this process's own descriptors or scheduling only | — (`RLIMIT_NOFILE`, `RLIMIT_CPU`) |
+| `os.setsid`, `os.setpgid` | leave the process group the supervisor kills | `EPERM`: the child is already a session leader (`start_new_session`); a forked child is refused |
+
+Reaching a socket through `_socket` itself raises `socket.__new__` (denied by
+prefix) when the socket is created, also on a descriptor (`fileno=`): only
+`socketpair` creates one silently. Kept as is: `os.chmod`, `os.chown`
+and the `open`/`os.*` mutation events are already checked against the roots.
 
 ## The demonstrated bypasses (critique-1 §1.2, MSHL-191)
 
@@ -551,11 +617,16 @@ What runs, and where:
   the per-level checks: database, environ, code, network, group kill) and
   `tests/test_plugin_host.py` (budgets, restarts, crash loop).
 - `tests/test_plugin_seccomp.py` (standard library and pytest only): the ABI
-  table, the BPF program run through a small interpreter for every ABI, and a
-  probe process that installs the filter and checks `fork`, `execv`,
-  `posix_spawn`, `subprocess`, a thread start, `unshare` and `setns` (3.12+)
-  are refused, and that a
-  non-root process ends with no capability. `tests/test_plugin_runner.py` also
+  tables (every denied name numbered once per ABI; the numbers come from the
+  kernel's syscall tables, v6.12), both BPF programs (runner and bwrap) run through
+  a small interpreter for every ABI, the bytes handed to bwrap, and a probe
+  process that installs the filter and checks `fork`, `execv`, `posix_spawn`,
+  `subprocess`, a thread start, `unshare` and `setns` (3.12+), a connection to
+  `127.0.0.1:5051`, IPv6, Unix and `socketpair` sockets and `pidfd_open` are
+  refused, and that a non-root process ends with no capability.
+  `tests/test_plugin_isolation.py` checks the bwrap flags, the pipe, `probe()`'s
+  fallbacks, and that a program with no runner in the box meets the box's own
+  filter and `--disable-userns`. `tests/test_plugin_runner.py` also
   checks `Seccomp: 2` in a live child's `/proc/<pid>/status`.
 
 CI: the backend job (Python 3.11, 3.12, 3.13 and 3.14, `ubuntu-latest`, bubblewrap
@@ -599,6 +670,8 @@ docker-entrypoint.sh calls it), where `none` and `setuid` are.
 | `rlimit_raise` | runner | `resource.setrlimit`, module rebuilt from its spec | `PermissionError` |
 | `putenv` | runner | change the environment | `PermissionError` |
 | `namespaces` | runner (Linux) | `os.unshare(CLONE_NEWUSER)`, `os.setns` (no audit event) | `EPERM` from the seccomp filter (3.12+; 3.11 has neither function) |
+| `loopback_egress` | runner (Linux) | a rebuilt `_socket`: connect to `127.0.0.1:5051` and `[::1]:5051` (the radio proxy), an abstract Unix socket, a `socketpair` (no audit event) | the hook (the `_socket` import, `socket.__new__`) or `EPERM` from the seccomp filter, `setuid` included (MSHL-415); the `socketpair` event reaches the filter where `_socket` is built in (python-build-standalone, the deb/rpm interpreter), `test_plugin_seccomp.py` pins it everywhere |
+| `pidfd_signal` | runner (Linux) | `os.pidfd_open(<server>)` then `signal.pidfd_send_signal(fd, 0)` (no audit event; `signal` rebuilt from its spec) | `EPERM` from the seccomp filter on `pidfd_open`, every level (MSHL-417) |
 | `environ` | runner | read `os.environ` (parent passed a secret) | only `LANG`, `PYTHONHASHSEED` |
 | `inherited_fds` | runner | look for a descriptor the parent passed | none past 0, 1, 2 |
 | `memory_bomb` | runner (Linux) | allocate 1 GiB | `MemoryError` (`RLIMIT_AS`) |
@@ -729,7 +802,7 @@ Overload, same at both levels: the slow instance finishes at most
 `MAX_CONCURRENT_HANDLERS` (8) events per second against 20 offered. Its inbox
 filled to `inbox_size` (100) within 20 s and stayed there, 8 events in flight;
 of 1200 events 496 were answered, 620 dropped (oldest first, each drop counted
-in `dropped_events`, the log summing them up every few seconds), 84 still queued or in flight at
+in `dropped_events`, the log summing them up every 10 s, `_DROP_LOG_INTERVAL`), 84 still queued or in flight at
 the end, no failure and no restart. Latency then sits at the inbox's depth,
 about 6 s. Every accepted event was accounted for (answered, failed, dropped,
 queued or in flight) in both phases.

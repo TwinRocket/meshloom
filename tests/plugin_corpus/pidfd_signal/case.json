@@ -1,0 +1,16 @@
+{
+  "description": "Signal the server through a pidfd (os.pidfd_open, signal.pidfd_send_signal): neither raises an audit event, unlike os.kill, so under none (same uid) the hook alone would let it through. The runner's seccomp filter answers EPERM to pidfd_open at every level (MSHL-417).",
+  "platforms": [
+    "linux"
+  ],
+  "events": [
+    {
+      "params": {
+        "pid": "$SERVER_PID"
+      },
+      "expect": {
+        "check": "pidfd_refused"
+      }
+    }
+  ]
+}

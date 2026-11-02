@@ -10,6 +10,7 @@ pytest: `pytest --noconftest tests/test_plugin_isolation.py`.
 """
 
 import contextlib
+import json
 import logging
 import os
 import pwd
@@ -25,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from app.plugins import launch
+from app.plugins.isolation import bwrap as bwrap_module
 from app.plugins.isolation import permissions, selection
 from app.plugins.isolation.base import LEVEL_LABELS
 from app.plugins.isolation.bwrap import BwrapBackend
@@ -145,9 +147,11 @@ def test_backend_selection_table(
 ) -> None:
     tested: list[str] = []
 
-    def fake_self_test(path: str) -> str | None:
+    def fake_probe(path: str) -> tuple[BwrapBackend | None, tuple[str, ...]]:
         tested.append(path)
-        return self_test
+        if self_test is None:
+            return BwrapBackend(path), ()
+        return None, (self_test,)
 
     chosen = selection.detect(
         platform=platform,
@@ -155,7 +159,7 @@ def test_backend_selection_table(
         capabilities=lambda: caps,
         getpwnam=_getpwnam(account),
         which=lambda name: bwrap if name == "bwrap" else None,
-        bwrap_self_test=fake_self_test,
+        bwrap_probe=fake_probe,
     )
     assert chosen.level == level, environment
     assert len(chosen.fallbacks) == fallbacks, chosen.fallbacks
@@ -186,6 +190,74 @@ def test_none_is_reported_as_hooks_only_and_warned_once(monkeypatch, caplog) -> 
     hooks_only = [r for r in caplog.records if "hooks only" in r.getMessage()]
     assert len(hooks_only) == 1 and hooks_only[0].levelno == logging.WARNING
     assert any("bwrap is not installed" in r.getMessage() for r in caplog.records)
+
+
+def test_hardening_left_out_is_warned_but_keeps_the_level(caplog) -> None:
+    note = "bwrap 0.6.1 has no --disable-userns (0.8 or later)"
+    chosen = selection.detect(
+        platform="linux",
+        geteuid=lambda: 998,
+        capabilities=lambda: 0,
+        getpwnam=_getpwnam(None),
+        which=lambda name: "/usr/bin/bwrap",
+        bwrap_probe=lambda path: (BwrapBackend(path), (note,)),
+    )
+    assert chosen.level == "bwrap" and chosen.fallbacks == () and chosen.warnings == (note,)
+    with caplog.at_level(logging.INFO, logger="app.plugins.isolation.selection"):
+        selection.log_selection(chosen)
+    warned = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warned) == 1 and note in warned[0].getMessage()
+
+
+def _fake_bwrap(monkeypatch, version, failing: set[bool]):
+    """`probe()` with `bwrap --version` and the self-test faked: the self-test
+    fails when the backend's `disable_userns` is in `failing`."""
+    tried: list[bool] = []
+
+    def run_self_test(backend: BwrapBackend) -> str | None:
+        tried.append(backend.disable_userns)
+        return "bwrap self-test failed: boom" if backend.disable_userns in failing else None
+
+    monkeypatch.setattr(bwrap_module, "bwrap_version", lambda path: version)
+    monkeypatch.setattr(bwrap_module, "run_self_test", run_self_test)
+    return tried
+
+
+def test_probe_passes_disable_userns_from_bubblewrap_0_8(monkeypatch) -> None:
+    tried = _fake_bwrap(monkeypatch, (0, 8, 0), set())
+    backend, warnings = bwrap_module.probe("/usr/bin/bwrap")
+    assert backend is not None and backend.disable_userns is True
+    assert tried == [True]
+    assert all("disable-userns" not in w for w in warnings)
+
+
+def test_probe_warns_and_goes_without_disable_userns_before_0_8(monkeypatch) -> None:
+    tried = _fake_bwrap(monkeypatch, (0, 6, 1), set())
+    backend, warnings = bwrap_module.probe("/usr/bin/bwrap")
+    assert backend is not None and backend.disable_userns is False
+    assert tried == [False]
+    assert any("bwrap 0.6.1 has no --disable-userns" in w for w in warnings), warnings
+    tried = _fake_bwrap(monkeypatch, None, set())
+    backend, warnings = bwrap_module.probe("/usr/bin/bwrap")
+    assert backend is not None and backend.disable_userns is False
+    assert any("unknown version" in w for w in warnings), warnings
+
+
+def test_probe_falls_back_when_disable_userns_fails(monkeypatch) -> None:
+    tried = _fake_bwrap(monkeypatch, (0, 11, 0), {True})
+    backend, warnings = bwrap_module.probe("/usr/bin/bwrap")
+    assert backend is not None and backend.disable_userns is False
+    assert tried == [True, False]
+    assert any("fails with --disable-userns" in w for w in warnings), warnings
+
+
+def test_probe_reports_a_sandbox_that_does_not_work(monkeypatch) -> None:
+    _fake_bwrap(monkeypatch, (0, 11, 0), {True, False})
+    backend, reasons = bwrap_module.probe("/usr/bin/bwrap")
+    assert backend is None and reasons == ("bwrap self-test failed: boom",)
+    assert bwrap_module.self_test("/usr/bin/bwrap") == "bwrap self-test failed: boom"
+    monkeypatch.setattr(bwrap_module.shutil, "which", lambda name: None)
+    assert bwrap_module.probe() == (None, ("bwrap is not installed",))
 
 
 def test_isolated_level_is_logged_at_info(caplog) -> None:
@@ -233,6 +305,40 @@ def test_bwrap_command_binds_only_the_runner_package_and_the_plugin() -> None:
     assert head.index("--tmpfs") < head.index("--bind")  # the work dir sits on top of /tmp
     assert head[head.index("--chdir") + 1] == str(work_dir)
     assert child == ["/opt/meshloom/python/bin/python3.13", "-I", "-c", "pass"]
+    # No hardening flag unless asked: `--disable-userns` follows the probe, and
+    # `--seccomp` needs a descriptor.
+    assert "--disable-userns" not in head and "--seccomp" not in head
+
+
+def test_bwrap_command_adds_disable_userns_and_its_seccomp_descriptor() -> None:
+    backend = BwrapBackend("/usr/bin/bwrap", disable_userns=True, seccomp_abi="aarch64")
+    argv = backend.command(["python3"], Path("/p"), Path("/w"), seccomp_fd=7)
+    head = argv[: argv.index("--")]
+    # `--disable-userns` needs the user namespace `--unshare-all` only tries for.
+    assert head.index("--unshare-user") < head.index("--disable-userns")
+    assert head[head.index("--seccomp") + 1] == "7"
+
+
+def test_bwrap_launch_hands_the_filter_through_a_pipe(tmp_path: Path) -> None:
+    from meshloom_plugin import seccomp
+
+    backend = BwrapBackend("/usr/bin/bwrap", seccomp_abi="x86_64")
+    argv, kwargs = backend.launch(tmp_path / "plugin", tmp_path)
+    try:
+        (fd,) = kwargs["pass_fds"]
+        assert argv[argv.index("--seccomp") + 1] == str(fd)
+        expected = seccomp.program_bytes(seccomp.build_filter("x86_64", seccomp.BWRAP_DENIED))
+        assert os.read(fd, 65536) == expected
+        assert os.read(fd, 1) == b""  # the write end is closed: bwrap reads to EOF
+    finally:
+        launch.close_passed_fds(kwargs)
+    with pytest.raises(OSError):
+        os.fstat(fd)
+    # An architecture without a table: no program, no descriptor, no flag.
+    bare = BwrapBackend("/usr/bin/bwrap", seccomp_abi="s390x")
+    argv, kwargs = bare.launch(tmp_path / "plugin", tmp_path)
+    assert bare.seccomp_program is None and kwargs["pass_fds"] == ()
+    assert "--seccomp" not in argv
 
 
 def test_setuid_drops_to_the_account_with_no_groups(tmp_path: Path) -> None:
@@ -314,6 +420,67 @@ def test_bwrap_child_reaches_no_database_environ_code_or_network(tmp_path: Path)
     assert result["connect"].startswith("denied"), result
 
 
+_BOX_PROBE = r"""
+import errno, json, os, socket
+out = {}
+def attempt(name, fn):
+    try:
+        fn()
+        out[name] = "allowed"
+    except OSError as exc:
+        out[name] = errno.errorcode.get(exc.errno, exc.errno)
+def fork():
+    if os.fork() == 0:
+        os._exit(0)
+    os.wait()
+attempt("fork", fork)
+attempt("socket", lambda: socket.socket(socket.AF_UNIX).close())
+attempt("unshare", lambda: os.unshare(os.CLONE_NEWUSER))
+with open("/proc/self/status") as fh:
+    out["seccomp"] = [l.split()[1] for l in fh if l.startswith("Seccomp:")]
+print(json.dumps(out))
+"""
+
+
+@pytest.mark.skipif(not LINUX, reason="bubblewrap is Linux only")
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="os.unshare is 3.12+")
+def test_bwrap_box_has_its_own_filter_and_no_nested_user_namespace(tmp_path: Path) -> None:
+    """A program with no runner (what a runner bypass leaves) still meets the bwrap
+    filter (MSHL-413); without that filter, `--disable-userns` alone makes the
+    kernel refuse a nested user namespace (MSHL-414: ENOSPC, the limit is 0)."""
+    backend = _backend("bwrap")
+    if backend.seccomp_program is None:
+        pytest.skip("no seccomp table for this architecture")
+
+    def run(box: BwrapBackend) -> dict[str, object]:
+        plugin_dir = shared_tmp_dir("meshloom-box-plugin-")
+        work_dir = box.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-box-work-")))
+        proc = box.spawn(
+            [sys.executable, "-I", "-S", "-c", _BOX_PROBE],
+            plugin_dir,
+            work_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        out, err = proc.communicate(timeout=30)
+        assert proc.returncode == 0, err.decode(errors="replace")
+        return json.loads(out)
+
+    filtered = run(backend)
+    assert filtered == {
+        "fork": "EPERM",
+        "socket": "EPERM",
+        "unshare": "EPERM",
+        "seccomp": ["2"],
+    }, filtered
+    if not backend.disable_userns:
+        pytest.skip("this bubblewrap has no --disable-userns")
+    bare = run(BwrapBackend(backend.bwrap, disable_userns=True, seccomp_filter=False))
+    assert bare["seccomp"] == ["0"] and bare["fork"] == "allowed", bare
+    assert bare["unshare"] == "ENOSPC", bare
+
+
 @pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
 def test_setuid_child_runs_as_the_account_and_reaches_no_database_or_environ() -> None:
     backend = _backend("setuid")
@@ -382,6 +549,12 @@ def _alive(pid: int, identity: str | None = None) -> bool:
 @pytest.mark.parametrize("level", ["none", "bwrap", "setuid"])
 def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
     backend = _backend(level)
+    if isinstance(backend, BwrapBackend):
+        # The forks below are what a plugin past both seccomp filters could do: the
+        # box's own filter refuses them (MSHL-413), so this box goes without it.
+        backend = BwrapBackend(
+            backend.bwrap, disable_userns=backend.disable_userns, seccomp_filter=False
+        )
     plugin_dir = shared_tmp_dir("meshloom-kill-plugin-")
     work_dir = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-kill-work-")))
     # The child forks twice. Under bwrap the forks even leave the session, as a

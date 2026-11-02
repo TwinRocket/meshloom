@@ -35,6 +35,9 @@ class Selection:
     backend: IsolationBackend
     # Why each better backend was not taken, in the order they were tried.
     fallbacks: tuple[str, ...] = field(default_factory=tuple)
+    # Hardening the chosen backend runs without, and why (bwrap too old for
+    # `--disable-userns`, no seccomp table): logged at WARNING too.
+    warnings: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def level(self) -> str:
@@ -80,7 +83,9 @@ def detect(
     capabilities: Callable[[], int] = effective_capabilities,
     getpwnam: Callable[[str], pwd.struct_passwd] = pwd.getpwnam,
     which: Callable[[str], str | None] = shutil.which,
-    bwrap_self_test: Callable[[str], str | None] = bwrap_backend.self_test,
+    bwrap_probe: Callable[
+        [str], tuple[IsolationBackend | None, tuple[str, ...]]
+    ] = bwrap_backend.probe,
 ) -> Selection:
     """Pick the backend for this machine. Every probe is injectable for the tests."""
     if not platform.startswith("linux"):
@@ -103,16 +108,18 @@ def detect(
     if path is None:
         fallbacks.append("bwrap is not installed")
     else:
-        error = bwrap_self_test(path)
-        if error is None:
-            return Selection(bwrap_backend.BwrapBackend(path), tuple(fallbacks))
-        fallbacks.append(error)
+        backend, notes = bwrap_probe(path)
+        if backend is not None:
+            return Selection(backend, tuple(fallbacks), notes)
+        fallbacks.extend(notes)
     return Selection(NoneBackend(), tuple(fallbacks))
 
 
 def log_selection(selection: Selection) -> None:
     for reason in selection.fallbacks:
         logger.warning("Plugin isolation fallback: %s", reason)
+    for reason in selection.warnings:
+        logger.warning("Plugin isolation hardening: %s", reason)
     if selection.level == "none":
         logger.warning(
             "Plugin isolation: none (hooks only, no OS isolation): a hostile plugin could "

@@ -245,6 +245,20 @@ def _check_namespace_refused(response: dict[str, Any], _marker: os.stat_result) 
     assert "[Errno 1]" in error.get("message", ""), response
 
 
+def _check_socket_refused(response: dict[str, Any], _marker: os.stat_result) -> None:
+    """The hook refused the `_socket` import or the socket (`socket.__new__`), or the
+    seccomp filter answered EPERM (`socketpair` raises no audit event; MSHL-415)."""
+    if _refused_by_the_sandbox(response):
+        return
+    assert response.get("result") == {"refused": errno.EPERM}, response
+
+
+def _check_pidfd_refused(response: dict[str, Any], _marker: os.stat_result) -> None:
+    """The seccomp filter refused `pidfd_open` (MSHL-417). Unfiltered it succeeds
+    (ESRCH under bwrap, whose pid namespace has no server), and the signal goes."""
+    assert response.get("result") == {"refused": errno.EPERM, "at": "pidfd_open"}, response
+
+
 def _check_hook_frame(response: dict[str, Any], _marker: os.stat_result) -> None:
     result = response["result"]
     assert isinstance(result, dict), response
@@ -265,6 +279,8 @@ def _check_inherited_fds(response: dict[str, Any], marker: os.stat_result) -> No
 
 _CHECKS = {
     "namespace_refused": _check_namespace_refused,
+    "pidfd_refused": _check_pidfd_refused,
+    "socket_refused": _check_socket_refused,
     "hook_frame": _check_hook_frame,
     "environ": _check_environ,
     "inherited_fds": _check_inherited_fds,

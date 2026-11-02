@@ -78,7 +78,8 @@ def popen_kwargs(work_dir: Path) -> dict[str, Any]:
     """Every `subprocess.Popen` argument but argv and stderr, fixed for the child.
 
     stdin/stdout are the RPC pipes, no other descriptor is passed
-    (`close_fds=True`, no `pass_fds`), the child gets its own session (a process
+    (`close_fds=True`, no `pass_fds`; the bwrap level adds the read end of the pipe
+    holding its seccomp program, which bwrap reads and closes), the child gets its own session (a process
     group the supervisor can kill), the minimal environment and `work_dir` as cwd.
     """
     return {
@@ -90,6 +91,16 @@ def popen_kwargs(work_dir: Path) -> dict[str, Any]:
         "pass_fds": (),
         "start_new_session": True,
     }
+
+
+def close_passed_fds(kwargs: dict[str, Any]) -> None:
+    """Close the parent's copies of the descriptors a backend handed the child
+    (`pass_fds`: the bwrap seccomp program), once the child started or failed to."""
+    for fd in kwargs.get("pass_fds", ()):
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 def runner_params(

@@ -12,7 +12,8 @@ the bootstrap sets `sys.path = [app_root] + stdlib` and runs this module as
 3. Scrub `os.environ`, set hard rlimits (`RLIMIT_NPROC` 0 on Linux: no thread,
    no process), a small thread stack size and `PR_SET_NO_NEW_PRIVS` and
    `PR_SET_DUMPABLE` 0 (Linux), drop inherited capabilities and install a
-   seccomp filter refusing clone/fork/exec (Linux, `meshloom_plugin.seccomp`:
+   seccomp filter refusing clone/fork/exec, unshare/setns, sockets and the
+   pidfd/ptrace paths to other processes (Linux, `meshloom_plugin.seccomp`:
    the guard that also binds a root child), then import `asyncio`: it loads `socket`,
    `ssl` and `subprocess` at module level, which is why it comes before the
    purge rather than after it.
@@ -248,12 +249,16 @@ def _apply_limits(params: dict[str, Any]) -> None:
             raise RunnerStartError("limits_failed", f"PR_SET_DUMPABLE: errno {ctypes.get_errno()}")
         # Capabilities inherited from a non-root server (MESHLOOM_RUN_AS_USER keeps
         # CAP_SETUID/CAP_SETGID ambient) go, and a seccomp filter refuses clone,
-        # fork and exec: the guard that holds for a root child, which RLIMIT_NPROC
-        # does not bind (MSHL-323). Fatal where nothing else would hold.
+        # fork, exec, unshare and setns (the guard that holds for a root child,
+        # which RLIMIT_NPROC does not bind, MSHL-323), every socket (MSHL-415) and
+        # the pidfd/ptrace paths to other processes (MSHL-417). Fatal where nothing
+        # else would hold: a root child, and the setuid level, where the socket
+        # refusal is the only guard of loopback (the radio proxy).
         from meshloom_plugin import seccomp
 
+        required = os.geteuid() == 0 or params.get("isolation") == "setuid"
         try:
-            seccomp.apply(prctl, required=os.geteuid() == 0)
+            seccomp.apply(prctl, required=required)
         except (seccomp.SeccompError, OSError) as exc:
             raise RunnerStartError("limits_failed", str(exc)) from None
 
@@ -375,6 +380,9 @@ _DENIED_EVENTS = frozenset(
         "sqlite3.load_extension",
         "subprocess.Popen",
         "sys.addaudithook",
+        # 3.14: run code in another Python process (PEP 768); the seccomp filter
+        # also refuses the process_vm_writev it rests on.
+        "sys.remote_exec",
         "urllib.Request",
         "webbrowser.open",
     }
