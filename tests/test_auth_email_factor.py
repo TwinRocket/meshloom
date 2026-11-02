@@ -580,6 +580,102 @@ async def test_sign_in_links_are_limited_per_account(mailbox, clock):
     await _no_mail(mailbox)
 
 
+async def test_the_request_path_never_reads_the_account(mailbox, monkeypatch):
+    """Timing: the user and factor lookups and the audit row (an insert and a commit)
+    run in the background task, so the answer does the same work for any name. Held
+    here until the answer is back: were any of them on the request path, it would
+    hang."""
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    gate = asyncio.Event()
+    touched: list[str] = []
+
+    def held(name, original):
+        async def wrapper(*args, **kwargs):
+            touched.append(name)
+            await gate.wait()
+            return await original(*args, **kwargs)
+
+        return wrapper
+
+    monkeypatch.setattr(
+        UserRepository, "get_by_username", held("user", UserRepository.get_by_username)
+    )
+    monkeypatch.setattr(EmailFactorRepository, "get", held("factor", EmailFactorRepository.get))
+    monkeypatch.setattr(AuthAuditRepository, "add", held("audit", AuthAuditRepository.add))
+    async with _link_client() as client:
+        for name in (ADMIN, "nobody"):
+            answer = await asyncio.wait_for(
+                client.post("/api/auth/magic-link", json={"username": name}), timeout=2
+            )
+            assert answer.json() == {"sent": True, "expires_in": 900}
+        assert mailbox.mails == []
+        gate.set()
+        await _wait_for_mail(mailbox)
+    assert mailbox.mails[-1][0] == ADDRESS
+    assert touched.count("user") == 2 and "audit" in touched
+    rows = await AuthAuditRepository.list_recent(limit=50)
+    pending = [row for row in rows if row.action == "login" and row.outcome == "pending"]
+    assert len(pending) == 1 and pending[0].details == {"method": "magic_link"}
+    assert pending[0].ip == "127.0.0.1"
+
+
+async def test_link_requests_are_limited_per_client_address(mailbox):
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    async with make_client(base_url=LOCAL, client=("10.0.0.5", 5000)) as client:
+        for _ in range(email_factor.ADDRESS_MAX_PER_HOUR):
+            # Any name: the limit is per address, before any account is read.
+            assert await _ask_link(client, username="nobody") == {"sent": True, "expires_in": 900}
+        over = await client.post("/api/auth/magic-link", json={"username": ADMIN})
+        assert over.status_code == 429 and _code_of(over) == "auth_rate_limited"
+        assert int(over.headers["retry-after"]) > 0
+    await _no_mail(mailbox)
+    async with make_client(base_url=LOCAL, client=("10.0.0.6", 5000)) as other:
+        assert await _ask_link(other) == {"sent": True, "expires_in": 900}
+        await _wait_for_mail(mailbox)
+
+
+def _relay_client(visitor: str):
+    """Requests as the relay dispatches them: the visitor's address in ``client``
+    and ``scope["state"]["via"] = "relay"`` (``app/services/remote_relay.py``)."""
+    import httpx
+
+    from app.main import app
+
+    async def tagged(scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            scope.setdefault("state", {})["via"] = "relay"
+        await app(scope, receive, send)
+
+    transport = httpx.ASGITransport(app=tagged, client=(visitor, 50000))
+    return httpx.AsyncClient(transport=transport, base_url="https://mesh.example.org")
+
+
+async def test_relayed_link_requests_are_limited_per_visitor_address(mailbox, monkeypatch):
+    from app.auth import ratelimit
+    from app.repository.auth import AuthSettingsRepository
+
+    # Behind Docker without a trusted proxy the LAN rules share one key; a relayed
+    # request is still keyed by its visitor.
+    monkeypatch.setattr(ratelimit.login_limiter, "address_rules_active", lambda: False)
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    await AuthSettingsRepository.update(public_urls=["https://mesh.example.org"])
+    async with _relay_client("198.51.100.7") as client:
+        for _ in range(email_factor.ADDRESS_MAX_PER_HOUR):
+            assert await _ask_link(client, username="nobody") == {"sent": True, "expires_in": 900}
+        over = await client.post("/api/auth/magic-link", json={"username": ADMIN})
+        assert over.status_code == 429 and _code_of(over) == "auth_rate_limited"
+    async with _relay_client("198.51.100.8") as other:
+        assert await _ask_link(other) == {"sent": True, "expires_in": 900}
+        await _wait_for_mail(mailbox)
+    assert set(email_factor.address_requests._keys) >= {
+        ("address", ratelimit.client_address_key("198.51.100.7")),
+        ("address", ratelimit.client_address_key("198.51.100.8")),
+    }
+
+
 def test_codes_and_masks():
     assert email_factor.normalize_address(" a@b.org ") == "a@b.org"
     assert email_factor.normalize_address("a@b") is None

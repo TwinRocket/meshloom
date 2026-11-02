@@ -1447,9 +1447,11 @@ OpenID Connect case in `tests/test_auth_oidc.py`. Frontend: `frontend/src/auth/m
   proof of a kind the pending login does not take (a TOTP code for an e-mail-only
   account) is a wrong code; the token is kept.
 - **Sign-in links.** `POST /auth/magic-link {username, remember, base, lang}` (public)
-  answers `{sent: true, expires_in}` whatever the name, and sends the mail in the background
-  (`background_tasks.spawn`), so neither the answer nor its time says whether an account
-  matched; a refusal per account is silent too. Only 503 `auth_email_unavailable` (a fact
+  answers `{sent: true, expires_in}` whatever the name. The request path never reads the
+  account: the user and factor lookups, the per-account limit, the token, the audit row
+  (`login`/`pending`) and the mail all run in one background task (`_send_link`, via
+  `background_tasks.spawn`), so the answer does the same work whether an account matched
+  or not; a refusal per account is silent too. Only 503 `auth_email_unavailable` (a fact
   of the instance) and 429 past `ADDRESS_MAX_PER_HOUR` (20) requests an hour from one
   client address (`ratelimit.LoginLimiter.address_key`, else the client address) differ.
   The link is `_mail_base(request, base)` plus `#magic_link=<token>`: a fragment, so a

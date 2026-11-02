@@ -12,8 +12,9 @@
   password step; ``POST /auth/login/2fa`` with ``method: "email"`` checks it
   (``app/routers/auth_totp.py``).
 - ``POST /auth/magic-link`` (public): mails a sign-in link. The answer is the same
-  whatever the name, and the mail is sent in the background, so neither the answer
-  nor its time tells whether an account matched. ``POST /auth/magic-link/verify``
+  whatever the name, and everything that reads the account (lookups, per-account
+  limit, token, audit row, mail) runs in a background task (``_send_link``), so the
+  request path does the same work whether an account matched or not. ``POST /auth/magic-link/verify``
   (public) trades the link's token for a session, or for the TOTP step when TOTP is
   on (never the e-mail code: the link already proved the mailbox). The mailed link
   hangs only from a trusted origin (``_mail_base``): a declared public address, or
@@ -528,12 +529,44 @@ class MagicLinkVerify(BaseModel):
     token: SecretStr = Field(min_length=1, max_length=128)
 
 
-async def _send_link(user_id: int, address: str, link: str, lang: MailLanguage) -> None:
+async def _send_link(
+    username: str,
+    remember: bool,
+    lang: MailLanguage,
+    app_address: str,
+    actor: audit.AuditActor,
+) -> None:
+    """Everything of ``POST /auth/magic-link`` that depends on the account, off the
+    request path: the lookups, the per-account limit, the token, the audit row and
+    the mail. The answer then does the same work whatever the name (the audit insert
+    and its commit, or a lookup that stops early, would otherwise time it)."""
+    user = await UserRepository.get_by_username(username)
+    factor = await EmailFactorRepository.get(user.id) if user is not None else None
+    if (
+        user is None
+        or user.disabled
+        or not _is_applicable(user)
+        or factor is None
+        or not factor.magic_link_enabled
+    ):
+        return
+    # Per account, silently: a refusal here would tell the name exists.
+    if not email_factor.account_sends.allow(("user", user.id)):
+        return
+    token = email_factor.magic_links.issue(user.id, user.updated_at, remember)
+    link = f"{app_address}#{email_factor.LINK_FRAGMENT}={token}"
+    await audit.record(
+        "login",
+        "pending",
+        actor=actor,
+        target=audit.user_target(user.id),
+        details={"method": "magic_link"},
+    )
     subject, html = email_factor.render("link", lang, instance=_instance_name(), link=link)
     try:
-        await email_factor.deliver(address, subject, html)
+        await email_factor.deliver(factor.address, subject, html)
     except (EmailUnavailable, EmailSendFailed) as exc:
-        logger.warning("Sign-in link for user %s not sent: %s", user_id, type(exc).__name__)
+        logger.warning("Sign-in link for user %s not sent: %s", user.id, type(exc).__name__)
 
 
 @router.post("/magic-link", response_model=MagicLinkSent, dependencies=[Depends(public())])
@@ -543,7 +576,8 @@ async def request_magic_link(body: MagicLinkRequest, request: Request) -> MagicL
     instance, not of an account); 429 ``auth_rate_limited`` past 20 requests an
     hour from one client address; 400 ``auth_magic_link_origin_untrusted`` when the
     request's address is neither declared nor this machine's (``_mail_base``: a fact
-    of the request, not of an account). Otherwise always ``{sent: true}``."""
+    of the request, not of an account). Otherwise always ``{sent: true}``. Nothing
+    here reads the account: ``_send_link`` does, in the background."""
     _refuse_under_ingress(request)
     await _require_available()
     limiter = ratelimit.login_limiter
@@ -554,25 +588,11 @@ async def request_magic_link(body: MagicLinkRequest, request: Request) -> MagicL
     app_address = await _mail_base(request, body.base)
     if app_address is None:
         raise _error(400, "auth_magic_link_origin_untrusted")
-    user = await UserRepository.get_by_username(body.username)
-    if user is None or user.disabled or not _is_applicable(user):
-        return MagicLinkSent()
-    factor = await EmailFactorRepository.get(user.id)
-    if factor is None or not factor.magic_link_enabled:
-        return MagicLinkSent()
-    # Per account, silently: a refusal here would tell the name exists.
-    if not email_factor.account_sends.allow(("user", user.id)):
-        return MagicLinkSent()
-    token = email_factor.magic_links.issue(user.id, user.updated_at, body.remember)
-    link = f"{app_address}#{email_factor.LINK_FRAGMENT}={token}"
-    # In the background: the answer takes the same time whether a mail goes or not.
-    spawn(_send_link(user.id, factor.address, link, body.lang), name="magic-link-mail")
-    await audit.record_request(
-        request,
-        "login",
-        "pending",
-        target=audit.user_target(user.id),
-        details={"method": "magic_link"},
+    spawn(
+        _send_link(
+            body.username, body.remember, body.lang, app_address, audit.actor_from_request(request)
+        ),
+        name="magic-link-mail",
     )
     return MagicLinkSent()
 
