@@ -70,6 +70,7 @@ import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './uti
 import type {
   RemoteAccessRequest,
   RemoteDevice,
+  RemoteDomainTest,
   RemoteEnrollTicket,
   RemoteGateResult,
   RemoteStatus,
@@ -554,6 +555,11 @@ export const api = {
   disableRemote: () => fetchJson<RemoteStatus>('/remote/disable', { method: 'POST' }),
   unregisterRemote: () => fetchJson<RemoteStatus>('/remote', { method: 'DELETE' }),
   rotateRemote: () => fetchJson<RemoteStatus>('/remote/rotate', { method: 'POST' }),
+  testRemoteDomain: (domain: string) =>
+    fetchJson<RemoteDomainTest>('/remote/domain/test', {
+      method: 'POST',
+      body: JSON.stringify({ domain }),
+    }),
   issueRemoteEnroll: () => fetchJson<RemoteEnrollTicket>('/remote/enroll', { method: 'POST' }),
   revokeRemoteDevice: (id: string) =>
     fetchJson<RemoteGateResult>(`/remote/devices/${encodeURIComponent(id)}`, {

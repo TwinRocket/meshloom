@@ -231,9 +231,39 @@ drops, every stream ends at once and the app tasks get 5 s before they are cance
 a slug. A stopped state stays until Remote changes (enable, disable, register, rotate,
 unregister, restore), which restarts the loop.
 
+## Custom domain test (MSHL-428)
+
+A CNAME from a user's domain to the relay fails without Cloudflare for SaaS (error 1014),
+so the supported recipe is a user-side URL redirect to `https://<slug>.meshloom.link`
+(`docs/user/{en,fr}/deep/remote-domain.md`; no custom hostname, no cost). The "Test"
+button, `POST /api/remote/domain/test {domain}` (`remote.check_custom_domain`), checks it
+from the instance:
+
+- 409 `remote_disabled` while Remote is off and `remote_not_registered` without a
+  hostname; nothing leaves then (the sweep in `tests/test_remote_off_no_egress.py` covers
+  the route). Nothing is ever sent to the relay: the only destination is the user's
+  domain.
+- `normalize_domain` accepts a bare DNS name (an `https://` prefix and a trailing `/` are
+  stripped, IDNA A-label); an IP literal, a port, a path or a single label is
+  `invalid_domain`, without any request.
+- One `GET` per scheme, HTTPS first, HTTP only after a connect or TLS error, through the
+  egress guard as a user-chosen destination (private, loopback and metadata addresses
+  refused, IP pinning), redirect never followed, body never read, 20 s in all.
+- `result`: `ok` (a 301/302/303/307/308 whose `Location` host is exactly
+  `remote_state.hostname`; path and scheme ignored), `no_redirect` (any other answer, or a
+  redirect without `Location`), `wrong_target` (`target_host` is the host found; untrusted
+  text), `invalid_domain`, or `unreachable` with `detail` an `error_code`
+  (`egress_unresolvable`, `egress_private_address`, `timeout`, `tls_error`,
+  `connect_error`...). Translations: `settings.remote.domain.result.*` and `.reason.*`.
+- Rate limit: one instance-wide limiter (`take_domain_test_slot`, aiolimiter, never
+  queued): 1 test per 5 s and 6 per minute. Over it the route answers 429 `rate_limited`
+  with `Retry-After` (the panel shows `errors.rate_limited`, FR and EN) and sends nothing,
+  so an admin session, relay included, cannot use the instance as a request cannon.
+- The domain is not stored: it is not a setting.
+
 ## Permissions and audit
 
-`admin`: enable, disable, unregister, rotate, revoke-all. Every account role but `kiosk`
+`admin`: enable, disable, unregister, rotate, revoke-all, the custom domain test. Every account role but `kiosk`
 (`own_account()`): the state (an administrator sees every device, anyone else their
 own), enrolment, client passes, own revocations, access requests. Audit rows: the
 `remote.*` actions in `docs/dev/auth.md`. Never log or audit a pass, a token, an
@@ -258,6 +288,8 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 - Enrolment QR (`RemoteEnrollDialog`): the URL stays in the dialog's state only; a local
   15 min countdown; polls `GET /api/remote` every 3 s and reports the new `qr` device.
   Through the relay the button is replaced by the LAN-only notice.
+- Custom domain (`RemoteDomainPanel`, administrators, registered only): one input and the
+  "Test" button; the result box shows the translated outcome (`data-result`).
 - Access requests (`RemoteAccessRequestsPanel`): the pending list never shows the code
   (the reader types what the device shows), carries a warning against social
   engineering, and renders the user agent as plain text without control or direction
@@ -268,7 +300,7 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 
 ## Not done here
 
-- The user documentation (MSHL-83). Issuing a client pass
+- The main user page (MSHL-83; it should link to `remote-domain.md`). Issuing a client pass
   (`POST /api/remote/devices/client`) has no UI yet.
 - CONTROL `instance_update` when the plugin settings change without a reconnect: the
   next HELLO carries them. Closing the instance's own open WebSockets of a revoked
@@ -286,7 +318,8 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 of the registry's JWT checks proved on every case, then the minted tokens),
 `tests/test_remote_service.py` (fake registry, fake relay and edge: registration,
 enrolment, access requests, revocation, rotation, restore, routes),
-`tests/test_remote_off_no_egress.py`, `tests/test_migrations/test_migration_138.py`.
+`tests/test_remote_off_no_egress.py`, `tests/test_remote_domain.py` (the custom domain
+test: results, scheme fallback, private addresses, off), `tests/test_migrations/test_migration_138.py`.
 Settings UI: `frontend/src/test/settingsRemoteSection.test.tsx` (mocked `/api/remote`
 states) and `tests/test_remote_ui_strings.py`.
 

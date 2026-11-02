@@ -36,12 +36,16 @@ PATH_PARAMS = {"device_id": "A" * 22, "request_id": "B" * 22}
 BODIES = {
     ("POST", "/api/remote/devices/client"): {"label": "sweep"},
     ("POST", "/api/remote/access-requests/approve"): {"code": "7K3QM-X9TZ2"},
+    ("POST", "/api/remote/domain/test"): {"domain": "chat.example.org"},
 }
 # Network functions of the service (found from the module: a new one must be listed).
 _NETWORK = {"_registry", "_register_locked", "register", "enable", "unregister", "rotate"}
+# Also network, but towards the user's own domain, never the relay (tests/test_remote_domain.py).
+_NETWORK |= {"_probe_domain", "check_custom_domain"}
 # Coroutine functions that never connect.
 _LOCAL = {
     "_notify",
+    "take_domain_test_slot",
     "load",
     "send_control",
     "disable",

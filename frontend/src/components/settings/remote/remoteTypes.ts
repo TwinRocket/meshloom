@@ -69,3 +69,22 @@ export interface RemoteAccessRequest {
 export interface RemoteGateResult {
   gate_pushed: boolean;
 }
+
+/** `app/services/remote.py` `DomainCheck.result`; any other string is shown as unreachable. */
+export const REMOTE_DOMAIN_RESULTS = [
+  'ok',
+  'no_redirect',
+  'wrong_target',
+  'invalid_domain',
+  'unreachable',
+] as const;
+
+export interface RemoteDomainTest {
+  result: (typeof REMOTE_DOMAIN_RESULTS)[number];
+  /** The domain's own HTTP status. */
+  status_code: number | null;
+  /** Host the domain redirects to: untrusted text. */
+  target_host: string | null;
+  /** With `unreachable`: an egress or transport error code (`settings.remote.domain.reason`). */
+  detail: string | null;
+}
