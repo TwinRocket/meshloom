@@ -34,16 +34,24 @@ type Phase =
  * runs on the local clock from the token's fixed lifetime, so a skewed server clock
  * cannot show a dead code as alive. While the code is shown, the dialog polls
  * `GET /api/remote` and reports the new device as soon as it appears.
+ *
+ * The baseline of known device ids is taken once, when a code is issued, and frozen
+ * while it is shown: the section's own status poll may see the new device before this
+ * dialog does, and moving the baseline then would hide the enrolment. Only a new `qr`
+ * device of the current user counts (an administrator sees every account's devices).
  */
 export function RemoteEnrollDialog({
   open,
   knownDeviceIds,
+  currentUserId,
   onClose,
   onEnrolled,
 }: {
   open: boolean;
   /** The device ids held before the code was issued: a new id is the enrolled device. */
   knownDeviceIds: readonly string[];
+  /** The signed-in user: only a device of this account is the one just enrolled. */
+  currentUserId: number | null;
   onClose: () => void;
   onEnrolled: () => void;
 }) {
@@ -51,18 +59,24 @@ export function RemoteEnrollDialog({
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [now, setNow] = useState(() => Date.now());
   const epoch = useRef(0);
-  const known = useRef<readonly string[]>(knownDeviceIds);
+  // `latestKnown` follows the parent; `known` is the baseline frozen when a code is
+  // issued; `seen` holds every id this dialog's polls saw since it opened, so that
+  // "enrol another" does not report the device just enrolled again.
+  const latestKnown = useRef<readonly string[]>(knownDeviceIds);
+  const known = useRef<ReadonlySet<string>>(new Set(knownDeviceIds));
+  const seen = useRef<Set<string>>(new Set());
+  const userRef = useRef(currentUserId);
   const enrolledRef = useRef(onEnrolled);
   useEffect(() => {
     enrolledRef.current = onEnrolled;
+    latestKnown.current = knownDeviceIds;
+    userRef.current = currentUserId;
   });
-  useEffect(() => {
-    known.current = knownDeviceIds;
-  }, [knownDeviceIds]);
 
   // Sets the phase only once the answer is in (never synchronously inside an effect).
   const request = useCallback(() => {
     const started = ++epoch.current;
+    known.current = new Set([...latestKnown.current, ...seen.current]);
     api.issueRemoteEnroll().then(
       (ticket) => {
         if (started !== epoch.current) return;
@@ -89,6 +103,7 @@ export function RemoteEnrollDialog({
     return () => {
       // Closing drops the code: an answer that comes later is not shown.
       epoch.current += 1;
+      seen.current = new Set();
       setPhase({ kind: 'loading' });
     };
   }, [open, request]);
@@ -110,8 +125,12 @@ export function RemoteEnrollDialog({
       api
         .getRemote()
         .then((status) => {
+          for (const device of status.devices) seen.current.add(device.id);
           const fresh = status.devices.some(
-            (device) => device.origin === 'qr' && !known.current.includes(device.id)
+            (device) =>
+              device.origin === 'qr' &&
+              device.user_id === userRef.current &&
+              !known.current.has(device.id)
           );
           if (!fresh) return;
           setPhase((current) => (current.kind === 'shown' ? { kind: 'enrolled' } : current));

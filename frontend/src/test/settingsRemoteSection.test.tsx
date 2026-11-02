@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../api';
 import { SessionProvider } from '../auth/SessionProvider';
 import type { AuthRole, AuthSessionInfo, AuthVia } from '../auth/types';
-import { SettingsRemoteSection } from '../components/settings/SettingsRemoteSection';
+import {
+  REMOTE_STATUS_POLL_MS,
+  SettingsRemoteSection,
+} from '../components/settings/SettingsRemoteSection';
 import { ENROLL_POLL_MS } from '../components/settings/remote/RemoteEnrollDialog';
 import {
   pluginsIsolationReduced,
@@ -225,6 +228,98 @@ describe('SettingsRemoteSection', () => {
     fireEvent.click(screen.getByRole('button', { name: t('settings.remote.enroll.close') }));
     const list = await screen.findByTestId('remote-devices-list');
     expect(within(list).getByText('Pixel')).toBeInTheDocument();
+  });
+
+  it('still reports the enrolment when the section poll sees the new device first', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getRemote = vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+    vi.spyOn(api, 'issueRemoteEnroll').mockResolvedValue({
+      url: ENROLL_URL,
+      expires_at: NOW + 900,
+    });
+    await renderAs('admin');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(13_000);
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('settings.remote.enroll.show') }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId('qr-value')).toHaveTextContent(ENROLL_URL);
+
+    // The phone enrols at about 14 s; the section poll (15 s) sees it before the
+    // dialog's next poll (16 s) does.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    getRemote.mockResolvedValue(statusOf({ devices: [deviceOf({ id: 'new-phone' })] }));
+    const before = getRemote.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_POLL_MS - 14_000);
+    });
+    expect(getRemote.mock.calls.length).toBeGreaterThan(before);
+    expect(screen.queryByTestId('remote-enroll-done')).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ENROLL_POLL_MS);
+    });
+    expect(screen.getByTestId('remote-enroll-done')).toBeInTheDocument();
+    expect(screen.queryByTestId('qr-value')).toBeNull();
+  });
+
+  it("does not report another account's QR enrolment as this one", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getRemote = vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+    vi.spyOn(api, 'issueRemoteEnroll').mockResolvedValue({
+      url: ENROLL_URL,
+      expires_at: NOW + 900,
+    });
+    await renderAs('admin');
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.remote.enroll.show') }));
+    expect(await screen.findByTestId('qr-value')).toBeInTheDocument();
+
+    getRemote.mockResolvedValue(
+      statusOf({ devices: [deviceOf({ id: 'other-phone', user_id: 2 })] })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ENROLL_POLL_MS);
+    });
+    expect(screen.queryByTestId('remote-enroll-done')).toBeNull();
+    expect(screen.getByTestId('qr-value')).toBeInTheDocument();
+
+    getRemote.mockResolvedValue(
+      statusOf({
+        devices: [deviceOf({ id: 'other-phone', user_id: 2 }), deviceOf({ id: 'my-phone' })],
+      })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ENROLL_POLL_MS);
+    });
+    expect(await screen.findByTestId('remote-enroll-done')).toBeInTheDocument();
+  });
+
+  it('does not report the device just enrolled again for the next code', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getRemote = vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+    const issue = vi
+      .spyOn(api, 'issueRemoteEnroll')
+      .mockResolvedValue({ url: ENROLL_URL, expires_at: NOW + 900 });
+    await renderAs('member');
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.remote.enroll.show') }));
+    expect(await screen.findByTestId('qr-value')).toBeInTheDocument();
+    getRemote.mockResolvedValue(statusOf({ devices: [deviceOf({ id: 'phone-1' })] }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ENROLL_POLL_MS);
+    });
+    expect(await screen.findByTestId('remote-enroll-done')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.remote.enroll.another') }));
+    expect(await screen.findByTestId('qr-value')).toBeInTheDocument();
+    expect(issue).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ENROLL_POLL_MS);
+    });
+    expect(screen.queryByTestId('remote-enroll-done')).toBeNull();
+    expect(screen.getByTestId('qr-value')).toBeInTheDocument();
   });
 
   it('hides the QR code once the enrolment code expires', async () => {

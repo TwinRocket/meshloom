@@ -347,6 +347,7 @@ export function SettingsRemoteSection({
           <RemoteEnrollDialog
             open={enrolling}
             knownDeviceIds={deviceIds}
+            currentUserId={user?.id ?? null}
             onClose={() => setEnrolling(false)}
             onEnrolled={reload}
           />

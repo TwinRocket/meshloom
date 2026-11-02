@@ -519,7 +519,9 @@ revoke-all is `own_account`, and those five are shown to `isAdmin` only (an admi
   dialog's state only and is dropped on close, expiry or use; the QR goes through the lazy
   `PairingQr`; the 15 min countdown runs on the local clock (`ENROLL_LIFETIME_S`, never the
   server's); while it shows, `GET /api/remote` every 3 s (`ENROLL_POLL_MS`) and a new `qr` device
-  id ends it with "enrolled".
+  of the current user ends it with "enrolled". The known ids are frozen when the code is issued
+  (plus the ids the dialog's own polls saw), never refreshed from the section's 15 s poll, which
+  may see the new device first.
 - **Access requests** (`RemoteAccessRequestsPanel`, polled every 10 s): the pending list never
   shows the code, the reader types the code the device shows; a warning against social
   engineering stays above the list. The user agent is attacker-supplied: React text only (no HTML
