@@ -7,6 +7,7 @@ import {
   Info,
   UsersRound,
   Link2,
+  LogIn,
   Puzzle,
   MonitorCog,
   MonitorSmartphone,
@@ -24,6 +25,7 @@ export type SettingsSection =
   | 'proxy'
   | 'local'
   | 'access'
+  | 'connection'
   | 'remote'
   | 'notifications'
   | 'updates'
@@ -43,6 +45,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'proxy',
   'local',
   'access',
+  'connection',
   'remote',
   'notifications',
   'updates',
@@ -64,6 +67,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   proxy: 'settingsNav.proxy',
   local: 'settingsNav.local',
   access: 'settingsNav.access',
+  connection: 'settingsNav.connection',
   remote: 'settingsNav.remote',
   notifications: 'settingsNav.notifications',
   updates: 'settingsNav.updates',
@@ -84,6 +88,7 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   proxy: Waypoints,
   local: MonitorCog,
   access: UsersRound,
+  connection: LogIn,
   remote: MonitorSmartphone,
   notifications: Bell,
   updates: RefreshCw,

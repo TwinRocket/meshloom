@@ -88,8 +88,9 @@ from app.repository.auth import (
     UsernameTakenError,
     UserRepository,
 )
+from app.repository.oidc import OidcProvider, OidcProviderRepository
 from app.repository.remote import RemoteRepository
-from app.routers import auth_bans, auth_kiosk, auth_pairing, auth_tokens
+from app.routers import auth_bans, auth_kiosk, auth_oidc, auth_pairing, auth_tokens
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -215,6 +216,10 @@ class AuthMethods(BaseModel):
     # A WebAuthn ceremony can run on this request (``app/auth/webauthn.py``:
     # https on a declared public address, the relay, or localhost).
     passkey: bool = False
+    # Sign-in with the OpenID Connect provider of Settings → Connection is on
+    # (``app/auth/oidc.py``); ``oidc_label`` names its button.
+    oidc: bool = False
+    oidc_label: str | None = None
 
 
 class SessionUser(BaseModel):
@@ -342,6 +347,15 @@ def _instance_name() -> str | None:
         return None
 
 
+async def _oidc_provider() -> OidcProvider | None:
+    """The OpenID Connect provider for the login page; None (no button) when unreadable."""
+    try:
+        return await OidcProviderRepository.get()
+    except Exception:
+        logger.warning("OpenID Connect settings unreadable: sign-in button hidden")
+        return None
+
+
 async def _session_payload(
     principal: Principal | None, via: Via, request: Request
 ) -> AuthSessionResponse:
@@ -350,6 +364,8 @@ async def _session_payload(
     setup_required = not await UserRepository.any_exist()
     under_ingress = via == "ingress"
     exposed = False
+    oidc_provider = None if under_ingress or setup_required else await _oidc_provider()
+    oidc_on = oidc_provider is not None and oidc_provider.ready
     if setup_required and not under_ingress:
         # Setup is refused under ingress (auth_ingress_only): no code to issue.
         exposed = await request_exposed(request.scope)
@@ -363,6 +379,8 @@ async def _session_payload(
             password=not under_ingress,
             ingress=under_ingress,
             passkey=await webauthn.available(request.scope),
+            oidc=oidc_on,
+            oidc_label=(oidc_provider.label or None) if oidc_on and oidc_provider else None,
         ),
         secure=_secure(request),
     )
@@ -1777,3 +1795,5 @@ router.include_router(auth_pairing.router)
 router.include_router(auth_bans.router)
 # ``/auth/kiosk-*``: the kiosk launcher's device-token sign-in (``app/routers/auth_kiosk.py``).
 router.include_router(auth_kiosk.router)
+# ``/auth/oidc/*``: sign-in with an OpenID Connect provider (``app/routers/auth_oidc.py``).
+router.include_router(auth_oidc.router)

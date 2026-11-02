@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, api } from '../api';
 import type { AuthSettings, AuthUserRow } from '../auth/types';
 import { SettingsAccessSection } from '../components/settings/SettingsAccessSection';
+import { SettingsConnectionSection } from '../components/settings/SettingsConnectionSection';
 import {
   AccessSecurityNoticeBanner,
   AccessTrustedNetworksPanel,
@@ -235,7 +237,17 @@ describe('Access security notice', () => {
     expect(notice).toHaveTextContent(
       t('settings.access.securityNotice.trusted_admin_reduced_plugin_isolation')
     );
-    expect(screen.getByTestId('trusted-networks-admin-warning')).toBeInTheDocument();
+  });
+
+  it('shows them above the tabs of Connection, with the rules on the Local network tab', async () => {
+    settings.trusted_networks = [{ cidr: '192.168.1.0/24', user_id: 1 }];
+    settings.security_notices = ['trusted_admin_reduced_plugin_isolation'];
+    render(<SettingsConnectionSection />);
+    expect(await screen.findByTestId('access-security-notice')).toHaveTextContent(
+      t('settings.access.securityNotice.trusted_admin_reduced_plugin_isolation')
+    );
+    await userEvent.setup().click(screen.getByTestId('connection-tab-lan'));
+    expect(await screen.findByTestId('trusted-networks-admin-warning')).toBeInTheDocument();
   });
 
   it('shows the public or wide network notice in both languages', () => {

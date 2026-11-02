@@ -20,7 +20,7 @@ Quelle que soit la voie, quatre éléments décident du bon comportement de Mesh
 | **Adresses publiques** | **Réglages → Utilisateurs et accès → Adresses publiques** | Le nom que l’on tape pour joindre Meshloom, écrit `https://nom[:port][/préfixe]`. Nécessaire à la vérification du Host ([plus bas](#noms-dhôte)) et aux passkeys. |
 | **Proxies de confiance** | **Réglages → Configuration locale → Proxies de confiance** | L’adresse du programme qui transmet vers Meshloom (tunnel, proxy). Permet à Meshloom de voir l’adresse du visiteur et que la page est en HTTPS. |
 | **Refuser les noms inconnus (strict)** | Même page que les adresses publiques | Passe la vérification du Host de l’observation au mode strict. Activé automatiquement avec votre première adresse publique ; vous pouvez le désactiver. |
-| **Réseaux de confiance** | **Réglages → Utilisateurs et accès → Réseaux de confiance** | Gardez **Accès sans connexion sur le réseau local** désactivé et cette liste **vide** pour tout ce qui passe par un tunnel ou un proxy ([plus bas](#réseaux-de-confiance-désactivés)). |
+| **Réseaux de confiance** | **Réglages → Connexion → Réseau local** | Gardez **Accès sans connexion sur le réseau local** désactivé et cette liste **vide** pour tout ce qui passe par un tunnel ou un proxy ([plus bas](#réseaux-de-confiance-désactivés)). |
 
 ### Noms d’hôte
 

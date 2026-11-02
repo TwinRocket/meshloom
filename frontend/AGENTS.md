@@ -407,6 +407,16 @@ purpose.
   Settings → Users & Access → `AccessPasskeysPanel` lists, adds (password, plus a code when
   TOTP is on; it warns that a recovery code is spent even if the prompt is abandoned) and removes
   (password) passkeys. i18n slice `bq`.
+- **OpenID Connect.** `auth/oidc.ts` (MSHL-427). `LoginForm` shows "Sign in with {{name}}"
+  when `methods.oidc` is true (`oidc_label`, else `auth.oidc.defaultLabel`); `LoginPage` passes
+  it and `ReloginDialog` does not. The button is a navigation (`startOidcSignIn`:
+  `./api/auth/oidc/start?remember=&base=`, `base` = `appBase()`, the app's own address with its
+  subpath, which the server checks), never a fetch. The callback comes back with
+  `?oidc_error=<code>` (shown as `errors.<code>`) or `#oidc_2fa=<pending token>&methods=&expires_in=`
+  (`SecondFactorStep` opens with it); `takeOidcReturn()` reads that once, caches it for a
+  StrictMode double render and removes it from the address bar with `replaceState`.
+  `getOidcSettings`/`patchOidcSettings` send `base` too, so the listed redirect URIs keep the
+  subpath. Contract: `docs/dev/auth.md`, "OpenID Connect".
 - **429.** `ApiError.retryAfter` comes from `Retry-After` or `params.retry_after`;
   `formatApiError` passes it as `{{retry_after}}` to `errors.auth_rate_limited`.
 - **Ingress.** Home Assistant signs ingress users in on every request (`via: ingress`,
@@ -432,18 +442,29 @@ purpose.
   new admin-only route needs its UI gated here in the same change. The `access` section
   (Users & Access: `components/settings/SettingsAccessSection.tsx`, lazy-loaded from
   `SettingsModal`) is in `ACCOUNT_SETTINGS_SECTIONS` because its profile and sessions
-  panels use `own_account` routes; its users, session lifetime (`AccessSessionLifetimePanel`, `session_lifetime_days`, 1 to 365,
-  strings `settings.access.sessionLifetime.*` in slice `az`) and Home Assistant default role
-  panels render for `isAdmin` only, as does the client addresses panel
+  panels use `own_account` routes; its users and Home Assistant default role panels render for `isAdmin` only. The
+  `connection` section (Connection: `components/settings/SettingsConnectionSection.tsx`,
+  lazy-loaded from `SettingsModal`, not in `ACCOUNT_SETTINGS_SECTIONS`, so admin only, MSHL-427)
+  groups the sign-in rules in Radix tabs (`CONNECTION_TABS`, testids `connection-tab-<id>`;
+  MSHL-426 adds its second-factor tab after `oidc`) under the Access security notice banner:
+  `local` holds the session lifetime (`AccessSessionLifetimePanel`, `session_lifetime_days`, 1 to 365,
+  strings `settings.access.sessionLifetime.*` in slice `az`) and the client addresses panel
   (`AccessClientAddressesPanel`, `addresses_identify_clients`, MSHL-424: shown on a
   `shared_address_install` or when already on; suggests it when `client_public` and no
   trusted proxy; strings `settings.access.clientAddresses.*` in slice `clientaddresses`;
-  test `src/test/accessClientAddressesPanel.test.tsx`), as does the IP ban panel
+  test `src/test/accessClientAddressesPanel.test.tsx`); `lan` the trusted networks
+  (`AccessTrustedNetworksPanel`, below); `bans` the IP ban panel
   (`AccessIpBanPanel`, MSHL-422: `ip_ban_*` settings with `IP_BAN_BOUNDS` mirroring the
   server's, the longest ban of an escalation included (MSHL-434), the running bans with Unban, the whitelist; `GET/DELETE /auth/bans`,
   `POST/DELETE /auth/ban-whitelist`; strings `settings.access.ipBan.*` and the
   `errors.auth_ip_banned`/`auth_ban_*` codes in slice `ipban`; test
-  `src/test/accessIpBanPanel.test.tsx`), as does the audit log (`AccessAuditPanel`: cursor pages of
+  `src/test/accessIpBanPanel.test.tsx`); `oidc` the OpenID Connect provider
+  (`AccessOidcPanel`: presets `OIDC_PRESETS`, a write-only client secret with "Remove the secret",
+  the redirect URIs the server lists, "Test the saved provider"; `OidcLinksSection` lists, adds and
+  removes links, offering only enabled local accounts that are not kiosks; strings
+  `settings.access.oidc.*`, `settings.connection.*`, `settingsNav.connection`, `auth.oidc.*` and
+  `errors.auth_oidc_*` in slice `oidc`; test `src/test/oidc.test.tsx`). Back in Users & Access,
+  admin only too is the audit log (`AccessAuditPanel`: cursor pages of
   `GET /auth/audit`, filters applied client-side to the loaded rows, labels from
   `auditShared.ts`; rows virtualised with `@tanstack/react-virtual` in a fixed-height
   scroller; `details` is never shown). Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
@@ -458,9 +479,9 @@ purpose.
   a saved rule naming one is listed as refused and keeps the switch off), a live warning under a
   rule typed as a public, /8-or-wider or Tailscale/CGNAT-wider-than-/32 network via `lib/cidr.ts`,
   mirror of the server's `public_or_wide`, and a notice
-  on a rule whose account is disabled or must change its password); the notice banner at the top of the
-  section shows the server's `security_notices` and nothing else. `AccessPairingPanel` (admin only; `api.createAuthPairing`/`listAuthPairings`/`revokeAuthPairing`, slice `bv`, `settings.access.pairing.*`) opens a dialog that creates a pairing code and draws its `qr_payload` with `PairingQr.tsx` (the only `qrcode.react` importer on that path, `lazy()`), with a countdown built from `expires_at - created_at` on the local clock (never the server's) that hides the QR at zero; the code exists only in that dialog, the list holds none; closing revokes a pending code (and one whose creation answers after the close), expiry or use (the dialog polls the pending list every 5 s, or a 404 on cancel) drops the code and QR text from state. Test: `src/test/accessPairingPanel.test.tsx`. `AccessTokensPanel` (`api.createAuthToken`/`listAuthTokens`/`revokeAuthToken`) is for `member` and `admin` only (`TOKEN_ROLES`), offers the role's own scopes (`tokenScopesForRole`), shows the secret once in a dialog that Escape and outside clicks cannot close, and under ingress adds a notice that tokens are refused there. Tests: `src/test/accessTokensPanel.test.tsx`, `src/test/settingsAccessSection.test.tsx`,
-  `src/test/accessAuditPanel.test.tsx`, `src/test/accessTrustedNetworksPanel.test.tsx`. Add a settings section
+  on a rule whose account is disabled or must change its password); the notice banner at the top of both
+  sections shows the server's `security_notices` and nothing else. `AccessPairingPanel` (admin only; `api.createAuthPairing`/`listAuthPairings`/`revokeAuthPairing`, slice `bv`, `settings.access.pairing.*`) opens a dialog that creates a pairing code and draws its `qr_payload` with `PairingQr.tsx` (the only `qrcode.react` importer on that path, `lazy()`), with a countdown built from `expires_at - created_at` on the local clock (never the server's) that hides the QR at zero; the code exists only in that dialog, the list holds none; closing revokes a pending code (and one whose creation answers after the close), expiry or use (the dialog polls the pending list every 5 s, or a 404 on cancel) drops the code and QR text from state. Test: `src/test/accessPairingPanel.test.tsx`. `AccessTokensPanel` (`api.createAuthToken`/`listAuthTokens`/`revokeAuthToken`) is for `member` and `admin` only (`TOKEN_ROLES`), offers the role's own scopes (`tokenScopesForRole`), shows the secret once in a dialog that Escape and outside clicks cannot close, and under ingress adds a notice that tokens are refused there. Tests: `src/test/accessTokensPanel.test.tsx`, `src/test/settingsAccessSection.test.tsx`,
+  `src/test/accessAuditPanel.test.tsx`, `src/test/accessTrustedNetworksPanel.test.tsx`, `src/test/oidc.test.tsx`. Add a settings section
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
   that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that
   loads at startup must not call an admin-only route for another role (members, viewers and

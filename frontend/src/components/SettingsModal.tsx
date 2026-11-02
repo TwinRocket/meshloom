@@ -44,6 +44,11 @@ import { useCapabilities } from '../auth/SessionProvider';
 const SettingsAccessSection = lazy(() =>
   import('./settings/SettingsAccessSection').then((m) => ({ default: m.SettingsAccessSection }))
 );
+const SettingsConnectionSection = lazy(() =>
+  import('./settings/SettingsConnectionSection').then((m) => ({
+    default: m.SettingsConnectionSection,
+  }))
+);
 const SettingsRemoteSection = lazy(() =>
   import('./settings/SettingsRemoteSection').then((m) => ({ default: m.SettingsRemoteSection }))
 );
@@ -172,6 +177,7 @@ export function SettingsModal(props: SettingsModalProps) {
     proxy: false,
     local: false,
     access: false,
+    connection: false,
     remote: false,
     notifications: false,
     updates: false,
@@ -345,6 +351,17 @@ export function SettingsModal(props: SettingsModalProps) {
           {isSectionVisible('access') && (
             <Suspense fallback={null}>
               <SettingsAccessSection className={sectionContentClass} />
+            </Suspense>
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('connection') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('connection')}
+          {isSectionVisible('connection') && (
+            <Suspense fallback={null}>
+              <SettingsConnectionSection className={sectionContentClass} />
             </Suspense>
           )}
         </section>

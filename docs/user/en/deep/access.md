@@ -1,6 +1,6 @@
 ---
 title: Accounts and access
-description: Accounts, roles, sessions, trusted networks, tokens, two-factor authentication and passkeys, Home Assistant and the kiosk screen, the removed 4.x Basic login, the audit log, and meshloom-admin, the command that gets you back in from the machine, for each way of installing Meshloom.
+description: Accounts, roles, sessions, trusted networks, tokens, two-factor authentication, passkeys and OpenID Connect, Home Assistant and the kiosk screen, the removed 4.x Basic login, the audit log, and meshloom-admin, the command that gets you back in from the machine, for each way of installing Meshloom.
 level: deep
 order: 21
 ---
@@ -67,7 +67,7 @@ If an administrator sets your password (or `meshloom-admin reset-password --must
 
 ## Sessions
 
-Signing in opens a **session**: Meshloom sets a cookie on that browser and keeps only a fingerprint of its secret. The sign-in form has a **Keep me signed in on this device** box. Checked, the cookie lasts 30 days (an administrator can change this from 1 to 365 days in **Settings → Users & Access → Session lifetime**) and slides: each visit pushes the end back, so a browser you use is never signed out, and neither is a page that only keeps its live connection open, such as a wall screen. After that time without any visit, you sign in again. A new value applies at once to new sessions and, to sessions already open, the next time they are used; it does not change the 12 hours below. The API: `PATCH /api/auth/settings` with `{"session_lifetime_days": 90}` (administrators; 1 to 365). Unchecked (the default), the cookie disappears when you close the browser, and the session also ends after 12 hours without a visit, even if the browser stays open. The API takes the same choice as `remember` in `POST /api/auth/login` (`false` by default). A browser that supports passkeys, on an address where Meshloom does not offer them, says so under the form. Over HTTPS the cookie is `__Host-meshloom_session` (secure, host-only); over plain `http://` it is `meshloom_session`, which a browser sends in clear: use [HTTPS](/en/docs/deep/https/) beyond a network you trust.
+Signing in opens a **session**: Meshloom sets a cookie on that browser and keeps only a fingerprint of its secret. The sign-in form has a **Keep me signed in on this device** box. Checked, the cookie lasts 30 days (an administrator can change this from 1 to 365 days in **Settings → Connection → Local sign-in → Session lifetime**) and slides: each visit pushes the end back, so a browser you use is never signed out, and neither is a page that only keeps its live connection open, such as a wall screen. After that time without any visit, you sign in again. A new value applies at once to new sessions and, to sessions already open, the next time they are used; it does not change the 12 hours below. The API: `PATCH /api/auth/settings` with `{"session_lifetime_days": 90}` (administrators; 1 to 365). Unchecked (the default), the cookie disappears when you close the browser, and the session also ends after 12 hours without a visit, even if the browser stays open. The API takes the same choice as `remember` in `POST /api/auth/login` (`false` by default). A browser that supports passkeys, on an address where Meshloom does not offer them, says so under the form. Over HTTPS the cookie is `__Host-meshloom_session` (secure, host-only); over plain `http://` it is `meshloom_session`, which a browser sends in clear: use [HTTPS](/en/docs/deep/https/) beyond a network you trust.
 
 - **My sessions** (**Settings → Users & Access**) lists the browsers signed in to your account, with system, address and last visit. **Revoke** signs one out, **Sign out everywhere else** all but this one. The live connection of a revoked session closes at once.
 - **Sign out** revokes the session and deletes Meshloom's two cookies on this browser, the session one and the one that remembers the browser (see [Sign-in delays](#sign-in-delays) below), and nothing else: other sites and other Meshloom instances under the same domain keep their cookies.
@@ -89,7 +89,7 @@ An IPv6 address counts by its /64 block: one home or server usually holds a whol
 
 From a browser Meshloom does not know yet (a new device, a cleared cookie, after a key rotation):
 
-- **On a Docker install (Compose or a plain container) with no trusted proxy set**, every visitor can arrive from Docker's own address, so the first and last rules are off and only the per-account rule applies. A guesser on the same address competes with you for the one attempt a second: one sending many attempts a second can keep you out until you use a browser Meshloom knows, or list your reverse proxy in **Trusted proxies**. When the address Meshloom sees really is each visitor's own (host network, or a port published without Docker's proxy), turn on **Settings → Users & Access → Client addresses → Client addresses identify clients**: all three rules then apply. The panel suggests it when you connect from a public address and no proxy is listed. API: `PATCH /api/auth/settings` with `{"addresses_identify_clients": true}` (off by default).
+- **On a Docker install (Compose or a plain container) with no trusted proxy set**, every visitor can arrive from Docker's own address, so the first and last rules are off and only the per-account rule applies. A guesser on the same address competes with you for the one attempt a second: one sending many attempts a second can keep you out until you use a browser Meshloom knows, or list your reverse proxy in **Trusted proxies**. When the address Meshloom sees really is each visitor's own (host network, or a port published without Docker's proxy), turn on **Settings → Connection → Local sign-in → Client addresses → Client addresses identify clients**: all three rules then apply. The panel suggests it when you connect from a public address and no proxy is listed. API: `PATCH /api/auth/settings` with `{"addresses_identify_clients": true}` (off by default).
 - **Behind a reverse proxy that is not listed in Trusted proxies**, every visitor counts as the proxy's address, so one guesser's delays apply to everyone behind it. List the proxy. Meshloom logs a warning naming it.
 - **Otherwise**, each visitor has their own address and a guesser elsewhere only makes you wait up to a second.
 
@@ -99,7 +99,7 @@ The delays live in memory and start again empty when Meshloom restarts. A delay 
 
 Each refused password, code, passkey, token or installation code also writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from (and never the account name, only a short code that changes at each restart). A tool such as fail2ban can watch these lines and block an address that keeps failing: the Linux packages ship a jail for it, off until you turn it on ([Blocking repeated sign-in failures with fail2ban](/en/docs/deep/fail2ban/)). A line marked `proxied=1` names a reverse proxy on your network that is not in **Trusted proxies**, shared by all its visitors: such a tool must ignore it. A visitor from the internet that sends forwarding headers itself is still logged with its own address. Sign-ins through Home Assistant write no line.
 
-**Built-in ban.** Meshloom also bans, by itself, an address that keeps failing: by default 10 refused sign-ins within 10 minutes from one address block it for 60 minutes. A blocked address is told there were too many failed sign-ins from its address on every API request, even with the right password, until the ban ends; its password is not even checked. It counts the same failures as the `AUTH_FAIL` lines, never a `proxied=1` one, and never bans a private address (192.168.x.x, 10.x.x.x, `fd00::/8` and the like, the Docker gateway, this machine), a global IPv6 address of the network this machine is on (Linux only, see below), a sign-in through Home Assistant or, through Meshloom Remote, the relay itself. An IPv6 visitor is blocked by its whole `/64` block. A Tailscale address (`100.64.0.0/10`) can be banned, your own devices included. A ban that comes back within 7 days of the previous one lasts twice as long, up to **Longest ban** (24 hours by default). Bans survive a restart. Exactly which lines count: [The built-in ban and fail2ban](/en/docs/deep/fail2ban/#which-lines-the-built-in-ban-counts). An administrator sets it in **Settings → Users & Access → Address bans**: turn it off, change the number of failures, the window, the duration and the longest ban, see the banned addresses and lift a ban, and keep a **whitelist** of addresses or networks (`203.0.113.7`, `198.51.100.0/24`) that are never banned, whatever happens. From a shell on the machine, while Meshloom runs (it applies on the next request, a whitelist removal within 10 seconds):
+**Built-in ban.** Meshloom also bans, by itself, an address that keeps failing: by default 10 refused sign-ins within 10 minutes from one address block it for 60 minutes. A blocked address is told there were too many failed sign-ins from its address on every API request, even with the right password, until the ban ends; its password is not even checked. It counts the same failures as the `AUTH_FAIL` lines, never a `proxied=1` one, and never bans a private address (192.168.x.x, 10.x.x.x, `fd00::/8` and the like, the Docker gateway, this machine), a global IPv6 address of the network this machine is on (Linux only, see below), a sign-in through Home Assistant or, through Meshloom Remote, the relay itself. An IPv6 visitor is blocked by its whole `/64` block. A Tailscale address (`100.64.0.0/10`) can be banned, your own devices included. A ban that comes back within 7 days of the previous one lasts twice as long, up to **Longest ban** (24 hours by default). Bans survive a restart. Exactly which lines count: [The built-in ban and fail2ban](/en/docs/deep/fail2ban/#which-lines-the-built-in-ban-counts). An administrator sets it in **Settings → Connection → Bans**: turn it off, change the number of failures, the window, the duration and the longest ban, see the banned addresses and lift a ban, and keep a **whitelist** of addresses or networks (`203.0.113.7`, `198.51.100.0/24`) that are never banned, whatever happens. From a shell on the machine, while Meshloom runs (it applies on the next request, a whitelist removal within 10 seconds):
 
 ```bash
 meshloom-admin list-bans
@@ -109,7 +109,7 @@ meshloom-admin whitelist list
 meshloom-admin whitelist remove 198.51.100.0/24
 ```
 
-Every ban, unban and whitelist change is written to the audit log.
+Every ban, unban and whitelist change is written to the audit log. Administrators also list the bans, lift them and edit the whitelist in **Settings → Connection → Bans**.
 
 Who can still be banned by mistake, and what to do:
 
@@ -126,7 +126,7 @@ Sign-in delays, the audit log and the session list record the address a request 
 
 ## Trusted networks
 
-An administrator can let devices on the local network in without a login, in **Settings → Users & Access → Trusted networks**. This is the **Login-free on the local network** switch, plus rules: each rule is a network (`192.168.1.50`, `192.168.1.0/24`) and the account those devices act as. The list is empty by default.
+An administrator can let devices on the local network in without a login, in **Settings → Connection → Local network**. This is the **Login-free on the local network** switch, plus rules: each rule is a network (`192.168.1.50`, `192.168.1.0/24`) and the account those devices act as. The list is empty by default.
 
 The switch is the master control: it is **off by default, and off after an upgrade even if rules already exist**, so existing rules sign nobody in until an administrator turns it on (the start-up log says so). Only an administrator can turn it on or off, and each change is written to the audit log. While it is on, a rule applies only to a device connecting **directly from a local address**: the private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), the shared range `100.64.0.0/10` (CGNAT), link-local addresses, loopback only inside the Home Assistant add-on, and IPv6 unique-local or link-local addresses or the host's own on-link prefix. A public address is never signed in, even if a rule covers it. A request that carries an `Authorization` header is never signed in by a rule either.
 
@@ -232,6 +232,34 @@ The same things through the API (accounts with a password, not the kiosk or Home
 
 Meshloom stores only the public part of each passkey. The full backup carries them only when **Include accounts** is checked; the database download keeps them.
 
+## OpenID Connect
+
+An administrator can add a **Sign in with …** button for an identity provider of their choice: Google, Discord, Keycloak, Authentik, or any other provider that follows OpenID Connect. The provider only proves who the person is: each identity signs in an existing Meshloom account, which keeps its role, its second factor and every other rule. There is one provider at a time. The button is never offered through the Home Assistant sidebar, which already signs you in.
+
+### Setting it up
+
+1. At the provider, register an application: a confidential client, with a client secret and the authorization code flow. Give it the **redirect addresses** listed in **Settings → Connection → OpenID Connect**: the address you use now, plus one per declared public address. Each ends with `/api/auth/oidc/callback`.
+2. In **Settings → Connection → OpenID Connect**, pick the provider (**Google**, **Discord** and **Keycloak** fill in what they can, **Other (any OpenID Connect provider)** fits the rest). Enter the **Issuer** the provider gives (for example `https://accounts.google.com` or `https://keycloak.example.org/realms/home`), the **Client id** and the **Client secret**. Check **Offer sign-in with this provider**, then **Save**.
+3. **Test the saved provider** reads its discovery document and its signing keys, and says what is wrong otherwise (for example an issuer that differs from the one the provider announces).
+4. Under **Linked identities**, link each person to their account (below). The button then appears on the sign-in page.
+
+The client secret is stored encrypted and never shown again: leave the field empty to keep it, or choose **Remove the secret**. The provider must be reached over https at a public address. One on your own network (Keycloak on the same machine or LAN) needs **The provider is on my local network**, which also allows plain http, to a private address only.
+
+### Which account signs in
+
+- **Linked identities**, the default. An administrator links an identity to an existing account, by **verified e-mail** or by **subject** (the provider's identifier of the person, the `sub` claim). An e-mail link signs in only when the provider says the address is verified. On its first sign-in Meshloom remembers the subject, so a later change of address no longer matters. Only an enabled account with its own Meshloom sign-in can be linked: not a kiosk account, not a Home Assistant user. Removing the link or deleting the account ends it.
+- **Create an account for an unknown identity**, off by default. Anyone the provider signs in who is not linked gets a new account with the `viewer` role (read only), linked to that identity; an administrator can raise its role later. Turn it on only for a provider whose users you trust (your own Keycloak, say), never for a public one such as Google or Discord.
+
+An identity that matches no account is refused, and the sign-in page says why.
+
+### Signing in
+
+**Sign in with …** takes you to the provider and back. **Keep me signed in on this device** works as with a password. An account with [two-factor authentication](#two-factor-authentication) still asks for its code or a passkey after the provider. Changing the issuer leaves the existing links behind: the list marks them as belonging to another provider.
+
+Every sign-in, refusal, link and unlink is written to the [audit log](#audit-log). A refused OpenID Connect sign-in does not count toward the [sign-in delays](#sign-in-delays) or the built-in ban: the password, if any, is checked by the provider.
+
+Administrators can also use the API: `GET` and `PATCH /api/auth/oidc/settings` (the secret is write-only), `POST /api/auth/oidc/test`, `GET` and `POST /api/auth/oidc/links`, `DELETE /api/auth/oidc/links/{id}`.
+
 ## Home Assistant
 
 On the Home Assistant add-on, Home Assistant signs you in. Opened from the sidebar, Meshloom accepts the Home Assistant user who opens it, with no password and no Meshloom cookie. Meshloom trusts the identity only when the request comes from the Home Assistant Supervisor itself; the same headers sent to a published port 8000 are ignored, and that address asks for a Meshloom account like any other install.
@@ -246,7 +274,7 @@ On the Home Assistant add-on, Home Assistant signs you in. Opened from the sideb
 The `kiosk` role is for a screen on a wall (a club, a workshop): it reads channels, contacts, packets, statistics and the map, never a direct message, and has no password and no settings. Two ways to use it:
 
 - **The Raspberry Pi kiosk image** creates the `kiosk` account itself and signs the screen in with a **device token** it writes on the Pi, readable only by the desktop user, working only from the Pi itself and never shown in an address (see [Raspberry Pi](/en/docs/rpi/#kiosk-image-screen-on-the-wall)). An administrator sees it as **Kiosk screen** in **API and device tokens**; **Revoke** replaces it, and disabling the `kiosk` account keeps the screen signed out.
-- **Any other screen**: create a `kiosk` account in **Users & Access**, then turn on **Login-free on the local network** and add a trusted-network rule that maps the screen's own address to it ([below](#trusted-networks)). A `kiosk` account has no password, so it cannot sign in any other way.
+- **Any other screen**: create a `kiosk` account in **Users & Access**, then turn on **Login-free on the local network** (**Settings → Connection → Local network**) and add a trusted-network rule that maps the screen's own address to it ([below](#trusted-networks)). A `kiosk` account has no password, so it cannot sign in any other way.
 
 ## The 4.x Basic login
 
@@ -258,7 +286,7 @@ Up to 4.18, `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` (t
 
 ## Audit log
 
-Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, two-factor authentication turned on or off, new recovery codes and sign-ins waiting for their code, passkeys added or removed, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, extensions installed, enabled, disabled, changed or uninstalled, extensions paused or resumed (the bot entries of 4.18 and earlier stay in the log), backup restores, private key imports, radio factory resets, sharing turned on or off, shared objects deleted or reported, and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
+Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, two-factor authentication turned on or off, new recovery codes and sign-ins waiting for their code, passkeys added or removed, OpenID Connect identities linked or unlinked, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, extensions installed, enabled, disabled, changed or uninstalled, extensions paused or resumed (the bot entries of 4.18 and earlier stay in the log), backup restores, private key imports, radio factory resets, sharing turned on or off, shared objects deleted or reported, and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
 
 Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or an extension's code. A failed sign-in names the account only when the typed name matches one; any other typed name is recorded as unknown, so a password typed into the name field is not kept.
 
@@ -266,7 +294,7 @@ Administrators read it in **Settings → Users & Access → Audit log** (hidden 
 
 ## Backup and restore
 
-The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes, two-factor secrets and passkeys, and the API tokens (only their fingerprints, so devices keep working after a restore), never the sessions or the audit log. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
+The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes, two-factor secrets and passkeys, and the API tokens (only their fingerprints, so devices keep working after a restore), never the sessions or the audit log. The [OpenID Connect](#openid-connect) provider and its linked identities are not in it: after restoring the accounts, link the identities again. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
 
 ## Commands
 

@@ -404,6 +404,31 @@ CIDR), `note` (at most 200 characters), `created_at`. At most 256 rows. Managed
 from Settings > Access, `/api/auth/ban-whitelist` and `meshloom-admin whitelist`.
 `IpBanRepository` (`ip_ban.py`). Excluded from backups.
 
+### `oidc_provider`
+
+The OpenID Connect provider of Settings → Connection (migration 140, MSHL-427,
+`app/auth/oidc.py`, `docs/dev/auth.md`, "OpenID Connect"), one row (`id = 1`):
+`enabled` (0 by default), `preset` (`generic`, `google`, `discord`, `keycloak`: the
+form's prefill, no behaviour), `label` (the login button, at most 64 characters),
+`issuer`, `client_id`, `client_secret` (a `v1:` token of `app/secret_store.py`, AAD
+`oidc_provider:1:client_secret`; NULL when none; never answered by the API, cleared in
+the SQLite download), `scopes` (space separated, `openid` first), `token_auth_method`
+(`client_secret_basic` or `client_secret_post`), `auto_create` (0: only linked accounts
+sign in; 1: an unknown identity gets a new `viewer`), `allow_private_network` (0: https
+to a public address only; 1: a provider on the local network, http allowed there),
+`updated_at`. `OidcProviderRepository` (`oidc.py`). Excluded from backups.
+
+### `oidc_links`
+
+Which external identity signs in which local account (migration 140): PK `id`,
+`user_id` (FK `users(id)`, cascade; also deleted by `UserRepository.delete` and by an
+accounts restore), `issuer` (the provider it was written for), `subject` (the
+provider's `sub`; NULL for an e-mail link until its first sign-in records it),
+`email` (lowercased; matched against a verified e-mail claim only), `created_at`,
+`last_login_at`. Unique `(issuer, subject)` and `(issuer, email)`; at least one of
+the two is set. Index `idx_oidc_links_user`. At most 1000 rows.
+`OidcLinkRepository` (`oidc.py`). Excluded from backups.
+
 ### `remote_state`
 
 Meshloom Remote of this instance (migration 138, `app/services/remote.py`,

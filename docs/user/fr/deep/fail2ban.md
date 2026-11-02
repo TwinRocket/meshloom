@@ -11,7 +11,7 @@ Chaque mot de passe, code, passkey, jeton ou code d’installation refusé écri
 
 ## Le blocage intégré et fail2ban
 
-Meshloom a aussi un [blocage intégré](/docs/deep/access/#les-délais-de-connexion), activé par défaut : 10 connexions refusées en 10 minutes depuis une même adresse la bloquent pendant 60 minutes. Il compte les mêmes lignes `AUTH_FAIL`, fonctionne partout où Meshloom tourne, Docker compris (les connexions par Home Assistant ne sont jamais comptées) et ne demande rien à installer. Un administrateur le règle, lève les blocages et tient une liste blanche dans **Réglages → Utilisateurs et accès → Bannissement d’adresses**, ou avec `meshloom-admin unban`.
+Meshloom a aussi un [blocage intégré](/docs/deep/access/#les-délais-de-connexion), activé par défaut : 10 connexions refusées en 10 minutes depuis une même adresse la bloquent pendant 60 minutes. Il compte les mêmes lignes `AUTH_FAIL`, fonctionne partout où Meshloom tourne, Docker compris (les connexions par Home Assistant ne sont jamais comptées) et ne demande rien à installer. Un administrateur le règle, lève les blocages et tient une liste blanche dans **Réglages → Connexion → Bannissements**, ou avec `meshloom-admin unban`.
 
 La différence tient à l’endroit du blocage. Le blocage intégré répond à une adresse bloquée par une erreur avant de vérifier le moindre mot de passe : elle joint encore Meshloom, ce qui coûte peu. fail2ban la bloque au pare-feu : elle ne joint plus du tout le port. Les deux bloquent plus longtemps à chaque retour de l’adresse.
 

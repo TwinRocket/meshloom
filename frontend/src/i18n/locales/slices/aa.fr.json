@@ -60,7 +60,7 @@
       "open": "Compte de {{name}}",
       "signOut": "Se déconnecter",
       "ingressNote": "Home Assistant vous connecte : il n'y a pas de session Meshloom à terminer.",
-      "stillSignedInNote": "Cet appareil est toujours connecté : le serveur le connecte sans identification (accès sans connexion sur le réseau local). Un administrateur peut le changer dans Réglages → Utilisateurs et accès."
+      "stillSignedInNote": "Cet appareil est toujours connecté : le serveur le connecte sans identification (accès sans connexion sur le réseau local). Un administrateur peut le changer dans Réglages → Connexion → Réseau local."
     }
   }
 }

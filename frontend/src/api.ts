@@ -60,12 +60,19 @@ import type {
   AuthSettings,
   IpBansView,
   IpBanWhitelistEntry,
+  OidcLink,
+  OidcLinkCreate,
+  OidcLinksView,
+  OidcSettings,
+  OidcSettingsPatch,
+  OidcTestResult,
   AuthSetupRequest,
   PasskeyRow,
   RecoveryCodes,
   TotpEnrolment,
   TotpStatus,
 } from './auth/types';
+import { appBase } from './auth/oidc';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
 import type {
   RemoteAccessRequest,
@@ -248,6 +255,11 @@ export function formatApiError(err: unknown, t: TFunction): string {
 }
 
 /** Session-layer side effects of a failed API call: a lost session, a forced change, a refusal. */
+/** `base=<the app's address>`: the OpenID Connect redirect URI keeps its subpath. */
+function oidcBaseQuery(): string {
+  return new URLSearchParams({ base: appBase() }).toString();
+}
+
 function reportApiFailure(error: ApiError, url: string, method: string): void {
   // The account is gone (expired session, or no account yet): the gate takes over.
   // Login and setup answer their own 401, which is a form error and not a lost session.
@@ -621,6 +633,19 @@ export const api = {
     fetchJson<void>(`/auth/ban-whitelist?network=${encodeURIComponent(network)}`, {
       method: 'DELETE',
     }),
+  // OpenID Connect sign-in (admin; the sign-in itself is a navigation, `oidcStartUrl`)
+  getOidcSettings: () =>
+    fetchJson<OidcSettings>(`/auth/oidc/settings?${oidcBaseQuery()}`, { cache: 'no-store' }),
+  patchOidcSettings: (patch: OidcSettingsPatch) =>
+    fetchJson<OidcSettings>(`/auth/oidc/settings?${oidcBaseQuery()}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  testOidc: () => fetchJson<OidcTestResult>('/auth/oidc/test', { method: 'POST' }),
+  listOidcLinks: () => fetchJson<OidcLinksView>('/auth/oidc/links', { cache: 'no-store' }),
+  addOidcLink: (body: OidcLinkCreate) =>
+    fetchJson<OidcLink>('/auth/oidc/links', { method: 'POST', body: JSON.stringify(body) }),
+  deleteOidcLink: (id: number) => fetchJson<void>(`/auth/oidc/links/${id}`, { method: 'DELETE' }),
 
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),

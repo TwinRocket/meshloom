@@ -45,6 +45,7 @@ const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
     sections: [
       'local',
       'access',
+      'connection',
       'remote',
       'navigation',
       'notifications',

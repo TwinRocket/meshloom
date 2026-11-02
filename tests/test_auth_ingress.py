@@ -59,7 +59,12 @@ async def test_supervisor_headers_sign_the_user_in_and_lan_copies_are_ignored():
         assert body["authenticated"] is True
         assert body["via"] == "ingress"
         assert body["user"]["display_name"] == "Alice"
-        assert body["methods"] == {"password": False, "ingress": True, "passkey": False}
+        assert body["methods"] == {
+            "password": False,
+            "ingress": True,
+            "passkey": False,
+            "oidc": False,
+        }
         assert (await client.get("/api/contacts", headers=ha_headers())).status_code == 200
     for peer in (LAN_PEER, PUBLISHED_PORT_PEER):
         async with make_client(client=peer) as client:
@@ -68,7 +73,12 @@ async def test_supervisor_headers_sign_the_user_in_and_lan_copies_are_ignored():
             assert _code(response) == "auth_required"
             session = (await client.get("/api/auth/session", headers=ha_headers())).json()
             assert session["authenticated"] is False
-            assert session["methods"] == {"password": True, "ingress": False, "passkey": False}
+            assert session["methods"] == {
+                "password": True,
+                "ingress": False,
+                "passkey": False,
+                "oidc": False,
+            }
     # Only the Supervisor request created an identity.
     assert [u.provider for u in await UserRepository.list_all()] == ["local", "ingress"]
 
@@ -95,7 +105,12 @@ async def test_first_ingress_visit_on_an_empty_database_creates_the_admin():
     async with make_client(client=SUPERVISOR) as client:
         anonymous = (await client.get("/api/auth/session")).json()
         assert anonymous["setup_required"] is True
-        assert anonymous["methods"] == {"password": False, "ingress": True, "passkey": False}
+        assert anonymous["methods"] == {
+            "password": False,
+            "ingress": True,
+            "passkey": False,
+            "oidc": False,
+        }
 
         first = (await client.get("/api/auth/session", headers=ha_headers())).json()
         assert first["authenticated"] is True

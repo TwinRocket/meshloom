@@ -51,6 +51,7 @@ works on the same tables.
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | TOTP second factor (codes, replay rule, recovery codes, pending logins) | `app/auth/totp.py`, routes in `app/routers/auth_totp.py`, `tests/test_auth_totp.py` |
 | Passkeys (WebAuthn: RP id rules, ceremonies, counter) | `app/auth/webauthn.py` (py_webauthn), routes in `app/routers/auth_webauthn.py`, `app/migrations/_110_webauthn_credentials.py`, `tests/test_auth_webauthn.py` (py_webauthn's vectors in `tests/fixtures/webauthn_vectors.json`, a software authenticator in `tests/webauthn_authenticator.py`) |
+| OpenID Connect (provider, account links, ID token checks) | `app/auth/oidc.py` (joserfc), routes in `app/routers/auth_oidc.py`, `app/repository/oidc.py`, `app/migrations/_140_oidc.py`, `tests/test_auth_oidc.py` with `tests/oidc_fake_provider.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py`, `scripts/test/meshloom_admin_tty.sh` |
 | Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_auth_webauthn.py`, `tests/test_migrations/test_migration_110.py`, `tests/test_migrations/test_migration_136.py`, `tests/test_cli.py` |
 
@@ -68,10 +69,11 @@ present decides. Details are in the sections named in the last column.
 | Session cookie | the session's account | HTTP and WebSocket, never under ingress | `__Host-meshloom_session` (https) or `meshloom_session`; sliding 30 days, or a browser-session cookie | "Sessions and the cookie" |
 | Ingress headers | the Home Assistant user (`provider = ingress`) | add-on only, peer `172.30.32.2` | no password, no cookie, no 2FA | "Ingress" |
 | Trusted network rule | the rule's account | direct peer with a local address only, while `lan_login_free` is on; tried last | closed behind any proxy; strict `Host` | "Trusted networks" |
+| OpenID Connect sign-in | the linked local account (or a new `viewer` with `auto_create`) | `GET /api/auth/oidc/start` and `/callback`, never under ingress | opens an ordinary session; TOTP still asked | "OpenID Connect" |
 | Kiosk device token | the system `kiosk` account | `POST /api/auth/kiosk-bootstrap` from loopback only | opens a one-time session code | "Kiosk device token" |
 
-Second factors (TOTP, passkeys) add a step to the password login and are
-described in their own sections. Roles and what each may call are in
+Second factors (TOTP, passkeys) add a step to the password login (and to an
+OpenID Connect sign-in) and are described in their own sections. Roles and what each may call are in
 "Permissions"; the cookie, the CSRF rule and the Host guard are in "The gate",
 "Sessions and the cookie" and "Host guard". The user-facing version of all of
 this is `docs/user/{en,fr}/deep/access.md` (same headings in both languages: nothing but review keeps
@@ -243,9 +245,12 @@ logged at ERROR and the row is not written (a bug at the call site).
 
   `pairing.created`, `pairing.revoked` and `pairing.used` are the device
   pairing rows (`docs/dev/device-pairing.md`, "Security rules").
-  Reserved for the tickets that add their feature:
-  `passkey.added`, `passkey.removed`. A new sensitive action adds its
-  name there and writes its row through this module.
+  `passkey.added`, `passkey.removed` are the passkey rows ("Passkeys");
+  `oidc.linked`, `oidc.unlinked` the OpenID Connect links, and a `login` row
+  with `details.method = oidc` an OpenID Connect sign-in ("OpenID Connect"). A
+  new sensitive action adds its name there (and to `AUDIT_FAMILIES` in
+  `frontend/src/components/settings/auditShared.ts`, with its labels) and writes
+  its row through this module.
 - **Reads** of the log (`GET /auth/audit`) are not audited (cadrage §4.5 asks only for an
   admin-only, cursor-paged API).
 - **Retention.** `purge_audit()` runs in the hourly housekeeping loop
@@ -376,7 +381,8 @@ referrer, framing) stay in `app/main.py`; there is no CSP beyond
 Public routes (`PUBLIC_ROUTES`): `GET /api/health`, `GET /api/auth/session`,
 `POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/login/2fa`,
 `POST /api/auth/webauthn/login/options`, `POST /api/auth/webauthn/login/verify`,
-`POST /api/auth/logout`, `GET /api/auth/kiosk-session` ("Kiosk device token").
+`POST /api/auth/logout`, `GET /api/auth/kiosk-session` ("Kiosk device token"),
+`GET /api/auth/oidc/start`, `GET /api/auth/oidc/callback` ("OpenID Connect").
 
 **Tests.** `tests/conftest.py` signs every app request in as an admin
 (`_auth_as_admin`, it replaces `middleware.resolve`), so route tests need no
@@ -567,7 +573,7 @@ never offers an admin in the account picker and lists such rules. A
 not blocked by such a rule (the runtime check above keeps it inert). The
 accounts restore applies the remapped rules with `lan_login_free=False` until
 `_reload_access_state()` reloads the stored settings. `GET` adds `security_notices`, the Access
-security notice the UI shows at the top of Users & Access:
+security notice the UI shows at the top of Users & Access and of Connection:
 `trusted_admin_reduced_plugin_isolation` (a rule maps to an enabled admin while
 plugins run with isolation `none`, the global pause included since the risk is
 back on resume; an unreadable state counts as reduced) and
@@ -748,7 +754,7 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
 - A login or a setup creates a new session row (never reuses one: no
   fixation) holding the SHA-256 of a 256-bit secret; the secret goes only in
   the cookie. Lifetime: `auth_settings.session_lifetime_days` (30 by default; an admin changes it, 1 to 365,
-  through `PATCH /auth/settings` and Settings → Users & Access → Session lifetime, MSHL-318). New
+  through `PATCH /auth/settings` and Settings → Connection → Local sign-in → Session lifetime, MSHL-318). New
   sessions use the new value at once; an existing one keeps its stored `expires_at` until its next
   slide (`touch()`, at most once a minute while used), which recomputes it from the new value, so a
   shorter setting ends an idle session at the old expiry at the latest and a used one after the
@@ -937,7 +943,7 @@ and none by IP alone behind Docker:
   `auth_settings.trusted_proxies` empty and
   `auth_settings.addresses_identify_clients` off (both read live, from
   `proxy_headers`). A relayed request always has a key, whatever the install
-  kind: its address is the visitor's, from the relay frame (MSHL-84). The owner turns that setting on (Users & Access, "Client
+  kind: its address is the visitor's, from the relay frame (MSHL-84). The owner turns that setting on (Connection → Local sign-in, "Client
   addresses", MSHL-424) when the peer address is really the client's own (host
   network, or a port published without Docker's userland proxy); the panel
   suggests it when `GET /auth/settings` reports `shared_address_install` and
@@ -1071,7 +1077,7 @@ the same failures with the same address.
   (`ip_ban_max_duration_minutes`: 1440, 1 to 43200). Strikes are persisted
   with the row; an unban deletes the row and so forgets them. `ip_ban_enabled` (on) turns it off: nothing is counted
   and no ban applies; the rows stay. `GET/PATCH /auth/settings`, Settings →
-  Users & Access → Address bans; never an environment variable.
+  Connection → Bans; never an environment variable.
 - **Whitelist.** `ip_ban_whitelist` (addresses or CIDR networks, host bits
   cleared, at most 256, each with a note): an address it covers is never
   banned, and a ban on it stops applying. It always wins.
@@ -1269,6 +1275,127 @@ signature code here), routes in `app/routers/auth_webauthn.py`, storage in
 - **Audit.** `passkey.added`, `passkey.removed` (details: `passkey_id`), and
   `login` rows. Never a challenge, a credential, a key or a pending token.
 
+## OpenID Connect
+
+MSHL-427. One provider the admin brings (Google, Discord, Keycloak, Authentik or any
+OpenID Connect provider), configured only in Settings → Connection → OpenID Connect;
+no environment variable changes any of it. Rules in `app/auth/oidc.py` (joserfc for
+the JOSE part), routes in `app/routers/auth_oidc.py` (included by
+`app/routers/auth.py`), storage in `oidc_provider` and `oidc_links` (migration 140)
+through `app/repository/oidc.py`. Tests: `tests/test_auth_oidc.py` against the
+loopback provider of `tests/oidc_fake_provider.py` (discovery, JWKS, token endpoint
+with PKCE and both client auth methods, userinfo), reached through the real egress
+guard. The frontend side: `frontend/src/auth/oidc.ts`, the button of
+`LoginPage.tsx`, `AccessOidcPanel.tsx` (`frontend/AGENTS.md`).
+
+- **Flow.** Authorization code with PKCE S256, `state` and `nonce`. `GET
+  /auth/oidc/start?remember=&base=` (a navigation) reads the discovery document,
+  keeps the request in memory (`AuthRequests`: 256-bit state, single use, 10 min,
+  1024 at most; a restart forgets them), sets the `meshloom_oidc` cookie
+  (`__Host-meshloom_oidc` over https; `HttpOnly`, `SameSite=Lax`, `Path=/`, 600 s;
+  only its SHA-256 is kept, compared in constant time) and 303s to the provider.
+  The request is also bound to the client (`totp.client_binding`, address and
+  user agent). `GET /auth/oidc/callback` takes it back (any mismatch:
+  `auth_oidc_state_invalid`), exchanges the code (client secret by HTTP Basic,
+  RFC 6749 §2.3.1 form-encoded, or in the form: `token_auth_method`), verifies the
+  ID token, finds the account, then opens the session through
+  `auth._start_session`, as a password login does.
+- **Audit of refused callbacks.** While the provider is off or incomplete
+  (`ready` false) the callback answers `auth_oidc_disabled` and writes nothing.
+  Otherwise each refusal writes a `login` failure row (`method: oidc`, `reason`),
+  throttled by `oidc.FailureAudit`: the callback is a public GET that any page can
+  make a browser load, so at most one row per client address
+  (`ratelimit.LoginLimiter.address_key`, one shared key on a shared address) and
+  `FAILURE_AUDIT_MAX_PER_WINDOW` (10) rows in all per `FAILURE_AUDIT_WINDOW_S`
+  (60 s), with one log line when rows start being skipped. The answer to the
+  browser is the same either way.
+- **Redirect URI and way back.** `base` is the app's address the browser computes
+  (`new URL('./', location)`), so the redirect URI keeps the path prefix behind a
+  proxy serving Meshloom under a subpath. `app_base()` uses it only when it is this
+  request's origin (`Host`) or under a declared public address; otherwise the
+  redirect URI is this origin at `/`. Every redirect back to the app is the
+  relative `../../../` (from `<base>api/auth/oidc/*` to `<base>`), so no header is
+  trusted for it and there is no open redirect: `?oidc_error=<code>` on a refusal,
+  `#oidc_2fa=<pending token>&methods=&expires_in=` when the account owes its
+  second factor (a fragment: never sent to a server), nothing on success.
+  `GET`/`PATCH /auth/oidc/settings?base=` list the redirect URIs to register: the
+  app's own first, then one per public address.
+- **ID token.** Asymmetric algorithms only (`ALLOWED_ALGORITHMS`: RS/PS/ES
+  256-512, EdDSA; never `none` or HMAC). Keys from the JWKS, refetched once when a
+  `kid` is unknown (at most every `JWKS_REFRESH_MIN_S`). `iss` equals the
+  configured issuer exactly; `aud` holds the client id, and `azp` equals it when
+  present or when there are several audiences; `exp` and `iat` are required, with
+  `CLOCK_LEEWAY_S` (60 s); `nonce` is the one sent. The discovery document's
+  `issuer` must equal the configured issuer (`auth_oidc_issuer_mismatch`).
+  Userinfo is read only when the ID token carries no e-mail, and only if its `sub`
+  is the token's.
+- **Account mapping** (`resolve_account`). First a subject link
+  (`oidc_links.issuer, subject`); then an e-mail link, only when `email_verified`
+  is `true` (or the string `"true"`, which some providers send): the first sign-in
+  binds the subject with one conditional `UPDATE` (`bind_subject`), so a later
+  change of address does not matter; then, only with `auto_create` on (off by
+  default), a new account with role `viewer` (`AUTO_CREATE_ROLE`: the lowest role
+  of a person, never `kiosk`, never more), no password, linked to the subject
+  (`user.created` audited with `provider: oidc`). `eligible()`: an enabled account
+  with `provider = local` and a role other than `kiosk`; never a Home Assistant or
+  system account. Links are per issuer: changing the issuer leaves the old ones
+  inert (the panel marks them). Users have no e-mail column; an e-mail link is
+  what the admin types.
+- **Second factor.** An account with TOTP on gets the pending login of a password
+  sign-in (`_second_factor_challenge`), finished by `POST /auth/login/2fa` with a
+  code, a recovery code or a passkey. The provider never stands in for the local
+  factor. MSHL-426 adds its own factor next to it.
+- **Egress.** Every call to the provider goes through
+  `app/net/egress_guard.follow_checked_redirects`: pinned, checked addresses, 10 s,
+  256 KiB at most; `GET` follows at most 2 redirects, the token `POST` none. https
+  to a public address only, unless `allow_private_network` (a provider on the
+  LAN): then a private address too, and plain http only to a private address
+  (`auth_oidc_http_public`).
+- **Client secret.** Sealed with `app/secret_store.encrypt` (AAD
+  `oidc_provider:1:client_secret`); write-only in the API (`client_secret_set`
+  says whether one is stored; empty or null keeps it, `clear_client_secret`
+  removes it); 503 `auth_oidc_secret_store_unavailable` without the secrets key;
+  `auth_oidc_secret_unreadable` at sign-in when it was sealed with another key.
+  Never in a log, an audit row or a backup; the code, tokens, state and nonce
+  neither.
+- **Where it is offered.** `GET /auth/session` says `methods.oidc` (and
+  `oidc_label`) when the provider is enabled with an issuer and a client id,
+  never under ingress (both routes answer `auth_ingress_only`) or while setup is
+  required. Through Meshloom Remote the relay client checks the device pass
+  (edge lock, `docs/dev/remote.md`) before dispatching any request, so the two
+  public routes do not open the instance to a device without a pass.
+- **Not counted.** A refused OIDC sign-in writes a `login` failure row
+  (`details.method = oidc`, `details.reason`) but no `AUTH_FAIL` line and no login
+  delay or ban strike: no local secret is tried.
+- **Backups.** `oidc_provider` and `oidc_links` are not in the JSON backup
+  (`BACKUP_COVERAGE`: excluded). An accounts restore deletes every link (user ids
+  change); the SQLite download keeps both tables with `client_secret` set to NULL.
+  Deleting an account deletes its links.
+- **Not done.** One provider only; no RP-initiated logout; no group or role
+  mapping from claims.
+
+### Manual check with Keycloak
+
+CI runs no service containers, so the real-provider check is manual:
+
+1. `docker run --rm -p 8080:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=<pick one> quay.io/keycloak/keycloak start-dev`
+   on a machine of the LAN.
+2. In its console (`http://<lan-ip>:8080`): create a realm `home`, a user with a
+   verified e-mail, and a client of type OpenID Connect with client
+   authentication on and the standard flow only. Paste the redirect URI that
+   Settings → Connection → OpenID Connect shows.
+3. In Meshloom: preset Keycloak, issuer `http://<lan-ip>:8080/realms/home`, the
+   client id and secret, **The provider is on my local network** on, enabled.
+   **Test the saved provider** must answer with the issuer and at least one key.
+4. Link the user's e-mail to a Meshloom `member`, then sign in with the button
+   from a private window: the session is the member's, the link shows a subject
+   and a last sign-in, the audit log has `login` with `method: oidc`.
+5. Turn TOTP on for that member and sign in again: the code is asked after
+   Keycloak. Then disable the account: the sign-in comes back with
+   `auth_oidc_no_account`.
+6. Repeat once behind a reverse proxy under a subpath (declared public address
+   with its prefix): the redirect URI and the way back keep the prefix.
+
 ## First run and the installation code
 
 `prepare_first_run()` (`app/auth/setup_code.py`) runs in the lifespan, while
@@ -1346,7 +1473,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey, oidc, oidc_label?}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required (existing database, or an exposed request, "Exposed first run") and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code}` or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
@@ -1389,6 +1516,14 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/ban-whitelist` | `admin` | 201 `{network, note?}`: never ban it; a ban on it stops applying. 400 `auth_ban_whitelist_invalid`, 409 `auth_ban_whitelist_exists`, `auth_ban_whitelist_full` (`params.max`) |
 | `DELETE /auth/ban-whitelist?network=` | `admin` | 204. 400 `auth_ban_whitelist_invalid`, 404 `auth_ban_whitelist_not_found` |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
+| `GET /auth/oidc/start?remember=&base=` | public, not under ingress | A navigation: 303 to the provider with the state cookie, or back with `?oidc_error=<code>` ("OpenID Connect") |
+| `GET /auth/oidc/callback?code=&state=` | public, not under ingress | The provider's redirect: session cookie and 303 back to the app, `#oidc_2fa=...` when TOTP is on, or `?oidc_error=<code>` (`auth_oidc_state_invalid`, `_denied`, `_exchange_failed`, `_token_invalid`, `_no_account`, `_secret_unreadable`, `_unavailable`, ...) |
+| `GET /auth/oidc/settings?base=` | `admin` | The provider (`client_secret_set`, never the secret), `redirect_uris`, `secret_store_available` |
+| `PATCH /auth/oidc/settings?base=` | `admin` | Change it (`extra=forbid`; `client_secret` write-only, `clear_client_secret`). 400 `auth_oidc_incomplete` (enabling without issuer and client id), `auth_oidc_issuer_invalid`, `auth_oidc_scopes_invalid`; 503 `auth_oidc_secret_store_unavailable`. Audit `settings.changed`, target `oidc_provider`, `details.fields` (names only) |
+| `POST /auth/oidc/test` | `admin` | Reads the saved provider's discovery and JWKS: `{ok, issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, keys}`; 400 with the `auth_oidc_*` code otherwise |
+| `GET /auth/oidc/links` | `admin` | `{links: [{id, user_id, username, issuer, subject, email, created_at, last_login_at}], issuer}` |
+| `POST /auth/oidc/links` | `admin` | 201 `{user_id, subject}` or `{user_id, email}` (exactly one), for the configured issuer. 400 `auth_oidc_link_invalid`, `auth_oidc_link_user_invalid`, 409 `auth_oidc_link_exists`, `auth_oidc_link_limit` (1000). Audit `oidc.linked` |
+| `DELETE /auth/oidc/links/{id}` | `admin` | 204; 404 `auth_oidc_link_not_found`. Audit `oidc.unlinked` |
 
 Every route above that changes something writes one audit row ("Audit log").
 

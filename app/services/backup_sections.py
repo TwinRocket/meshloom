@@ -383,6 +383,7 @@ SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
 SNAPSHOT_SCRUBBED_AUTH_COLUMNS: dict[str, tuple[str, ...]] = {
     "users": ("password_hash", "totp_secret"),
     "auth_settings": ("setup_code_hash", "device_cookie_key"),
+    "oidc_provider": ("client_secret",),
 }
 SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = (
     "sessions",

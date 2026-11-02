@@ -35,7 +35,7 @@ rule applies, when the configuration says clients share one address: the
 install kind is ``compose`` or ``container``, no trusted proxy is set
 (``auth_settings.trusted_proxies``, read live) and the admin has not stated
 that addresses identify clients (``auth_settings.addresses_identify_clients``,
-Settings → Users & Access, read live), since behind Docker's userland proxy
+Settings → Connection → Local sign-in, read live), since behind Docker's userland proxy
 every client may arrive from the gateway address. A relayed request is never a shared
 address: its address is the visitor's, from the relay frame. Docker's default port
 publishing keeps the client's address, so the Access panel proposes that
