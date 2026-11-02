@@ -3,8 +3,8 @@
     "fanout": {
       "webhook": {
         "urlKept": "Inchangée ({{url}}). Saisissez une nouvelle URL pour la remplacer.",
-        "headersKept": "Les valeurs d'en-tête enregistrées s'affichent ******** : laissez-les pour les garder, saisissez une nouvelle valeur pour en remplacer une, ou supprimez sa ligne.",
-        "headersRequiredAfterDestination": "Vous avez changé l'URL : les valeurs d'en-tête enregistrées ne sont jamais envoyées à une nouvelle. Saisissez de nouveau chaque valeur affichée ********, ou supprimez sa ligne."
+        "headersKept": "Les valeurs enregistrées s'affichent ******** : laissez-les, remplacez-les ou supprimez la ligne.",
+        "headersRequiredAfterDestination": "URL changée : saisissez de nouveau chaque valeur affichée ********, ou supprimez sa ligne."
       }
     },
     "notifications": {

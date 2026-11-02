@@ -31,9 +31,9 @@
   },
   "radioIdentity": {
     "mismatchTitle": "This radio does not match the stored identity",
-    "mismatchBody": "The connected radio has a different public key than the identity bound to this Meshloom instance. Adopting it wipes local mesh contacts and messages before binding the new radio.",
+    "mismatchBody": "This radio is not the one bound to Meshloom. Adopting it wipes the local mesh contacts and messages.",
     "unboundTitle": "This radio is not bound to this instance",
-    "unboundBody": "This Meshloom database predates radio identity binding. Confirm this is the historical radio to keep existing mesh data, or treat it as a new radio and wipe local mesh contacts and messages.",
+    "unboundBody": "Is this the radio you were already using? Confirm to keep the mesh data, or treat it as a new radio (mesh contacts and messages wiped).",
     "previousKey": "Previous key",
     "newKey": "New key",
     "newName": "Radio name",

@@ -1,7 +1,7 @@
 {
   "errors": {
     "egress_scheme": "L'adresse doit commencer par http:// ou https://.",
-    "egress_private_address": "Cette adresse est sur un réseau privé (réseau local, cette machine) ou c'est une adresse de métadonnées cloud. Autorisez les réseaux privés pour cette destination si elle vous appartient ; les adresses de métadonnées sont toujours refusées.",
+    "egress_private_address": "Cette adresse est sur un réseau privé. Si elle vous appartient, autorisez les réseaux privés pour cette destination.",
     "egress_unresolvable": "Nom d'hôte introuvable. Vérifiez-le, ou saisissez plutôt l'adresse IP.",
     "egress_host_not_allowed": "Cet hôte ne fait pas partie des hôtes autorisés ici.",
     "egress_too_many_redirects": "La destination a redirigé trop de fois.",
@@ -10,22 +10,22 @@
     "egress_response_encoding": "La réponse est compressée, ce qui n'est pas autorisé ici.",
     "egress_lan_address": "Cet appareil du réseau local ne correspond pas à une adresse de votre réseau local.",
     "egress_self_address": "Cet appareil du réseau local est la machine où tourne Meshloom, qu’une extension ne peut pas joindre.",
-    "egress_supervisor_address": "Cette adresse est sur le réseau interne du Superviseur Home Assistant (le Superviseur, les autres add-ons), qu’une extension ne peut pas joindre.",
+    "egress_supervisor_address": "Cette adresse est sur le réseau interne de Home Assistant, qu'une extension ne peut pas joindre.",
     "egress_userinfo": "L’adresse ne doit contenir ni nom d’utilisateur ni mot de passe.",
     "timeout": "La destination n'a pas répondu à temps.",
     "tls_error": "La connexion sécurisée (TLS) a échoué : vérifiez le certificat, ou utilisez http:// si la destination n'a pas de TLS.",
-    "no_push_device": "Rien n'a été envoyé : aucun appareil n'est inscrit aux notifications push. Activez d'abord les notifications dans ce navigateur ou cette app.",
+    "no_push_device": "Rien n'a été envoyé : aucun appareil n'est inscrit. Activez d'abord les notifications dans ce navigateur ou cette app.",
     "service_error": "La destination a répondu par une erreur HTTP {{status}}."
   },
   "settings": {
     "notifications": {
       "webhookAllowPrivate": "Autoriser une destination sur un réseau privé (réseau local, localhost)",
-      "webhookAllowPrivateHelp": "Désactivé par défaut : Meshloom refuse un webhook sur votre réseau local ou sur cette machine, pour qu'un réglage modifié ne fasse pas du serveur une sonde de votre réseau. Activez-le pour Home Assistant, Node-RED ou un script sur votre réseau local. Les adresses de métadonnées cloud sont toujours refusées.",
-      "webhookGrandfathered": "Ce webhook a été configuré avant que Meshloom ne vérifie les destinations : les adresses de réseau privé restent autorisées pour lui et il continue de fonctionner. Décochez la case ci-dessous s'il pointe vers un service public.",
+      "webhookAllowPrivateHelp": "Pour un webhook sur votre réseau local (Home Assistant, Node-RED…).",
+      "webhookGrandfathered": "Ce webhook date d'avant la vérification des destinations : il garde l'accès au réseau privé. Décochez la case ci-dessous s'il vise un service public.",
       "webhookGrandfatheredDismiss": "Compris",
       "pushAllowPrivate": "Accepter les points de terminaison push sur un réseau privé",
-      "pushAllowPrivateHelp": "Uniquement pour un distributeur UnifiedPush auto-hébergé sur votre réseau local ou sur cette machine. Les services push des navigateurs (Google, Mozilla, Apple) sont publics et n'en ont pas besoin.",
-      "pushGrandfathered": "Des appareils push ont été enregistrés avant que Meshloom ne vérifie les destinations, et au moins l'un d'eux n'est pas un service push de navigateur (un distributeur UnifiedPush, peut-être sur votre réseau local). Les points de terminaison sur un réseau privé restent donc acceptés et ces appareils continuent de recevoir. Décochez la case ci-dessous si aucun n'est sur votre réseau.",
+      "pushAllowPrivateHelp": "Seulement pour un distributeur UnifiedPush sur votre réseau local.",
+      "pushGrandfathered": "Des appareils push datent d'avant la vérification des destinations : le réseau privé reste autorisé pour eux. Décochez la case ci-dessous si aucun n'est sur votre réseau.",
       "pushAllowPrivateSaveFailed": "Échec de l’enregistrement du réglage push"
     }
   }

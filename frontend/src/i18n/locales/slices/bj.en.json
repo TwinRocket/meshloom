@@ -1,13 +1,13 @@
 {
   "errors": {
-    "auth_public_urls_invalid": "Not a valid public address. Use https://name[:port][/prefix] (letters, digits, dots and hyphens; no login, query or fragment; at most 16 addresses).",
+    "auth_public_urls_invalid": "Not a valid public address. Use https://name[:port][/prefix].",
     "auth_host_guard_would_lock_out": "Enforcing would reject the address you are using now ({{host}}). Add it as a public address first."
   },
   "settings": {
     "access": {
       "public": {
         "title": "Public addresses",
-        "help": "The addresses people reach Meshloom under from outside, such as the name of your reverse proxy or Tailscale. Meshloom answers only to these names, to IP addresses and to local names (.local, .lan, .home.arpa, .internal) when the Host guard is enforced. Once an address is declared, a plain-http request from the internet is refused: use https (local network addresses keep working over http).",
+        "help": "The addresses that reach Meshloom from outside, such as your reverse proxy or Tailscale name. They must use https.",
         "none": "No public address declared.",
         "address": "Public address",
         "add": "Add",
@@ -23,12 +23,12 @@
         "allowed": "{{host}} declared as a public address.",
         "enforce": "Refuse unknown names (enforce)",
         "enforceHelpOff": "Observation mode: unknown names are listed above and still work. Declaring the first public address turns enforcement on.",
-        "enforceHelpOn": "Enforced: a request under an undeclared name is refused with an error (421) naming it. If a name stops working, open Meshloom by its IP address (always accepted) and turn this off, or run `meshloom-admin host-guard-observe` on the machine.",
+        "enforceHelpOn": "Enforced: only declared names are accepted. If a name stops working, open Meshloom by its IP address and turn this off.",
         "enforceOn": "Unknown names are now refused.",
         "enforceOff": "Observation mode restored.",
-        "rejectedRisk": "These names are supplied by whoever sent the request, so an unknown name may come from an attacker (DNS rebinding: a page on their domain pointed at your network). Allow only a name you set up yourself, such as your reverse proxy or your Tailscale name.",
+        "rejectedRisk": "Allow only a name you set up yourself: an unknown name may come from an attacker.",
         "confirmTitle": "Declare this name as a public address?",
-        "confirmRisk": "Meshloom will answer to this exact name from now on. Continue only if you recognise it as yours. If you do not, cancel: an unknown name may be an attack.",
+        "confirmRisk": "Meshloom will answer to this name from now on. Continue only if it is yours.",
         "confirmAllow": "Allow {{host}}"
       }
     }

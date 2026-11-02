@@ -11,7 +11,7 @@
       "exceptionChip": "{{name}}, {{channel}}: {{state}}. Click to change.",
       "pause": {
         "title": "Do not disturb",
-        "help": "Pauses every notification except the ones marked “always deliver”. When it ends, one message sums up what was held (the summary option of quiet hours).",
+        "help": "Pauses every notification except those marked “always deliver”, then sums up what was held.",
         "active": "Paused, {{hours}} h {{minutes}} min left",
         "inactive": "Notifications are on.",
         "choice_1h": "1 hour",
@@ -93,7 +93,7 @@
           },
           "plugin_notification": {
             "label": "Extension notifications",
-            "help": "An extension with the “Send notifications” permission notifies you. Its name comes first; Web Push reaches administrators only."
+            "help": "An extension allowed to send notifications notifies you."
           }
         },
         "alwaysUrgent": "Always on: this event is urgent, so the pause never holds it.",

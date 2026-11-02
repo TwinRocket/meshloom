@@ -9,7 +9,7 @@
     },
     "fullRestore": {
       "warnings": {
-        "api_token_dropped": "Le jeton d’appareil {{value}} n’a pas été restauré : son compte manque dans la sauvegarde ou son rôle n’autorise plus les portées de ce jeton."
+        "api_token_dropped": "Le jeton d’appareil {{value}} n’a pas été restauré : créez-en un nouveau."
       }
     }
   },

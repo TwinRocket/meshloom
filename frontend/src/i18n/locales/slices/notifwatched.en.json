@@ -2,7 +2,7 @@
   "contactInfo": {
     "watch": {
       "toggle": "Notify when heard",
-      "help": "Notifies the chosen channels when this node’s advert or a direct message is heard, and again when it is back after a long silence.",
+      "help": "Notifies the chosen channels when this node is heard, and when it is back after a long silence.",
       "full": "Limit reached ({{max}} watched nodes). Remove one in Settings > Notifications.",
       "channels": "Channels to notify",
       "noChannel": "No channel is selected: nothing will be sent.",
@@ -13,7 +13,7 @@
     "notifications": {
       "watched": {
         "title": "Watched nodes",
-        "help": "Notify a channel when a node is heard (its advert or a direct message), and when it comes back after a long silence. Add a node with “Notify when heard” in its contact sheet. Web Push reaches administrators’ devices only.",
+        "help": "Notify a channel when a watched node is heard or comes back after a long silence. Watch a node from its contact sheet.",
         "empty": "No watched node yet.",
         "count": "{{count}} of {{max}} nodes",
         "full": "Limit reached ({{max}} nodes).",
@@ -22,7 +22,7 @@
         "edit": "Edit the watched node {{name}}",
         "remove": "Stop watching {{name}}",
         "editTitle": "Watched node: {{name}}",
-        "dialogHelp": "A node that is heard notifies at most once per cooldown. Heard again after the silence threshold, it notifies as “back”.",
+        "dialogHelp": "At most one notification per cooldown, plus a “back” one after a long silence.",
         "channels": "Notify these channels",
         "channelsHelp": "Web Push reaches administrators’ devices only.",
         "cooldown": "Cooldown (minutes)",

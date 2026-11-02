@@ -14,7 +14,7 @@
     "access": {
       "oidc": {
         "title": "OpenID Connect",
-        "help": "Permet de se connecter avec un compte d'un fournisseur que vous choisissez (Google, Discord, Keycloak, Authentik...). Le fournisseur prouve seulement l'identité : chacune connecte un compte Meshloom existant, qui garde son rôle, son second facteur et toutes les autres règles. Enregistrez d'abord Meshloom chez le fournisseur, puis recopiez ici son émetteur, l'identifiant client et le secret client.",
+        "help": "Connexion avec un compte Google, Discord, Keycloak… Chaque identité connecte un compte Meshloom existant. Enregistrez d'abord Meshloom chez le fournisseur.",
         "enabled": "Proposer la connexion avec ce fournisseur",
         "preset": "Fournisseur",
         "presets": {
@@ -26,8 +26,8 @@
         "presetHelp": {
           "generic": "Indiquez l'émetteur de votre fournisseur : son adresse sans /.well-known/openid-configuration.",
           "google": "Créez un client OAuth de type « Application Web » dans la console Google Cloud et ajoutez l'adresse de redirection ci-dessous.",
-          "discord": "Créez une application dans le portail développeur de Discord et ajoutez l'adresse de redirection ci-dessous. Discord peut ne pas envoyer d'e-mail vérifié : liez les comptes par sujet si les liens par e-mail ne correspondent pas.",
-          "keycloak": "L'émetteur est l'adresse de votre realm, par exemple https://keycloak.example/realms/maison. Créez un client OpenID Connect confidentiel avec l'adresse de redirection ci-dessous."
+          "discord": "Créez une application dans le portail développeur de Discord et ajoutez l'adresse de redirection ci-dessous. Liez les comptes par sujet.",
+          "keycloak": "L'émetteur est l'adresse de votre realm (https://keycloak.example/realms/maison). Créez un client confidentiel avec l'adresse de redirection ci-dessous."
         },
         "label": "Libellé du bouton",
         "issuer": "Émetteur (issuer)",
@@ -43,18 +43,18 @@
           "client_secret_post": "Dans le formulaire (client_secret_post)"
         },
         "privateNetwork": "Le fournisseur est sur mon réseau local",
-        "privateNetworkHelp": "Autorise un fournisseur à une adresse privée (Keycloak sur le même réseau), et le http simple vers une telle adresse uniquement. Désactivé : https vers une adresse publique uniquement.",
+        "privateNetworkHelp": "Pour un fournisseur sur votre réseau local, comme Keycloak.",
         "autoCreate": "Créer un compte pour une identité inconnue",
-        "autoCreateHelp": "Désactivé par défaut : seules les identités liées ci-dessous peuvent se connecter. Activé : toute personne que le fournisseur connecte reçoit un nouveau compte avec le rôle Lecteur (lecture seule, aucun envoi, aucun réglage). Ne l'activez que pour un fournisseur dont vous connaissez les utilisateurs.",
+        "autoCreateHelp": "Activé, toute personne connectée par le fournisseur reçoit un compte Lecteur. Seulement pour un fournisseur dont vous connaissez les utilisateurs.",
         "redirectUris": "Adresses de redirection à enregistrer chez le fournisseur",
-        "redirectUrisHelp": "La première est l'adresse que vous utilisez maintenant ; les autres viennent des adresses publiques déclarées dans Utilisateurs et accès. Enregistrez chaque adresse depuis laquelle on se connecte.",
+        "redirectUrisHelp": "Enregistrez chez le fournisseur chaque adresse depuis laquelle on se connecte.",
         "save": "Enregistrer",
         "saved": "Réglages OpenID Connect enregistrés.",
         "test": "Tester le fournisseur enregistré",
         "testOk": "Le fournisseur a répondu : émetteur {{issuer}}, {{keys}} clé(s) de signature.",
         "links": {
           "title": "Identités liées",
-          "help": "Chaque ligne permet à une identité du fournisseur de connecter un compte existant. Par e-mail : le fournisseur doit indiquer que l'adresse est vérifiée, et la première connexion retient ensuite l'identité (son sujet), si bien qu'un changement d'adresse ultérieur ne compte plus. Par sujet : l'identifiant de la personne chez le fournisseur (la claim sub).",
+          "help": "Chaque ligne relie une identité du fournisseur à un compte existant, par e-mail vérifié ou par sujet.",
           "empty": "Aucune identité liée pour l'instant.",
           "account": "Compte",
           "kind": "Correspondance",

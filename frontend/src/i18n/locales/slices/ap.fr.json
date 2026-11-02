@@ -2,7 +2,7 @@
   "plugins": {
     "sendGuards": {
       "title": "Protection du maillage",
-      "intro": "Meshloom limite ce que les extensions peuvent envoyer, toutes ensemble, et coupe les boucles entre répondeurs automatiques. Vous pouvez baisser les limites, jamais les relever.",
+      "intro": "Limites d'envoi communes à toutes les extensions. Vous pouvez les baisser, jamais les relever.",
       "scope": {
         "plugin": "Cette extension a atteint sa propre limite d'envoi.",
         "instance": "Toutes les extensions ensemble ont atteint la limite horaire de ce Meshloom.",

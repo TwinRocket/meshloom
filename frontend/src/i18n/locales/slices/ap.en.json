@@ -2,7 +2,7 @@
   "plugins": {
     "sendGuards": {
       "title": "Protection of the mesh",
-      "intro": "Meshloom limits what plugins can send, all of them together, and cuts loops between auto-responders. You can lower the limits, never raise them.",
+      "intro": "Sending limits shared by all plugins. You can lower them, never raise them.",
       "scope": {
         "plugin": "This plugin reached its own sending limit.",
         "instance": "All plugins together reached the hourly limit for this Meshloom.",

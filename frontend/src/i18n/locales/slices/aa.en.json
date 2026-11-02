@@ -6,7 +6,7 @@
     "auth_last_admin": "This is the last administrator: keep at least one.",
     "auth_no_session": "Signing in did not open a session. Reload the page and try again.",
     "auth_https_required": "HTTPS is required from the internet: open Meshloom with its https:// address (your reverse proxy, Tailscale or Meshloom Remote).",
-    "auth_https_would_lock_out": "Declaring a public address would refuse the plain http:// connection you are using from the internet, and lock you out. Open Meshloom over https:// or from your local network first."
+    "auth_https_would_lock_out": "A public address would block your current http:// connection. Open Meshloom over https:// or from the local network first."
   },
   "auth": {
     "loading": "Loading…",
@@ -30,7 +30,7 @@
       "submit": "Sign in",
       "remember": "Keep me signed in on this device",
       "rememberHint": "Unchecked, you are signed out when you close the browser, and after 12 hours without activity.",
-      "insecureContext": "This page is not served over HTTPS: your password travels unencrypted on the network. Use it only on a network you trust."
+      "insecureContext": "Unencrypted connection (HTTP): use your password only on a network you trust."
     },
     "relogin": {
       "title": "Session ended",
@@ -50,7 +50,7 @@
         "strong": "Strong"
       },
       "code": "Installation code",
-      "codeHint": "This Meshloom asks for the 8-digit code it printed in its log: it already holds data, or it was opened from outside the local network (from the local network, a new Meshloom needs no code). Find it here:",
+      "codeHint": "Enter the 8-digit code Meshloom printed in its log. Find it here:",
       "codeWhereDocker": "Docker: docker logs <container> and look for “installation code”.",
       "codeWhereSystemd": "Package install: journalctl -u meshloom.",
       "codeWhereAddon": "Home Assistant add-on: the Log tab of the add-on.",
@@ -61,7 +61,7 @@
       "open": "Account of {{name}}",
       "signOut": "Sign out",
       "ingressNote": "Home Assistant signs you in: there is no Meshloom session to end.",
-      "stillSignedInNote": "This device is still signed in: the server signs it in without a login (login-free on the local network). An administrator can change that in Settings → Connection → Local network."
+      "stillSignedInNote": "This device stays signed in: the local network is set to login-free."
     }
   }
 }

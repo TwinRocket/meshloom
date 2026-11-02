@@ -3,14 +3,14 @@
     "notifications": {
       "templates": {
         "title": "Modèles de message",
-        "help": "Écrivez vous-même le corps d'une notification de message. Laissez un champ vide pour garder le corps par défaut. Les variables sont remplacées une seule fois, et une variable absente de la liste reste telle quelle. La politique de texte s'applique toujours : {text} est vide quand elle masque le texte du message.",
+        "help": "Écrivez le corps des notifications de message. Laissez un champ vide pour garder le corps par défaut.",
         "variables": "Variables :",
         "dm": "Messages privés",
         "channel": "Messages de canal",
         "placeholder": "{sender_name} : {text} (via {hops})",
         "preview": "Aperçu",
         "markdownNote": "Ce canal envoie du Markdown : le texte venu du mesh est échappé, votre propre Markdown dans le modèle est conservé.",
-        "plainNote": "L'aperçu n'échappe pas le Markdown pour ce canal. Quand un canal envoie du Markdown, un vrai message échappe le texte venu du mesh et conserve votre propre Markdown dans le modèle."
+        "plainNote": "L'aperçu montre le Markdown tel quel ; un vrai message échappe le texte venu du mesh."
       }
     }
   },

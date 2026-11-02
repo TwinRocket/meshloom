@@ -11,7 +11,7 @@
       "exceptionChip": "{{name}}, {{channel}} : {{state}}. Cliquer pour changer.",
       "pause": {
         "title": "Ne pas déranger",
-        "help": "Suspend toutes les notifications sauf celles marquées « toujours livrer ». À la fin, un message résume ce qui a été retenu (option de résumé des heures calmes).",
+        "help": "Suspend toutes les notifications sauf celles marquées « toujours livrer », puis résume ce qui a été retenu.",
         "active": "En pause, encore {{hours}} h {{minutes}} min",
         "inactive": "Les notifications sont actives.",
         "choice_1h": "1 heure",
@@ -93,7 +93,7 @@
           },
           "plugin_notification": {
             "label": "Notifications des extensions",
-            "help": "Une extension qui a la permission « Envoyer des notifications » vous notifie. Son nom vient en premier ; Web Push ne va qu'aux administrateurs."
+            "help": "Une extension autorisée à envoyer des notifications vous notifie."
           }
         },
         "alwaysUrgent": "Toujours actif : cet événement est urgent, la pause ne le retient jamais.",

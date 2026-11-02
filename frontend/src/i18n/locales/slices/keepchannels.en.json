@@ -4,7 +4,7 @@
       "keepChannels": {
         "title": "Channels on the radio",
         "label": "Keep channels on the radio",
-        "help": "Off (default), Meshloom copies the radio's channels at every connection, then empties its slots and writes a channel into a slot only when it sends on it. On, the channels stay in the radio's slots, so the radio keeps them when it is used without Meshloom (another MeshCore app) and after a restore. Meshloom keeps one slot, the last one, for sending on channels that are not on the radio, and never overwrites the others.",
+        "help": "On, the channels stay on the radio and follow it into another MeshCore app. Meshloom keeps the last slot for itself.",
         "slots_one": "With this radio: {{count}} channel slot kept, plus 1 slot reserved for Meshloom.",
         "slots_other": "With this radio: {{count}} channel slots kept, plus 1 slot reserved for Meshloom.",
         "slotsUnknown": "Every channel slot but the last one is kept; the last one is reserved for Meshloom.",
@@ -12,10 +12,10 @@
       }
     },
     "fullRestore": {
-      "channelsKept": "The channels written to the radio stay in its slots (Settings > Radio > Messaging > Keep channels on the radio is on). The last slot is left empty for Meshloom.",
-      "channelsOffloaded": "Meshloom empties the radio's channel slots at the next connection (Settings > Radio > Messaging > Keep channels on the radio is off): the channels written now only last until then. Turn that setting on to keep them on the radio.",
+      "channelsKept": "The channels stay on the radio. The last slot is left free for Meshloom.",
+      "channelsOffloaded": "These channels stay on the radio only until the next connection. To keep them there, turn on Settings > Radio > Messaging > Keep channels on the radio.",
       "warnings": {
-        "channels_offloaded_next_connect": "The channels were written to the radio, but Meshloom empties its slots at the next connection: turn on Settings > Radio > Messaging > Keep channels on the radio to keep them there."
+        "channels_offloaded_next_connect": "Channels written to the radio until the next connection. To keep them there, turn on Settings > Radio > Messaging > Keep channels on the radio."
       }
     }
   }

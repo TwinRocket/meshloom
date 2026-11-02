@@ -1,10 +1,10 @@
 {
   "settings": {
     "notifications": {
-      "cappedBanner": "Notifications are capped: the hourly limit for the whole instance was reached, so new ones are dropped until the count falls again. Check the delivery log of your channels.",
+      "cappedBanner": "Hourly notification limit reached: new ones are dropped for now.",
       "attention": {
         "title": "Some notification channels need a look",
-        "help": "The other channels are told when one keeps failing (once a day). After 20 failures in a row a channel is paused and retried with a test after 5 min, 15 min, 1 h, then every 6 h; a success resumes it.",
+        "help": "The other channels are told when one keeps failing. A failing channel is paused, then retried.",
         "failing": "{{name}}: keeps failing ({{count}} failures in a row).",
         "paused": "{{name}}: paused after repeated failures, next try at {{time}}.",
         "secret_unreadable": "{{name}}: a stored secret cannot be decrypted. Enter it again in the channel's settings.",
@@ -20,7 +20,7 @@
       },
       "advanced": {
         "title": "Advanced",
-        "help": "Limits per channel. Over a limit, notifications are grouped into one summary; the daily limit stops sending until midnight (UTC). Leave a field empty to keep the default.",
+        "help": "Limits per channel. Leave a field empty to keep the default.",
         "perMin": "Per minute",
         "perHour": "Per hour",
         "perDay": "Per day",

@@ -43,7 +43,7 @@
         "description": "Se connecte uniquement aux serveurs listés ici, en passant par Meshloom : {{hosts}}.",
         "description_lan_only": "Se connecte uniquement aux appareils de votre réseau local listés ici, en passant par Meshloom.",
         "lan_host": "Cette extension pourra communiquer avec cet appareil de votre réseau : {{host}}",
-        "lan_note": "Les appareils de votre réseau, ou joints par un VPN comme Tailscale, sont contactés directement, éventuellement sans chiffrement (HTTP simple) ou sans vérifier leur certificat (auto-signé). Meshloom refuse la machine où il tourne, mais dans un conteneur (Docker, Home Assistant) l’adresse réseau propre de cette machine reste joignable si l’extension la liste : n’acceptez que des appareils que vous connaissez.",
+        "lan_note": "L'extension peut contacter des appareils de votre réseau, parfois sans chiffrement. N'acceptez que des appareils que vous connaissez.",
         "private_messages_warning": "Cette extension peut transmettre vos messages privés à {{hosts}}."
       },
       "timer": {
@@ -52,7 +52,7 @@
       },
       "notifications_send": {
         "title": "Envoyer des notifications",
-        "description": "Vous envoie des notifications par Meshloom, vers les canaux de notification que vous cochez pour « Notifications des extensions » dans Réglages → Notifications → Notifications par défaut (aucun tant que vous n'en cochez pas). Elle ne choisit jamais elle-même une destination.",
+        "description": "Vous envoie des notifications, vers les canaux cochés pour « Notifications des extensions » dans Réglages → Notifications.",
         "quota": "Au plus {{per_hour, number}} notifications par heure et {{per_day, number}} par jour."
       }
     },

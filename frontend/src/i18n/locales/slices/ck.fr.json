@@ -6,7 +6,7 @@
         "username": "Nom d’utilisateur (facultatif)"
       },
       "help": {
-        "discord_webhook": "Copiez-la depuis Discord : paramètres du salon, Intégrations, Webhooks. Seules les adresses discord.com sont acceptées. En écriture seule : elle n’est plus jamais affichée."
+        "discord_webhook": "Copiez-la depuis Discord : paramètres du salon, Intégrations, Webhooks."
       }
     }
   },

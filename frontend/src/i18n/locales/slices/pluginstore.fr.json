@@ -4,7 +4,7 @@
     "navBadge_other": "{{count}} mises à jour",
     "activation": {
       "title": "Activer le Store",
-      "intro": "Le Store est désactivé : Meshloom ne contacte personne pour chercher des extensions ou leurs mises à jour. L'activer permet à ce Meshloom de joindre les hôtes ci-dessous. Les extensions déjà installées continuent de fonctionner dans les deux cas.",
+      "intro": "Le Store est désactivé. L'activer permet à Meshloom de contacter les hôtes ci-dessous pour trouver des extensions.",
       "sendsTitle": "Ce qui sort quand il est activé",
       "sends": {
         "ip_address": "L'adresse IP publique de votre Meshloom, comme pour toute requête internet.",
@@ -12,7 +12,7 @@
       },
       "sendsNone": "Rien d'autre : ni compte, ni clé, ni message, ni donnée de radio ou de contact.",
       "hostsTitle": "Hôtes qu'il peut joindre",
-      "cadence": "Les versions sont vérifiées toutes les {{hours}} heures, et seulement s'il existe une extension installée depuis un dépôt, ou quand vous appuyez sur Actualiser.",
+      "cadence": "Les versions sont vérifiées toutes les {{hours}} heures, ou quand vous appuyez sur Actualiser.",
       "missedTitle": "Ce que vous ne recevez pas tant qu'il est désactivé",
       "missed": {
         "updates": "Les avis et l'installation des mises à jour d'extensions."
@@ -21,7 +21,7 @@
     },
     "online": {
       "toggle": "Store en ligne",
-      "help": "Le désactiver coupe tout accès du Store à Internet : plus de navigation dans le catalogue, plus de vérification des mises à jour et plus de mises à jour automatiques. Les extensions installées continuent de fonctionner."
+      "help": "Désactivé, le Store ne va plus sur Internet. Les extensions installées continuent de fonctionner."
     },
     "refresh": {
       "button": "Actualiser",
@@ -65,9 +65,9 @@
     },
     "updates": {
       "title": "Mises à jour des extensions",
-      "intro": "Versions plus récentes trouvées par la dernière actualisation du Store, pour les extensions installées depuis un dépôt. Les lister n'envoie aucune requête.",
+      "intro": "Nouvelles versions trouvées à la dernière actualisation du Store.",
       "adminOnly": "Seul un administrateur peut voir et appliquer les mises à jour d'extensions.",
-      "offline": "Le Store est désactivé : les mises à jour ne sont pas cherchées et ne peuvent pas être installées. Activez-le dans l'onglet Store.",
+      "offline": "Le Store est désactivé : activez-le dans l'onglet Store pour chercher les mises à jour.",
       "none": "Toutes les extensions installées depuis un dépôt sont à jour.",
       "review": "Examiner et mettre à jour",
       "update": "Mettre à jour",
@@ -76,7 +76,7 @@
         "config_required": "{{label}} attendrait des réglages désormais obligatoires."
       },
       "dropped": "{{label}} : la nouvelle version n'accepte plus la valeur de {{fields}} ; la mise à jour la réinitialise.",
-      "droppedWarning": "{{label}} : la nouvelle version n'accepte plus la valeur de {{fields}}. La mise à jour la remet à sa valeur par défaut ; l'extension indique ensuite les réglages à vérifier.",
+      "droppedWarning": "{{label}} : {{fields}} reviendra à sa valeur par défaut.",
       "autoHeld": {
         "consent_required": "La mise à jour automatique vous attend : la nouvelle version demande de nouvelles permissions. Vérifiez-la et mettez-la à jour vous-même.",
         "config_required": "La mise à jour automatique vous attend : la nouvelle version exige de nouveaux réglages. Vérifiez-la et mettez-la à jour vous-même.",
@@ -98,20 +98,20 @@
       "fieldsAdded": "Nouveaux réglages : {{fields}}",
       "fieldsRequired": "Désormais obligatoires : {{fields}}",
       "fieldsRemoved": "Réglages supprimés : {{fields}}",
-      "sharedNote": "Toutes les instances de cette extension sont mises à jour ensemble. Les permissions et réglages donnés ici valent pour l'une d'elles ; les autres attendent leur propre examen dans l'onglet Installées.",
-      "reviewLater": "Cette version n'est plus celle que le Store détient : ses réglages ne peuvent pas être demandés ici. Elle sera installée et attendra votre examen dans l'onglet Installées.",
+      "sharedNote": "Toutes les instances de cette extension sont mises à jour ensemble ; les autres attendent votre examen dans l'onglet Installées.",
+      "reviewLater": "Cette version sera installée, puis attendra votre examen dans l'onglet Installées.",
       "consentTitle": "Accepter les permissions de cette version",
       "configIntro": "Renseignez les réglages dont cette version a besoin.",
       "updated": "{{name}} mis à jour en v{{version}}.",
       "autoTitle": "Mises à jour automatiques",
-      "autoIntro": "Applique seul les nouvelles versions dans la fenêtre de mise à jour de Réglages > Mises à jour, par instance. N'en applique jamais une qui demande de nouvelles permissions ou de nouveaux réglages.",
+      "autoIntro": "Installe seul les nouvelles versions, sauf celles qui demandent de nouvelles permissions ou de nouveaux réglages.",
       "autoToggle": "Mettre à jour {{name}} automatiquement",
       "openMeshloomUpdates": "Mises à jour de Meshloom",
       "openExtensionUpdates": "Mises à jour des extensions",
       "linkCount_one": "{{count}} extension a une mise à jour.",
       "linkCount_other": "{{count}} extensions ont une mise à jour.",
       "linkNone": "Aucune mise à jour d'extension en attente.",
-      "consentUnavailable": "Le Store ne détient plus la version visée par cette mise à jour : ses permissions ne peuvent pas être affichées ni acceptées ici. Actualisez le Store (onglet Store), puis examinez de nouveau la mise à jour."
+      "consentUnavailable": "Cette version n'est plus disponible. Actualisez le Store, puis réessayez."
     }
   }
 }

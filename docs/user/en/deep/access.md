@@ -241,7 +241,7 @@ An administrator can add a **Sign in with …** button for an identity provider 
 ### Setting it up
 
 1. At the provider, register an application: a confidential client, with a client secret and the authorization code flow. Give it the **redirect addresses** listed in **Settings → Connection → OpenID Connect**: the address you use now, plus one per declared public address. Each ends with `/api/auth/oidc/callback`.
-2. In **Settings → Connection → OpenID Connect**, pick the provider (**Google**, **Discord** and **Keycloak** fill in what they can, **Other (any OpenID Connect provider)** fits the rest). Enter the **Issuer** the provider gives (for example `https://accounts.google.com` or `https://keycloak.example.org/realms/home`), the **Client id** and the **Client secret**. Check **Offer sign-in with this provider**, then **Save**.
+2. In **Settings → Connection → OpenID Connect**, pick the provider (**Google**, **Discord** and **Keycloak** fill in what they can, **Other (any OpenID Connect provider)** fits the rest). Enter the **Issuer** the provider gives (for example `https://accounts.google.com` or `https://keycloak.example.org/realms/home`), the **Client id** and the **Client secret**. Check **Offer sign-in with this provider**, then **Save**. Discord may not say that an e-mail address is verified: link Discord identities by subject.
 3. **Test the saved provider** reads its discovery document and its signing keys, and says what is wrong otherwise (for example an issuer that differs from the one the provider announces).
 4. Under **Linked identities**, link each person to their account (below). The button then appears on the sign-in page.
 
