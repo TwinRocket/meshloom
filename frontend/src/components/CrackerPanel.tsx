@@ -1,11 +1,12 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { GroupTextCracker, isWebGpuSupported, type ProgressReport } from 'meshcore-hashtag-cracker';
 import NoSleep from 'nosleep.js';
 import type { RawPacket, Channel } from '../types';
 import { api } from '../api';
 import { toast } from './ui/sonner';
 import { cn } from '@/lib/utils';
+import { userDocsUrl } from '../utils/userDocsUrl';
 import { getRawPackets, useRawPackets } from '../stores/rawPacketStore';
 import {
   extractGroupTextFields,
@@ -64,7 +65,7 @@ export function CrackerPanel({
   onQueueChange,
   visible = false,
 }: CrackerPanelProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [packets, setPackets] = useState<RawPacket[]>(() => (visible ? getRawPackets() : []));
   const handlePackets = useCallback((next: RawPacket[]) => {
     setPackets(next);
@@ -863,7 +864,15 @@ export function CrackerPanel({
 
       <hr className="border-border" />
       <p className="text-sm text-muted-foreground leading-relaxed">
-        <Trans i18nKey="cracker.help" components={{ strong: <strong /> }} />
+        {t('cracker.help')}{' '}
+        <a
+          href={userDocsUrl(i18n.language, 'around')}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-foreground"
+        >
+          {t('cracker.learnMore')}
+        </a>
       </p>
     </div>
   );

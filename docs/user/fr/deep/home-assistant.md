@@ -24,7 +24,7 @@ Ce n’est pas la même chose que l’add-on Home Assistant, qui fait tourner Me
 5. Dans **Événements de message**, choisissez quels messages déclenchent un événement.
 6. Choisissez **Enregistrer et activer**.
 
-Les appareils apparaissent dans Home Assistant sous **Paramètres → Appareils et services → MQTT**. Le formulaire liste aussi ce qui sera créé et les sujets exacts.
+Les appareils apparaissent dans Home Assistant sous **Paramètres → Appareils et services → MQTT**. Les entités et les sujets sont décrits plus bas. Désactiver ou supprimer l’intégration retire ses entités de Home Assistant.
 
 ## Noms et identifiants
 

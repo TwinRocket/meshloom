@@ -52,13 +52,14 @@ C’est un outil d’observation, pas une source d’information fiable. Un aqua
 - Cliquer sur un paquet en ouvre le détail.
 - **Afficher les stats** ouvre un panneau qui résume ce qui a été entendu sur une fenêtre de temps (1, 5, 10 ou 30 minutes, ou toute la session) : paquets par minute, types de paquets, force du signal, voisins les plus entendus.
 - **Analyser un paquet** permet de coller le texte hexadécimal d’un paquet pour l’inspecter.
+- **Historique** rejoue les paquets enregistrés sur une période que vous choisissez, dans un calque séparé, pendant que le direct continue d’être enregistré. Les paquets rejoués n’ont pas de force de signal, et le filtre de source s’applique dans le navigateur après le chargement. Supprimer les paquets non déchiffrés (voir [Ça prend de la place](#ça-prend-de-la-place)) peut aussi supprimer d’anciens paquets de données de groupe.
 
 Les paquets qu’on n’a pas su déchiffrer ne sont pas perdus pour autant. Ce sont eux qui permettent de déchiffrer d’anciens messages plus tard, quand vous obtenez la clé d’un salon.
 
 ## Le reste
 
-- **Trace** envoie un paquet de test qui traverse les répéteurs que vous choisissez et revient à votre radio. Cela mesure une route au lieu de la deviner. Il faut pouvoir entendre le dernier répéteur de la chaîne pour que la trace réussisse.
-- **Recherche de messages** cherche dans tout l’historique stocké, messages directs et salons confondus. Un résultat cliqué ouvre la conversation à cet endroit précis, avec les messages autour. On peut affiner avec `user:` ou `channel:` suivi d’un nom ou d’une clé. Les noms qui contiennent des espaces se mettent entre guillemets.
+- **Trace** envoie un paquet de test qui traverse les répéteurs que vous choisissez et revient à votre radio. Cela mesure une route au lieu de la deviner. Il faut pouvoir entendre le dernier répéteur de la chaîne pour que la trace réussisse. La liste propose les répéteurs connus par leur clé complète ; **Chemin personnalisé** ajoute un préfixe brut de 1, 2 ou 4 octets, et tous les sauts personnalisés d’une même trace ont la même largeur.
+- **Recherche de messages** cherche dans tout l’historique stocké, messages directs et salons confondus. Un résultat cliqué ouvre la conversation à cet endroit précis, avec les messages autour. On peut affiner avec `user:` ou `channel:` suivi d’un nom ou d’une clé. Les noms qui contiennent des espaces se mettent entre guillemets. L’expéditeur d’un message de salon est retrouvé grâce aux annonces entendues au moment de l’envoi : c’est une supposition, et deux utilisateurs du même nom ne sont pas distingués.
 - Les **Statistiques**, dans les réglages, résument ce que le nœud a vu : contacts, répéteurs, canaux et messages, paquets par heure sur 72 heures, canaux les plus actifs sur 24 heures, niveau de bruit, et part du trafic qui utilise des portées régionales.
 
 ## Le flux live
@@ -112,6 +113,15 @@ Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir 
 Un salon trouvé ainsi n’entre pas tout seul dans vos discussions. Il apparaît dans **Canaux découverts**, où **Adopter** l’ajoute à vos discussions et **Refuser** l’écarte. Les canaux refusés sont conservés dans une liste, ce qui permet de revenir sur sa décision.
 
 Depuis cette même page, **Afficher le chercheur de canaux** ouvre le chercheur de canaux. Il essaie des noms sur les paquets illisibles : un dictionnaire de noms connus, puis des paires de mots, puis toutes les combinaisons jusqu’à une longueur que vous fixez. Cette dernière étape utilise la carte graphique de votre ordinateur (WebGPU) : il faut donc Chrome ou Edge 113 ou plus récent, et une page servie en HTTPS ou depuis `localhost` (voir [HTTPS](/docs/deep/https/)). Le chercheur fonctionne aussi avec Community coupé.
+
+Ses options :
+
+- **Réessayer les échecs à n+1** reprend les paquets pour lesquels il n’a pas trouvé de nom et réessaie avec un caractère de plus.
+- **Essayer les paires de mots** essaie aussi chaque paire de mots du dictionnaire (`hello` + `world` = `#helloworld`) après les mots seuls. C’est bien plus long et cela peut donner de faux positifs.
+- **Inclure les échantillons historiques et les déchiffrer si trouvés** utilise aussi les paquets enregistrés, et vérifie chaque nom trouvé sur eux pour faire revenir les anciens messages.
+- **Mode turbo** pousse la carte graphique au maximum. Cela peut aller plus vite, et cela peut rendre le système instable.
+
+Sans HTTPS, la page indique comment y remédier : installer un certificat TLS, ou demander au navigateur de traiter cette adresse comme sûre (l’option « insecure origins treated as secure »).
 
 ## Le test radio
 
