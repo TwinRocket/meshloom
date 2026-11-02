@@ -460,6 +460,9 @@ def test_codes_and_masks():
     assert email_factor.normalize_address(" a@b.org ") == "a@b.org"
     assert email_factor.normalize_address("a@b") is None
     assert email_factor.normalize_address("a@b.org;c@d.org") is None
+    assert email_factor.normalize_address("a@.org") is None
+    assert email_factor.normalize_address("a@b.") is None
+    assert email_factor.normalize_address("a" + "!" * 5000) is None
     assert email_factor.mask_address("owner@example.org") == "o***@example.org"
     codes = {email_factor.new_code() for _ in range(50)}
     assert all(len(c) == 6 and c.isdigit() for c in codes) and len(codes) > 40

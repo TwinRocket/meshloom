@@ -66,7 +66,8 @@ LINK_FRAGMENT = "magic_link"
 MailLanguage = Literal["fr", "en"]
 MailKind = Literal["code", "verify", "link"]
 
-_ADDRESS = re.compile(r"[^@\s,;<>\"'()\[\]\\]+@[^@\s,;<>\"'()\[\]\\]+\.[^@\s,;<>\"'()\[\]\\]+")
+# Characters an address may not hold: separators the transport splits on, quoting, @.
+_ADDRESS_FORBIDDEN = frozenset(",;<>\"'()[]\\@")
 _CODE = re.compile(rf"[0-9]{{{CODE_DIGITS}}}")
 
 # Wall clock of the in-memory stores (tests pin it).
@@ -96,9 +97,20 @@ def normalize_address(raw: str) -> str | None:
     """A single address, trimmed, or None. Commas, semicolons and line breaks are
     refused: the mail transport would read them as several recipients."""
     address = raw.strip()
-    if not address or len(address) > 254 or _ADDRESS.fullmatch(address) is None:
+    if not address or len(address) > 254:
+        return None
+    # A plain scan, not a regular expression: linear on any input (no ReDoS).
+    local, at, domain = address.partition("@")
+    if not at or not local or not _plain(local) or not _plain(domain):
+        return None
+    head, dot, tail = domain.rpartition(".")
+    if not dot or not head or not tail:
         return None
     return address
+
+
+def _plain(part: str) -> bool:
+    return all(not c.isspace() and c not in _ADDRESS_FORBIDDEN for c in part)
 
 
 def mask_address(address: str) -> str:

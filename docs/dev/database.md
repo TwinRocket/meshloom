@@ -442,7 +442,7 @@ foreign key: a deleted or unusable channel makes the features unavailable.
 
 One row per account that gave an address (migration 141): PK `user_id` (FK `users(id)`,
 cascade; also deleted by `UserRepository.delete` and by an accounts restore), `address`
-(verified, lowercased, one recipient, at most 254 characters), `otp_enabled` (0/1: the
+(verified, trimmed, one recipient, at most 254 characters), `otp_enabled` (0/1: the
 e-mail code after the password), `magic_link_enabled` (0/1: sign-in links),
 `verified_at`, `updated_at`. Every write also moves `users.updated_at`. Codes and links
 are never stored (memory only). `EmailFactorRepository` (`email_factor.py`). Excluded
