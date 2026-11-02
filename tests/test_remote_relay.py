@@ -613,24 +613,37 @@ class TestRealApp:
         assert session_body["authenticated"] is True and session_body["via"] == "relay"
         assert session_body["user"]["id"] == owner.id
 
-    @pytest.mark.parametrize("frame_ip", ["127.0.0.1", "192.168.1.20", "203.0.113.7"])
-    async def test_never_lan_whatever_the_frame_client_ip(self, env, monkeypatch, frame_ip):
-        """A loopback, LAN or trusted address in the frame never signs anyone in."""
+    @pytest.mark.parametrize(
+        ("install_kind", "frame_ip"), [("package", "192.168.1.20"), ("addon", "127.0.0.1")]
+    )
+    async def test_never_lan_whatever_the_frame_client_ip(
+        self, env, monkeypatch, install_kind, frame_ip
+    ):
+        """A relayed request never matches a trusted network rule, even when the
+        frame's ``client_ip`` is one a direct LAN request from that address would
+        be signed in from (control: same rule, same address, no relay). The rule
+        maps to a ``member`` account, since an admin is never auto-signed in."""
         from app.auth.models import TrustedNetworkRule
         from app.main import app
         from app.repository.auth import AuthSettingsRepository
-        from tests.auth_helpers import PASSWORD, create_user
+        from tests.auth_helpers import create_user, make_client
 
-        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
-        owner = await create_user("owner", PASSWORD, "admin")
-        _, token = await remote.issue_client_pass(owner, "owner", SYSTEM_ACTOR)
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", install_kind)
+        await create_user()
+        tablet = await create_user("tablet", password=None, role="member")
+        _, token = await remote.issue_client_pass(tablet, "tablet", SYSTEM_ACTOR)
+        cidr = "127.0.0.0/8" if frame_ip.startswith("127.") else "192.168.0.0/16"
         await AuthSettingsRepository.update(
-            trusted_networks=[
-                TrustedNetworkRule(cidr=cidr, user_id=owner.id)
-                for cidr in ("127.0.0.0/8", "192.168.0.0/16", "203.0.113.0/24")
-            ],
+            trusted_networks=[TrustedNetworkRule(cidr=cidr, user_id=tablet.id)],
             lan_login_free=True,
         )
+        # Control: the same address, directly, is signed in as the tablet.
+        async with make_client("http://192.168.1.10:8000", (frame_ip, 40000)) as client:
+            body = (await client.get("/api/auth/session")).json()
+            assert body["authenticated"] is True and body["via"] == "trusted", body
+            assert body["user"]["id"] == tablet.id
+            assert (await client.get("/api/contacts")).status_code == 200
+        # Relayed: only ``via = relay`` differs, and it refuses the rule.
         conn = await _connect(env, app)
         status, _, body, _ = await conn.request(
             "GET", "/api/auth/session", client_ip=frame_ip, pass_token=token
@@ -697,6 +710,24 @@ class TestRealApp:
             ("198.51.100.9", "relay", "delayed"),
             ("198.51.100.10", "relay", "failure"),
         }
+
+    @pytest.mark.parametrize(
+        ("lang", "sentence"),
+        [
+            ("en", "Visitors through Meshloom Remote are always counted by their own address"),
+            ("fr", "Les visiteurs qui passent par Meshloom Remote sont toujours comptés"),
+        ],
+    )
+    def test_user_docs_say_relayed_visitors_get_every_login_delay(self, lang, sentence):
+        """The login delays section of the user doc (copied to meshloom.app) must not
+        leave a relayed visitor under the Docker "per-account rule only" bullet."""
+        from pathlib import Path
+
+        doc = Path(__file__).resolve().parents[1] / "docs" / "user" / lang / "deep" / "access.md"
+        text = doc.read_text(encoding="utf-8")
+        assert sentence in text
+        docker = "Docker install" if lang == "en" else "installation Docker"
+        assert text.index(docker) < text.index(sentence)
 
     async def test_the_instance_never_sends_hsts_to_the_relay(self, env, monkeypatch):
         """The relay owns HSTS: the instance's security headers layer never adds it
