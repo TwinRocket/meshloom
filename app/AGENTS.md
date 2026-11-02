@@ -55,7 +55,8 @@ and the OpenAPI page (`/docs`), not a table here.
   per slowed username, hard refusal per address past 100 failures in 15 minutes.
   Addresses are keyed IPv4 /32, IPv6 /64; on a shared address (`compose`/`container`
   without a trusted proxy: configuration only, never a request header) only the
-  username rule applies. A signed known-device cookie (`auth/device_cookie.py`,
+  username rule applies; a relayed request is never a shared address (the frame's
+  visitor address). A signed known-device cookie (`auth/device_cookie.py`,
   set on a successful login) skips the rules with a per-device failure budget.
   No lockout by name. 429
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
@@ -122,7 +123,7 @@ and the OpenAPI page (`/docs`), not a table here.
   non-empty list that `would_refuse` the current request (docs/dev/auth.md, "HTTPS
   from the internet").
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
-  middleware): HSTS only over direct https (never ingress or relay), `no-store` on
+  middleware): HSTS only over direct https (never ingress or relay: the relay owns it), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).
 - `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
   gate and CORS) is the only interpreter of `X-Forwarded-For` and

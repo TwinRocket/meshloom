@@ -359,7 +359,10 @@ browser never shows its native login dialog.
 proxy-headers middleware so it reads the rewritten scheme) adds three headers.
 `Strict-Transport-Security: max-age=31536000` only when the scheme is
 `https`/`wss` and `request_via()` is `lan` (never ingress or relay; no
-`includeSubDomains`, no `preload`). `Cache-Control: no-store` on `/api/auth/*`
+`includeSubDomains`, no `preload`). **The relay owns HSTS** for relayed answers:
+the instance never adds it there, and the relay client also strips one from the
+answer (`remote_relay._STRIP_OUT`) before the relay sets its own for the Remote
+domain (`tests/test_remote_relay.py::TestRealApp`, `tests/test_security_headers.py`). `Cache-Control: no-store` on `/api/auth/*`
 and `/api/remote/*` (a second net: the auth gate already sets it) and on the
 explicit `NO_STORE_PATHS` list of routes returning secrets (radio private key,
 backups, channels, push subscriptions, debug); a test fails when a typed GET route
@@ -926,14 +929,15 @@ and none by IP alone behind Docker:
 
 - **Address key** (`LoginLimiter.address_key(scope)`). `client_ip()` (the TCP
   peer, or what a trusted proxy forwarded, "Proxy headers"; via the relay, the
-  `client_ip` of the frame), IPv4 as is, IPv6 by its `/64` (a host
+  `client_ip` of the frame, never the relay's local end), IPv4 as is, IPv6 by its `/64` (a host
   usually holds a whole /64 and could rotate inside it; an IPv4-mapped address
   is its IPv4). **None**, so the pair and per-IP rules are skipped and only the
   username rule applies, only when the configuration says clients share one
   address: `install_kind` `compose` or `container` with
   `auth_settings.trusted_proxies` empty and
   `auth_settings.addresses_identify_clients` off (both read live, from
-  `proxy_headers`). The owner turns that setting on (Users & Access, "Client
+  `proxy_headers`). A relayed request always has a key, whatever the install
+  kind: its address is the visitor's, from the relay frame (MSHL-84). The owner turns that setting on (Users & Access, "Client
   addresses", MSHL-424) when the peer address is really the client's own (host
   network, or a port published without Docker's userland proxy); the panel
   suggests it when `GET /auth/settings` reports `shared_address_install` and
@@ -1342,7 +1346,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required (existing database, or an exposed request, "Exposed first run") and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code}` or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |

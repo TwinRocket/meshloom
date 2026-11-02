@@ -7,8 +7,10 @@ handshake (JWT, protocol header, HELLO with the plugins and the gate), relayed H
 sessions, the scope a relayed request gets (visitor IP, https, ``via = relay``, the
 forwarding and relay headers dropped), the pass check, protocol errors, and the
 close-code policy (4001, 4003, 4004, 4005, 4009, 4010, 1013). ``TestRealApp`` sends
-through the real app: no trusted network, a ``__Host-`` session cookie at login,
-``X-Forwarded-Host`` ignored.
+through the real app: no trusted network or login-free LAN whatever the frame's
+``client_ip``, a ``__Host-`` session cookie at login, ``GET /api/auth/session`` with
+``via = relay``, ``X-Forwarded-Host`` ignored, login delays and audit rows keyed by the
+visitor's address (also on a Docker install), and no HSTS from the instance (MSHL-84).
 """
 
 from __future__ import annotations
@@ -608,8 +610,149 @@ class TestRealApp:
             "GET", "/api/auth/session", headers=[["cookie", cookie]], pass_token=token
         )
         session_body = json.loads(body)
-        assert session_body["authenticated"] is True and session_body["via"] != "trusted"
+        assert session_body["authenticated"] is True and session_body["via"] == "relay"
         assert session_body["user"]["id"] == owner.id
+
+    @pytest.mark.parametrize(
+        ("install_kind", "frame_ip"), [("package", "192.168.1.20"), ("addon", "127.0.0.1")]
+    )
+    async def test_never_lan_whatever_the_frame_client_ip(
+        self, env, monkeypatch, install_kind, frame_ip
+    ):
+        """A relayed request never matches a trusted network rule, even when the
+        frame's ``client_ip`` is one a direct LAN request from that address would
+        be signed in from (control: same rule, same address, no relay). The rule
+        maps to a ``member`` account, since an admin is never auto-signed in."""
+        from app.auth.models import TrustedNetworkRule
+        from app.main import app
+        from app.repository.auth import AuthSettingsRepository
+        from tests.auth_helpers import create_user, make_client
+
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", install_kind)
+        await create_user()
+        tablet = await create_user("tablet", password=None, role="member")
+        _, token = await remote.issue_client_pass(tablet, "tablet", SYSTEM_ACTOR)
+        cidr = "127.0.0.0/8" if frame_ip.startswith("127.") else "192.168.0.0/16"
+        await AuthSettingsRepository.update(
+            trusted_networks=[TrustedNetworkRule(cidr=cidr, user_id=tablet.id)],
+            lan_login_free=True,
+        )
+        # Control: the same address, directly, is signed in as the tablet.
+        async with make_client("http://192.168.1.10:8000", (frame_ip, 40000)) as client:
+            body = (await client.get("/api/auth/session")).json()
+            assert body["authenticated"] is True and body["via"] == "trusted", body
+            assert body["user"]["id"] == tablet.id
+            assert (await client.get("/api/contacts")).status_code == 200
+        # Relayed: only ``via = relay`` differs, and it refuses the rule.
+        conn = await _connect(env, app)
+        status, _, body, _ = await conn.request(
+            "GET", "/api/auth/session", client_ip=frame_ip, pass_token=token
+        )
+        assert status == 200 and json.loads(body)["authenticated"] is False
+        status, *_ = await conn.request(
+            "GET", "/api/contacts", client_ip=frame_ip, pass_token=token
+        )
+        assert status == 401
+
+    @pytest.mark.parametrize("install_kind", ["package", "compose"])
+    async def test_login_delays_and_audit_use_the_visitor_ip(self, env, monkeypatch, install_kind):
+        """The pair and per-IP rules key on the frame's ``client_ip``, even on a
+        Docker install without a trusted proxy (a relayed address is never shared),
+        and the audit rows name that visitor with ``via = relay``."""
+        from app.auth import ratelimit
+        from app.main import app
+        from app.repository.auth import AuthAuditRepository
+        from tests.auth_helpers import PASSWORD, create_user
+
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", install_kind)
+        ratelimit.reset_login_limiter()
+        owner = await create_user("owner", PASSWORD, "admin")
+        _, token = await remote.issue_client_pass(owner, "owner", SYSTEM_ACTOR)
+        conn = await _connect(env, app)
+        headers = [["content-type", "application/json"], ["origin", f"https://{HOST}"]]
+        wrong = json.dumps({"username": "owner", "password": "not the password"}).encode()
+        for _ in range(ratelimit.PAIR_FREE_FAILURES):
+            status, *_ = await conn.request(
+                "POST",
+                "/api/auth/login",
+                wrong,
+                headers=headers,
+                pass_token=token,
+                client_ip="198.51.100.9",
+            )
+            assert status == 401
+        limiter = ratelimit.login_limiter
+        assert set(limiter._pairs) == {("198.51.100.9", "owner")}
+        assert set(limiter._ips) == {"198.51.100.9"}
+        # The fifth failure closed that visitor's pair: it waits, another one does not.
+        status, _, body, _ = await conn.request(
+            "POST",
+            "/api/auth/login",
+            wrong,
+            headers=headers,
+            pass_token=token,
+            client_ip="198.51.100.9",
+        )
+        assert status == 429 and json.loads(body)["detail"]["code"] == "auth_rate_limited"
+        status, *_ = await conn.request(
+            "POST",
+            "/api/auth/login",
+            wrong,
+            headers=headers,
+            pass_token=token,
+            client_ip="198.51.100.10",
+        )
+        assert status == 401
+        rows = await AuthAuditRepository.list_recent(limit=100)
+        logins = [row for row in rows if row.action == "login"]
+        assert {(row.ip, row.via, row.outcome) for row in logins} == {
+            ("198.51.100.9", "relay", "failure"),
+            ("198.51.100.9", "relay", "delayed"),
+            ("198.51.100.10", "relay", "failure"),
+        }
+
+    @pytest.mark.parametrize(
+        ("lang", "sentence"),
+        [
+            ("en", "Visitors through Meshloom Remote are always counted by their own address"),
+            ("fr", "Les visiteurs qui passent par Meshloom Remote sont toujours comptés"),
+        ],
+    )
+    def test_user_docs_say_relayed_visitors_get_every_login_delay(self, lang, sentence):
+        """The login delays section of the user doc (copied to meshloom.app) must not
+        leave a relayed visitor under the Docker "per-account rule only" bullet."""
+        from pathlib import Path
+
+        doc = Path(__file__).resolve().parents[1] / "docs" / "user" / lang / "deep" / "access.md"
+        text = doc.read_text(encoding="utf-8")
+        assert sentence in text
+        docker = "Docker install" if lang == "en" else "installation Docker"
+        assert text.index(docker) < text.index(sentence)
+
+    async def test_the_instance_never_sends_hsts_to_the_relay(self, env, monkeypatch):
+        """The relay owns HSTS: the instance's security headers layer never adds it
+        to a relayed answer (checked before ``outbound_headers`` would strip it)."""
+        from app.main import app
+
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+        seen: list[list[tuple[bytes, bytes]]] = []
+
+        async def spy(scope: dict[str, Any], receive: Any, send: Any) -> None:
+            async def recording(message: dict[str, Any]) -> None:
+                if message["type"] == "http.response.start":
+                    seen.append(list(message.get("headers") or []))
+                await send(message)
+
+            await app(scope, receive, recording)
+
+        conn = await _connect(env, spy)
+        for path in ("/api/auth/session", "/api/health", "/api/contacts", "/"):
+            status, headers, _, _ = await conn.request("GET", path, pass_token=env.token)
+            assert status < 500, path
+            assert not any(name == "strict-transport-security" for name, _ in headers)
+        assert len(seen) == 4
+        for start in seen:
+            assert all(name.lower() != b"strict-transport-security" for name, _ in start)
 
 
 def test_the_api_documents_every_link_state():

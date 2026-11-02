@@ -93,6 +93,8 @@ Depuis un navigateur que Meshloom ne connaît pas encore (nouvel appareil, cooki
 - **Derrière un reverse-proxy non listé dans les Proxies de confiance**, tous les visiteurs comptent pour l’adresse du proxy : les délais d’un seul visiteur malveillant s’appliquent à tous. Listez le proxy ; Meshloom journalise un avertissement qui le nomme.
 - **Sinon**, chaque visiteur a sa propre adresse et quelqu’un d’ailleurs ne vous fait attendre qu’une seconde au plus.
 
+Les visiteurs qui passent par Meshloom Remote sont toujours comptés selon leur propre adresse, quel que soit le type d’installation : les trois règles s’appliquent à eux.
+
 Les délais sont gardés en mémoire et repartent de zéro au redémarrage de Meshloom. Un délai est écrit une fois dans le journal d’audit, pas à chaque tentative refusée.
 
 Chaque mot de passe, code, passkey, jeton ou code d’installation refusé écrit aussi une ligne commençant par `AUTH_FAIL` dans le journal de Meshloom, avec l’adresse d’où il vient (jamais le nom du compte, seulement un code court qui change à chaque redémarrage). Un outil comme fail2ban peut surveiller ces lignes et bloquer une adresse qui échoue sans cesse : les paquets Linux livrent un jail pour cela, désactivé tant que vous ne l’activez pas ([Bloquer les échecs de connexion répétés avec fail2ban](/docs/deep/fail2ban/)). Une ligne marquée `proxied=1` désigne un reverse-proxy de votre réseau absent des **Proxies de confiance**, partagé par tous ses visiteurs : un tel outil doit l’ignorer. Un visiteur venu d’internet qui envoie lui-même ces en-têtes est quand même noté avec sa propre adresse. Les connexions par Home Assistant n’écrivent aucune ligne.
