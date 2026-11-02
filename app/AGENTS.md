@@ -651,7 +651,7 @@ Community guard.
   `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans, photo
   sizes and types, quotas, retention and the encrypted-mode limits must follow this
   section; its numbers are the constants above and the service defaults in
-  `meshloom-website/links/src/settings.ts`). `messages.md`, `trust.md`,
+  `src/settings.ts` of TwinRocket/meshloom-links). `messages.md`, `trust.md`,
   `deep/security.md` and `deep/install-paths.md` repeat parts of it.
 
 ## Store egress (`plugins/store_egress.py`)
