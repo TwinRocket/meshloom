@@ -49,6 +49,11 @@
       "timer": {
         "title": "S'exécuter à intervalles",
         "description": "Se réveille plus tard, au plus tôt 10 secondes après l'avoir demandé."
+      },
+      "notifications_send": {
+        "title": "Envoyer des notifications",
+        "description": "Vous envoie des notifications par Meshloom, vers les canaux de notification que vous cochez pour « Notifications des extensions » dans Réglages → Notifications → Notifications par défaut (aucun tant que vous n'en cochez pas). Elle ne choisit jamais elle-même une destination.",
+        "quota": "Au plus {{per_hour, number}} notifications par heure et {{per_day, number}} par jour."
       }
     },
     "capabilityErrors": {

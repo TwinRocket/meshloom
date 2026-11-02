@@ -1,6 +1,7 @@
 """Permission registry: names, parameter schemas and caps.
 
-Reserved names are refused with a clear error until implemented (M4). The `http`
+Reserved names are refused with a clear error until implemented (M4);
+`notifications.send` left the reserved list with MSHL-213. The `http`
 host rules live here: `hosts` are public hosts (HTTPS only), `lan_hosts` the devices
 of the user's local network the plugin may reach (MSHL-282; local names and LAN IP
 literals only, MSHL-330; plain HTTP allowed; the egress guard checks that each one
@@ -34,12 +35,14 @@ from app.net.egress_guard import (
 
 MESSAGES_SEND_MAX_PER_HOUR = 60
 MESSAGES_SEND_MAX_PER_DAY = 500
+NOTIFICATIONS_SEND_MAX_PER_HOUR = 30
+NOTIFICATIONS_SEND_MAX_PER_DAY = 100
 HTTP_MAX_HOSTS = 20
 HTTP_MAX_LAN_HOSTS = 10
 MESHLOOM_DOMAIN = "meshloom.app"
 
 RESERVED_PERMISSIONS: frozenset[str] = frozenset(
-    {"notifications.send", "feed.post", "ui.panel", "channels.manage", "contacts.manage"}
+    {"feed.post", "ui.panel", "channels.manage", "contacts.manage"}
 )
 
 _HOST_LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
@@ -225,6 +228,15 @@ class MessagesSendParams(_Params):
     per_day: int | None = Field(default=None, ge=1, le=MESSAGES_SEND_MAX_PER_DAY)
 
 
+class NotificationsSendParams(_Params):
+    """`notifications.send` (MSHL-213): the instance's own quota request. The
+    destinations are not a parameter: the notification channels ticked for the
+    `plugin.notification` event in Settings > Notifications > Default notifications decide."""
+
+    per_hour: int | None = Field(default=None, ge=1, le=NOTIFICATIONS_SEND_MAX_PER_HOUR)
+    per_day: int | None = Field(default=None, ge=1, le=NOTIFICATIONS_SEND_MAX_PER_DAY)
+
+
 class NoParams(_Params):
     pass
 
@@ -286,6 +298,9 @@ class Permissions(BaseModel):
     storage: NoParams | None = None
     http: HttpParams | None = None
     timer: NoParams | None = None
+    notifications_send: NotificationsSendParams | None = Field(
+        default=None, alias="notifications.send"
+    )
 
     @model_validator(mode="before")
     @classmethod
