@@ -126,6 +126,12 @@ The **Workarounds** group of the same tab holds the fixes mentioned on this page
 
 Below the firmware settings, **Radio sensors** shows what the radio itself reports: its battery voltage, the MCU temperature when the board has a sensor, and the GPS position when the GPS is on. The storage used on the radio is shown too, as used / total KB with a percentage, when the radio reports it. The values are read when you open the tab; **Refresh** reads them again.
 
+## Telemetry of repeaters and contacts
+
+Each time Meshloom fetches the telemetry of a repeater or of a contact's sensors (from its pane, through the API, or by automatic polling), it keeps the readings for 30 days, and at most 1,000 samples per node. Automatic polling is set in **Settings → Radio-App Management**: the interval, and the repeaters and contacts polled, 8 of each at most so the mesh stays uncongested.
+
+On a repeater or room server, **Remember password** stores the password in plain text in this browser's storage. Prefer an ACL entry once the first sign-in has worked.
+
 ## Wi-Fi
 
 Radios with companion firmware 1.18 or later built with Wi-Fi have a Wi-Fi interface that Meshloom reads and sets through the radio's companion command line. That covers the official Bluetooth + Wi-Fi builds and the Wi-Fi builds made by the Meshloom flasher. **Settings → Radio → Connection** then shows a **Wi-Fi** group: the network name (SSID), whether Wi-Fi is on, whether the radio is connected and its address, and **Credentials stored in the radio** (yes or no). The network name shown is the stored one, or the one built into the firmware when nothing is stored: the radio cannot tell which. The group is hidden when the firmware has no command line (older than 1.18, or a radio reached through another Meshloom's radio proxy) or no Wi-Fi.

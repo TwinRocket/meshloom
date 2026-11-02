@@ -74,13 +74,15 @@ describe('CustomRepositoriesPanel', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows the warning: unsigned, sha256 is an integrity check only, no revocation', async () => {
+  // The details (sha256 is an integrity check only, no online revocation) are in
+  // docs/user/<lang>/deep/plugins.md; the panel keeps the one-line warning (MSHL-449).
+  it('shows the warning: not reviewed, not signed', async () => {
     vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(payload());
     renderPanel();
     const warning = await screen.findByTestId('custom-repo-warning');
     expect(warning).toHaveTextContent(t('settings.extensions.store.warning'));
-    expect(t('settings.extensions.store.warning')).toMatch(/intégrité/);
-    expect(i18n.getFixedT('en')('settings.extensions.store.warning')).toMatch(/integrity/);
+    expect(t('settings.extensions.store.warning')).toMatch(/ni signés/);
+    expect(i18n.getFixedT('en')('settings.extensions.store.warning')).toMatch(/nor signed/);
     expect(await screen.findByText('Météo')).toBeInTheDocument();
   });
 

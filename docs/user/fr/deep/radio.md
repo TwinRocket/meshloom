@@ -126,6 +126,12 @@ Le groupe **Contournements** du même onglet rassemble les correctifs cités sur
 
 Sous les réglages du firmware, **Capteurs de la radio** montre ce que la radio signale d’elle-même : la tension de sa batterie, la température du microcontrôleur si la carte a un capteur, et la position GPS quand le GPS est activé. Le stockage utilisé sur la radio s’affiche aussi, en Ko utilisés / total avec un pourcentage, quand la radio le signale. Les valeurs sont lues à l’ouverture de l’onglet ; **Actualiser** les relit.
 
+## Télémétrie des répéteurs et des contacts
+
+Chaque fois que Meshloom récupère la télémétrie d’un répéteur ou des capteurs d’un contact (depuis son volet, par l’API ou par le relevé automatique), il garde les lectures 30 jours, et au plus 1 000 échantillons par nœud. Le relevé automatique se règle dans **Réglages → Gestion Radio-App** : l’intervalle, et les répéteurs et contacts relevés, 8 de chaque au plus pour ne pas encombrer le mesh.
+
+Sur un répéteur ou un serveur de salon, **Mémoriser le mot de passe** l’enregistre en clair dans le stockage de ce navigateur. Préférez une entrée ACL une fois la première connexion réussie.
+
 ## Wi-Fi
 
 Les radios dotées du firmware compagnon 1.18 ou plus récent, compilé avec le Wi-Fi, ont une interface Wi-Fi que Meshloom lit et règle par la ligne de commande compagnon de la radio. Cela couvre les versions officielles Bluetooth + Wi-Fi et les versions Wi-Fi produites par le flasheur Meshloom. **Réglages → Radio → Connexion** montre alors un groupe **Wi-Fi** : le nom du réseau (SSID), si le Wi-Fi est activé, si la radio est connectée et son adresse, et **Identifiants enregistrés dans la radio** (oui ou non). Le nom affiché est celui enregistré, ou celui intégré au firmware quand rien n’est enregistré : la radio ne sait pas dire lequel. Le groupe est masqué quand le firmware n’a pas de ligne de commande (antérieur à 1.18, ou radio jointe par le proxy radio d’un autre Meshloom) ou pas de Wi-Fi.

@@ -176,13 +176,13 @@ describe('SettingsRemoteSection', () => {
     vi.restoreAllMocks();
   });
 
-  it('explains what the relay sees and never calls a relayed request local', async () => {
+  it('shows one actionable line and links the Remote docs for the details', async () => {
     vi.spyOn(api, 'getRemote').mockResolvedValue(OFF);
     await renderAs('admin');
     const note = await screen.findByTestId('remote-privacy-note');
-    expect(note).toHaveTextContent(t('settings.remote.about.privacyEdge'));
-    expect(note).toHaveTextContent(t('settings.remote.about.privacyPasskeys'));
-    expect(note).toHaveTextContent(t('settings.remote.about.neverLocal'));
+    expect(note).toHaveTextContent(t('settings.remote.about.secure'));
+    const link = within(note).getByRole('link', { name: t('settings.remote.about.learnMore') });
+    expect(link).toHaveAttribute('href', 'https://meshloom.app/docs/deep/remote/');
   });
 
   it('enables, then enrols a phone by QR without a reload', async () => {
@@ -201,6 +201,8 @@ describe('SettingsRemoteSection', () => {
     fireEvent.click(screen.getByRole('button', { name: t('settings.remote.actions.enable') }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).queryByTestId('remote-enable-isolation-warning')).toBeNull();
+    // The details of what the relay sees live in the docs, not in the dialog (MSHL-449).
+    expect(within(dialog).queryByText(/TwinRocket/)).toBeNull();
     fireEvent.click(
       within(dialog).getByRole('button', { name: t('settings.remote.enable.confirm') })
     );

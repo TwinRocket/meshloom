@@ -274,16 +274,19 @@ enrolment URL or an access code.
 Settings → Remote access (section `remote`, lazy-loaded, every account role but the kiosk:
 `ACCOUNT_SETTINGS_SECTIONS`). Details in `frontend/AGENTS.md`, "Remote access section".
 
-- What the relay sees, always on screen: TLS ends at the relay, so it could read the
-  traffic, the password at sign-in included (passkeys or 2FA recommended); what the
-  registration sends; a relayed request is never the local network.
+- One actionable line (passkey or 2FA) and a "Learn more" link to the user docs
+  (`docs/user/<lang>/deep/remote.md`, URL from `utils/userDocs.ts`). What the relay sees (TLS
+  ends at the relay, so it could read the traffic, the password at sign-in included; what the
+  registration sends; a relayed request is never the local network) lives in that page and
+  the relay's terms, not in the UI (MSHL-449).
 - State badge from `state` and `link_status` (`remoteShared.ts` `remoteBadge`): every
   `LINK_STATES` value, `off`, `unregistered` and `unknown` has a label and a help in
   `settings.remote.badge.*` / `badgeHelp.*`, and an action where one helps (enable or
   retry, off and on again for `not_registered`, replace the key for `replaced`, open
   Updates for `update_required`). Hostname with copy, key fingerprint.
-- Administrators: enable (a dialog that blocks until acknowledged while plugins run with
-  reduced isolation, the rule of the `remote_reduced_plugin_isolation` notice),
+- Administrators: enable (a two-line dialog, without the relay paragraph; it blocks until
+  acknowledged while plugins run with reduced isolation, the rule of the
+  `remote_reduced_plugin_isolation` notice),
   disable, unregister, rotate, revoke-all, each confirmed.
 - Enrolment QR (`RemoteEnrollDialog`): the URL stays in the dialog's state only; a local
   15 min countdown; polls `GET /api/remote` every 3 s and reports the new `qr` device.
@@ -298,8 +301,8 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
   "enrol" or "pass". A pass is the device's *access*; enrolment and approval both *allow a device*
   (fr *autoriser un appareil*), listed as *Allowed devices* (*Appareils autorisés*); unregister is
   *Leave Meshloom Remote* (*Quitter Meshloom Remote*); devices are any device or browser, never
-  "phone" only. The privacy note says plainly that the relay decrypts the traffic and could
-  read it, the sign-in password included. The code keeps the technical names (`enroll`, pass).
+  "phone" only. Copy stays short (MSHL-447 rules): one sentence per help or dialog, details in
+  the user docs. The code keeps the technical names (`enroll`, pass).
 - Error codes: `errors.<code>` for every `REMOTE_ERRORS` and relay refusal code (slice
   `remote`). `tests/test_remote_ui_strings.py` fails when a code or a link state has no
   French or English string, or when `remoteTypes.ts` drifts from `LINK_STATES`.
