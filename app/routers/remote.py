@@ -63,7 +63,14 @@ class RemoteStatus(BaseModel):
     registered_at: int | None = None
     last_error: str | None = None
     relay_connected: bool = False
-    link_status: str | None = None
+    link_status: str | None = Field(
+        default=None,
+        description=(
+            "The relay client's state (app/services/remote_relay.py LINK_STATES): "
+            "connecting, connected, reconnecting, not_registered, paused, replaced, "
+            "banned, update_required or relay_paused; null while Remote is off"
+        ),
+    )
     gate: RemoteGate
     devices: list[RemoteDeviceItem]
 

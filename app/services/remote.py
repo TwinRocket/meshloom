@@ -25,7 +25,7 @@ passes this instance signs (``app/services/remote_passes.py``).
   its id to the revoked list of the current generation; revoking every device bumps
   ``gate_gen``. ``gate_state()`` is ``{gen, revoked}`` (the HELLO's ``gate`` and the
   CONTROL ``gate`` op), pushed at once to the relay link when there is one.
-- **Relay link.** The relay client (MSHL-87) installs a sender with
+- **Relay link.** The relay client (``app/services/remote_relay.py``) installs a sender with
   ``set_relay_link`` and forwards relay CONTROL ops to ``handle_control``; it reads
   ``instance_info`` and ``gate_state`` for its HELLO and calls ``verify_device_pass`` on
   ``x-meshloom-pass``. Change listeners (``add_change_listener``) tell it to connect or
@@ -201,9 +201,10 @@ def set_link_status(status: str | None) -> None:
 
 def add_change_listener(callback: Callable[[], Any]) -> None:
     """Called (sync or async) after Remote is enabled, disabled, registered, rotated,
-    unregistered or reset by a restore."""
+    unregistered or reset by a restore. Adding the same callback twice is a no-op."""
     assert _rt.listeners is not None
-    _rt.listeners.append(callback)
+    if callback not in _rt.listeners:
+        _rt.listeners.append(callback)
 
 
 async def _notify() -> None:

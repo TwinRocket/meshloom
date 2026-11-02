@@ -187,7 +187,7 @@ async def second_factor_enrolment_required(principal: Principal | None) -> bool:
 
 def request_via(scope: Scope) -> Via:
     """How the request reached the instance: ``relay`` when the relay dispatched
-    it (``scope["state"]["via"]``, a later Access ticket), ``ingress`` for the
+    it (``scope["state"]["via"]``, ``app/services/remote_relay.py``), ``ingress`` for the
     Supervisor's proxy (``ingress.is_ingress_request``), else ``lan``."""
     state = scope.get("state")
     if isinstance(state, dict) and state.get("via") == "relay":

@@ -120,8 +120,16 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
 - **Remote egress.** Meshloom Remote off (`remote_state.enabled`, the default) means
   no connection at all to `relay.meshloom.link`. Every registry request goes through
   `_registry()` in `app/services/remote.py` (the opt-in, then the egress guard with
-  `RELAY_HOST` as the only allowed host); `tests/test_remote_off_no_egress.py` sweeps
-  it (`docs/dev/remote.md`).
+  `RELAY_HOST` as the only allowed host); the relay socket
+  (`app/services/remote_relay.py`) opens only while Remote is on and registered, to
+  `wss://<RELAY_HOST>/v1/connect` only, whatever the Community state.
+  `tests/test_remote_off_no_egress.py` and `tests/test_community_off_no_egress.py`
+  sweep both directions (`docs/dev/remote.md`).
+- **Relayed requests.** The relay client dispatches each relayed stream in process
+  (`await app(scope, receive, send)`) with `scope["state"]["via"] = "relay"`, the
+  visitor's address as `client`, `https`/`wss` and the slug `Host`, after checking
+  the device pass again; forwarding headers are dropped. Never mark a request
+  `via = relay` anywhere else, and never treat one as LAN.
 - **User-chosen destinations.** The notification webhook, Web Push, their
   test routes and the fanout outputs (webhook, Apprise, SQS, map upload) go
   through the egress guard (`app/net/egress_guard.py`, see `app/net/AGENTS.md`):

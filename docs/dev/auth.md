@@ -384,8 +384,8 @@ another role. Tests of the gate itself are marked `@pytest.mark.real_auth`. The
 ### `via`
 
 How the request reached the instance (`request_via`, `app/auth/middleware.py`).
-`relay` when the relay dispatched it (`scope["state"]["via"]`, set by the relay
-client of a later ticket); `ingress` when `MESHLOOM_INSTALL_KIND` is `addon`,
+`relay` when the relay dispatched it (`scope["state"]["via"]`, set only by the relay
+client's in-process dispatch, `app/services/remote_relay.py`); `ingress` when `MESHLOOM_INSTALL_KIND` is `addon`,
 the ASGI peer is the Supervisor (`SUPERVISOR_IP`, `172.30.32.2`) and the request
 was not relayed; `lan` otherwise. A `lan` request that a trusted network rule
 signs in becomes `trusted` once resolved (`scope["auth_via"]`, the principal,
@@ -922,8 +922,8 @@ and none by IP alone behind Docker:
 | Hard refusal | `address_key` | Beyond 100 failures in 15 minutes (`aiolimiter.AsyncLimiter(100, 900)` per address key, read with `has_capacity()`: one more every 9 s) |
 
 - **Address key** (`LoginLimiter.address_key(scope)`). `client_ip()` (the TCP
-  peer, or what a trusted proxy forwarded, "Proxy headers"; via the relay,
-  later, the address in the frame), IPv4 as is, IPv6 by its `/64` (a host
+  peer, or what a trusted proxy forwarded, "Proxy headers"; via the relay, the
+  `client_ip` of the frame), IPv4 as is, IPv6 by its `/64` (a host
   usually holds a whole /64 and could rotate inside it; an IPv4-mapped address
   is its IPv4). **None**, so the pair and per-IP rules are skipped and only the
   username rule applies, only when the configuration says clients share one

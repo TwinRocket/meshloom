@@ -31,6 +31,10 @@ hosts of the Store allowlist) may be reached, through ``store_fetch``; every oth
 ``store_online`` off, nothing goes there. The recorder reads the ``Host`` header, so a
 request sent through a pinned client (connected to the IP) is still seen by name.
 
+``TestRemoteEgressIsSeparate``: Meshloom Remote (MSHL-87) is its own egress class.
+With Community off and Remote on and registered, the relay socket goes to exactly
+``relay.meshloom.link`` and nothing reaches a Community host.
+
 ``TestPositionRebindOff``: the automatic re-bind on a radio position or policy
 change sends nothing while Community is off.
 
@@ -2735,3 +2739,42 @@ class TestStoreEgressIsSeparate:
             await store_fetch("GET", url, max_response_bytes=4096)
         assert egress.hosts() == [STORE_INDEX_HOST]
         assert (await get_community_effective()).enabled is False
+
+
+class TestRemoteEgressIsSeparate:
+    """Community off, Remote on and registered: the relay socket goes to exactly
+    ``RELAY_HOST`` and nothing reaches a Community host (MSHL-87). The other direction
+    is in ``tests/test_remote_off_no_egress.py``."""
+
+    @pytest.mark.asyncio
+    async def test_only_the_relay_host(self, test_db, egress, cleanup_community, monkeypatch):
+        from app.main import app
+        from app.repository.remote import RemoteRepository
+        from app.services import remote, remote_relay
+
+        urls: list[str] = []
+
+        def relay_socket(url: str, **_kwargs: Any) -> Any:
+            urls.append(url)
+            raise OSError("refused by the test")
+
+        await update_community(enabled=False, iata="CDG")
+        start = len(egress.events)
+        monkeypatch.setattr("websockets.connect", relay_socket)
+        monkeypatch.setattr(remote_relay, "BACKOFF_INITIAL_S", 0.01)
+        await RemoteRepository.update_state(
+            enabled=True,
+            slug="k3xwq2m7ta",
+            hostname="k3xwq2m7ta.meshloom.link",
+            relay_url="wss://relay.meshloom.link/v1/connect",
+        )
+        client = remote_relay.RelayClient()
+        try:
+            await client.start(app)
+            await _until(lambda: len(urls) >= 3)
+        finally:
+            await client.stop()
+        assert {urlsplit(url).hostname for url in urls} == {remote.RELAY_HOST}
+        assert all(url.startswith("wss://") for url in urls)
+        assert egress.forbidden(start) == []
+        assert egress.events[start:] == []

@@ -280,6 +280,13 @@ async def lifespan(app: FastAPI):
         await remote_service.load()
     except Exception:
         logger.exception("Failed to load the Meshloom Remote state")
+    # The relay client connects only while Remote is on and registered (docs/dev/remote.md).
+    from app.services import remote_relay
+
+    try:
+        await remote_relay.start(app)
+    except Exception:
+        logger.exception("Failed to start the Meshloom Remote relay client")
 
     # Accounts: issue the installation code on an existing database with no
     # account yet (app/auth/setup_code.py).
@@ -440,12 +447,14 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
     from app.plugins.store_egress import stop_store_refresh
     from app.services.community_live import shutdown_community_live
     from app.services.community_status_clear import stop_status_clear_worker
+    from app.services.remote_relay import shutdown as shutdown_remote_relay
 
     # Callables, not coroutine objects: a step is only created when it runs,
     # inside the guard (so a synchronous raise is caught too).
     steps = [
         ("startup radio task", lambda: _cancel_task(startup_radio_task)),
         ("community live", shutdown_community_live),
+        ("remote relay", shutdown_remote_relay),
         ("community status clear", stop_status_clear_worker),
         ("plugins", plugin_lifecycle.stop),  # bounded: never over 10 s
         ("fanout modules", fanout_manager.stop_all),
