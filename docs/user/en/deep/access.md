@@ -95,6 +95,8 @@ From a browser Meshloom does not know yet (a new device, a cleared cookie, after
 
 Visitors through Meshloom Remote are always counted by their own address, on every kind of install: all three rules apply to them.
 
+Meshloom Remote can also slow guessing down before it reaches your instance: after several failed sign-ins from one network through the relay, the next attempt opens a short check page (a Cloudflare Turnstile challenge) in the browser. Once it is solved, the browser comes back to the sign-in page and gets a few more attempts. It only concerns browsers already allowed on the instance, never an API token or an app using a client pass, and it adds to the rules here and the built-in ban below, it does not replace them.
+
 The delays live in memory and start again empty when Meshloom restarts. A delay is written to the audit log once, not for each refused attempt.
 
 Each refused password, code, passkey, token or installation code also writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from (and never the account name, only a short code that changes at each restart). A tool such as fail2ban can watch these lines and block an address that keeps failing: the Linux packages ship a jail for it, off until you turn it on ([Blocking repeated sign-in failures with fail2ban](/en/docs/deep/fail2ban/)). A line marked `proxied=1` names a reverse proxy on your network that is not in **Trusted proxies**, shared by all its visitors: such a tool must ignore it. A visitor from the internet that sends forwarding headers itself is still logged with its own address. Sign-ins through Home Assistant write no line.

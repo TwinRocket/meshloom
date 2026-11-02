@@ -309,6 +309,35 @@ describe('fetchJson (via api methods)', () => {
   });
 
   describe('error handling', () => {
+    it('opens the Meshloom Remote login challenge on relay_login_challenge from the login form', async () => {
+      installMockFetch();
+      const assign = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign });
+      const relay = {
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: () =>
+          Promise.resolve(
+            '{"detail":"Login challenge required","code":"relay_login_challenge","server_time":1}'
+          ),
+      };
+      mockFetch.mockResolvedValueOnce(relay);
+      const err = await api
+        .authLogin({ username: 'a', password: 'b', remember: false })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect(getApiErrorCode(err.detail)?.code).toBe('relay_login_challenge');
+      expect(formatApiError(err, i18n.getFixedT('en'))).toContain('Meshloom Remote');
+      expect(assign).toHaveBeenCalledWith('/_meshloom/challenge');
+
+      // Not from another call: the code is only the login form's.
+      assign.mockClear();
+      mockFetch.mockResolvedValueOnce(relay);
+      await expect(api.getHealth()).rejects.toBeInstanceOf(ApiError);
+      expect(assign).not.toHaveBeenCalled();
+    });
+
     it('extracts detail from FastAPI JSON error response', async () => {
       installMockFetch();
       mockFetch.mockResolvedValueOnce({

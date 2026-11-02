@@ -379,6 +379,11 @@ purpose.
   with no wall. `useSession()` gives `user`, `role`, `via`, `signOut` (a null user
   outside a provider, so tests of other components need no provider). Auth types
   live in `auth/types.ts`, not `types.ts`.
+- **Meshloom Remote login challenge.** A 403 `relay_login_challenge` (the relay's own JSON
+  `{"detail","code"}`, meshloom-community `remote-relay.md` § Login challenge) on an
+  `AUTH_FORM_PATHS` call keeps its code in `ApiError.detail` (translated form error
+  `errors.relay_login_challenge`, slice `aa`) and sends the browser to `/_meshloom/challenge`
+  (`openRelayLoginChallenge`); the relay's Turnstile page comes back to `/` once solved.
 - **401 handling.** `fetchJson` publishes a 401 on any call except `/auth/login` and
   `/auth/setup` through `auth/authEvents.ts`. `auth_setup_required` re-reads the
   session (back to the setup page); any other code mounts `ReloginDialog` over the

@@ -315,6 +315,9 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     const error = await apiErrorFrom(res);
     reportApiFailure(error, url, options?.method ?? 'GET');
+    if (AUTH_FORM_PATHS.has(url) && getApiErrorCode(error.detail)?.code === RELAY_LOGIN_CHALLENGE) {
+      openRelayLoginChallenge();
+    }
     throw error;
   }
   // 204 No Content (revoking a token) has no body to parse.
@@ -335,6 +338,19 @@ const AUTH_FORM_PATHS = new Set([
   '/auth/magic-link/verify',
 ]);
 
+/**
+ * Meshloom Remote's login challenge (meshloom-community `remote-relay.md` § Login challenge): after
+ * repeated failed sign-ins through the relay, it answers the login itself with 403
+ * `relay_login_challenge` (relay JSON `{"detail","code"}`) and serves a Turnstile page on
+ * `/_meshloom/challenge` of the same host, which comes back to `/` once solved.
+ */
+export const RELAY_LOGIN_CHALLENGE = 'relay_login_challenge';
+export const RELAY_LOGIN_CHALLENGE_PATH = '/_meshloom/challenge';
+
+export function openRelayLoginChallenge(): void {
+  window.location.assign(RELAY_LOGIN_CHALLENGE_PATH);
+}
+
 /** Seconds from a `Retry-After` header (delta-seconds form), or null. */
 function retryAfterSeconds(header: string | null, detail: unknown): number | null {
   const fromParams = Number(getApiErrorCode(detail)?.params.retry_after);
@@ -351,6 +367,13 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   let detail: unknown = errorText;
   try {
     const errorJson = JSON.parse(errorText);
+    if (errorJson.code === RELAY_LOGIN_CHALLENGE && typeof errorJson.detail === 'string') {
+      // The relay's own error shape: keep its code, so the form shows the translated message.
+      return new ApiError(errorJson.detail, res.status, {
+        code: RELAY_LOGIN_CHALLENGE,
+        message: errorJson.detail,
+      });
+    }
     if (errorJson.detail !== undefined) {
       detail = errorJson.detail;
       errorMessage =
