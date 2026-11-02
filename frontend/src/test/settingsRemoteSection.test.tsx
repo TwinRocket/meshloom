@@ -183,6 +183,28 @@ describe('SettingsRemoteSection', () => {
     expect(note).toHaveTextContent(t('settings.remote.about.secure'));
     const link = within(note).getByRole('link', { name: t('settings.remote.about.learnMore') });
     expect(link).toHaveAttribute('href', 'https://meshloom.app/docs/deep/remote/');
+    // One line, one link: what the relay sees is in the docs only (frontend/AGENTS.md).
+    expect(note.tagName).toBe('P');
+    expect(within(note).getAllByRole('link')).toHaveLength(1);
+    expect(note).toHaveTextContent(
+      `${t('settings.remote.about.secure')} ${t('settings.remote.about.learnMore')}`
+    );
+  });
+
+  it('opens a two-line enable dialog when plugins are sandboxed', async () => {
+    vi.spyOn(api, 'getRemote').mockResolvedValue(OFF);
+    await renderAs('admin', { health: SAFE_HEALTH });
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('settings.remote.actions.enable') })
+    );
+    const dialog = await screen.findByRole('dialog');
+    // Title and help only: no relay paragraph, no checkbox (frontend/AGENTS.md "Enable").
+    expect(dialog.querySelectorAll('p')).toHaveLength(1);
+    expect(dialog).toHaveTextContent(t('settings.remote.enable.help'));
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    expect(
+      within(dialog).getByRole('button', { name: t('settings.remote.enable.confirm') })
+    ).toBeEnabled();
   });
 
   it('enables, then enrols a phone by QR without a reload', async () => {
@@ -347,7 +369,10 @@ describe('SettingsRemoteSection', () => {
       await screen.findByRole('button', { name: t('settings.remote.actions.enable') })
     );
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByTestId('remote-enable-isolation-warning')).toBeInTheDocument();
+    const warning = within(dialog).getByTestId('remote-enable-isolation-warning');
+    // One warning line and the acknowledgement, nothing more.
+    expect(warning.querySelectorAll('p')).toHaveLength(1);
+    expect(warning).toHaveTextContent(t('settings.remote.enable.isolationWarning'));
     const confirm = within(dialog).getByRole('button', {
       name: t('settings.remote.enable.confirm'),
     });

@@ -543,8 +543,10 @@ Settings → Remote access (section id `remote`, icon `MonitorSmartphone`, `lazy
 revoke-all is `own_account`, and those five (and the custom domain test) are shown to `isAdmin` only (an admin also reads
 `/auth/users` to name device owners).
 
-- **Never local.** The explanation and privacy note (what the relay sees, passkeys or 2FA
-  recommended, a relayed request is never the local network) are always shown. Through the relay
+- **Never local.** The section shows one actionable line (`settings.remote.about.secure`: use a
+  passkey or 2FA) and a "Learn more" link to the user docs page `deep/remote` (`userDocUrl`,
+  `utils/userDocs.ts`), which says what the relay sees; the UI does not repeat it (MSHL-449). In
+  code a relayed request is never the local network (`request_via()` is `relay`): through the relay
   (`via === 'relay'`) the enrolment button is replaced by the LAN-only notice (the server answers
   403 `remote_lan_only`).
 - **State.** `remoteBadge()` (`remote/remoteShared.ts`) maps `state` + `link_status` to a badge id,
@@ -557,9 +559,10 @@ revoke-all is `own_account`, and those five (and the custom domain test) are sho
   button (`POST /api/remote/domain/test`). The result and its reasons are
   `settings.remote.domain.result.<result>` / `.reason.<code>`; the host a domain redirects to is
   untrusted text (`untrustedText`). Nothing is stored.
-- **Enable.** A dialog that repeats what the relay sees; while plugins run with reduced isolation
-  (`pluginsIsolationReduced(health)`, the server's `_plugins_isolation_reduced` rule, an unknown
-  health counting as reduced) it blocks until a checkbox is ticked. The same condition with Remote
+- **Enable.** A two-line dialog (title and `settings.remote.enable.help`), no relay details; while
+  plugins run with reduced isolation (`pluginsIsolationReduced(health)`, the server's
+  `_plugins_isolation_reduced` rule, an unknown health counting as reduced) it adds one warning
+  line and blocks until the acknowledgement checkbox is ticked. The same condition with Remote
   on raises `remote_reduced_plugin_isolation` in the Access security notice.
 - **Enrolment QR** (`RemoteEnrollDialog`): the URL (one-time token in the fragment) lives in the
   dialog's state only and is dropped on close, expiry or use; the QR goes through the lazy
@@ -741,10 +744,11 @@ focus, a tap or when the preview policy lets a shared image load, never on a pla
 **Settings section.** `components/settings/SettingsShareSection.tsx` (section id
 `share`, after Community in `settingsConstants.ts`) shows the status line, the
 enable checkbox, and the shorten-mode and preview-policy radios. Enabling always
-opens the consent dialog (`ShareConsentDialog`): what leaves when sending and
-reading, who, retention, links to the share service's own `/terms` and `/privacy`
-pages (host from `status.host`, never hardcoded; `?lang=`) and the published
-`security` doc, and a required terms checkbox; `PATCH /api/settings`
+opens the consent dialog (`ShareConsentDialog`): one sentence
+(`settings.share.consent.intro`) with a "Learn more" link to the user docs page `deep/share` (`userDocUrl`, which says what leaves, to
+whom and for how long; the dialog does not repeat it, MSHL-449) and a required
+checkbox (`settings.share.consent.accept`) linking the share service's own `/terms` and `/privacy` pages (host from
+`status.host`, never hardcoded; `?lang=`); `PATCH /api/settings`
 `{share_enabled: true}` is sent only on confirm, and cancelling, closing or an
 unticked box leaves it off. Turning it off needs no consent. The status comes from
 `stores/shareStatusStore.ts` (`useShareStatus()`, `loadShareStatus()`; module
