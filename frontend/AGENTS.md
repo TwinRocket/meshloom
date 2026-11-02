@@ -410,8 +410,8 @@ purpose.
   `passkeyCeremonyErrorKey` maps the library's errors (and the DOMException under `cause`) to
   `auth.passkey.errors.*`; a cancelled prompt and a timeout are both `NotAllowedError`.
   Settings → Users & Access → `AccessPasskeysPanel` lists, adds (password, plus a code when
-  TOTP is on; it warns that a recovery code is spent even if the prompt is abandoned) and removes
-  (password) passkeys. i18n slice `bq`.
+  TOTP is on; that a recovery code is spent even if the prompt is abandoned is in the user docs,
+  `docs/user/{en,fr}/deep/access.md`, not in the panel) and removes (password) passkeys. i18n slice `bq`.
 - **OpenID Connect.** `auth/oidc.ts` (MSHL-427). `LoginForm` shows "Sign in with {{name}}"
   when `methods.oidc` is true (`oidc_label`, else `auth.oidc.defaultLabel`); `LoginPage` passes
   it and `ReloginDialog` does not. The button is a navigation (`startOidcSignIn`:
