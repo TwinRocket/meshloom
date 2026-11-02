@@ -33,6 +33,8 @@ const EMPTY_PREFERENCES = {
   defaults: ALL_ON_DEFAULTS,
   overrides: {} as Record<string, boolean>,
   vapid_subject: '',
+  vapid_subject_effective: 'mailto:noreply@meshcore.local',
+  vapid_subject_source: 'default' as const,
 };
 
 const mocks = vi.hoisted(() => ({

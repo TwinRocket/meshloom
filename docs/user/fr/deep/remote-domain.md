@@ -53,4 +53,4 @@ En tant qu’administrateur, ouvrez **Réglages → Accès à distance**. Quand 
 
 Un domaine qui pointe vers votre propre réseau (adresse privée ou locale) n’est jamais contacté par ce test, comme toute adresse que Meshloom doit appeler. Le test part de votre instance : il voit ce que voit votre instance, et un changement chez le registrar peut mettre du temps à atteindre tous les résolveurs.
 
-Le domaine saisi n’est enregistré nulle part.
+Le domaine saisi n’est enregistré nulle part. Les notifications Web Push utilisent donc votre adresse `<nom>.meshloom.link` comme adresse de contact quand aucune n’est saisie, jamais votre propre domaine (voir [Notifications push](/docs/deep/push/)).

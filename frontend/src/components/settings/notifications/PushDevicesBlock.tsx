@@ -210,6 +210,18 @@ export function PushDevicesBlock({
             {t('settings.notifications.vapidSubjectHelp')}
           </p>
         )}
+        {preferences?.vapid_subject_effective && (
+          <p
+            className="text-[0.8125rem] text-muted-foreground"
+            data-testid="vapid-subject-in-use"
+            data-source={preferences.vapid_subject_source}
+          >
+            {t(`settings.notifications.vapidSubjectInUse.${preferences.vapid_subject_source}`, {
+              subject: preferences.vapid_subject_effective,
+              defaultValue: preferences.vapid_subject_effective,
+            })}
+          </p>
+        )}
       </div>
 
       <Separator />

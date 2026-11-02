@@ -424,7 +424,12 @@
       "vapidSubject": "VAPID subject",
       "vapidSubjectLabel": "Contact URI",
       "vapidSubjectPlaceholder": "mailto:ops@example.com",
-      "vapidSubjectHelp": "VAPID contact: mailto:you@domain.tld (recommended) or https://your-host with no path. Empty uses the server environment fallback. Apple rejects .local addresses.",
+      "vapidSubjectHelp": "VAPID contact: mailto:you@domain.tld (recommended) or https://your-host with no path. Leave it empty to use the Meshloom Remote address while Remote is on, otherwise a built-in address. Apple rejects .local addresses.",
+      "vapidSubjectInUse": {
+        "stored": "In use: {{subject}} (the contact typed above).",
+        "remote": "In use: {{subject}} (the Meshloom Remote address, because the field above is empty).",
+        "default": "In use: {{subject}} (built-in address). iPhones and iPads refuse it: type a contact above, or turn on Meshloom Remote."
+      },
       "vapidSubjectInvalid": "Must be empty, a mailto:you@domain.tld, or an https://host origin (no path).",
       "destinations": "Delivery destinations",
       "destinationsHelp": "Reusable email and webhook destinations. Any enabled notification type can use them. Secrets are not shown after save.",

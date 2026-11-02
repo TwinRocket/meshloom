@@ -423,12 +423,15 @@ def _reset_auth_state():
 
 @pytest.fixture(autouse=True)
 def _reset_remote_state():
-    """No relay link, access request or listener left over from another test."""
+    """No relay link, access request, listener or Remote VAPID subject left over."""
+    from app.push.vapid import set_cached_remote_vapid_subject
     from app.services.remote import reset_remote_for_tests
 
     reset_remote_for_tests()
+    set_cached_remote_vapid_subject("")
     yield
     reset_remote_for_tests()
+    set_cached_remote_vapid_subject("")
 
 
 @pytest.fixture(autouse=True)
