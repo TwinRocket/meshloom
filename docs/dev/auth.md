@@ -1453,7 +1453,10 @@ OpenID Connect case in `tests/test_auth_oidc.py`. Frontend: `frontend/src/auth/m
   `background_tasks.spawn`), so the answer does the same work whether an account matched
   or not; a refusal per account is silent too. Only 503 `auth_email_unavailable` (a fact
   of the instance) and 429 past `ADDRESS_MAX_PER_HOUR` (20) requests an hour from one
-  client address (`ratelimit.LoginLimiter.address_key`, else the client address) differ.
+  client address (`ratelimit.LoginLimiter.address_key`, else `client_ip`) differ. Where
+  `address_key` is None (Docker without a trusted proxy, "Shared addresses" in
+  `app/auth/ratelimit.py`), `client_ip` is the gateway, so every LAN client shares those
+  20 requests; a relayed request is keyed by its visitor.
   The link is `_mail_base(request, base)` plus `#magic_link=<token>`: a fragment, so a
   mail scanner fetching the link never sends the token. `_mail_base` is stricter than
   the OpenID Connect rule (`app_base`), which is safe only because the provider checks
@@ -1469,7 +1472,10 @@ OpenID Connect case in `tests/test_auth_oidc.py`. Frontend: `frontend/src/auth/m
   it is the first declared public address, and without one the request is refused with
   400 `auth_magic_link_origin_untrusted` before any account lookup (a fact of the
   request, not of an account): behind a proxy or Docker bridge, declare the public
-  address. Tests: `test_a_forged_host_or_base_never_ends_up_in_the_mailed_link` and the
+  address (https only). There is deliberately no setting to trust other LAN addresses.
+  `GET /auth/session` applies the same rule (`magic_link_origin_trusted`, i.e.
+  `_mail_base(request, None) is not None`): `methods.magic_link` is false where this
+  400 would come, so the login page hides the button. Tests: `test_a_forged_host_or_base_never_ends_up_in_the_mailed_link` and the
   tests around it. The token is 256 bits
   (`MagicLinks`, in memory, 15 minutes, single use, 1024 at most, only its SHA-256 kept),
   bound to the account's `updated_at`, not to a browser (it is opened from a mail app).
@@ -1577,7 +1583,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey, oidc, oidc_label?, magic_link}, secure}` (`magic_link`: at least one account takes sign-in links and the SMTP profile is usable) (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey, oidc, oidc_label?, magic_link}, secure}` (`magic_link`: at least one account takes sign-in links, the SMTP profile is usable and this request's origin may carry a mailed link, the `auth_magic_link_origin_untrusted` rule of `POST /auth/magic-link`) (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required (existing database, or an exposed request, "Exposed first run") and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony; "email" alone or added when the e-mail code is on, with `email_hint`), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code, method?}` (`method: "email"` for an e-mail code) or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |

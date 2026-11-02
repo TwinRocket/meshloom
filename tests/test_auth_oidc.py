@@ -398,12 +398,13 @@ async def test_a_provider_error_is_reported(provider):
         {"sub": "user-1", "nonce": "not-the-one-sent"},
         {"sub": "user-1", "aud": "another-client"},
         {"sub": "user-1", "aud": [CLIENT_ID, "another-client"]},  # no azp
+        {"sub": "user-1", "aud": [CLIENT_ID], "azp": "another-client"},
         {"sub": "user-1", "iss": "http://127.0.0.1:1"},
         {"sub": "user-1", "exp": int(time.time()) - 3600},
         {"sub": "user-1", "iat": None},
         {"sub": None},
     ],
-    ids=["nonce", "aud", "aud-without-azp", "iss", "expired", "no-iat", "no-sub"],
+    ids=["nonce", "aud", "aud-without-azp", "foreign-azp", "iss", "expired", "no-iat", "no-sub"],
 )
 async def test_an_id_token_that_does_not_check_signs_nobody_in(provider, claims):
     alice = await create_user("alice", role="member")
@@ -414,6 +415,24 @@ async def test_an_id_token_that_does_not_check_signs_nobody_in(provider, claims)
         response = await _sign_in(provider, client)
         assert _error_of(response) == "auth_oidc_token_invalid"
         assert (await _session(client))["authenticated"] is False
+
+
+async def test_an_issuer_changed_after_the_start_fails_the_callback(provider):
+    alice = await create_user("alice", role="member")
+    await _configure(provider)
+    await OidcLinkRepository.add(alice.id, provider.issuer, subject="user-1")
+    async with make_client() as client:
+        started = await client.get("/api/auth/oidc/start")
+        assert started.status_code == 303, started.text
+        path, code, state = provider.authorize(started.headers["location"])
+        with running_provider() as other:
+            await OidcProviderRepository.update({"issuer": other.issuer})
+            await OidcLinkRepository.add(alice.id, other.issuer, subject="user-1")
+            response = await client.get(path, params={"code": code, "state": state})
+            assert _error_of(response) == "auth_oidc_state_invalid"
+            assert (await _session(client))["authenticated"] is False
+            # Nothing reached either provider's token endpoint.
+            assert provider.token_requests == [] and other.token_requests == []
 
 
 async def test_a_token_signed_by_another_key_signs_nobody_in(provider):

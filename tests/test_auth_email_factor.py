@@ -359,6 +359,98 @@ async def test_turning_the_email_code_off_needs_only_the_password(mailbox):
         )  # type: ignore[union-attr]
 
 
+async def test_turning_a_feature_on_with_totp_on_needs_a_totp_code(mailbox, monkeypatch):
+    at = 1_800_000_015.0
+    monkeypatch.setattr(totp, "clock", lambda: at)
+    user = await create_user()
+    await _smtp_profile()
+    async with make_client() as client:
+        await login(client)
+        await _verified(client, mailbox)
+    secret = totp.new_secret()
+    await TotpRepository.set_pending_secret(user.id, secret)
+    assert await TotpRepository.enable(user.id, secret, 0, [])
+    async with make_client() as client:
+        challenge = (await login(client)).json()["second_factor"]
+        signed = await client.post(
+            "/api/auth/login/2fa",
+            json={"pending_token": challenge["pending_token"], "code": pyotp.TOTP(secret).at(at)},
+        )
+        assert signed.status_code == 200, signed.text
+        for flag in ("otp_enabled", "magic_link_enabled"):
+            refused = await client.patch("/api/auth/email", json={"password": PASSWORD, flag: True})
+            assert refused.status_code == 403, refused.text
+            assert _code_of(refused) == "auth_2fa_required"
+    factor = await EmailFactorRepository.get(user.id)
+    assert factor is not None and not factor.otp_enabled and not factor.magic_link_enabled
+
+
+async def test_turning_a_feature_on_without_an_smtp_profile_is_refused(mailbox):
+    user = await create_user()
+    await _smtp_profile()
+    async with make_client() as client:
+        await login(client)
+        await _verified(client, mailbox)
+        await EmailSignInRepository.set_channel_id(None)
+        for flag in ("otp_enabled", "magic_link_enabled"):
+            refused = await client.patch("/api/auth/email", json={"password": PASSWORD, flag: True})
+            assert refused.status_code == 503, refused.text
+            assert _code_of(refused) == "auth_email_unavailable"
+    factor = await EmailFactorRepository.get(user.id)
+    assert factor is not None and not factor.otp_enabled and not factor.magic_link_enabled
+
+
+async def test_forgetting_the_address_needs_the_current_password(mailbox):
+    user = await create_user()
+    await _smtp_profile()
+    async with make_client() as client:
+        await login(client)
+        await _verified(client, mailbox)
+        refused = await client.request("DELETE", "/api/auth/email", json={"password": "nope"})
+        assert refused.status_code == 403, refused.text
+    factor = await EmailFactorRepository.get(user.id)
+    assert factor is not None and factor.address == ADDRESS
+
+
+async def test_turning_the_email_code_on_signs_the_other_sessions_out(mailbox):
+    await create_user()
+    await _smtp_profile()
+    async with make_client() as other:
+        await login(other)
+        async with make_client() as client:
+            await login(client)
+            await _verified(client, mailbox)
+            # Sign-in links alone sign nobody out.
+            await _opt_in(client, magic_link_enabled=True)
+            assert (await _session(other))["authenticated"] is True
+            await _opt_in(client, otp_enabled=True)
+            assert (await _session(client))["authenticated"] is True
+        assert (await _session(other))["authenticated"] is False
+    rows = await AuthAuditRepository.list_recent(limit=50)
+    changed = [r for r in rows if r.action == "email_factor.changed" and r.outcome == "success"]
+    assert changed[0].details["sessions_revoked"] == 1
+
+
+async def test_an_expired_address_code_is_refused(mailbox, clock):
+    user = await create_user()
+    await _smtp_profile()
+    async with make_client() as client:
+        await login(client)
+        sent = await client.post(
+            "/api/auth/email/address", json={"password": PASSWORD, "address": ADDRESS}
+        )
+        assert sent.status_code == 200, sent.text
+        clock["t"] += email_factor.CODE_TTL_S + 1
+        late = await client.post("/api/auth/email/verify", json={"code": mailbox.last_code()})
+        assert late.status_code in (400, 409), late.text
+        assert (await client.get("/api/auth/email")).json()["address"] is None
+    assert await EmailFactorRepository.get(user.id) is None
+
+
+async def _session(client) -> dict:
+    return (await client.get("/api/auth/session")).json()
+
+
 # --- Sign-in links ------------------------------------------------------------------------
 
 
@@ -634,6 +726,51 @@ async def test_link_requests_are_limited_per_client_address(mailbox):
     async with make_client(base_url=LOCAL, client=("10.0.0.6", 5000)) as other:
         assert await _ask_link(other) == {"sent": True, "expires_in": 900}
         await _wait_for_mail(mailbox)
+
+
+async def test_sign_in_link_redemptions_follow_the_login_delays_per_address(mailbox, monkeypatch):
+    from app.auth import ratelimit
+
+    # A frozen clock: the delay of the pair never runs out during the test.
+    monkeypatch.setattr(ratelimit.login_limiter, "_clock", lambda: 5000.0)
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    async with _link_client() as client:
+        await _ask_link(client)
+        await _wait_for_mail(mailbox)
+    token = mailbox.last_link().split("=", 1)[1]
+    async with make_client(base_url=LOCAL, client=("10.0.0.5", 5000)) as guesser:
+        for index in range(ratelimit.PAIR_FREE_FAILURES):
+            bad = await guesser.post("/api/auth/magic-link/verify", json={"token": f"x{index}"})
+            assert bad.status_code == 401 and _code_of(bad) == "auth_magic_link_invalid"
+        # Even the right token waits now, and is not used up by the refusal.
+        delayed = await guesser.post("/api/auth/magic-link/verify", json={"token": token})
+        assert delayed.status_code == 429 and _code_of(delayed) == "auth_rate_limited"
+    async with make_client(base_url=LOCAL, client=("10.0.0.6", 5000)) as other:
+        done = await other.post("/api/auth/magic-link/verify", json={"token": token})
+        assert done.status_code == 200, done.text
+        assert done.json()["authenticated"] is True
+
+
+async def test_the_session_offers_links_only_where_the_origin_is_trusted(mailbox):
+    from app.repository.auth import AuthSettingsRepository
+
+    await _smtp_profile()
+    await _account_with_links(mailbox)
+    async with _link_client(host="192.168.1.66:8000") as client:
+        # A LAN address that is not the one this connection reached: POST would be 400.
+        assert (await _session(client))["methods"]["magic_link"] is False
+        refused = await client.post("/api/auth/magic-link", json={"username": ADMIN})
+        assert refused.status_code == 400
+        assert _code_of(refused) == "auth_magic_link_origin_untrusted"
+    async with _link_client() as client:
+        assert (await _session(client))["methods"]["magic_link"] is True
+    await AuthSettingsRepository.update(public_urls=["https://mesh.example.org"])
+    async with _link_client(host="192.168.1.66:8000") as client:
+        assert (await _session(client))["methods"]["magic_link"] is True
+        await _ask_link(client)
+        await _wait_for_mail(mailbox)
+    assert mailbox.last_link().startswith("https://mesh.example.org/#magic_link=")
 
 
 def _relay_client(visitor: str):
