@@ -208,6 +208,20 @@ class TestHandshake:
         assert not env.client.running() and len(env.fake.attempts) == 1
         assert remote.link_status() is None and not remote.relay_connected()
 
+    async def test_concurrent_restarts_leave_one_loop_and_disable_leaves_none(self, env):
+        def loops() -> list[asyncio.Task[Any]]:
+            return [
+                t for t in asyncio.all_tasks() if t.get_name() == "remote-relay" and not t.done()
+            ]
+
+        await _connect(env, EchoApp())
+        await asyncio.gather(env.client.restart(), env.client.restart(), env.client.restart())
+        assert len(loops()) == 1 and env.client.running()
+        await RemoteRepository.update_state(enabled=False)
+        await asyncio.gather(env.client.restart(), env.client.restart())
+        await asyncio.sleep(0.05)
+        assert loops() == [] and not env.client.running()
+
 
 class TestHttp:
     async def test_get_round_trip_and_scope(self, env):

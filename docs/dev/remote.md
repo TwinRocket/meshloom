@@ -140,7 +140,9 @@ What `remote.py` offers the relay client (`remote_relay.py`, below):
 ## Relay client (`remote_relay.py`)
 
 Started by the lifespan (`remote_relay.start(app)`) and stopped at shutdown. One loop,
-one socket at most; every Remote change restarts it.
+one socket at most; every Remote change restarts it. Restarts and stops are serialized
+by a lock held from stopping the old loop to creating the new one, so overlapping
+changes never leave a second loop running.
 
 **Connect.** A fresh instance JWT per attempt (`Authorization: Bearer`),
 `X-Meshloom-Relay-Protocol: 1`, `User-Agent: Meshloom/<version>`, no compression,

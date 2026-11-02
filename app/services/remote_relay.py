@@ -1027,6 +1027,11 @@ class RelayClient:
         self.app: Any = None
         self.connect_url: Callable[[remote.RemoteState], str | None] = connect_url
         self._task: asyncio.Task[None] | None = None
+        # Serializes restart()/stop(): held across stopping the old loop, reading the
+        # state and creating the new task, so two overlapping restarts (two quick
+        # Remote changes; remote._notify runs outside remote's lock) never leave an
+        # orphaned loop holding a second socket.
+        self._lock = asyncio.Lock()
         self._own_change = False
         self.link: RelayLink | None = None
 
@@ -1041,10 +1046,13 @@ class RelayClient:
 
     async def restart(self) -> None:
         """Stop the current loop, then start one when Remote is on and registered."""
-        await self.stop()
+        async with self._lock:
+            await self._stop_locked()
+            self._start_locked_if_wanted(await remote.RemoteRepository.get_state())
+
+    def _start_locked_if_wanted(self, state: remote.RemoteState) -> None:
         if self.app is None:
             return
-        state = await remote.RemoteRepository.get_state()
         if not state.enabled:
             remote.set_link_status(None)
             return
@@ -1055,6 +1063,10 @@ class RelayClient:
         self._task = asyncio.get_running_loop().create_task(self._run(), name="remote-relay")
 
     async def stop(self) -> None:
+        async with self._lock:
+            await self._stop_locked()
+
+    async def _stop_locked(self) -> None:
         task, self._task = self._task, None
         if task is not None and not task.done():
             task.cancel()
