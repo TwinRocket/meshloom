@@ -104,9 +104,10 @@ the golden vectors.
 | `messages.read` | `channels` `public` (default) or `all`; `direct`, `outgoing` (booleans, default false) |
 | `messages.send` | `targets` `reply` (default), `scope`, `any`; `per_hour` 1 to 60; `per_day` 1 to 500 |
 | `raw_packets.read`, `contacts.read`, `channels.read`, `telemetry.read`, `storage`, `timer` | none (`{}`) |
+| `notifications.send` | `per_hour` 1 to 30, `per_day` 1 to 100 (both optional: 10 and 50 by default). No destination: the user's rules matrix picks the channels (MSHL-213) |
 | `http` | at least one of `hosts` and `lan_hosts` (`http_hosts_required`), no entry in both lists and no duplicate (`lan_host_overlap`, `host_duplicate`; `lan_host_overlap` is defence in depth: the per-host validators already refuse any name valid in both lists, so no golden vector can reach it, `tests/test_plugin_manifest.py` calls the check directly). `hosts`: up to 20 exact lowercase hostnames or **public** IP literals (classified with the egress guard's range tables in `app/net/egress_guard.py`, never `ipaddress.is_global`); never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and every range the guard refuses is refused (`host_private_ip`: private, loopback, link-local, multicast, NAT64 or 6to4 around a private IPv4, `169.254.169.254`, documentation ranges). Names `localhost`, `*.localhost`, `*.local`, `*.lan`, `*.home.arpa`, `*.internal` and single-label hosts are refused too (`host_private_name`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*`. `lan_hosts`: up to 10 devices on the user's network, each `host` or `host:port` (`[v6]:port` for IPv6: `fd00::1:80` is a full IPv6 address without a port, write `[fd00::1]:80`): a lowercase **local** name (a single label, or ending in `.local`, `.lan`, `.home.arpa` or `.internal`; any other dotted name is a public DNS name whose owner picks the address, refused with `lan_host_public_name`) or a canonical IP literal in a LAN range (`10/8`, `172.16/12`, `192.168/16`, CGNAT/Tailscale `100.64/10`, `fc00::/7`); never a wildcard or range (`host_wildcard`, `host_range`), `localhost`/`*.localhost`, a metadata name or a non-LAN literal (`lan_host_not_lan`; link-local stays refused), in the Home Assistant add-on only never a literal of the supervisor network `172.30.32.0/23` or `fd0c:ac1e:2100::/48` (`lan_host_supervisor`, MSHL-350; the add-on is the declared `MESHLOOM_INSTALL_KIND=addon`, so no golden vector carries it), never a bad port, scope id or uppercase (`lan_host_invalid`). Without a port only the scheme's default port is allowed |
 
-Reserved and refused with `permission_reserved`: `notifications.send`, `feed.post`,
+Reserved and refused with `permission_reserved`: `feed.post`,
 `ui.panel`, `channels.manage`, `contacts.manage`. Any other name is `extra_forbidden`.
 
 `hosts` stays public-only; a device on the LAN is reachable only through `lan_hosts`
@@ -360,13 +361,15 @@ single operator; revisit if a third party asks.
 feeds it the fixture's events through `FakeHost`. Every call of the plugin and the
 answer are printed (`-> method params`, `<- result` or `<- error code: message` and
 the refusal's `params`); `--json` prints `{ok, plugin, errors, events, calls,
-refusals, sends, isolation}`. The directory must pass the package stage first. server's rules come from functions that both the capabilities and the harness call
+refusals, sends, notifications, isolation}` (`notifications`: the `notifications.send`
+calls accepted, never delivered). The directory must pass the package stage first. server's rules come from functions that both the capabilities and the harness call
 (tests assert the identities): `capabilities.base.REGISTRY` and `require_permission`
 (the `permission_denied` refusal), `grants.effective_permissions` / `message_visible` /
 `hook_allowed`, from `capabilities.messages` the parameter model, `_check_target`,
 `region_request` / `check_region`, `check_size` (the byte rule of `app/message_limits.py`),
 `quota_refusal` and `reply_context`, `quotas.effective_send_limits`, `SendQuota` and
-`SendGuard` (over in-memory counters), `channels.listable`, `contacts.list_args` /
+`SendGuard` (over in-memory counters), from `capabilities.notifications` `parse`,
+`effective_limits`, `NotifyQuota` and `quota_refusal`, `channels.listable`, `contacts.list_args` /
 `key_arg`, `storage.list_args` and the storage rules of `app/plugins/kv_rules.py`
 (key, 256 KiB value and 5 MiB quota). **What is local to the harness** (it cannot be
 shared without the database or FastAPI): the order in which `messages.send` chains
@@ -658,6 +661,7 @@ permissions and quotas and answers a typed error, raised as
 | `await self.timer(seconds)` | `timer.set {seconds}` | answered later by `on_timer` |
 | `self.log(level, message)` | notification `log {level, message}` | stderr when there is no host |
 | `await self.set_status(summary)` | `status.set {summary}` | |
+| `await self.notify(title, body="", level="info")` | `notifications.send {title, body?, level}` | returns the number of channels it was queued for (0 when the user ticked none) |
 
 What the supervisor (MSHL-179) must provide, as the SDK uses it:
 
@@ -1315,7 +1319,7 @@ A disabled instance waiting for the user keeps `needs_attention`, `incompatible`
 
 `app/plugins/capabilities/`: one module per capability (`messages.py`,
 `storage.py`, `timer.py`, `contacts.py`, `channels.py`, `status.py`, `log.py`,
-`http.py`),
+`http.py`, `notifications.py`),
 each registering its methods in `base.REGISTRY` with the permission it needs;
 `grants.py` holds the effective permissions and the read filters;
 `app/plugins/quotas.py` the send quotas, the send guards and the global spacing. The supervisor's
@@ -1329,7 +1333,7 @@ A permission is effective when the manifest declares it **and** the user granted
 it (`plugins.granted_permissions`); its parameters are the narrower of the two
 (`messages.read` `channels: all`, `direct` and `outgoing` need both;
 `messages.send` `targets` is the lower of `reply` < `scope` < `any`, `per_hour` and
-`per_day` the smaller; `http` the `hosts` and the `lan_hosts` both list, the permission
+`per_day` the smaller; `notifications.send` `per_hour` and `per_day` the smaller; `http` the `hosts` and the `lan_hosts` both list, the permission
 dropped when both lists end up empty). Parameters that fail the
 registry's validation drop the permission. They are computed when the instance
 starts: a changed grant takes effect at the next start (`reload()`).
@@ -1351,6 +1355,7 @@ else: a refusal has no side effect, uses no quota and touches no network.
 | `contacts.get` | `contacts.read` | `key` (64 hex) | a contact or `null` |
 | `channels.list` | `channels.read` | none | `{key, name, is_public}` per channel |
 | `http.fetch` | `http` | `url`, `method?` (`GET` default, `POST`, `PUT`, `PATCH`, `DELETE`), `headers?` (at most 32 strings), `body?` (text, at most 256 KiB, and a request line of at most 384 KiB once escaped), `timeout?` (seconds, clamped to 10), `verify_tls?` (boolean, default true; false only for a `lan_hosts` device) | `{status, headers, body, encoding?, truncated}` |
+| `notifications.send` | `notifications.send` | `title` (1 to 100 characters), `body?` (up to 1000), `level?` (`info` default, `warning`, `critical`), `event_id?` | `{"queued": n}`, or `{"queued": 0, "test": true}` for a test event |
 | `status.set` | none | `summary` (`""` clears) | `null` |
 | `log` | none | `level` (`debug`, `info`, `warning`, `error`), `message` | `null` (usually sent as a notification) |
 
@@ -1438,6 +1443,29 @@ else: a refusal has no side effect, uses no quota and touches no network.
   without user info, query or fragment (`sdk.safe_url`) and the status or the
   refusal code. `store_online` (the Store's consent) does not gate it: installed
   plugins keep working when the Store is off. Tests: `tests/test_plugin_http.py`.
+- **`notifications.send`** (`capabilities/notifications.py`, MSHL-213): the plugin
+  notifies through the host's notification service, never with a URL or a destination of
+  its own. Checks in order: the params (`invalid_params`, `params.fields`; extra keys
+  refused, a title empty once cleaned refused), then the quota (`quota_exceeded`,
+  `params.scope: "plugin"`, `params.period` `hour` or `day`, `params.limit`,
+  `params.retry_after`): `per_hour` (default 10, cap 30) per clock hour and `per_day`
+  (default 50, cap 100) per UTC day, in memory (a restart of Meshloom resets them, a
+  restart of the child does not); every accepted call counts. The title loses its control
+  characters and runs of spaces, the body keeps its line breaks only. The call goes to
+  `app/notifications/producers.emit_plugin_notification`, which emits the catalogue event
+  `plugin.notification` (`instance_id`, `plugin_id`, `label`, `title`, `body`, `level`):
+  the rules matrix (`rules.events["plugin.notification"].channels`, Settings >
+  Notifications > Rules, "Extension notifications") picks the channels, none until the
+  user ticks one, and the pauses, quiet hours, digest mode, channel limits and journal
+  apply as for any event. Never urgent, whatever `level` (a prefix of the title: "Warning
+  ·", "Critical ·"); the instance's label always comes first in the rendered title. On
+  Web Push it reaches administrators' devices only (`user_rules.INSTANCE_RULE_EVENTS`),
+  and its `notification_event` frame admin sockets only (`app/websocket.py`). Under a
+  channel's text policy `never` the body is dropped (title only). `{"queued": n}` is the
+  number of channels it was queued for. A test event stops after the params: nothing
+  emitted, no quota used. Each call is logged at INFO with the instance, the level and
+  the count, never the text. SDK: `Plugin.notify(title, body="", level="info")`.
+  Tests: `tests/test_plugin_notifications.py`.
 - **Status**: control characters dropped, cut at 140 characters, kept in memory
   and sent in `plugin_status` (`summary`); at most one change per 2 s
   (`quota_exceeded`, `params.retry_after`).

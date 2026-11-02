@@ -26,6 +26,7 @@ A plugin lists the permissions it needs. You see them before you install it, and
 | Store data | Keep up to 5 MB of its own data in Meshloom. |
 | Run on a schedule | Wake itself up later, no sooner than 10 seconds after asking. |
 | Connect to the internet | Ask Meshloom to contact the servers it lists, and only those (see below). |
+| Send notifications | Notify you through Meshloom's own notification channels (see [Sending notifications](#sending-notifications)). It never chooses where they go. |
 
 You can narrow what a plugin reads further by picking the channels and contacts it may see, as for an integration in **MQTT & Automation**.
 
@@ -48,6 +49,10 @@ A plugin may also ask to **talk to a device on your network** (a home automation
 
 Combined with reading private channels or direct messages, this permission lets a plugin send them to the servers it lists: only allow both for a plugin you trust.
 
+### Sending notifications
+
+A plugin with **Send notifications** asks Meshloom to notify you (a storm warning, a node that went quiet). It gives a title, a text and a level (information, warning or critical); it never gives an address, a phone or a channel. You choose where its notifications go in **Settings → Notifications → Default notifications**, on the **Extension notifications** row, like any other event: nothing is sent until you tick a channel there, and the same row serves every plugin. Quiet hours, **Do not disturb**, the channel's limits and its delivery log apply as usual. The plugin's name always comes first in the title, so a plugin cannot pass for Meshloom itself, and a **Critical** level is only a word in the title, never an urgent alert. Web Push only reaches administrators' devices, because a plugin may quote what it reads. On a channel whose **Message text** is **Never**, only the title is sent.
+
 ## Limits
 
 - **Messages sent.** By default 30 per hour and 200 per day for each copy of a plugin. A plugin may ask for more, up to 60 per hour and 500 per day, and you can always lower it. The counters survive a restart of Meshloom.
@@ -58,6 +63,7 @@ Combined with reading private channels or direct messages, this permission lets 
 - **Regions.** A plugin can scope a channel message only to a region Meshloom already knows.
 - **Storage.** 5 MB per copy of a plugin.
 - **Internet.** 60 requests per hour per copy of a plugin, 10 seconds each, answers cut at 1 MB. This counter starts again when Meshloom restarts.
+- **Notifications.** By default 10 per hour and 50 per day for each copy of a plugin; a plugin may ask for up to 30 per hour and 100 per day, and the consent screen shows the figures. A title is at most 100 characters and a text 1000. These counters start again when Meshloom restarts; each notification channel keeps its own limits on top.
 
 A refused request shows up in the plugin's log with its reason, such as "not allowed", "limit reached", "message too long" or "server not allowed". For the limits above, the reason says which one fired: the copy's own limit, all plugins together, the channel or contact, the sender delay or the quiet delay.
 
