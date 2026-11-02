@@ -51,7 +51,7 @@ The certificate mounts are read-only. `command` replaces the one built into the 
 
 A web page on someone else's domain can be re-pointed at your local network (DNS rebinding) and then talk to Meshloom under that domain's name. Meshloom therefore looks at the name in the browser's address (the `Host`) and knows these as its own: an IP address, `localhost`, names ending in `.local`, `.home.arpa`, `.lan` or `.internal`, this machine's name, a public address you declared, and the Meshloom Remote name.
 
-In 5.0.0 this is **observation only**: any other name (for example the DNS name of your reverse proxy) still works, Meshloom just notes it in its log and keeps a list of the names it saw. From 5.1 an unknown name will be refused with an error that names it, so declare your reverse proxy's public address before then. The one exception is already strict: a [trusted network](/en/docs/deep/access/#trusted-networks) never signs anyone in when the browser uses an unknown name.
+Without a declared public address this is **observation only**: any other name (for example the DNS name of your reverse proxy) still works, Meshloom just notes it in its log and keeps a list of the names it saw. **Declaring your first public address turns the check to strict** (see below): from then on an unknown name is refused with an error that names it. The one exception is strict in every case: a [trusted network](/en/docs/deep/access/#trusted-networks) never signs anyone in when the browser uses an unknown name.
 
 ### Declaring public addresses
 
@@ -59,9 +59,21 @@ An administrator manages this in **Settings → Users & Access → Public addres
 
 - **Public addresses** are written `https://name[:port][/prefix]` (letters, digits, dots and hyphens, or an international name such as `bücher.de`, which Meshloom converts to its `xn--` form; an optional path prefix of letters, digits and `-._~` only; no login, query or fragment; 16 at most). Meshloom stores them in canonical form (lower case, `:443` dropped). Only the name matters to the Host check.
 - **Recently seen unknown names** lists the names used to reach Meshloom that are not declared (since the last restart, newest first, with a count). Strict mode records them too, so the list shows what was refused. These names are supplied by whoever sent the request, so an unknown one may come from an attacker (DNS rebinding): **Allow** asks you to confirm the exact name, with its count and last time, and you should allow only a name you set up yourself (your reverse proxy, your Tailscale name). Confirming declares it as a public address and removes it from the list.
-- **Refuse unknown names (enforce)** switches the check from observation to strict: a request under an undeclared name gets an error (421) that names it. Meshloom refuses to enable it when it would reject the address you are using right now, and likewise to remove that address while it is enforced. If a name stops working anyway, open Meshloom by its IP address (always accepted) and turn the option off. If you can only reach Meshloom through a name that is now refused, run `meshloom-admin host-guard-observe` on the machine (see [Users and access](/en/docs/deep/access/)): it switches back to observation without the interface, and the running Meshloom picks it up within a couple of seconds (no restart).
+- **Refuse unknown names (enforce)** is turned on automatically when you declare your first public address, unless that would reject the address you are using right now (then it stays off and you can turn it on later). You can turn it off again, and adding more addresses afterwards keeps your choice. It switches the check from observation to strict: a request under an undeclared name gets an error (421) that names it. Meshloom refuses to enable it when it would reject the address you are using right now, and likewise to remove that address while it is enforced. If a name stops working anyway, open Meshloom by its IP address (always accepted) and turn the option off. If you can only reach Meshloom through a name that is now refused, run `meshloom-admin host-guard-observe` on the machine (see [Users and access](/en/docs/deep/access/)): it switches back to observation without the interface, and the running Meshloom picks it up within a couple of seconds (no restart).
 
 Only plain names (letters, digits, dots, hyphens) are listed and logged; other `Host` values are never recorded. The log keeps a single line per new name, and a summary line when many different names show up in a minute.
+
+## HTTPS is required from the internet
+
+Once at least one public address is declared, Meshloom is meant to be reached from outside, so it **refuses plain `http://` from the internet**: the password, the session and your messages would otherwise cross the network unencrypted. The browser gets an error saying that HTTPS is required (error 403; a live connection is closed). Open Meshloom with its `https://` address instead: your reverse proxy, Tailscale (`tailscale serve`) or Meshloom Remote.
+
+What keeps working over plain `http://`:
+
+- everything from your local network and the machine itself: private addresses (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`), IPv6 local and link-local addresses, your own network's IPv6 prefix, Tailscale and carrier-grade NAT addresses (`100.64.0.0/10`), `localhost`. You can therefore always open the settings from home to fix a setup;
+- Meshloom Remote and the Home Assistant sidebar, which are encrypted on their own;
+- everything, as before, while no public address is declared.
+
+Behind a reverse proxy, Meshloom only knows the visitor used HTTPS when the proxy says so in `X-Forwarded-Proto: https` **and** is listed in the trusted proxies below. If visitors from the internet get "HTTPS is required" although they type `https://`, check those two points. Each refusal writes a warning in Meshloom's log (the visitor's address and the path, a few lines a minute at most).
 
 ## Trusted proxies
 

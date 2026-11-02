@@ -63,6 +63,7 @@ from app.frontend_static import (
 )
 from app.middleware import proxy_headers
 from app.middleware.host_guard import HostGuardMiddleware
+from app.middleware.https_required import HttpsRequiredMiddleware
 from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.radio import RadioDisconnectedError
@@ -510,6 +511,8 @@ app.add_middleware(SecurityHeadersMiddleware)
 # DNS-rebinding guard (observation mode by default): inside the proxy-headers
 # middleware, which records the TCP peer the ingress exemption reads.
 app.add_middleware(HostGuardMiddleware)
+# Plain http from a public client is refused once a public address is declared.
+app.add_middleware(HttpsRequiredMiddleware)
 # Outside the gate and CORS: the one interpreter of X-Forwarded-For/-Proto, from
 # the trusted proxies setting (app/middleware/proxy_headers.py).
 app.add_middleware(TrustedProxyHeadersMiddleware)

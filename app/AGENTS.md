@@ -109,7 +109,16 @@ and the OpenAPI page (`/docs`), not a table here.
   /api/auth/settings` (`normalize_public_urls`, 400 `auth_public_urls_invalid`; 400
   `auth_host_guard_would_lock_out` when the result would reject the current request).
   Both modes record the refused names; `meshloom-admin host-guard-observe` is the
-  recovery path that needs no UI.
+  recovery path that needs no UI. Declaring the first public address switches the
+  mode to `enforce` (MSHL-437; not when the same PATCH sets the mode or enforcing
+  would reject the current request; audited with `details.automatic`); without a
+  public address the mode stays `observe`.
+- `middleware/https_required.py` (`HttpsRequiredMiddleware`, between the proxy-headers
+  middleware and the Host guard, MSHL-437): once a public address is declared, a
+  plain `http`/`ws` request from a non-local client (`ip_ban.is_local` on the rewritten
+  client) answers 403 `auth_https_required` (WebSocket: 1008), with a rate-limited
+  warning. Relay, ingress and local clients pass; nothing is checked without a public
+  address (docs/dev/auth.md, "HTTPS from the internet").
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
   middleware): HSTS only over direct https (never ingress or relay), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).

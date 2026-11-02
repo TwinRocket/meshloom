@@ -22,7 +22,7 @@ Depuis la 5.0, chaque page et chaque route d’API demande un compte : cela n’
 
    Votre nom est `nom-de-la-machine.nom-du-tailnet.ts.net` (`tailscale serve status` l’affiche).
 3. Dans Meshloom, en administrateur :
-   - **Réglages → Utilisateurs et accès → Adresses publiques** : ajoutez `https://nom-de-la-machine.nom-du-tailnet.ts.net`. Cela déclare le nom MagicDNS comme le vôtre, pour que la [vérification du Host](/docs/deep/https/#les-noms-auxquels-meshloom-répond) l’accepte (à partir de la 5.1, elle refuse les noms non déclarés). N’ajoutez qu’un nom que vous avez créé.
+   - **Réglages → Utilisateurs et accès → Adresses publiques** : ajoutez `https://nom-de-la-machine.nom-du-tailnet.ts.net`. Cela déclare le nom MagicDNS comme le vôtre, pour que la [vérification du Host](/docs/deep/https/#les-noms-auxquels-meshloom-répond) l’accepte ; cette déclaration la fait aussi passer en mode strict, donc les noms non déclarés sont refusés. N’ajoutez qu’un nom que vous avez créé.
    - **Réglages → Configuration locale → Proxies de confiance** : ajoutez `127.0.0.1`. `tailscale serve` se connecte depuis la machine elle-même et n’indique l’adresse du visiteur et le HTTPS que dans `X-Forwarded-For` et `X-Forwarded-Proto`, que Meshloom ne croit que d’une adresse listée. Sans cela, tous les appareils ressemblent à `127.0.0.1` et le cookie de session est le cookie simple.
 4. Ouvrez `https://nom-de-la-machine.nom-du-tailnet.ts.net` depuis un autre appareil du tailnet et connectez-vous. La page de connexion ne doit pas avertir que Meshloom a vu du HTTP simple. Si elle le fait, les Proxies de confiance manquent ou sont faux.
 

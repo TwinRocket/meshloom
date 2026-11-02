@@ -7,7 +7,7 @@
     "access": {
       "public": {
         "title": "Adresses publiques",
-        "help": "Les adresses sous lesquelles on atteint Meshloom depuis l'extérieur, comme le nom de votre reverse-proxy ou de Tailscale. Quand le contrôle du Host est strict, Meshloom ne répond qu'à ces noms, aux adresses IP et aux noms locaux (.local, .lan, .home.arpa, .internal).",
+        "help": "Les adresses sous lesquelles on atteint Meshloom depuis l'extérieur, comme le nom de votre reverse-proxy ou de Tailscale. Quand le contrôle du Host est strict, Meshloom ne répond qu'à ces noms, aux adresses IP et aux noms locaux (.local, .lan, .home.arpa, .internal). Dès qu'une adresse est déclarée, une requête en http simple venant d'Internet est refusée : passez par https (les adresses du réseau local fonctionnent toujours en http).",
         "none": "Aucune adresse publique déclarée.",
         "address": "Adresse publique",
         "add": "Ajouter",
@@ -22,7 +22,7 @@
         "allowFor": "Autoriser {{host}}",
         "allowed": "{{host}} déclaré comme adresse publique.",
         "enforce": "Refuser les noms inconnus (strict)",
-        "enforceHelpOff": "Mode observation : les noms inconnus sont listés ci-dessus et fonctionnent toujours. Le mode strict deviendra le défaut en 5.1.",
+        "enforceHelpOff": "Mode observation : les noms inconnus sont listés ci-dessus et fonctionnent toujours. Déclarer la première adresse publique active le mode strict.",
         "enforceHelpOn": "Mode strict : une requête sous un nom non déclaré est refusée avec une erreur (421) qui le nomme. Si un nom cesse de fonctionner, ouvrez Meshloom par son adresse IP (toujours acceptée) et désactivez-le, ou lancez `meshloom-admin host-guard-observe` sur la machine.",
         "enforceOn": "Les noms inconnus sont désormais refusés.",
         "enforceOff": "Mode observation rétabli.",

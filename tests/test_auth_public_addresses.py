@@ -56,7 +56,72 @@ async def test_public_urls_are_saved_canonical_and_applied():
     assert (await AuthSettingsRepository.get()).public_urls == ["https://mesh.example.com"]
     assert host_guard.host_allowed("mesh.example.com", ["https://mesh.example.com"])
     rows = [r for r in await AuthAuditRepository.list_recent() if r.action == "settings.changed"]
-    assert rows[0].target == "auth_settings.public_urls"
+    assert {r.target for r in rows[:2]} == {
+        "auth_settings.public_urls",
+        "auth_settings.host_guard_mode",
+    }
+
+
+async def test_the_first_public_address_switches_the_guard_to_enforce():
+    async with _admin() as client:
+        response = await client.patch(
+            "/api/auth/settings", json={"public_urls": ["https://mesh.example.com"]}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["host_guard_mode"] == "enforce"
+    assert (await AuthSettingsRepository.get()).host_guard_mode == "enforce"
+    assert host_guard.mode() == "enforce"
+    mode_rows = [
+        r
+        for r in await AuthAuditRepository.list_recent()
+        if r.target == "auth_settings.host_guard_mode"
+    ]
+    assert mode_rows[0].details == {"host_guard_mode": "enforce", "automatic": True}
+    async with make_client("http://attacker.example", PEER) as outside:
+        refused = await outside.get("/api/auth/session")
+        assert refused.status_code == 421
+
+
+async def test_no_public_address_keeps_observation():
+    async with _admin() as client:
+        response = await client.patch("/api/auth/settings", json={"session_lifetime_days": 7})
+        assert response.status_code == 200, response.text
+        assert response.json()["host_guard_mode"] == "observe"
+        assert (await client.patch("/api/auth/settings", json={"public_urls": []})).json()[
+            "host_guard_mode"
+        ] == "observe"
+    async with make_client("http://attacker.example", PEER) as outside:
+        assert (await outside.get("/api/auth/session")).status_code == 200
+
+
+async def test_an_explicit_mode_in_the_same_request_wins():
+    async with _admin() as client:
+        response = await client.patch(
+            "/api/auth/settings",
+            json={"public_urls": ["https://mesh.example.com"], "host_guard_mode": "observe"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["host_guard_mode"] == "observe"
+
+
+async def test_observe_chosen_after_the_first_address_is_kept_on_the_next_one():
+    async with _admin() as client:
+        await client.patch("/api/auth/settings", json={"public_urls": ["https://a.example.com"]})
+        await client.patch("/api/auth/settings", json={"host_guard_mode": "observe"})
+        response = await client.patch(
+            "/api/auth/settings",
+            json={"public_urls": ["https://a.example.com", "https://b.example.com"]},
+        )
+        assert response.json()["host_guard_mode"] == "observe"
+
+
+async def test_the_switch_is_skipped_when_it_would_reject_the_address_in_use():
+    async with _admin("http://proxy.example.com") as client:
+        response = await client.patch(
+            "/api/auth/settings", json={"public_urls": ["https://other.example.com"]}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["host_guard_mode"] == "observe"
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,7 @@
     "access": {
       "public": {
         "title": "Public addresses",
-        "help": "The addresses people reach Meshloom under from outside, such as the name of your reverse proxy or Tailscale. Meshloom answers only to these names, to IP addresses and to local names (.local, .lan, .home.arpa, .internal) when the Host guard is enforced.",
+        "help": "The addresses people reach Meshloom under from outside, such as the name of your reverse proxy or Tailscale. Meshloom answers only to these names, to IP addresses and to local names (.local, .lan, .home.arpa, .internal) when the Host guard is enforced. Once an address is declared, a plain-http request from the internet is refused: use https (local network addresses keep working over http).",
         "none": "No public address declared.",
         "address": "Public address",
         "add": "Add",
@@ -22,7 +22,7 @@
         "allowFor": "Allow {{host}}",
         "allowed": "{{host}} declared as a public address.",
         "enforce": "Refuse unknown names (enforce)",
-        "enforceHelpOff": "Observation mode: unknown names are listed above and still work. Enforcement will become the default in 5.1.",
+        "enforceHelpOff": "Observation mode: unknown names are listed above and still work. Declaring the first public address turns enforcement on.",
         "enforceHelpOn": "Enforced: a request under an undeclared name is refused with an error (421) naming it. If a name stops working, open Meshloom by its IP address (always accepted) and turn this off, or run `meshloom-admin host-guard-observe` on the machine.",
         "enforceOn": "Unknown names are now refused.",
         "enforceOff": "Observation mode restored.",

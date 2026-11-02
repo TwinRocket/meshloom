@@ -902,13 +902,16 @@ class AuthSettingsView(BaseModel):
     public_urls: list[str] = Field(
         description=(
             "Declared public addresses, canonical 'https://host[:port][/prefix]'. Their hosts "
-            "pass the Host guard."
+            "pass the Host guard. While at least one is declared, a plain-http request from a "
+            "public client address is refused (403 auth_https_required)."
         )
     )
     host_guard_mode: HostGuardMode = Field(
         description=(
-            "'observe' (default in 5.0.0): a Host header that is not one of this instance's "
-            "addresses is recorded in rejected_hosts and let through; 'enforce': answered 421."
+            "'observe' (the default): a Host header that is not one of this instance's "
+            "addresses is recorded in rejected_hosts and let through; 'enforce': answered 421. "
+            "Declaring the first public address switches it to 'enforce' unless the same "
+            "request sets the mode or enforcing would reject the address in use."
         )
     )
     rejected_hosts: list[RejectedHost] = Field(
@@ -1159,6 +1162,8 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             public_urls = host_guard.normalize_public_urls(body.public_urls)
         except host_guard.PublicUrlError:
             raise _error(400, "auth_public_urls_invalid") from None
+    host_guard_mode = body.host_guard_mode
+    auto_enforced = False
     if public_urls is not None or body.host_guard_mode is not None:
         # Never save a guard that rejects the request being answered.
         current = await AuthSettingsRepository.get()
@@ -1170,6 +1175,18 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
                 "auth_host_guard_would_lock_out",
                 {"host": host_guard.request_host(request.headers.get("host", "")) or "unknown"},
             )
+        # Declaring the first public address switches the guard to enforce
+        # (MSHL-437), unless this request names the mode itself or enforcing would
+        # reject the address in use (then observation stays; the screen shows it).
+        if (
+            host_guard_mode is None
+            and public_urls
+            and not current.public_urls
+            and current.host_guard_mode == "observe"
+            and not host_guard.would_lock_out(request.scope, "enforce", public_urls)
+        ):
+            host_guard_mode = "enforce"
+            auto_enforced = True
     trusted_networks: list[TrustedNetworkRule] | None = None
     if body.trusted_networks is not None:
         trusted_networks = _normalize_rules(body.trusted_networks)
@@ -1201,7 +1218,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         session_lifetime_days=body.session_lifetime_days,
         ingress_default_role=body.ingress_default_role,
         public_urls=public_urls,
-        host_guard_mode=body.host_guard_mode,
+        host_guard_mode=host_guard_mode,
         require_2fa_for_admins=body.require_2fa_for_admins,
         addresses_identify_clients=body.addresses_identify_clients,
         lan_login_free=body.lan_login_free,
@@ -1265,13 +1282,15 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             target="auth_settings.public_urls",
             details={"public_urls": public_urls},
         )
-    if body.host_guard_mode is not None:
+    if host_guard_mode is not None:
+        if auto_enforced:
+            logger.info("Host guard switched to enforce: first public address declared")
         await audit.record_request(
             request,
             "settings.changed",
             "success",
             target="auth_settings.host_guard_mode",
-            details={"host_guard_mode": settings.host_guard_mode},
+            details={"host_guard_mode": settings.host_guard_mode, "automatic": auto_enforced},
         )
     if body.require_2fa_for_admins is not None:
         await audit.record_request(
