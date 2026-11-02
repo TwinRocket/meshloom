@@ -90,6 +90,16 @@ and the OpenAPI page (`/docs`), not a table here.
   user verification required for the passwordless sign-in; counter checked and stored
   conditionally. Routes `routers/auth_webauthn.py`; a passkey is also a second factor
   at `POST /api/auth/login/2fa` when TOTP is on. Details: `docs/dev/auth.md`, "Passkeys".
+- `auth/oidc.py` is sign-in with one OpenID Connect provider the admin configures in the UI
+  (MSHL-427; never an environment variable), on **joserfc** (its only dependency is
+  `cryptography`, already there; a pure-Python wheel, so nothing to build on armv7). Code flow
+  with PKCE S256, state and nonce in memory bound to a cookie and the client; ID token
+  verified with asymmetric algorithms only, exact `iss`, `aud`/`azp`, `exp`/`iat`, `nonce`;
+  every request to the provider through `net/egress_guard`. It signs in an existing local
+  account linked by an admin (`oidc_links`: subject, or verified e-mail bound to the subject
+  at first use); `auto_create` (off) creates a `viewer` only. TOTP still applies. Routes
+  `routers/auth_oidc.py` (start and callback public, the rest admin), storage
+  `repository/oidc.py`. Details: `docs/dev/auth.md`, "OpenID Connect".
 - `auth/pairing.py` is device pairing (MSHL-71; contract `docs/dev/device-pairing.md`):
   an `admin` session creates a single-use `mlp_` code (SHA-256 at rest, at most
   10 minutes) whose QR payload carries the public, Remote and LAN addresses (the creator's
@@ -754,6 +764,11 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 140 (MSHL-427) adds `oidc_provider` (one row, `id = 1`; `client_secret` sealed
+  by `secret_store`) and `oidc_links` (an identity of the provider's issuer, by subject or
+  e-mail, to a `users` row, `ON DELETE CASCADE`, plus `idx_oidc_links_user`); `IF NOT EXISTS`,
+  no `SCHEMA_TABLES` change. `patched_database()` patches `app.repository.oidc`. Both tables
+  are excluded from the JSON backup; the SQLite snapshot nulls `client_secret`.
 - Migration 138 (MSHL-79) adds `app_settings.remote_instance_seed` and the
   `remote_state` (one row), `remote_devices` and `remote_enroll_tokens` tables (`IF NOT
   EXISTS`, plus `idx_remote_devices_user`); no `SCHEMA_TABLES` change.

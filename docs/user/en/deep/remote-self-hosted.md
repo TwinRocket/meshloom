@@ -20,7 +20,7 @@ Whatever you choose, four things decide whether Meshloom behaves well behind it.
 | **Public addresses** | **Settings → Users & Access → Public addresses** | The name people type to reach Meshloom, written `https://name[:port][/prefix]`. Needed for the Host check ([below](#host-names)) and for passkeys. |
 | **Trusted proxies** | **Settings → Local Configuration → Trusted proxies** | The address of the program that forwards to Meshloom (tunnel, proxy). Lets Meshloom see the visitor's own address and that the page is on HTTPS. |
 | **Refuse unknown names (enforce)** | Same page as Public addresses | Switches the Host check from observation to strict. Turned on automatically with your first public address; you can turn it off. |
-| **Trusted networks** | **Settings → Users & Access → Trusted networks** | Keep **Login-free on the local network** off and this list **empty** for anything reached through a tunnel or proxy ([below](#trusted-networks-off)). |
+| **Trusted networks** | **Settings → Connection → Local network** | Keep **Login-free on the local network** off and this list **empty** for anything reached through a tunnel or proxy ([below](#trusted-networks-off)). |
 
 ### Host names
 
