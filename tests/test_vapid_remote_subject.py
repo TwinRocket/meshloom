@@ -83,7 +83,7 @@ async def test_startup_reads_an_already_enabled_remote(test_db):
 
 
 @pytest.mark.asyncio
-async def test_recomputed_on_enable_disable_rotate_unregister(relay):  # noqa: F811
+async def test_recomputed_on_enable_disable_rotate_unregister(relay, community_on):  # noqa: F811
     from app.repository.auth import UserRepository
 
     await UserRepository.create("test-admin", "admin")
@@ -106,7 +106,7 @@ async def test_recomputed_on_enable_disable_rotate_unregister(relay):  # noqa: F
 
 
 @pytest.mark.asyncio
-async def test_typed_subject_wins_over_remote(relay):  # noqa: F811
+async def test_typed_subject_wins_over_remote(relay, community_on):  # noqa: F811
     await AppSettingsRepository.set_vapid_subject("mailto:me@example.org")
     await ensure_vapid_keys()
     await remote.enable(SYSTEM_ACTOR)
