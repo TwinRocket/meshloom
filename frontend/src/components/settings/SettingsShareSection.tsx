@@ -10,6 +10,7 @@ import type {
   ShareStatus,
 } from '../../types';
 import { shareTermsStale } from '../../utils/shareTerms';
+import { userDocUrl } from '../../utils/userDocs';
 import { loadShareStatus, refreshShareStatus, useShareStatus } from '../../stores/shareStatusStore';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -43,12 +44,6 @@ function legalUrl(host: string, page: 'terms' | 'privacy' | 'legal', language: s
   return `https://${host}/${page}?lang=${lang}`;
 }
 
-// Same `/{lang}/docs/deep/<page>/` pattern as the relative links inside docs/user.
-function securityDocUrl(language: string): string {
-  const lang = language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
-  return `https://meshloom.app/${lang}/docs/deep/security/`;
-}
-
 function ExternalLink({ href, children }: { href: string; children?: React.ReactNode }) {
   return (
     <a
@@ -63,9 +58,10 @@ function ExternalLink({ href, children }: { href: string; children?: React.React
 }
 
 /**
- * Turning sharing on is a consent: the dialog says what leaves this instance, to
- * whom and for how long, and the switch only flips once the terms are accepted.
- * Cancelling, closing or leaving the box unticked changes nothing.
+ * Turning sharing on is a consent: one sentence, a link to the docs (what leaves this
+ * instance, to whom, for how long: docs/user/<lang>/deep/share.md) and the terms box.
+ * The switch only flips once the terms are accepted; cancelling, closing or leaving
+ * the box unticked changes nothing.
  */
 export function ShareConsentDialog({
   status,
@@ -93,7 +89,7 @@ export function ShareConsentDialog({
   const links = {
     terms: <ExternalLink href={legalUrl(status.host, 'terms', i18n.language)} />,
     privacy: <ExternalLink href={legalUrl(status.host, 'privacy', i18n.language)} />,
-    security: <ExternalLink href={securityDocUrl(i18n.language)} />,
+    docs: <ExternalLink href={userDocUrl('share', i18n.language)} />,
   };
 
   return (
@@ -101,30 +97,10 @@ export function ShareConsentDialog({
       <DialogContent data-testid="share-consent-dialog">
         <DialogHeader>
           <DialogTitle>{t('settings.share.consent.title')}</DialogTitle>
-          <DialogDescription>{t('settings.share.consent.intro')}</DialogDescription>
+          <DialogDescription>
+            <Trans i18nKey="settings.share.consent.intro" components={links} />
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 text-[0.8125rem]">
-          <section className="space-y-1">
-            <h4 className="font-medium">{t('settings.share.consent.sendingTitle')}</h4>
-            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-              <li>{t('settings.share.consent.sendingContent')}</li>
-              <li>{t('settings.share.consent.sendingKey')}</li>
-              <li>{t('settings.share.consent.sendingIp')}</li>
-            </ul>
-          </section>
-          <section className="space-y-1">
-            <h4 className="font-medium">{t('settings.share.consent.readingTitle')}</h4>
-            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-              <li>{t('settings.share.consent.readingId')}</li>
-              <li>{t('settings.share.consent.readingIp')}</li>
-            </ul>
-          </section>
-          <p className="text-muted-foreground">{t('settings.share.consent.who')}</p>
-          <p className="text-muted-foreground">{t('settings.share.consent.retention')}</p>
-          <p className="text-muted-foreground">
-            <Trans i18nKey="settings.share.consent.docs" components={links} />
-          </p>
-        </div>
         <div className="flex items-start gap-2">
           <Checkbox
             id="share-accept-terms"
@@ -231,7 +207,7 @@ function ShareUploads({ status }: { status: ShareStatus }) {
 }
 
 function StatusLine({ status }: { status: ShareStatus }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const yes = t('settings.share.status.yes');
   const no = t('settings.share.status.no');
   return (
@@ -250,10 +226,7 @@ function StatusLine({ status }: { status: ShareStatus }) {
       </ul>
       {!status.dm_encryption_available && (
         <p data-testid="share-dm-unavailable" className="text-[0.8125rem] text-muted-foreground">
-          <Trans
-            i18nKey="settings.share.status.dmUnavailable"
-            components={{ security: <ExternalLink href={securityDocUrl(i18n.language)} /> }}
-          />
+          {t('settings.share.status.dmUnavailable')}
         </p>
       )}
     </div>
@@ -375,12 +348,9 @@ export function SettingsShareSection({
           onCheckedChange={(value) => handleToggle(value === true)}
           disabled={busy || blockedByService}
         />
-        <div className="space-y-0.5">
-          <Label htmlFor="share-enabled" className="text-[0.8125rem] font-medium">
-            {t('settings.share.enable')}
-          </Label>
-          <p className="text-[0.8125rem] text-muted-foreground">{t('settings.share.enableHelp')}</p>
-        </div>
+        <Label htmlFor="share-enabled" className="text-[0.8125rem] font-medium">
+          {t('settings.share.enable')}
+        </Label>
       </div>
 
       {shareTermsStale(status) && (

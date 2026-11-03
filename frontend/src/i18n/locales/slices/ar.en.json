@@ -6,15 +6,14 @@
     "share": {
       "title": "Share: links and files",
       "loading": "Loading the sharing status…",
-      "intro": "Shorten long links and share files through the Meshloom share service. It is optional and stays off until you turn it on: while it is off, this Meshloom never contacts the service. Your browser never contacts it either; everything goes through this server.",
+      "intro": "Shorten long links and share files. Off until you turn it on.",
       "enable": "Turn on link and file sharing",
-      "unreachable": "The share service is not answering right now, so its terms cannot be read and sharing cannot be turned on. Try again later.",
+      "unreachable": "The sharing service is not answering. Try again later.",
       "banned": {
         "title": "Sharing banned for this Meshloom",
-        "body": "The share service has banned this Meshloom. The ban applies to this instance and to everyone who uses it, for example every member of a club sharing it. For 12 hours (or until you restart Meshloom or change a sharing setting), Meshloom refuses to create links or share files and does not contact the service to write; links already shared keep working and links can still be read. If you think this is a mistake, write to <email>ban@meshloom.app</email>."
+        "body": "The sharing service banned this Meshloom for 12 hours; links already shared still work. A mistake? Write to <email>ban@meshloom.app</email>."
       },
-      "enableHelp": "Turning it on asks you to read and accept the terms.",
-      "termsStale": "The sharing terms changed since you turned sharing on. Sharing is off until you read and accept the new terms: turn it on again.",
+      "termsStale": "The terms have changed: turn sharing on again to accept the new ones.",
       "status": {
         "yes": "yes",
         "no": "no",
@@ -22,22 +21,12 @@
         "identity": "Sharing identity ready",
         "identityPending": "not yet (created the first time you share)",
         "dm": "Encrypted files for direct messages available",
-        "dmUnavailable": "Encrypted files for direct messages need the radio's key, which is read once the radio is connected. Until then only those files are unavailable; links and public files still work with this instance's own sharing identity. See <security>how keys are used</security>."
+        "dmUnavailable": "Available once the radio is connected."
       },
       "consent": {
         "title": "Turn on link and file sharing?",
-        "intro": "Sharing uses an external service. Here is exactly what leaves this Meshloom once you turn it on.",
-        "sendingTitle": "When you send",
-        "sendingContent": "The file or the URL you share.",
-        "sendingKey": "This instance's sharing public key (a pseudonym; it is not your radio's key).",
-        "sendingIp": "This Meshloom's IP address, which the service sees on every request.",
-        "readingTitle": "When you read",
-        "readingId": "The id of each shared object you choose to display.",
-        "readingIp": "This Meshloom's IP address.",
-        "who": "Who: the service is published by the owner of Meshloom, in their own name, operating as TwinRocket, and runs on Cloudflare.",
-        "retention": "How long: files are kept 30 days, shortened links 365 days.",
-        "docs": "More in the <terms>terms</terms>, the <privacy>privacy policy</privacy> and the <security>security documentation</security>.",
-        "accept": "I accept the <terms>terms</terms> (no forbidden content, takedown on report, bans for abuse) and the <privacy>privacy policy</privacy>.",
+        "intro": "The links and files you share go through the Meshloom sharing service. <docs>Learn more</docs>",
+        "accept": "I accept the <terms>terms</terms> and the <privacy>privacy policy</privacy>.",
         "cancel": "Cancel",
         "confirm": "Turn on sharing"
       },

@@ -5,6 +5,7 @@ import { api } from '../../api';
 import { formatAccessError } from '../../auth/accessErrors';
 import { useCapabilities, useSession } from '../../auth/SessionProvider';
 import type { HealthStatus } from '../../types';
+import { userDocUrl } from '../../utils/userDocs';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import {
@@ -43,9 +44,9 @@ type Confirm = 'disable' | 'unregister' | 'rotate' | null;
  * TwinRocket account, no link step. An administrator turns it on (the instance
  * registers its own key and gets a name), then every user enrols their phone or
  * browser with a QR code shown here on the local network, or approves an access
- * request by typing the code the new device shows. The section explains what the
- * relay sees, and never calls a relayed request local: it is not one
- * (`request_via()` is `relay`, so login-free on the local network never applies).
+ * request by typing the code the new device shows. On screen: one actionable line
+ * (passkey or 2FA) and a link to docs/user/<lang>/deep/remote.md, which says what the
+ * relay sees (MSHL-449: the details live in the docs and the terms, not in the UI).
  *
  * Every account role but the kiosk opens it (`ACCOUNT_SETTINGS_SECTIONS`): enable,
  * disable, unregister, rotate and revoke-all are shown to administrators only, the
@@ -171,17 +172,17 @@ export function SettingsRemoteSection({
       <SettingsGroup>
         <SettingsGroupHeader title={t('settings.remote.about.title')} storedOn="server" />
         <p className="text-sm">{t('settings.remote.about.intro')}</p>
-        <div
-          role="note"
-          data-testid="remote-privacy-note"
-          className="space-y-2 rounded-md border border-border bg-muted/40 p-3 text-[0.8125rem]"
-        >
-          <p className="font-medium">{t('settings.remote.about.privacyTitle')}</p>
-          <p>{t('settings.remote.about.privacyEdge')}</p>
-          <p>{t('settings.remote.about.privacyPasskeys')}</p>
-          <p>{t('settings.remote.about.privacyRegistry')}</p>
-          <p>{t('settings.remote.about.neverLocal')}</p>
-        </div>
+        <p role="note" data-testid="remote-privacy-note" className="text-[0.8125rem]">
+          {t('settings.remote.about.secure')}{' '}
+          <a
+            href={userDocUrl('remote', i18n.language)}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-primary transition-colors"
+          >
+            {t('settings.remote.about.learnMore')}
+          </a>
+        </p>
       </SettingsGroup>
 
       <SettingsGroup>
@@ -249,9 +250,6 @@ export function SettingsRemoteSection({
                 <code className="font-mono" dir="ltr" data-testid="remote-fingerprint">
                   {status.key_fingerprint ?? t('settings.remote.status.noKey')}
                 </code>
-                <p className="text-[0.75rem] text-muted-foreground">
-                  {t('settings.remote.status.fingerprintHelp')}
-                </p>
               </dd>
               {status.registered_at && (
                 <>
@@ -379,14 +377,12 @@ export function SettingsRemoteSection({
             <DialogTitle>{t('settings.remote.enable.title')}</DialogTitle>
             <DialogDescription>{t('settings.remote.enable.help')}</DialogDescription>
           </DialogHeader>
-          <p className="text-[0.8125rem]">{t('settings.remote.about.privacyEdge')}</p>
           {reduced && (
             <div
               role="alert"
               data-testid="remote-enable-isolation-warning"
               className="space-y-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-[0.8125rem]"
             >
-              <p className="font-medium">{t('settings.remote.enable.isolationTitle')}</p>
               <p>{t('settings.remote.enable.isolationWarning')}</p>
               <div className="flex items-start gap-2">
                 <Checkbox

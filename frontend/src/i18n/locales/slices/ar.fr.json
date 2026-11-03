@@ -6,15 +6,14 @@
     "share": {
       "title": "Partage : liens et fichiers",
       "loading": "Chargement de l'état du partage…",
-      "intro": "Raccourcissez les liens longs et partagez des fichiers grâce au service de partage de Meshloom. C'est facultatif et désactivé tant que vous ne l'activez pas : tant qu'il est désactivé, ce Meshloom ne contacte jamais le service. Votre navigateur ne le contacte pas non plus : tout passe par ce serveur.",
+      "intro": "Raccourcissez les liens longs et partagez des fichiers. Désactivé tant que vous ne l'activez pas.",
       "enable": "Activer le partage de liens et de fichiers",
-      "unreachable": "Le service de partage ne répond pas pour le moment : ses conditions ne peuvent pas être lues et le partage ne peut pas être activé. Réessayez plus tard.",
+      "unreachable": "Le service de partage ne répond pas. Réessayez plus tard.",
       "banned": {
         "title": "Partage banni pour ce Meshloom",
-        "body": "Le service de partage a banni ce Meshloom. Le bannissement vaut pour cette instance et pour tous ceux qui l’utilisent, par exemple tous les membres d’un club qui la partage. Pendant 12 heures (ou jusqu’à ce que vous redémarriez Meshloom ou changiez un réglage de partage), Meshloom refuse de créer des liens ou de partager des fichiers et ne contacte pas le service pour écrire ; les liens déjà partagés continuent de marcher et la lecture de liens reste possible. Si vous pensez à une erreur, écrivez à <email>ban@meshloom.app</email>."
+        "body": "Le service de partage a banni ce Meshloom pour 12 heures ; les liens déjà partagés marchent toujours. Une erreur ? Écrivez à <email>ban@meshloom.app</email>."
       },
-      "enableHelp": "L'activer vous demande de lire et d'accepter les conditions.",
-      "termsStale": "Les conditions du partage ont changé depuis que vous l'avez activé. Le partage est désactivé tant que vous n'avez pas lu et accepté les nouvelles conditions : réactivez-le.",
+      "termsStale": "Les conditions ont changé : réactivez le partage pour accepter les nouvelles.",
       "status": {
         "yes": "oui",
         "no": "non",
@@ -22,22 +21,12 @@
         "identity": "Identité de partage prête",
         "identityPending": "pas encore (créée au premier partage)",
         "dm": "Fichiers chiffrés pour les messages privés disponibles",
-        "dmUnavailable": "Les fichiers chiffrés pour les messages privés ont besoin de la clé de la radio, lue une fois la radio connectée. D'ici là, seuls ces fichiers sont indisponibles ; les liens et les fichiers publics fonctionnent avec l'identité de partage propre à cette instance. Voir <security>l'usage des clés</security>."
+        "dmUnavailable": "Disponibles une fois la radio connectée."
       },
       "consent": {
         "title": "Activer le partage de liens et de fichiers ?",
-        "intro": "Le partage passe par un service externe. Voici exactement ce qui quitte ce Meshloom une fois activé.",
-        "sendingTitle": "Quand vous envoyez",
-        "sendingContent": "Le fichier ou l'URL que vous partagez.",
-        "sendingKey": "La clé publique de partage de cette instance (un pseudonyme ; ce n'est pas la clé de votre radio).",
-        "sendingIp": "L'adresse IP de ce Meshloom, que le service voit à chaque requête.",
-        "readingTitle": "Quand vous lisez",
-        "readingId": "L'identifiant de chaque objet partagé que vous choisissez d'afficher.",
-        "readingIp": "L'adresse IP de ce Meshloom.",
-        "who": "Qui : le service est publié par le propriétaire de Meshloom, en son nom propre, sous l'enseigne TwinRocket, et tourne sur Cloudflare.",
-        "retention": "Combien de temps : les fichiers sont conservés 30 jours, les liens raccourcis 365 jours.",
-        "docs": "Plus de détails dans les <terms>conditions</terms>, la <privacy>politique de confidentialité</privacy> et la <security>documentation de sécurité</security>.",
-        "accept": "J'accepte les <terms>conditions</terms> (aucun contenu interdit, retrait sur signalement, bannissement en cas d'abus) et la <privacy>politique de confidentialité</privacy>.",
+        "intro": "Les liens et fichiers que vous partagez passent par le service de partage de Meshloom. <docs>En savoir plus</docs>",
+        "accept": "J'accepte les <terms>conditions</terms> et la <privacy>politique de confidentialité</privacy>.",
         "cancel": "Annuler",
         "confirm": "Activer le partage"
       },

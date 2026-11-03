@@ -101,8 +101,12 @@ describe('SettingsShareSection', () => {
     // Pages of the share service itself, on the status host.
     expect(hrefs).toContain(`https://${offStatus.host}/terms?lang=fr`);
     expect(hrefs).toContain(`https://${offStatus.host}/privacy?lang=fr`);
-    expect(hrefs.some((h) => h?.includes('meshloom.app/fr/docs/deep/security/'))).toBe(true);
-    expect(hrefs.some((h) => h?.includes('/docs/deep/security/'))).toBe(true);
+    // The details (what leaves, to whom, for how long) are in the docs: FR at the site root.
+    expect(hrefs).toContain('https://meshloom.app/docs/deep/share/');
+    expect(dialog.querySelectorAll('li')).toHaveLength(0);
+    // Docs, terms, privacy: no security doc link (frontend/AGENTS.md, consent dialog).
+    expect(hrefs).toHaveLength(3);
+    expect(hrefs.some((h) => h?.includes('/deep/security/'))).toBe(false);
   });
 
   it('takes the legal pages host from the status, not a constant', async () => {
