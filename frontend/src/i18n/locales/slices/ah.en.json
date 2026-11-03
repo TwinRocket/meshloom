@@ -26,6 +26,11 @@
     "share_object_blocked": "The share service blocked this link or file. It cannot be deleted; contact the service if you disagree.",
     "share_mode_not_allowed": "Encrypted files are not possible in this conversation: send the photo in public mode.",
     "share_radio_key_unavailable": "The radio's key has not been read yet. Try again later or send in public mode.",
-    "share_undecryptable": "This encrypted file cannot be decrypted in this conversation."
+    "share_undecryptable": "This encrypted file cannot be decrypted in this conversation.",
+    "share_radio_not_heard": "No other station has heard this radio lately: send a flood advertisement, then try again.",
+    "share_community_opted_out": "This radio has left Meshloom Community: join it again in the Community settings.",
+    "share_community_banned": "Meshloom Community has blocked this radio; if this is a mistake, write to ban@meshloom.app.",
+    "share_attestation_unavailable": "Meshloom Community cannot vouch for this radio right now. Try again later.",
+    "share_attestation_rejected": "The service refused this radio's Community attestation. Try again later."
   }
 }

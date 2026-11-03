@@ -75,6 +75,9 @@ SERVICE_CALLS = {
     "read_object": lambda: share.read_object("AbCdEfG"),
     "report_object": lambda: share.report_object("AbCdEfG", "spam", "details"),
     "share_request": lambda: share.share_request("GET", "/v1/meta/AbCdEfG", binding=None),
+    "_share_request_once": lambda: share._share_request_once(
+        "POST", "/v1/links", binding="x", json_body={"url": "https://example.com/a"}
+    ),
     "upload_file": lambda: share_upload.upload_file(_staged_png()),
     "upload_encrypted": lambda: share_upload.upload_encrypted(_staged_png(), DM_SECRET, "a.png"),
     "list_mine": lambda: share.list_mine(50, "c1"),

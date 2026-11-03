@@ -62,6 +62,8 @@ BANNED_REFUSED_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/v1/hashtags/resolve"),
         ("POST", "/v1/hashtags/samples"),
         ("POST", "/v1/directory/packets/observations"),
+        # Community attestations (MSHL-445): a banned key gets none.
+        ("POST", "/v1/me/attestations"),
     }
 )
 

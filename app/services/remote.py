@@ -17,6 +17,15 @@ passes this instance signs (``app/services/remote_passes.py``).
   the pending access requests are dropped; turning Community on again resumes it.
   Requests go through the egress guard to exactly ``RELAY_HOST`` (HTTPS, no redirect,
   answer capped), each with a fresh instance JWT (``mint_remote_jwt``).
+- **Attestation** (MSHL-445). ``POST /v1/instances`` carries ``X-Meshloom-Attestation``,
+  the Community attestation of the Remote key (``app/services/community_attestation.py``,
+  audience ``remote``), on every registration: enable, rotation and the relay client's
+  re-registration after a close ``4003``. Without one it is still sent (the relay's grace
+  for keys registered before 2026-11-10); a relay that asks for one gets the Community
+  reason as the error (``remote_radio_not_heard``, ``remote_community_opted_out``,
+  ``remote_community_banned``, ``remote_attestation_unavailable``). A refused one is
+  renewed once and the registration retried once (then, for an instance already
+  registered, once without it: the grace). The relay socket never needs it.
 - **Registration.** ``POST /v1/instances`` (idempotent) stores ``slug``, ``hostname``
   and ``relay_url`` and declares the hostname to the host guard
   (``set_remote_hostname``); disabling Remote withdraws it. ``DELETE /v1/instances/self``
@@ -76,8 +85,14 @@ from app.net.egress_guard import (
 )
 from app.repository.auth import UserRepository
 from app.repository.remote import RemoteDevice, RemoteEnrollToken, RemoteRepository, RemoteState
-from app.services import remote_passes
+from app.services import community_attestation, remote_passes
 from app.services.backup_sections import RestoreSource, register_on_restore
+from app.services.community_attestation import (
+    ATTESTATION_HEADER,
+    AUDIENCE_REMOTE,
+    REJECTION_CODES,
+    AttestationUnavailable,
+)
 from app.services.instance_identity import (
     REMOTE_SERVICE,
     fingerprint,
@@ -133,6 +148,7 @@ _REGISTRY_CODES = frozenset(
         "payload_too_large",
         "rate_limited",
         "registration_paused",
+        *REJECTION_CODES,
     }
 )
 
@@ -147,6 +163,25 @@ REMOTE_ERRORS: dict[str, tuple[int, str]] = {
     "remote_access_request_not_found": (404, "No pending access request matches"),
     "remote_offline": (503, "The relay link is not connected"),
     "remote_community_off": (409, "Meshloom Remote needs Community: turn Community on first"),
+    # Community attestation of the Remote key (MSHL-445, services/community_attestation.py).
+    "remote_radio_not_heard": (
+        403,
+        "No other station heard this radio recently: let it send an advert, then try again",
+    ),
+    "remote_community_opted_out": (403, "This radio left Meshloom Community"),
+    "remote_community_banned": (403, "Meshloom Community blocked this radio"),
+    "remote_attestation_unavailable": (
+        503,
+        "Meshloom Community could not vouch for this radio: try again later",
+    ),
+}
+
+# Attestation refusal reason -> local code.
+_ATTESTATION_CODES: dict[str, str] = {
+    "radio_not_heard": "remote_radio_not_heard",
+    "opted_out": "remote_community_opted_out",
+    "banned": "remote_community_banned",
+    "unavailable": "remote_attestation_unavailable",
 }
 
 
@@ -315,9 +350,14 @@ def _registry_error(response: CheckedResponse) -> RemoteError:
 
 
 async def _registry(
-    method: str, path: str, *, json_body: dict[str, Any] | None = None
+    method: str,
+    path: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    attestation: str | None = None,
 ) -> CheckedResponse:
-    """One request to the registry, only while Remote is on."""
+    """One request to the registry, only while Remote is on. ``attestation`` is the
+    Community attestation of the Remote key (``POST /v1/instances`` only)."""
     state = await RemoteRepository.get_state()
     if not state.enabled:
         raise RemoteError("remote_disabled")
@@ -329,6 +369,8 @@ async def _registry(
         "Authorization": f"Bearer {await mint_remote_jwt()}",
         "User-Agent": f"Meshloom/{get_app_build_info().version}",
     }
+    if attestation is not None:
+        headers[ATTESTATION_HEADER] = attestation
     content: bytes | None = None
     if json_body is not None:
         content = json.dumps(json_body, separators=(",", ":")).encode()
@@ -350,10 +392,60 @@ async def _registry(
         raise RemoteError("remote_unavailable") from None
 
 
+def _rejected_attestation(response: CheckedResponse) -> bool:
+    return response.status_code == 403 and (_json(response) or {}).get("code") in REJECTION_CODES
+
+
 async def _register_locked(actor: AuditActor) -> RemoteState:
+    """``POST /v1/instances`` with the Community attestation of the Remote key.
+
+    Without an attestation (Community refused, a hold) the registration is still sent:
+    a key registered before the relay required one may register without it (grace,
+    remote-registration.md § *Attestation*). When the relay asks for one anyway, the
+    Community reason is the error. A refused attestation is renewed once and the
+    registration sent once more; refused again, an instance already registered tries a
+    last time without it (the grace again: the relay verifies any header it gets), else
+    it is ``remote_attestation_unavailable``. Three requests at most, never a loop.
+    """
     body = {**instance_info(), "plugins": plugins_info()}
     try:
-        response = await _registry("POST", "/v1/instances", json_body=body)
+        state = await RemoteRepository.get_state()
+        if not state.enabled:
+            raise RemoteError("remote_disabled")
+        if not await community_on():
+            raise RemoteError("remote_community_off")
+        token: str | None = None
+        refusal: AttestationUnavailable | None = None
+        try:
+            token = await community_attestation.attestation_for(AUDIENCE_REMOTE)
+        except AttestationUnavailable as exc:
+            refusal = exc
+        response = await _registry("POST", "/v1/instances", json_body=body, attestation=token)
+        if _rejected_attestation(response):
+            if refusal is not None:
+                raise RemoteError(_ATTESTATION_CODES[refusal.reason])
+            try:
+                token = await community_attestation.renew_after_rejection(AUDIENCE_REMOTE, token)
+            except AttestationUnavailable as exc:
+                refusal, token = exc, None
+            if token is not None:
+                response = await _registry(
+                    "POST", "/v1/instances", json_body=body, attestation=token
+                )
+            if (token is None or _rejected_attestation(response)) and state.slug:
+                # A key registered before may still register without one (grace), and the
+                # relay verifies any header it gets: a last try without it.
+                logger.warning("Remote registry refused the attestation: trying without")
+                response = await _registry("POST", "/v1/instances", json_body=body)
+            elif token is None and refusal is not None:
+                raise RemoteError(_ATTESTATION_CODES[refusal.reason])
+            if _rejected_attestation(response):
+                logger.warning("Remote registry refused a renewed attestation")
+                raise RemoteError(
+                    _ATTESTATION_CODES[refusal.reason]
+                    if refusal is not None
+                    else "remote_attestation_unavailable"
+                )
         if response.status_code not in (200, 201):
             raise _registry_error(response)
         payload = _json(response) or {}

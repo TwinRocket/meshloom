@@ -329,6 +329,16 @@ Design and flows: `docs/dev/remote.md`.
   turning it on resumes it. `GET /api/remote` reports `community_enabled`. Tests:
   `tests/test_community_required.py`, `TestRemoteNeedsCommunity` in
   `tests/test_community_off_no_egress.py`; `docs/dev/remote.md`, "Opt-in and egress".
+- **Attestation** (MSHL-445). `POST /v1/instances` carries `X-Meshloom-Attestation`,
+  the Community attestation of the Remote key (`services/community_attestation.py`,
+  audience `remote`), on every registration (enable, rotate, re-registration after a
+  close `4003`). Without one it is still sent (the relay's grace for keys registered
+  before 2026-11-10); a relay that wants one gets the Community reason as the error
+  (`remote_radio_not_heard`, `remote_community_opted_out`, `remote_community_banned`,
+  `remote_attestation_unavailable`), stored in `last_error` and translated in the UI. A
+  refused one (`attestation_*`) is renewed once and the registration retried once, then,
+  for an instance already registered, once without it; three requests at most. The
+  relay socket never carries it. `docs/dev/remote.md`, "Attestation".
 - **Identity.** The `remote` instance key (above) signs the instance JWT and the device
   passes. Rotation, unregistration and the `remote` on_restore hook are in
   `docs/dev/remote.md`; any restore leaves Remote off, unregistered and without devices.
@@ -401,6 +411,16 @@ Community guard, and it needs Community on (MSHL-445).
 - **Auth.** A write passes its contract binding string as `binding` and gets
   `Authorization: Bearer <mint_share_jwt(binding)>`, minted per request; a read
   (`binding=None`) carries none. `User-Agent: Meshloom/<version>`.
+- **Attestation** (MSHL-445). `POST /v1/links` and `POST /v1/files` also carry
+  `X-Meshloom-Attestation`, the Community attestation of the Links key
+  (`services/community_attestation.py`, audience `links`). `share_request` gets it after
+  the opt-in and banned checks; without one the creation does not leave and answers
+  `share_radio_not_heard`, `share_community_opted_out`, `share_community_banned` or
+  `share_attestation_unavailable` (503). A service `attestation_*` refusal (internal
+  `share_attestation_rejected`) renews it once and resends once (a streamed upload body
+  is opened again); refused again: `share_attestation_unavailable`. The single request
+  is `_share_request_once`. Tests: `tests/test_community_attestation.py`; every other
+  test gets a fake token from the `_fake_community_attestation` autouse fixture.
 - **Errors.** `ShareError` is an `HTTPException` with `{code, message, params}`
   (`SHARE_ERRORS`, translated as `errors.<code>` in the `ah` i18n slice). The
   service's codes map one to one (`banned`, `quota_exceeded` with
@@ -797,6 +817,11 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 142 (MSHL-445) adds `community_attestations` (one row per audience,
+  `links` or `remote`: the last Community attestation of that instance key, CHECK on the
+  audience); `IF NOT EXISTS`, no `SCHEMA_TABLES` change. `patched_database()` patches
+  `app.repository.community_attestations`. Excluded from the JSON backup, emptied in a
+  database copy (`SNAPSHOT_EMPTIED_TABLES`) and by every restore.
 - Migration 141 (MSHL-426) adds `email_sign_in` (one row, `id = 1`: the SMTP profile's
   channel id) and `user_email_factor` (an account's verified address and its two opt-in
   flags, `ON DELETE CASCADE`); `IF NOT EXISTS`, no `SCHEMA_TABLES` change.
@@ -1543,6 +1568,17 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
   a position**. `community_enrolled_state()` (on, waiting or not) is reserved to
   `FanoutManager.sync_system_modules()`, the Stats publisher and the
   `PUT /v1/me/iata` binds.
+- **Attestations** (`services/community_attestation.py`, MSHL-445). The only caller of
+  `POST /v1/me/attestations`, through `stats_request` (so the egress guard applies; no
+  `iata` claim needed, `_path_requires_iata`). One token per audience (`links`,
+  `remote`) for that service's instance key, cached in `community_attestations` with its
+  `expires_at` (survives a restart), renewed under 24 h left, renewed at once after a
+  service refusal (one renewal, one retry). Community allows 12 per radio key and hour:
+  a lock per audience, a local budget of 6 per audience and hour, holds after refusals
+  (`radio_not_heard` 15 min, `opted_out`/`banned` 1 h, 429 `Retry-After` or 15 min,
+  `attestation_unconfigured` 15 min, other failures 1 to 15 min backoff). Banned keys are
+  refused locally (`BANNED_REFUSED_ROUTES`). Turning Community off or a restore forgets
+  the tokens. `docs/dev/community-client.md`, "Attestations".
 - **Four bounded exceptions**, each scoped by a context variable read by
   `stats_request`: the leftover status clear (`community_status_clear.py`), the
   join bind (`_bind_state`), the opt-out call and its manual retry

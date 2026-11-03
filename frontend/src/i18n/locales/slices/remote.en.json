@@ -218,6 +218,10 @@
     "remote_pass_required": "This device is not allowed with Meshloom Remote.",
     "remote_host_mismatch": "This request is not for this instance's Remote address.",
     "remote_request_invalid": "The relay sent an invalid request.",
-    "remote_community_off": "Remote needs Meshloom Community. Turn Community on first."
+    "remote_community_off": "Remote needs Meshloom Community. Turn Community on first.",
+    "remote_radio_not_heard": "No other station has heard this radio lately: send a flood advertisement, then try again.",
+    "remote_community_opted_out": "This radio has left Meshloom Community: join it again in the Community settings.",
+    "remote_community_banned": "Meshloom Community has blocked this radio; if this is a mistake, write to ban@meshloom.app.",
+    "remote_attestation_unavailable": "Meshloom Community cannot vouch for this radio right now. Try again later."
   }
 }
