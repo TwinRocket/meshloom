@@ -213,7 +213,8 @@ These hold for every section; a restore function must keep them:
      known-device key and forgets every browser; the `sessions`
      and `recovery_codes` tables, the plugin config secrets in
      `plugin_secrets` and the Meshloom Remote state (`remote_state`,
-     `remote_devices`, `remote_enroll_tokens`) are emptied,
+     `remote_devices`, `remote_enroll_tokens`) and the cached Community attestations
+     (`community_attestations`) are emptied,
      `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
      so the old values do not stay in the file's free space. The live database
      keeps them. `api_tokens` stays in the copy: it holds SHA-256 hashes of

@@ -9,7 +9,7 @@ Meshloom Remote opens your instance from anywhere, from any device (phone, table
 
 ## Turning it on
 
-An administrator presses **Turn on Meshloom Remote**. The instance registers its own key with the relay and gets its own address, such as `https://k3xwq2m7ta.meshloom.link`. Nobody can open that address until you allow a device.
+An administrator presses **Turn on Meshloom Remote**. The instance registers its own key with the relay, with a proof from Meshloom Community that another station heard your radio recently (see [Proof for Remote and sharing](/en/docs/deep/community/#proof-for-remote-and-sharing)), and gets its own address, such as `https://k3xwq2m7ta.meshloom.link`. Nobody can open that address until you allow a device.
 
 If plugins run without a sandbox on this machine (hooks only), the dialog asks you to confirm first: once the instance is reachable from the internet, anyone who gets into an administrator account could install or configure a plugin that runs code on the machine. Protect every administrator with a passkey or two-factor authentication, and remove the plugins you do not use (**Settings → Extensions**). The **Access security notice** at the top of **Users & Access** repeats this while Remote is on.
 
@@ -39,7 +39,7 @@ The badge under **Status** says where the link stands:
 | Badge | Meaning and what to do |
 |---|---|
 | Off | Remote is off; the instance is only reachable on the local network. |
-| Not registered | Remote is on but the relay did not register the instance. Press **Retry**; if it keeps failing, this machine may not reach the relay. |
+| Not registered | Remote is on but the relay did not register the instance. Press **Retry**; if it keeps failing, this machine may not reach the relay. When Community could not give its proof, the reason shows under the badge: for **No other station has heard this radio lately**, send a flood advertisement, then retry a few minutes later. |
 | Connecting, Connected | The link is coming up, or up: allowed devices open the address shown. |
 | Offline | The link dropped. Meshloom reconnects by itself, waiting longer between tries (up to 5 minutes). Check this machine's internet connection. |
 | Unknown to the relay | The relay forgot the instance and registering again failed. Turn Remote off and on again; if that is not enough, replace the key. |

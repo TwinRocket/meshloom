@@ -34,6 +34,10 @@ import {
 } from './remote/remoteShared';
 import type { RemoteStatus } from './remote/remoteTypes';
 
+// A local Remote error code (`remote_*`, e.g. a Community attestation refusal): shown
+// as its translated sentence instead of the raw code.
+const KNOWN_ERROR_RE = /^remote_[a-z_]{1,48}$/;
+
 /** The link state changes on its own (reconnects, pauses): refresh while the section is open. */
 export const REMOTE_STATUS_POLL_MS = 15_000;
 
@@ -216,14 +220,27 @@ export function SettingsRemoteSection({
             <p className="text-[0.8125rem]" data-testid="remote-badge-help">
               {t(`settings.remote.badgeHelp.${badge.id}`)}
             </p>
-            {status.last_error && status.state === 'unregistered' && (
-              <p className="text-[0.8125rem] text-muted-foreground">
-                {t('settings.remote.status.lastError')}{' '}
-                <code className="break-all rounded bg-muted px-1 py-0.5 font-mono">
-                  {untrustedText(status.last_error, 300)}
-                </code>
-              </p>
-            )}
+            {status.last_error &&
+              status.state === 'unregistered' &&
+              (KNOWN_ERROR_RE.test(status.last_error) &&
+              i18n.exists(`errors.${status.last_error}`) ? (
+                <p
+                  className="text-[0.8125rem] text-muted-foreground"
+                  data-testid="remote-last-error"
+                >
+                  {t(`errors.${status.last_error}`)}
+                </p>
+              ) : (
+                <p
+                  className="text-[0.8125rem] text-muted-foreground"
+                  data-testid="remote-last-error"
+                >
+                  {t('settings.remote.status.lastError')}{' '}
+                  <code className="break-all rounded bg-muted px-1 py-0.5 font-mono">
+                    {untrustedText(status.last_error, 300)}
+                  </code>
+                </p>
+              ))}
             <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
               {status.hostname && (
                 <>

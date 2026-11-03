@@ -9,7 +9,7 @@ Meshloom Remote ouvre votre instance de n’importe où, depuis n’importe quel
 
 ## L’activer
 
-Un administrateur appuie sur **Activer Meshloom Remote**. L’instance enregistre sa propre clé auprès du relais et reçoit sa propre adresse, comme `https://k3xwq2m7ta.meshloom.link`. Personne ne peut ouvrir cette adresse tant que vous n’avez pas autorisé un appareil.
+Un administrateur appuie sur **Activer Meshloom Remote**. L’instance enregistre sa propre clé auprès du relais, avec une preuve de Meshloom Community qu’une autre station a entendu votre radio récemment (voir [Preuve pour Remote et le partage](/docs/deep/community/#preuve-pour-remote-et-le-partage)), et reçoit sa propre adresse, comme `https://k3xwq2m7ta.meshloom.link`. Personne ne peut ouvrir cette adresse tant que vous n’avez pas autorisé un appareil.
 
 Si les plugins tournent sans bac à sable sur cette machine (hooks seulement), la fenêtre demande d’abord de confirmer : une fois l’instance joignable depuis internet, quelqu’un qui entre dans un compte administrateur pourrait installer ou régler un plugin qui exécute du code sur la machine. Protégez chaque administrateur par une clé d’accès (passkey) ou la double authentification, et supprimez les plugins inutiles (**Réglages → Extensions**). L’**avis de sécurité des accès**, en haut de **Utilisateurs et accès**, le rappelle tant que Remote est activé.
 
@@ -39,7 +39,7 @@ Le badge sous **État** dit où en est la liaison :
 | Badge | Sens et quoi faire |
 |---|---|
 | Désactivé | Remote est désactivé ; l’instance n’est joignable que sur le réseau local. |
-| Non enregistrée | Remote est activé mais le relais n’a pas enregistré l’instance. Appuyez sur **Réessayer** ; si l’échec se répète, cette machine n’arrive peut-être pas à joindre le relais. |
+| Non enregistrée | Remote est activé mais le relais n’a pas enregistré l’instance. Appuyez sur **Réessayer** ; si l’échec se répète, cette machine n’arrive peut-être pas à joindre le relais. Quand Community n’a pas pu donner sa preuve, la raison s’affiche sous le badge : pour **Aucune autre station n’a entendu cette radio récemment**, envoyez une annonce flood, puis réessayez quelques minutes plus tard. |
 | Connexion, Connectée | La liaison s’établit, ou est établie : les appareils autorisés ouvrent l’adresse affichée. |
 | Hors ligne | La liaison est coupée. Meshloom se reconnecte seul, en espaçant les essais (jusqu’à 5 minutes). Vérifiez la connexion internet de cette machine. |
 | Inconnue du relais | Le relais a oublié l’instance et le nouvel enregistrement a échoué. Désactivez puis réactivez Remote ; si cela ne suffit pas, remplacez la clé. |

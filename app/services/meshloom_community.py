@@ -114,6 +114,8 @@ OPT_OUT_RETRY_TIMEOUT_S = 20.0
 OPT_OUT_LAST_CALL_HTTP_TIMEOUT = httpx.Timeout(OPT_OUT_LAST_CALL_TIMEOUT_S + 1, connect=2.5)
 OPT_OUT_RETRY_HTTP_TIMEOUT = httpx.Timeout(OPT_OUT_RETRY_TIMEOUT_S, connect=3.0)
 OPT_OUT_PATH = "/v1/me/opt-out"
+# Community attestations of the instance keys (app/services/community_attestation.py).
+ATTESTATIONS_PATH = "/v1/me/attestations"
 OptOutReason = Literal["privacy", "not_useful", "technical_issue", "other"]
 # Circuit breaker: after this many consecutive transport failures or 5xx, stop
 # calling Community for BREAKER_OPEN_SECONDS and answer 503 at once instead of
@@ -1018,8 +1020,10 @@ def _hashtag_publish_names(names: list[str]) -> list[str]:
 
 
 def _path_requires_iata(path: str) -> bool:
-    if path == OPT_OUT_PATH:
-        return False  # identity.md: the opt-out needs no ``iata`` claim
+    if path in (OPT_OUT_PATH, ATTESTATIONS_PATH):
+        # identity.md: the opt-out needs no ``iata`` claim; attestation.md: nor does
+        # ``POST /v1/me/attestations`` (app/services/community_attestation.py).
+        return False
     return path.startswith("/v1/me/") or path == "/v1/hashtags/samples"
 
 

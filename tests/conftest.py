@@ -33,6 +33,7 @@ async def patched_database(path: str = ":memory:"):
     from app.repository import (
         auth,
         channels,
+        community_attestations,
         contact_groups,
         contact_telemetry,
         contacts,
@@ -65,6 +66,7 @@ async def patched_database(path: str = ":memory:"):
         auth,
         contacts,
         channels,
+        community_attestations,
         contact_groups,
         directory,
         email_factor,
@@ -192,6 +194,23 @@ def _reset_remote_domain_test_limiter():
 
     reset_domain_test_limiter()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _fake_community_attestation(monkeypatch):
+    """Links creations and Remote registrations carry a Community attestation
+    (MSHL-445). Tests never ask Community for one: ``attestation_for`` and
+    ``renew_after_rejection`` answer ``FAKE_ATTESTATION`` here
+    (``tests/attestation_fakes.py``). The tests of the attestation client put the real
+    functions back (``tests/test_community_attestation.py``)."""
+    from app.services import community_attestation
+    from tests.attestation_fakes import fake_attestation_for, fake_renew_after_rejection
+
+    community_attestation.reset_attestations_for_tests()
+    monkeypatch.setattr(community_attestation, "attestation_for", fake_attestation_for)
+    monkeypatch.setattr(community_attestation, "renew_after_rejection", fake_renew_after_rejection)
+    yield
+    community_attestation.reset_attestations_for_tests()
 
 
 @pytest.fixture(autouse=True)

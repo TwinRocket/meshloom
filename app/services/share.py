@@ -26,6 +26,12 @@ the Community guard, and it needs Community on (below).
 - **Auth.** A write carries ``Authorization: Bearer`` minted for that request by
   ``mint_share_jwt(binding)``; a read carries none. ``User-Agent`` is
   ``Meshloom/<version>``.
+- **Attestation** (MSHL-445). ``POST /v1/links`` and ``POST /v1/files`` also carry
+  ``X-Meshloom-Attestation``: the Community attestation of the Links key
+  (``app/services/community_attestation.py``, audience ``links``). Without one the
+  creation does not leave (``share_radio_not_heard``, ``share_community_opted_out``,
+  ``share_community_banned``, ``share_attestation_unavailable``); after a service
+  ``attestation_*`` refusal it is renewed once and the creation retried once.
 - **Errors** are coded ``HTTPException`` details ``{code, message, params}``
   (``SHARE_ERRORS``). A 429 ``quota_exceeded`` with a contract ``scope`` (``key``,
   ``ip``, ``global``) becomes ``share_quota_key`` / ``_ip`` / ``_global`` (generic
@@ -102,6 +108,13 @@ from app.net.egress_guard import (
     follow_checked_redirects,
 )
 from app.repository import AppSettingsRepository
+from app.services import community_attestation
+from app.services.community_attestation import (
+    ATTESTATION_HEADER,
+    AUDIENCE_LINKS,
+    REJECTION_CODES,
+    AttestationUnavailable,
+)
 from app.services.instance_identity import mint_share_jwt
 from app.services.share_cache import CachedObject, reset_share_cache_for_tests, share_cache
 from app.services.ttl_lru import TtlLruCache
@@ -199,7 +212,29 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
         409,
         "This shared object was blocked by the share service and cannot be deleted",
     ),
+    # Community attestation (MSHL-445, app/services/community_attestation.py).
+    "share_radio_not_heard": (
+        403,
+        "No other station heard this radio recently: let it send an advert, then try again",
+    ),
+    "share_community_opted_out": (403, "This radio left Meshloom Community"),
+    "share_community_banned": (403, "Meshloom Community blocked this radio"),
+    "share_attestation_unavailable": (
+        503,
+        "Meshloom Community could not vouch for this radio: try again later",
+    ),
+    "share_attestation_rejected": (403, "The share service refused the Community attestation"),
 }
+
+# Attestation refusal reason -> local code.
+_ATTESTATION_CODES: dict[str, str] = {
+    "radio_not_heard": "share_radio_not_heard",
+    "opted_out": "share_community_opted_out",
+    "banned": "share_community_banned",
+    "unavailable": "share_attestation_unavailable",
+}
+# The creations that need a Community attestation (links-files.md, attestation.md).
+_ATTESTED_PATHS = frozenset({"/v1/links", "/v1/files"})
 
 # The contract's optional ``scope`` of a 429 ``quota_exceeded`` -> local code. An
 # absent or unknown scope keeps the generic ``share_quota_exceeded``.
@@ -225,6 +260,8 @@ _SERVICE_CODES: dict[str, str] = {
     "id_taken": "share_id_taken",
     # Only ``DELETE /v1/objects/{id}``: the key is valid but not the author's.
     "not_owner": "share_not_owner",
+    # Only the creations: renew the attestation once and retry once (share_request).
+    **dict.fromkeys(REJECTION_CODES, "share_attestation_rejected"),
 }
 # Service answers a read may cache as final (the contract never answers them
 # for a storage failure).
@@ -523,7 +560,66 @@ async def share_request(
     its ``content_type`` and ``extra_headers`` (the ``X-Share-*`` headers).
     ``banned_ok`` lets a tokened read through the local banned hold
     (``GET /v1/mine``: a banned key may still see why).
+
+    A creation (``POST /v1/links``, ``POST /v1/files``) carries the Community
+    attestation of the Links key (``X-Meshloom-Attestation``, MSHL-445). Without
+    one, it does not leave (``share_radio_not_heard``, ``share_community_opted_out``,
+    ``share_community_banned``, ``share_attestation_unavailable``). Refused by the
+    service (``attestation_*``), the attestation is renewed once and the request
+    sent once more; refused again, it is ``share_attestation_unavailable``.
     """
+    kwargs: dict[str, Any] = {
+        "binding": binding,
+        "json_body": json_body,
+        "body": body,
+        "content_type": content_type,
+        "extra_headers": extra_headers,
+        "read": read,
+        "accept": accept,
+        "max_response_bytes": max_response_bytes,
+        "banned_ok": banned_ok,
+    }
+    if method.upper() != "POST" or path not in _ATTESTED_PATHS:
+        return await _share_request_once(method, path, **kwargs)
+    # Sharing off or banned: answered locally, before any Community request.
+    if await share_egress_state() is None:
+        raise ShareError("share_disabled")
+    if share_banned():
+        raise ShareError("share_banned")
+    token: str | None = None
+    for attempt in range(2):
+        try:
+            if attempt == 0:
+                token = await community_attestation.attestation_for(AUDIENCE_LINKS)
+            else:
+                token = await community_attestation.renew_after_rejection(AUDIENCE_LINKS, token)
+        except AttestationUnavailable as exc:
+            raise ShareError(_ATTESTATION_CODES[exc.reason]) from None
+        try:
+            return await _share_request_once(method, path, attestation=token, **kwargs)
+        except ShareError as exc:
+            if exc.code != "share_attestation_rejected":
+                raise
+    logger.warning("Share service refused a renewed attestation")
+    raise ShareError("share_attestation_unavailable")
+
+
+async def _share_request_once(
+    method: str,
+    path: str,
+    *,
+    binding: str | None,
+    json_body: dict[str, Any] | None = None,
+    body: StreamedBody | None = None,
+    content_type: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+    read: ReadKind | None = None,
+    accept: str = "application/json",
+    max_response_bytes: int = MAX_JSON_RESPONSE_BYTES,
+    banned_ok: bool = False,
+    attestation: str | None = None,
+) -> CheckedResponse:
+    """``share_request`` without the attestation renewal: exactly one request."""
     generation = _state.generation
     state = await share_egress_state()
     if state is None:
@@ -558,6 +654,8 @@ async def share_request(
     content: bytes | StreamedBody | None = body
     if body is not None and content_type is not None:
         headers["Content-Type"] = content_type
+    if attestation is not None:
+        headers[ATTESTATION_HEADER] = attestation
     try:
         if limiter is not None:
             await limiter.acquire()

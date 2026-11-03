@@ -394,6 +394,8 @@ SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = (
     "remote_state",
     "remote_devices",
     "remote_enroll_tokens",
+    # Community attestations of the instance keys (migration 142).
+    "community_attestations",
 )
 
 

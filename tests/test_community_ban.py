@@ -118,6 +118,8 @@ class TestBanState:
             ("POST", "/v1/hashtags/resolve"),
             ("POST", "/v1/hashtags/samples"),
             ("POST", "/v1/directory/packets/observations"),
+            # attestation.md: a banned key gets no attestation (MSHL-445).
+            ("POST", "/v1/me/attestations"),
         } == BANNED_REFUSED_ROUTES
         assert banned_route("put", "/v1/me/iata")
         assert not banned_route("GET", "/v1/me/stats")

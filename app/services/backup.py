@@ -218,6 +218,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     ),
     "remote_devices": ("excluded", "Remote devices: their passes die with the restored key"),
     "remote_enroll_tokens": ("excluded", "Remote enrolment tokens: short-lived, single use"),
+    "community_attestations": (
+        "excluded",
+        "Community attestations of the instance keys: the restore rotates those keys",
+    ),
     "app_settings.store_online": (
         "excluded",
         "Store consent: a copy restored elsewhere would enable an egress nobody clicked",

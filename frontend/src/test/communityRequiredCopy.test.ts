@@ -12,6 +12,13 @@ const KEYS = [
   'settings.community.optOut.intro',
   'errors.remote_community_off',
   'errors.share_community_off',
+  // Community attestation refusals (Links creations, Remote registration).
+  ...['share', 'remote'].flatMap((service) =>
+    ['radio_not_heard', 'community_opted_out', 'community_banned', 'attestation_unavailable'].map(
+      (reason) => `errors.${service}_${reason}`
+    )
+  ),
+  'errors.share_attestation_rejected',
 ];
 
 const MAX_CHARS = 120;

@@ -27,6 +27,7 @@ both.
 | `app/services/remote_frames.py` | The relay frame codec (contract "Frames"), limits and their clamping. Pure functions |
 | `app/services/remote_relay.py` | The relay client: connect loop and close-code policy, HELLO, stream table, credits, batching, in-process ASGI dispatch |
 | `app/repository/remote.py` | `remote_state`, `remote_devices`, `remote_enroll_tokens` (migration 138, `docs/dev/database.md`) |
+| `app/services/community_attestation.py` | The Community attestation of the Remote key (audience `remote`), shared with Links (`docs/dev/community-client.md`, "Attestations") |
 | `app/routers/remote.py` | `/api/remote` |
 
 ## Identity
@@ -65,11 +66,35 @@ on and Remote off nothing reaches the relay (`tests/test_remote_off_no_egress.py
 Community off and Remote on nothing does either (`tests/test_community_off_no_egress.py`,
 `TestRemoteNeedsCommunity`, and `tests/test_community_required.py`).
 
+## Attestation
+
+Since MSHL-445 the relay registers a key only with a Community attestation of it
+(`remote-registration.md` § *Attestation*). `_register_locked` (enable, `register` after a
+close `4003`, rotate) asks `community_attestation.attestation_for("remote")` and sends it as
+`X-Meshloom-Attestation` on `POST /v1/instances`; no other registry route and not the relay
+socket carry it.
+
+- No attestation (Community refused, a hold, unreachable): the registration is sent
+  without the header. The relay lets a key registered before 2026-11-10 register without
+  one until 2027-01-31 (grace), so an instance already registered keeps registering while
+  Community cannot vouch for it. If the relay asks for one anyway (403 `attestation_*`),
+  the Community reason is the error: `remote_radio_not_heard`, `remote_community_opted_out`,
+  `remote_community_banned`, `remote_attestation_unavailable`.
+- Refused attestation (403 `attestation_missing`, `attestation_invalid`, `attestation_expired`):
+  `renew_after_rejection` once, the registration once more. Refused again, an instance already
+  registered (a slug) tries one last time without the header (the relay verifies any header
+  it gets, even from a grace key); else `remote_attestation_unavailable`. Three requests at
+  most, never a loop.
+- The error code goes to `last_error`; the settings show the translated sentence of a
+  `remote_*` code (`errors.<code>`) instead of the raw code.
+- `503 registration_paused` (the relay has no trusted attestation key yet, or its kill
+  switch) stays `remote_registry_error` with `registry_code` `registration_paused`.
+
 ## State changes
 
 | Call | Route | Effect |
 |---|---|---|
-| `enable` | `POST /api/remote/enable` | 409 `remote_community_off` while Community is off (nothing written). Otherwise turns Remote on and registers (`POST /v1/instances` with `version`, `install_kind`, `plugins: {enabled, isolation}`) when not registered. Stores `slug`, `hostname`, `relay_url` and declares the hostname to the host guard. A registry failure keeps Remote on, unregistered, with `last_error`; calling it again retries |
+| `enable` | `POST /api/remote/enable` | 409 `remote_community_off` while Community is off (nothing written). Otherwise turns Remote on and registers (`POST /v1/instances` with `version`, `install_kind`, `plugins: {enabled, isolation}` and the attestation, above) when not registered. Stores `slug`, `hostname`, `relay_url` and declares the hostname to the host guard. A registry failure keeps Remote on, unregistered, with `last_error`; calling it again retries |
 | `register` | (relay client) | The same registration, idempotent: after a close `4003` |
 | `disable` | `POST /api/remote/disable` | Turns Remote off and withdraws the hostname; registration and devices are kept |
 | `unregister` | `DELETE /api/remote` | `DELETE /v1/instances/self` (a 404 `instance_unknown` counts as done), forgets slug and hostname, turns Remote off, **keeps the key** (the registry holds the slug 30 days for it). 409 `remote_disabled` while off |
@@ -344,7 +369,9 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 of the registry's JWT checks proved on every case, then the minted tokens),
 `tests/test_remote_service.py` (fake registry, fake relay and edge: registration,
 enrolment, access requests, revocation, rotation, restore, routes),
-`tests/test_remote_off_no_egress.py`, `tests/test_community_required.py` (Community off:
+`tests/test_remote_off_no_egress.py`, `tests/test_community_attestation.py` (the
+attestation header, renewal, grace fallback and errors against a fake registry),
+`tests/test_community_required.py` (Community off:
 enable refused, no registry request, the relay link follows the opt-in, restore),
 `tests/test_remote_domain.py` (the custom domain
 test: results, scheme fallback, private addresses, off), `tests/test_migrations/test_migration_138.py`.

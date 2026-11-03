@@ -474,6 +474,17 @@ Enrolment tokens issued for a QR code (migration 138): PK `jti`, `user_id`, `gen
 when the next one is issued. `RemoteRepository` (`remote.py`). Excluded from backups,
 emptied in a database copy and by every restore.
 
+### `community_attestations`
+
+The last Community attestation of each instance key (migration 142, MSHL-445,
+`app/services/community_attestation.py`, `docs/dev/community-client.md`, "Attestations"): PK
+`audience` (`links` or `remote`, CHECK), `instance_key` (the attested Links or Remote key,
+64 uppercase hex; a row of another key is never sent), `token` (the attestation, at most
+2048 characters, never logged), `issued_at` and `expires_at` (Community's unix seconds),
+`fetched_at`. Kept so a restart does not ask Community again. Cleared when Community is
+turned off. `CommunityAttestationRepository` (`community_attestations.py`). Excluded from
+backups, emptied in a database copy and by every restore.
+
 ### `plugins`
 
 Plugin instances (migration 103; model and rules in `docs/dev/plugins.md`, "Data

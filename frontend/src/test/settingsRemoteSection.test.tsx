@@ -438,6 +438,24 @@ describe('SettingsRemoteSection', () => {
     expect(enable).not.toHaveBeenCalled();
   });
 
+  it('shows a Community attestation refusal as a translated sentence', async () => {
+    vi.spyOn(api, 'getRemote').mockResolvedValue(
+      statusOf({ state: 'unregistered', slug: null, last_error: 'remote_radio_not_heard' })
+    );
+    await renderAs('admin');
+    expect(await screen.findByTestId('remote-last-error')).toHaveTextContent(
+      t('errors.remote_radio_not_heard')
+    );
+  });
+
+  it('shows another registry error as its raw code', async () => {
+    vi.spyOn(api, 'getRemote').mockResolvedValue(
+      statusOf({ state: 'unregistered', slug: null, last_error: 'registration_paused' })
+    );
+    await renderAs('admin');
+    expect(await screen.findByTestId('remote-last-error')).toHaveTextContent('registration_paused');
+  });
+
   it('shows an enabled Remote as paused while Community is off', async () => {
     vi.spyOn(api, 'getRemote').mockResolvedValue(
       statusOf({ community_enabled: false, link_status: 'community_off', relay_connected: false })
