@@ -5,7 +5,7 @@ import { api } from '../../api';
 import { formatAccessError } from '../../auth/accessErrors';
 import { useCapabilities, useSession } from '../../auth/SessionProvider';
 import type { HealthStatus } from '../../types';
-import { userDocUrl } from '../../utils/userDocs';
+import { userDocsUrl } from '../../utils/userDocsUrl';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import {
@@ -175,7 +175,7 @@ export function SettingsRemoteSection({
         <p role="note" data-testid="remote-privacy-note" className="text-[0.8125rem]">
           {t('settings.remote.about.secure')}{' '}
           <a
-            href={userDocUrl('remote', i18n.language)}
+            href={userDocsUrl(i18n.language, 'deep/remote')}
             target="_blank"
             rel="noreferrer"
             className="underline underline-offset-2 hover:text-primary transition-colors"

@@ -95,15 +95,14 @@ describe('CommunityWaitingBanner', () => {
     ).toBeInTheDocument();
   });
 
-  it('warns that the radio may broadcast the chosen position', async () => {
+  it('explains in two short lines, without the details kept in the docs', async () => {
     render(<CommunityWaitingBanner />);
     fireEvent.click(
       screen.getByRole('button', { name: i18n.t('settings.community.waiting.learnMore') })
     );
     const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent(i18n.t('settings.radio.includeLocation'));
-    await i18n.changeLanguage('fr');
-    expect(i18n.t('settings.community.waiting.privacy')).toContain('Inclure la position du nœud');
+    expect(dialog).toHaveTextContent(i18n.t('settings.community.waiting.leaveHelp'));
+    expect(dialog).not.toHaveTextContent(i18n.t('settings.radio.includeLocation'));
   });
 
   it('reads the French text with "vous"', async () => {

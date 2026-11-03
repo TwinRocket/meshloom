@@ -21,7 +21,7 @@ It is not an integration you create in **Settings → MQTT & Automation**. You j
 
 Joining is the only way to turn Community on from the settings: there is no on/off switch, and **Leave Meshloom Community** (shown once joined) only turns it off. Meshloom first registers the code with Community, and only then turns Community on and starts publishing. If Community refuses the code (for instance because this radio already changed its code too often in the last 7 days), Community stays off, your saved code does not change, and the settings say why.
 
-The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it. Community limits how often the code can be changed. Community drops that confirmation when your radio's position moves more than 100 km (by default: the `IATA_GPS_HYSTERESIS_KM` setting on the Community side) from the one it recorded: since Meshloom now sends a new position on its own (see below), this can happen without anything done in the settings, and **I am sure** shows again if the code and the position still disagree.
+The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it; that confirmation does not count as a change. Community limits how often the code can be changed. Community drops that confirmation when your radio's position moves more than 100 km (by default: the `IATA_GPS_HYSTERESIS_KM` setting on the Community side) from the one it recorded: since Meshloom now sends a new position on its own (see below), this can happen without anything done in the settings, and **I am sure** shows again if the code and the position still disagree.
 
 The code is also the region the Live page shows by default; you can add other regions there.
 
@@ -82,7 +82,7 @@ While Community is off, Meshloom Remote and sharing cannot be turned on: their s
 
 ## Leaving
 
-**Leave Meshloom Community** (in the settings, or **Leave Community** in the waiting banner's explanation) first shows what leaving means:
+**Leave Meshloom Community** (in the settings, or **Leave Community** in the waiting banner's explanation) first asks you to confirm, in a short window that links the privacy address below. What leaving means:
 
 - the packets your radio already reported stay in Community's statistics, under your radio's name;
 - your radio's position is deleted from Community;

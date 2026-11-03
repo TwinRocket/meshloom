@@ -14,6 +14,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import { LearnMoreLink } from './LearnMoreLink';
 import { formatNumber } from '../../utils/formatNumber';
 import {
   communityStatusActive,
@@ -424,7 +425,9 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
     <div className={className}>
       <div className="space-y-1">
         <SettingsGroupHeader title={t('settings.community.joinTitle')} storedOn="server" instant />
-        <p className="text-[0.8125rem] text-muted-foreground">{t('settings.community.intro')}</p>
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.community.intro')} <LearnMoreLink page="deep/community" />
+        </p>
       </div>
 
       {status.enabled && (
@@ -619,15 +622,9 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
           storedOn="server"
           instant
         />
-        <ul className="list-disc space-y-2 pl-5 text-[0.8125rem] text-muted-foreground">
-          <li>{t('settings.community.privacyAccount')}</li>
-          <li>{t('settings.community.privacyPrivateKey')}</li>
-          <li>{t('settings.community.privacyRotate')}</li>
-          <li>{t('settings.community.privacyPackets')}</li>
-          <li>{t('settings.community.privacyRadio')}</li>
-          <li>{t('settings.community.privacyHashtags')}</li>
-          <li>{t('settings.community.privacyDirectory')}</li>
-        </ul>
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.community.privacySummary')} <LearnMoreLink page="deep/community" />
+        </p>
       </div>
 
       {active && (

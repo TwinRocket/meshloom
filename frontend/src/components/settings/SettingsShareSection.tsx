@@ -10,7 +10,7 @@ import type {
   ShareStatus,
 } from '../../types';
 import { shareTermsStale } from '../../utils/shareTerms';
-import { userDocUrl } from '../../utils/userDocs';
+import { userDocsUrl } from '../../utils/userDocsUrl';
 import { loadShareStatus, refreshShareStatus, useShareStatus } from '../../stores/shareStatusStore';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -90,7 +90,7 @@ export function ShareConsentDialog({
   const links = {
     terms: <ExternalLink href={legalUrl(status.host, 'terms', i18n.language)} />,
     privacy: <ExternalLink href={legalUrl(status.host, 'privacy', i18n.language)} />,
-    docs: <ExternalLink href={userDocUrl('share', i18n.language)} />,
+    docs: <ExternalLink href={userDocsUrl(i18n.language, 'deep/share')} />,
   };
 
   return (

@@ -9,7 +9,7 @@ const KEYS = [
   'settings.share.communityOff',
   'settings.remote.badgeHelp.needs_community',
   'settings.remote.badgeHelp.community_off',
-  'settings.community.optOut.dependents',
+  'settings.community.optOut.intro',
   'errors.remote_community_off',
   'errors.share_community_off',
 ];

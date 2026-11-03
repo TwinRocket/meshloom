@@ -60,7 +60,8 @@ Les paquets qu’on n’a pas su déchiffrer ne sont pas perdus pour autant. Ce 
 
 - **Trace** envoie un paquet de test qui traverse les répéteurs que vous choisissez et revient à votre radio. Cela mesure une route au lieu de la deviner. Il faut pouvoir entendre le dernier répéteur de la chaîne pour que la trace réussisse. La liste propose les répéteurs connus par leur clé complète ; **Chemin personnalisé** ajoute un préfixe brut de 1, 2 ou 4 octets, et tous les sauts personnalisés d’une même trace ont la même largeur.
 - **Recherche de messages** cherche dans tout l’historique stocké, messages directs et salons confondus. Un résultat cliqué ouvre la conversation à cet endroit précis, avec les messages autour. On peut affiner avec `user:` ou `channel:` suivi d’un nom ou d’une clé. Les noms qui contiennent des espaces se mettent entre guillemets. L’expéditeur d’un message de salon est retrouvé grâce aux annonces entendues au moment de l’envoi : c’est une supposition, et deux utilisateurs du même nom ne sont pas distingués.
-- Les **Statistiques**, dans les réglages, résument ce que le nœud a vu : contacts, répéteurs, canaux et messages, paquets par heure sur 72 heures, canaux les plus actifs sur 24 heures, niveau de bruit, et part du trafic qui utilise des portées régionales.
+- **Réglages > Configuration locale** regroupe les options d’affichage de ce navigateur. **Scintillement du point d’état** fait clignoter le point de connexion à l’arrivée des paquets : bleu pour un message de canal, violet pour un message direct, cyan pour une annonce, vert pour le reste. Le pourcentage et la tension de batterie du badge d’état se mettent à jour toutes les 60 secondes : ils peuvent mettre jusqu’à une minute à apparaître après la connexion.
+- Les **Statistiques**, dans les réglages, résument ce que le nœud a vu : contacts, répéteurs, canaux et messages, paquets par heure sur 72 heures, canaux les plus actifs sur 24 heures, niveau de bruit, et part du trafic qui utilise des portées régionales. Le niveau de bruit est relevé chaque minute et gardé en mémoire seulement : il repart de zéro au redémarrage du serveur. Pour les portées régionales, le trafic compte tous les messages de canal entendus, y compris ceux des canaux dont vous n’avez pas la clé, alors que les expéditeurs ne comptent que les canaux que vous savez déchiffrer : les deux n’ont pas le même total et ne concordent pas. Des captures de paquets corrompus peuvent sembler régionales, alors Meshloom estime combien sont de faux positifs ; quand le nombre de messages régionaux ne dépasse pas cette estimation, ce n’est pas la preuve que votre région utilise les portées. Le nombre d’expéditeurs exige un déchiffrement réussi et n’est pas concerné.
 
 ## Le flux live
 
@@ -133,6 +134,8 @@ Garder les paquets bruts a un coût. Ils s’accumulent, la base grossit. La sec
 
 - **Supprimer les paquets non déchiffrés** retire les paquets illisibles plus vieux qu’un nombre de jours que vous choisissez. Les supprimer ferme la porte au déchiffrement de cette période : les messages déjà déchiffrés restent, les autres paquets disparaissent définitivement.
 - **Purger les paquets d’archive** retire les paquets bruts qui se cachent derrière des messages déjà déchiffrés. On gagne de la place sans toucher aux messages ni au déchiffrement futur, mais on ne peut plus inspecter ces paquets.
+
+**Déchiffrer automatiquement les DM historiques quand un nouveau contact s’annonce** fait tenter au serveur, quand un nouveau contact envoie une annonce, de déchiffrer les paquets de messages directs stockés qu’il ne savait pas lire. Sur un gros arriéré, cela peut causer de brefs délais.
 
 Sur une machine qui n’a pas de contrainte d’espace, laisser courir quelques semaines ne pose pas de problème.
 

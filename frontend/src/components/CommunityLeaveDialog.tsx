@@ -22,9 +22,9 @@ export const COMMUNITY_OPT_OUT_REASONS: CommunityOptOutReason[] = [
 const PRIVACY_EMAIL = 'privacy@meshloom.app';
 
 /**
- * Confirms an opt-out: what Community keeps and deletes, that Meshloom Remote and
- * sharing pause with it (MSHL-445), where to ask for a full deletion, and an
- * optional reason sent with `POST /v1/me/opt-out`.
+ * Confirms an opt-out in one short intro (Meshloom stops sharing, asks Community to
+ * delete the radio's position, and Remote and sharing pause with it, MSHL-445), where
+ * to ask for a full deletion, and an optional reason sent with `POST /v1/me/opt-out`.
  */
 export function CommunityLeaveDialog({
   open,
@@ -47,26 +47,18 @@ export function CommunityLeaveDialog({
           <DialogTitle>{t('settings.community.optOut.title')}</DialogTitle>
           <DialogDescription>{t('settings.community.optOut.intro')}</DialogDescription>
         </DialogHeader>
-        <ul className="list-disc space-y-1 pl-5 text-[0.8125rem] text-muted-foreground">
-          <li>{t('settings.community.optOut.kept')}</li>
-          <li>{t('settings.community.optOut.position')}</li>
-          <li>{t('settings.community.optOut.advert')}</li>
-          <li data-testid="community-leave-dependents">
-            {t('settings.community.optOut.dependents')}
-          </li>
-          <li>
-            <Trans
-              i18nKey="settings.community.optOut.fullDeletion"
-              components={{
-                email: (
-                  <a className="underline" href={`mailto:${PRIVACY_EMAIL}`}>
-                    {PRIVACY_EMAIL}
-                  </a>
-                ),
-              }}
-            />
-          </li>
-        </ul>
+        <p className="text-[0.8125rem] text-muted-foreground">
+          <Trans
+            i18nKey="settings.community.optOut.fullDeletion"
+            components={{
+              email: (
+                <a className="underline" href={`mailto:${PRIVACY_EMAIL}`}>
+                  {PRIVACY_EMAIL}
+                </a>
+              ),
+            }}
+          />
+        </p>
         <fieldset className="space-y-1.5">
           <legend className="mb-1 text-[0.8125rem] font-medium">
             {t('settings.community.optOut.reasonLabel')}
