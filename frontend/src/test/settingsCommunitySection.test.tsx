@@ -117,10 +117,12 @@ describe('SettingsCommunitySection', () => {
     expect(
       screen.getByText(i18n.t('settings.community.privacySummary'), { exact: false })
     ).toBeInTheDocument();
-    for (const link of screen.getAllByRole('link', { name: i18n.t('settings.common.learnMore') })) {
-      expect(link.getAttribute('href')).toMatch(
-        /^https:\/\/meshloom\.app\/(en|fr)\/docs\/deep\/community\/$/
-      );
+    // Test language is French, the site's default locale: no /fr/ prefix.
+    expect(i18n.language).toBe('fr');
+    const links = screen.getAllByRole('link', { name: i18n.t('settings.common.learnMore') });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toBe('https://meshloom.app/docs/deep/community/');
     }
     // No enable checkbox: joining is the only way on, and it binds the IATA first.
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();

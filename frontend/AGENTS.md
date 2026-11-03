@@ -544,8 +544,8 @@ revoke-all is `own_account`, and those five (and the custom domain test) are sho
 `/auth/users` to name device owners).
 
 - **Never local.** The section shows one actionable line (`settings.remote.about.secure`: use a
-  passkey or 2FA) and a "Learn more" link to the user docs page `deep/remote` (`userDocUrl`,
-  `utils/userDocs.ts`), which says what the relay sees; the UI does not repeat it (MSHL-449). In
+  passkey or 2FA) and a "Learn more" link to the user docs page `deep/remote` (`userDocsUrl`,
+  `utils/userDocsUrl.ts`), which says what the relay sees; the UI does not repeat it (MSHL-449). In
   code a relayed request is never the local network (`request_via()` is `relay`): through the relay
   (`via === 'relay'`) the enrolment button is replaced by the LAN-only notice (the server answers
   403 `remote_lan_only`).
@@ -745,7 +745,7 @@ focus, a tap or when the preview policy lets a shared image load, never on a pla
 `share`, after Community in `settingsConstants.ts`) shows the status line, the
 enable checkbox, and the shorten-mode and preview-policy radios. Enabling always
 opens the consent dialog (`ShareConsentDialog`): one sentence
-(`settings.share.consent.intro`) with a "Learn more" link to the user docs page `deep/share` (`userDocUrl`, which says what leaves, to
+(`settings.share.consent.intro`) with a "Learn more" link to the user docs page `deep/share` (`userDocsUrl`, which says what leaves, to
 whom and for how long; the dialog does not repeat it, MSHL-449) and a required
 checkbox (`settings.share.consent.accept`) linking the share service's own `/terms` and `/privacy` pages (host from
 `status.host`, never hardcoded; `?lang=`); `PATCH /api/settings`
@@ -860,7 +860,9 @@ every new or edited string:
   keep FR/EN parity. Copy changes never change behaviour.
 - **Docs links**: `components/settings/LearnMoreLink.tsx` (`<LearnMoreLink
   page="deep/community" />`, label `settings.common.learnMore`) builds the URL with
-  `utils/userDocs.ts` (`https://meshloom.app/{lang}/docs/<page>/`). No anchor:
+  `userDocsUrl(language, page)` (`utils/userDocsUrl.ts`, the only docs-URL helper):
+  `https://meshloom.app/docs/<page>/` in French (default locale,
+  no prefix), `https://meshloom.app/en/docs/<page>/` in English. No anchor:
   headings, hence anchors, differ between languages.
 
 ### WebSocket (`useWebSocket.ts`, `wsEvents.ts`)

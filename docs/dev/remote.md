@@ -275,7 +275,7 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 `ACCOUNT_SETTINGS_SECTIONS`). Details in `frontend/AGENTS.md`, "Remote access section".
 
 - One actionable line (passkey or 2FA) and a "Learn more" link to the user docs
-  (`docs/user/<lang>/deep/remote.md`, URL from `utils/userDocs.ts`). What the relay sees (TLS
+  (`docs/user/<lang>/deep/remote.md`, URL from `utils/userDocsUrl.ts`). What the relay sees (TLS
   ends at the relay, so it could read the traffic, the password at sign-in included; what the
   registration sends; a relayed request is never the local network) lives in that page and
   the relay's terms, not in the UI (MSHL-449).
