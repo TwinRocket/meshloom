@@ -289,9 +289,16 @@ purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
 - `mint_instance_jwt(service, audience, *, lifetime, jti=True, extra_claims=None)`
   mints in the Community wire format through `_generate_jwt_token`
   (`fanout/community_mqtt.py`) with a PyNaCl signer, `client = meshloom/<version>`
-  and no `owner`. `mint_share_jwt(binding)` is the share wrapper: `aud`
-  `meshloom-share`, 110 s (the links-files contract allows 120), `jti`, `bh` =
-  sha256 hex of the binding string. One token per request, never cached.
+  and no `owner`. `mint_share_jwt(binding, *, account_id=None)` is the share wrapper:
+  `aud` `meshloom-share`, 110 s (the links-files contract allows 120), `jti`, `bh` =
+  sha256 hex of the binding string, and `acct` when `account_id` is given. One token
+  per request, never cached. `share_account_id(user_id)` is that `acct` (MSHL-445):
+  HMAC-SHA256 of the local user id under a subkey of the share seed
+  (`HMAC(seed, "meshloom/links-acct/v1")`), cut to 16 bytes, base64url (22
+  characters, inside the contract's `[A-Za-z0-9_-]{1,64}`). Stable while the Links key
+  is, new after `regenerate` or a restore, not reversible without the seed; never a
+  username, an e-mail or a name. Pinned for the vector seed in
+  `tests/test_share_identity.py`.
   `mint_remote_jwt()` is the Remote wrapper: `aud` `relay.meshloom.link`, 300 s (the
   contract allows 3600), `jti`, one per registry request or relay connect attempt.
   `sign_with_instance_key(service, message)` signs the Remote device passes
@@ -410,7 +417,11 @@ Community guard, and it needs Community on (MSHL-445).
   `SHARE_TOTAL_TIMEOUT_S` on the whole call.
 - **Auth.** A write passes its contract binding string as `binding` and gets
   `Authorization: Bearer <mint_share_jwt(binding)>`, minted per request; a read
-  (`binding=None`) carries none. `User-Agent: Meshloom/<version>`.
+  (`binding=None`) carries none. `User-Agent: Meshloom/<version>`. A creation
+  (`POST /v1/links`, `POST /v1/files`) run inside `share.share_account(user_id)` (a
+  context variable; the routes `POST /api/share/links` and `/files` pass the
+  principal's `user_id`) gets the `acct` claim; no principal, or any other request,
+  sends none.
 - **Attestation** (MSHL-445). `POST /v1/links` and `POST /v1/files` also carry
   `X-Meshloom-Attestation`, the Community attestation of the Links key
   (`services/community_attestation.py`, audience `links`). `share_request` gets it after

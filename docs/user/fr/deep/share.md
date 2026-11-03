@@ -28,6 +28,7 @@ Seul ce serveur contacte le service, jamais votre navigateur, et toujours en HTT
 - **Quand vous lisez :** rien à l’affichage d’un message, sauf une photo partagée, que ce serveur télécharge quand le réglage des aperçus plus bas la laisse se charger ou quand vous la touchez (une seule fois : elle est ensuite gardée dans un cache local). Quand vous survolez un lien court ou lui donnez le focus, Meshloom demande au service ce que c’est (sa nature, l’hôte de sa destination et son expiration) pour afficher l’indication décrite plus bas. Ces requêtes portent l’identifiant de l’objet et l’adresse IP de ce Meshloom, sans jeton.
 
 - **Avant un nouveau lien ou fichier :** ce serveur demande à Meshloom Community une preuve qu’il connaît votre radio et qu’une autre station l’a entendue récemment, puis envoie cette preuve avec la création. La preuve nomme la clé de partage, pas votre radio. Voir [Preuve pour Remote et le partage](/docs/deep/community/#preuve-pour-remote-et-le-partage).
+- **Quel compte a partagé :** le jeton d’un nouveau lien ou fichier porte aussi un code pseudonyme du compte local qui l’a créé, jamais son nom ni son e-mail. L’exploitant le conserve avec la création pendant un an, et seul le propriétaire de ce Meshloom peut savoir de quel compte il s’agit.
 
 Le service conserve les liens courts 365 jours et les fichiers, publics ou chiffrés, 30 jours. Ses conditions d’utilisation et sa politique de confidentialité, accessibles depuis la fenêtre de consentement et publiées sur le domaine du service, disent ce qu’il conserve et pour qui.
 

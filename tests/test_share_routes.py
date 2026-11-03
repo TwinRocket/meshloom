@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import base64
+import json
+
 import httpx
 import pytest
 
 from app import keystore
 from app.repository import AppSettingsRepository
 from app.services import share
-from app.services.instance_identity import ensure_instance_key
+from app.services.instance_identity import ensure_instance_key, share_account_id
 from tests.share_fakes import Dns, Recorder, json_response
 
 
 @pytest.fixture(autouse=True)
 def _community_on(community_on):
     """Links & Files and Remote need Community on (MSHL-445)."""
+
+
+def _claims(token: str) -> dict:
+    payload = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
 
 
 LINK = {"id": "AbCdEfG", "url": "https://meshl.ink/AbCdEfG", "expires_at": 1791636000}
@@ -146,6 +154,21 @@ class TestLinks:
         assert response.status_code == 201
         assert response.json() == LINK
         assert on.hosts() == [share.SHARE_HOST]
+
+    async def test_creation_names_the_account_by_its_acct(self, on, client, sign_in_as):
+        # MSHL-445: the pseudonymous id of the signed-in account, never its name.
+        sign_in_as("member")
+        assert (await client.post("/api/share/links", json={"url": URL})).status_code == 201
+        claims = _claims(on.requests[-1].headers["authorization"].split(" ", 1)[1])
+        assert claims["acct"] == await share_account_id(2)
+        assert "test-member" not in json.dumps(claims)
+        # Only a creation inside share_account names an account.
+        with share.share_account(2):
+            on.requests.clear()
+            await share.create_link(URL)
+        assert "acct" in _claims(on.requests[-1].headers["authorization"].split(" ", 1)[1])
+        await share.create_link(URL)
+        assert "acct" not in _claims(on.requests[-1].headers["authorization"].split(" ", 1)[1])
 
     @pytest.mark.parametrize(
         "url",

@@ -305,8 +305,8 @@ class TestTurningOffCutsInFlight:
         recorder = Recorder(monkeypatch, _answer)
         real_mint = share.mint_share_jwt
 
-        async def mint_then_toggle(binding: str) -> str:
-            token = await real_mint(binding)
+        async def mint_then_toggle(binding: str, *, account_id: int | None = None) -> str:
+            token = await real_mint(binding, account_id=account_id)
             await AppSettingsRepository.update(share_enabled=False)
             await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
             return token

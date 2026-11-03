@@ -140,6 +140,10 @@ class TestUpload:
         claims = json.loads(base64.urlsafe_b64decode(payload_b64 + "=" * (-len(payload_b64) % 4)))
         assert claims["bh"] == hashlib.sha256(CASE["binding"].encode()).hexdigest()
         assert claims["bh"] == CASE["claims"]["bh"]
+        # MSHL-445: the signed-in account (the default test admin, id 1) by its acct.
+        from app.services.instance_identity import share_account_id
+
+        assert claims["acct"] == await share_account_id(1)
         assert _staged(data_dir) == []
 
     def test_binding_string_matches_the_vector(self):

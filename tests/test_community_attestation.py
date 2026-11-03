@@ -109,6 +109,8 @@ class TestVectors:
         assert set(VECTORS["audiences"]) == {ca.AUDIENCE_LINKS, ca.AUDIENCE_REMOTE}
         assert set(VECTORS["error_codes"]) == ca.REJECTION_CODES
         assert ca.ATTESTATIONS_PATH == meshloom_community.ATTESTATIONS_PATH
+        # Refresh when less than 24 h remain (attestation.md, client rules).
+        assert ca.RENEW_BEFORE_S == 24 * 3600
         # The local budget stays under Community's 12 per radio key and hour.
         assert ca.FETCH_BUDGET * 2 <= 12
 
@@ -129,6 +131,23 @@ class TestVectors:
         # Another key or audience: dropped.
         assert ca._parse(answer, issue["audience"], "A" * 64, issue["iat"]) is None
         assert ca._parse(answer, "remote", issue["instance_key"], issue["iat"]) is None
+
+    def test_a_body_audience_other_than_the_token_is_dropped(self):
+        case = next(c for c in VECTORS["cases"] if c["id"] == "ok_links")
+        claims = ca._token_claims(case["token"])
+        now = min(case["now"], claims["exp"] - ca.MIN_REMAINING_S - 1)
+        for asked, body_audience in (("links", "remote"), ("remote", "remote")):
+            answer = httpx.Response(
+                201,
+                json={
+                    "attestation": case["token"],
+                    "audience": body_audience,
+                    "issued_at": claims["iat"],
+                    "expires_at": claims["exp"],
+                },
+            )
+            # Asked links, told remote: the body lies. Asked remote: the token is links.
+            assert ca._parse(answer, asked, case["instance_key"], now) is None
 
     @pytest.mark.parametrize(
         "case",
@@ -232,6 +251,39 @@ class TestCache:
         assert await CommunityAttestationRepository.get("links") is None
         await ca.attestation_for("links")
         await ca._forget_after_restore("json")  # type: ignore[arg-type]
+        assert await CommunityAttestationRepository.get("links") is None
+
+    async def test_the_restore_hook_is_registered_and_runs(self, community):
+        from app.services.backup_sections import _restore_hooks, run_on_restore_hooks
+
+        assert _restore_hooks["community_attestation"] is ca._forget_after_restore
+        await ca.attestation_for("links")
+        await ca.attestation_for("remote")
+        await run_on_restore_hooks("sqlite")
+        assert await CommunityAttestationRepository.get("links") is None
+        assert await CommunityAttestationRepository.get("remote") is None
+
+    async def test_a_forget_during_a_request_wins(self, community):
+        import asyncio
+
+        started, release = asyncio.Event(), asyncio.Event()
+        answer_of = community.__call__
+
+        async def slow(instance_key: str, audience: str) -> httpx.Response:
+            started.set()
+            await release.wait()
+            return await answer_of(instance_key, audience)
+
+        ca._request_attestation = slow  # restored by monkeypatch (community fixture)
+        fetch = asyncio.ensure_future(ca.attestation_for("links"))
+        await started.wait()
+        # Community turned off while the request is in flight.
+        forget = asyncio.ensure_future(ca.forget_attestations())
+        await asyncio.sleep(0)
+        assert not forget.done()  # waits for the request under the audience lock
+        release.set()
+        await fetch
+        await forget
         assert await CommunityAttestationRepository.get("links") is None
 
 

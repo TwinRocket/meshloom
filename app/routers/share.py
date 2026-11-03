@@ -26,6 +26,10 @@ served ``Cache-Control: no-store`` (plaintext never lands in the browser's disk
 cache) under a name whose extension is forced to its checked type. No secret is
 ever logged, returned or sent.
 
+A creation (``POST /links``, ``POST /files``) runs inside ``share.share_account``
+with the signed-in user's id: its token carries ``acct``, the pseudonymous id of
+that account (MSHL-445), never its name.
+
 ``POST /{id}/report`` forwards a report (``reason``, optional ``details``) to the
 service, signed with the instance key (``share.report_object``).
 
@@ -55,6 +59,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from app import keystore
 from app.auth.audit import SYSTEM_ACTOR, RequestActor, audited
 from app.auth.permissions import can_read_private, require
+from app.auth.principal import get_principal
 from app.log_redaction import secret_scope
 from app.models import (
     Message,
@@ -103,6 +108,12 @@ def refuse_cross_site(request: Request) -> None:
 # Hosts the contract's target URL rules always refuse (``invalid_url``): refused here
 # first, so credentials and LAN addresses never leave the instance.
 _PRIVATE_SUFFIXES = (".localhost", ".local", ".lan", ".internal", ".home.arpa")
+
+
+def _account_id(request: Request) -> int | None:
+    """The local account behind a creation, for the ``acct`` claim (MSHL-445)."""
+    principal = get_principal(request)
+    return principal.user_id if principal is not None else None
 
 
 def _checked_url(raw: str) -> str:
@@ -166,11 +177,12 @@ async def get_share_status() -> ShareStatus:
     status_code=201,
     dependencies=[Depends(require("send")), Depends(refuse_cross_site)],
 )
-async def create_share_link(body: ShareLinkRequest) -> ShareLinkResponse:
+async def create_share_link(body: ShareLinkRequest, request: Request) -> ShareLinkResponse:
     # Off first: a disabled instance answers share_disabled whatever the body.
     if await share.share_egress_state() is None:
         raise ShareError("share_disabled")
-    link = await share.create_link(_checked_url(body.url))
+    with share.share_account(_account_id(request)):
+        link = await share.create_link(_checked_url(body.url))
     return ShareLinkResponse(id=link.id, url=link.url, expires_at=link.expires_at)
 
 
@@ -226,7 +238,7 @@ async def upload_share_file(request: Request) -> ShareFileResponse:
     )
     # The whole encrypted upload runs with the secret registered for redaction.
     scope = secret_scope(secret) if secret is not None else contextlib.nullcontext()
-    with scope, share_upload.upload_slot():
+    with scope, share_upload.upload_slot(), share.share_account(_account_id(request)):
         async with share_upload.staged_upload(
             request.stream(), content_type=content_type, length=length
         ) as staged:
