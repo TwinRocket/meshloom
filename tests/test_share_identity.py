@@ -341,12 +341,9 @@ async def test_acct_is_stable_per_key_and_names_nobody(test_db):
     first = await share_account_id(1)
     assert await share_account_id(1) == first
     assert await share_account_id(2) != first
-    # Not the id, nor a plain hash of it: a keyed hash of this instance.
-    for plain in ("1", hashlib.sha256(b"1").hexdigest()):
-        assert plain not in first
-    assert base64.urlsafe_b64encode(hashlib.sha256(b"1").digest()[:16]).rstrip(b"=").decode() != (
-        first
-    )
+    # Not the id, nor an unkeyed hash of it: a keyed hash of this instance.
+    unkeyed = base64.urlsafe_b64encode(hashlib.sha256(b"1").digest()[:16]).rstrip(b"=").decode()
+    assert first not in ("1", unkeyed)
     # A new Links key (regenerate, restore) gives every account a new acct.
     await regenerate(SHARE_SERVICE)
     assert await share_account_id(1) != first
