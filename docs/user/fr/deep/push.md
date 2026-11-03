@@ -19,9 +19,9 @@ Web Push est un canal parmi d’autres (le canal intégré **Web Push**). Chaque
 
 Meshloom signe chaque notification avec une paire de clés créée au premier démarrage. La signature porte aussi une adresse de contact, appelée sujet VAPID.
 
-Réglez-la dans **Réglages → Notifications → Canaux**, champ **Sujet VAPID** de la carte Web Push (**Appareils et réglages Web Push**). Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise `mailto:noreply@meshcore.local`.
+Réglez-la dans **Réglages → Notifications → Canaux**, champ **Sujet VAPID** de la carte Web Push (**Appareils et réglages Web Push**). Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise l’adresse Meshloom Remote (`https://<nom>.meshloom.link`) tant que Remote est activé, et `mailto:noreply@meshcore.local` sinon. La ligne sous le champ indique l’adresse utilisée et sa provenance. Ce que vous saisissez l’emporte toujours.
 
-**Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Saisissez une vraie adresse dans ce champ.
+**Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Activez Meshloom Remote ou saisissez une vraie adresse dans ce champ. Changer l’adresse, ou activer ou désactiver Remote, ne touche pas aux appareils abonnés : ils dépendent de la paire de clés, pas de l’adresse. Votre propre domaine pour Remote n’est jamais utilisé ici, car Meshloom ne l’enregistre pas.
 
 La variable d’environnement `MESHCORE_VAPID_SUBJECT` n’est plus lue. Si elle était encore définie lors de la mise à jour, Meshloom l’a recopiée une seule fois dans ce champ, au premier démarrage, à condition qu’il soit vide. L’option `vapid_subject` de l’add-on Home Assistant suit le même chemin : elle est recopiée une fois dans ce champ, et elle est dépréciée (elle disparaît à la version suivante).
 

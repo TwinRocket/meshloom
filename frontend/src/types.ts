@@ -2396,7 +2396,11 @@ export type ConversationMediaOverride = Partial<NotificationMediaFlags>;
 export interface PushPreferences {
   defaults: PushDefaults;
   overrides: Record<string, boolean | ConversationMediaOverride>;
+  /** The subject typed in Settings (may be empty). */
   vapid_subject: string;
+  /** The subject Web Push signs with now (MSHL-446). */
+  vapid_subject_effective: string;
+  vapid_subject_source: 'stored' | 'remote' | 'default';
 }
 
 export interface TraceResponse {

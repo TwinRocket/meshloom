@@ -135,6 +135,8 @@ What `remote.py` offers the relay client (`remote_relay.py`, below):
 - `register(actor)` after a `4003`; `add_change_listener(callback)` to connect or
   disconnect when Remote is enabled, disabled, registered, rotated, unregistered or
   reset by a restore (adding the same callback twice is a no-op).
+- Web Push also listens (`app/push/vapid.py`, MSHL-446): with no usable typed VAPID subject,
+  `https://<hostname>` is the subject while Remote is on and registered; derived, never stored.
 - `verify_device_pass(token, slot)` on every relayed request.
 
 ## Relay client (`remote_relay.py`)
