@@ -46,23 +46,18 @@ export function CommunityLeaveDialog({
           <DialogTitle>{t('settings.community.optOut.title')}</DialogTitle>
           <DialogDescription>{t('settings.community.optOut.intro')}</DialogDescription>
         </DialogHeader>
-        <ul className="list-disc space-y-1 pl-5 text-[0.8125rem] text-muted-foreground">
-          <li>{t('settings.community.optOut.kept')}</li>
-          <li>{t('settings.community.optOut.position')}</li>
-          <li>{t('settings.community.optOut.advert')}</li>
-          <li>
-            <Trans
-              i18nKey="settings.community.optOut.fullDeletion"
-              components={{
-                email: (
-                  <a className="underline" href={`mailto:${PRIVACY_EMAIL}`}>
-                    {PRIVACY_EMAIL}
-                  </a>
-                ),
-              }}
-            />
-          </li>
-        </ul>
+        <p className="text-[0.8125rem] text-muted-foreground">
+          <Trans
+            i18nKey="settings.community.optOut.fullDeletion"
+            components={{
+              email: (
+                <a className="underline" href={`mailto:${PRIVACY_EMAIL}`}>
+                  {PRIVACY_EMAIL}
+                </a>
+              ),
+            }}
+          />
+        </p>
         <fieldset className="space-y-1.5">
           <legend className="mb-1 text-[0.8125rem] font-medium">
             {t('settings.community.optOut.reasonLabel')}

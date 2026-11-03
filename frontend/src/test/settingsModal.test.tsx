@@ -1192,7 +1192,9 @@ describe('SettingsModal', () => {
     expect(
       await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
     ).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.community.privacyAccount'))).toBeInTheDocument();
+    expect(
+      screen.getByText(i18n.t('settings.community.privacySummary'), { exact: false })
+    ).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /community/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Avancé')).not.toBeInTheDocument();
     expect(screen.queryByText('Advanced')).not.toBeInTheDocument();

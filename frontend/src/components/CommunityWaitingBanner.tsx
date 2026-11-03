@@ -79,10 +79,9 @@ export function CommunityWaitingBanner() {
             <DialogTitle>{t('settings.community.waiting.title')}</DialogTitle>
             <DialogDescription>{t('settings.community.waiting.why')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 text-[0.8125rem] text-muted-foreground">
-            <p>{t('settings.community.waiting.privacy')}</p>
-            <p>{t('settings.community.waiting.leaveHelp')}</p>
-          </div>
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.community.waiting.leaveHelp')}
+          </p>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               type="button"

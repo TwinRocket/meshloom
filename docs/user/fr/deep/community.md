@@ -21,7 +21,7 @@ Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatis
 
 Rejoindre est le seul moyen d’activer Community depuis les réglages : il n’y a pas d’interrupteur, et **Quitter Meshloom Community** (affiché une fois rejoint) ne fait que le désactiver. Meshloom enregistre d’abord le code auprès de Community, et alors seulement active Community et commence à publier. Si Community refuse le code (par exemple parce que cette radio a déjà changé de code trop souvent ces 7 derniers jours), Community reste désactivé, votre code enregistré ne change pas, et les réglages disent pourquoi.
 
-Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié. Community efface cette confirmation quand la position de votre radio s’éloigne de plus de 100 km (par défaut : réglage `IATA_GPS_HYSTERESIS_KM` côté Community) de celle qu’il a enregistrée : comme Meshloom renvoie désormais la position de lui-même (voir plus bas), cela peut arriver sans aucune action dans les réglages, et **Je suis sûr de moi** réapparaît si le code et la position ne concordent toujours pas.
+Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme ; cette confirmation ne compte pas comme un changement. Community limite la fréquence à laquelle le code peut être modifié. Community efface cette confirmation quand la position de votre radio s’éloigne de plus de 100 km (par défaut : réglage `IATA_GPS_HYSTERESIS_KM` côté Community) de celle qu’il a enregistrée : comme Meshloom renvoie désormais la position de lui-même (voir plus bas), cela peut arriver sans aucune action dans les réglages, et **Je suis sûr de moi** réapparaît si le code et la position ne concordent toujours pas.
 
 Ce code est aussi la région que la page Live affiche par défaut ; on peut y ajouter d’autres régions.
 
@@ -74,7 +74,7 @@ Le Store d'extensions est indépendant de Community : il a son propre interrupte
 
 ## Quitter Community
 
-**Quitter Meshloom Community** (dans les réglages, ou **Quitter Community** dans l’explication de la bannière d’attente) affiche d’abord ce que le départ implique :
+**Quitter Meshloom Community** (dans les réglages, ou **Quitter Community** dans l’explication de la bannière d’attente) demande d’abord confirmation, dans une courte fenêtre qui donne l’adresse de confidentialité ci-dessous. Ce que le départ implique :
 
 - les paquets déjà remontés par votre radio restent dans les statistiques de Community, sous le nom de votre radio ;
 - la position de votre radio est supprimée de Community ;

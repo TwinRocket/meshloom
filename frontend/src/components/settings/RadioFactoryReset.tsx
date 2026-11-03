@@ -72,9 +72,6 @@ export function RadioFactoryReset({ radioName }: { radioName: string }) {
     }
   };
 
-  const erased = ['erasedIdentity', 'erasedContacts', 'erasedSettings'] as const;
-  const kept = ['keptDatabase', 'keptWifi'] as const;
-
   return (
     <SettingsGroup id="radio-factory-reset">
       <SettingsGroupHeader
@@ -117,24 +114,6 @@ export function RadioFactoryReset({ radioName }: { radioName: string }) {
             <DialogDescription>{t('settings.radio.factoryReset.dialogIntro')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
-            <div className="space-y-1">
-              <h4 className="font-semibold text-destructive">
-                {t('settings.radio.factoryReset.erasedTitle')}
-              </h4>
-              <ul className="list-disc space-y-1 pl-5">
-                {erased.map((k) => (
-                  <li key={k}>{t(`settings.radio.factoryReset.${k}`)}</li>
-                ))}
-              </ul>
-            </div>
-            <div className="space-y-1">
-              <h4 className="font-semibold">{t('settings.radio.factoryReset.keptTitle')}</h4>
-              <ul className="list-disc space-y-1 pl-5">
-                {kept.map((k) => (
-                  <li key={k}>{t(`settings.radio.factoryReset.${k}`)}</li>
-                ))}
-              </ul>
-            </div>
             {wifiStored && (
               <p className="text-warning" role="note">
                 {t('settings.radio.factoryReset.wifiStoredWarning')}
@@ -145,7 +124,6 @@ export function RadioFactoryReset({ radioName }: { radioName: string }) {
                 {t('settings.radio.factoryReset.wifiTcpWarning')}
               </p>
             )}
-            <p className="text-muted-foreground">{t('settings.radio.factoryReset.after')}</p>
             <div className="space-y-2">
               <Label htmlFor="radio-factory-reset-confirm">
                 {t('settings.radio.factoryReset.confirmLabel', { name: radioName })}

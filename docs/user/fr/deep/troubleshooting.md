@@ -77,7 +77,7 @@ Meshloom reçoit normalement les messages dès que la radio les annonce, et vér
 
 ## Un message part sur le mauvais canal
 
-Une autre application modifie probablement les emplacements de canal de la radio sous les pieds de Meshloom. Activez **Réécrire le salon avant chaque envoi** dans **Réglages → Radio → Avancé** : Meshloom réécrit alors le canal dans la radio avant chaque envoi. C’est fiable, mais cela ajoute un court délai à chaque message.
+Une autre application modifie probablement les emplacements de canal de la radio sous les pieds de Meshloom. Activez **Réécrire le canal avant chaque envoi** dans **Réglages → Radio → Avancé** : Meshloom réécrit alors le canal dans la radio avant chaque envoi. C’est fiable, mais cela ajoute un court délai à chaque message.
 
 ## Contention du port série
 
