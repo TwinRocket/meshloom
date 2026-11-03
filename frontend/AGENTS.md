@@ -558,8 +558,8 @@ revoke-all is `own_account`, and those five (and the custom domain test) are sho
 - **Community required** (MSHL-445). With `community_enabled: false` the badge is
   `needs_community` (Remote off: no enable button) or `community_off` (Remote on, paused), and
   the action is a button that opens the Community section (`onOpenSection('community')`). The
-  Community leave dialog (`CommunityLeaveDialog`) says that Remote and sharing pause too
-  (`settings.community.optOut.dependents`, slice `c`).
+  Community leave dialog (`CommunityLeaveDialog`) says in its short intro that Remote and
+  sharing pause too (`settings.community.optOut.intro`, slice `c`).
 - **Custom domain** (`RemoteDomainPanel`, admin, registered): the domain input and the "Test"
   button (`POST /api/remote/domain/test`). The result and its reasons are
   `settings.remote.domain.result.<result>` / `.reason.<code>`; the host a domain redirects to is
