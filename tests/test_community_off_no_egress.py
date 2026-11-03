@@ -5,8 +5,8 @@ Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``/api/community``, ``/api/directory``, ``/api/tools``, ``/api/channels``,
 ``/api/settings``, ``/api/updates``, ``/api/store``, ``/api/plugins``,
 ``/api/share`` (``POST /api/share/files`` and ``/{id}/report`` included) and
-``/api/remote`` (but ``POST /api/remote/enable``, Remote's own opt-in:
-``tests/test_remote_off_no_egress.py``) is called (found dynamically from
+``/api/remote`` (``POST /api/remote/enable`` included: Remote needs Community, MSHL-445)
+is called (found dynamically from
 ``app.routes``), plus the hashtag catalogue and the update check with GitHub
 answering 503. Any request to ``*.meshloom.app``, ``*.meshloom.link`` (Meshloom Remote),
 ``api.fx-port.com`` (the retired airport search) or the effective Community API
@@ -31,9 +31,10 @@ hosts of the Store allowlist) may be reached, through ``store_fetch``; every oth
 ``store_online`` off, nothing goes there. The recorder reads the ``Host`` header, so a
 request sent through a pinned client (connected to the IP) is still seen by name.
 
-``TestRemoteEgressIsSeparate``: Meshloom Remote (MSHL-87) is its own egress class.
-With Community off and Remote on and registered, the relay socket goes to exactly
-``relay.meshloom.link`` and nothing reaches a Community host.
+``TestRemoteNeedsCommunity``: Meshloom Remote (MSHL-87) runs on TwinRocket
+infrastructure and needs Community on (MSHL-445). With Community off and Remote on and
+registered, the relay socket never opens (link status ``community_off``) and nothing
+reaches a Community host or ``*.meshloom.link``.
 
 ``TestPositionRebindOff``: the automatic re-bind on a radio position or policy
 change sends nothing while Community is off.
@@ -427,8 +428,6 @@ _SWEPT_PREFIXES = (
 _NOT_SWEPT = {
     ("GET", "/api/settings/backup/database"),
     ("GET", "/api/community/iata/suggest"),
-    # Remote's own opt-in (tests/test_remote_off_no_egress.py covers it).
-    ("POST", "/api/remote/enable"),
 }
 
 
@@ -472,7 +471,8 @@ class TestCommunityOffNoEgress:
         assert ("GET", "/api/share/mine") in routes
         assert ("DELETE", "/api/share/{share_id}") in routes
         assert ("POST", "/api/remote/rotate") in routes
-        assert ("POST", "/api/remote/enable") not in routes
+        # Remote needs Community (MSHL-445): its opt-in is refused, so it is swept too.
+        assert ("POST", "/api/remote/enable") in routes
         assert len(routes) >= 50
         # Left out on purpose: the IATA suggestion (TestIataSuggestion).
         assert ("GET", "/api/community/iata/suggest") not in routes
@@ -1742,6 +1742,10 @@ class TestWaitingForPosition:
             for method, template in _swept_routes():
                 if (method, template) == ("PUT", "/api/community/me/iata"):
                     continue  # a bind: allowed while waiting (test below)
+                if (method, template) == ("POST", "/api/remote/enable"):
+                    # Remote's own opt-in, allowed once Community is on, waiting or not
+                    # (MSHL-445); it reaches the relay only (tests/test_remote_off_no_egress.py).
+                    continue
                 path = re.sub(r"\{(\w+)\}", lambda m: _PATH_PARAMS[m.group(1)], template)
                 response = await client.request(
                     method,
@@ -2742,13 +2746,13 @@ class TestStoreEgressIsSeparate:
         assert (await get_community_effective()).enabled is False
 
 
-class TestRemoteEgressIsSeparate:
-    """Community off, Remote on and registered: the relay socket goes to exactly
-    ``RELAY_HOST`` and nothing reaches a Community host (MSHL-87). The other direction
-    is in ``tests/test_remote_off_no_egress.py``."""
+class TestRemoteNeedsCommunity:
+    """Community off, Remote on and registered: the relay socket never opens and nothing
+    leaves (MSHL-445). Remote off with Community on is in
+    ``tests/test_remote_off_no_egress.py``."""
 
     @pytest.mark.asyncio
-    async def test_only_the_relay_host(self, test_db, egress, cleanup_community, monkeypatch):
+    async def test_no_relay_socket(self, test_db, egress, cleanup_community, monkeypatch):
         from app.main import app
         from app.repository.remote import RemoteRepository
         from app.services import remote, remote_relay
@@ -2772,10 +2776,53 @@ class TestRemoteEgressIsSeparate:
         client = remote_relay.RelayClient()
         try:
             await client.start(app)
-            await _until(lambda: len(urls) >= 3)
+            assert not client.running()
+            assert remote.link_status() == remote_relay.COMMUNITY_OFF
         finally:
             await client.stop()
-        assert {urlsplit(url).hostname for url in urls} == {remote.RELAY_HOST}
-        assert all(url.startswith("wss://") for url in urls)
+        assert urls == []
         assert egress.forbidden(start) == []
         assert egress.events[start:] == []
+
+    @pytest.mark.asyncio
+    async def test_opt_out_pauses_remote_and_a_join_resumes_it(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        """The Community opt-in drives the relay socket: on connects, off closes it and
+        keeps the registration (MSHL-445)."""
+        from app.main import app
+        from app.repository.remote import RemoteRepository
+        from app.services import remote, remote_relay
+
+        urls: list[str] = []
+
+        def relay_socket(url: str, **_kwargs: Any) -> Any:
+            urls.append(url)
+            raise OSError("refused by the test")
+
+        monkeypatch.setattr("websockets.connect", relay_socket)
+        monkeypatch.setattr(remote_relay, "BACKOFF_INITIAL_S", 0.01)
+        await RemoteRepository.update_state(
+            enabled=True,
+            slug="k3xwq2m7ta",
+            hostname="k3xwq2m7ta.meshloom.link",
+            relay_url="wss://relay.meshloom.link/v1/connect",
+        )
+        client = remote_relay.get_relay_client()
+        try:
+            await client.start(app)
+            assert urls == [] and remote.link_status() == remote_relay.COMMUNITY_OFF
+            await update_community(enabled=True, iata="CDG")
+            await _until(lambda: len(urls) >= 2)
+            await update_community(enabled=False)
+            assert not client.running()
+            assert remote.link_status() == remote_relay.COMMUNITY_OFF
+            count = len(urls)
+            await asyncio.sleep(0.05)
+            assert len(urls) == count
+            state = await RemoteRepository.get_state()
+            assert state.enabled and state.slug == "k3xwq2m7ta"
+        finally:
+            await client.stop()
+            client.app = None
+        assert {urlsplit(url).hostname for url in urls} == {remote.RELAY_HOST}

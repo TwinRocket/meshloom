@@ -17,6 +17,12 @@ from app.services.share_cache import (
 )
 from tests.share_fakes import Dns, Recorder, json_response
 
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 _RealAsyncClient = httpx.AsyncClient
 
 PNG_1X1 = bytes.fromhex(

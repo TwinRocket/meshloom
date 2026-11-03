@@ -276,6 +276,11 @@ export function SettingsRemoteSection({
                     {t('settings.remote.actions.restart')}
                   </Button>
                 )}
+                {badge.action === 'community' && onOpenSection && (
+                  <Button disabled={busy} onClick={() => onOpenSection('community')}>
+                    {t('settings.remote.actions.community')}
+                  </Button>
+                )}
                 {badge.action === 'update' && onOpenSection && (
                   <Button disabled={busy} onClick={() => onOpenSection('updates')}>
                     {t('settings.remote.actions.update')}

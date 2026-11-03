@@ -141,8 +141,10 @@ def _checked_url(raw: str) -> str:
 async def get_share_status() -> ShareStatus:
     settings = await AppSettingsRepository.get()
     terms_current = share.share_terms_current(settings)
+    community_on = await share.community_on()
     return ShareStatus(
-        enabled=share.share_is_effective(settings),
+        enabled=share.share_is_effective(settings, community_on=community_on),
+        community_enabled=community_on,
         terms_version=share.SHARE_TERMS_VERSION,
         terms_accepted_version=settings.share_terms_version,
         terms_accepted_at=settings.share_terms_accepted_at or None,

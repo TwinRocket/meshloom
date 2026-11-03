@@ -54,7 +54,8 @@ from app.services.backup_crypto import (
     BackupCryptoError,
     encrypt_backup_async,
 )
-from app.services.share import share_is_effective, share_terms_current
+from app.services.share import ShareError, share_is_effective, share_terms_current
+from app.services.share import community_on as share_community_on
 from app.telemetry_interval import (
     DEFAULT_TELEMETRY_INTERVAL_HOURS,
     TELEMETRY_INTERVAL_OPTIONS_HOURS,
@@ -178,7 +179,10 @@ class AppSettingsUpdate(BaseModel):
     )
     share_enabled: bool | None = Field(
         default=None,
-        description="Consent to the link and file sharing service (off by default)",
+        description=(
+            "Consent to the link and file sharing service (off by default). Turning it on "
+            "while Community is off is refused (409 share_community_off)"
+        ),
     )
     store_online: bool | None = Field(
         default=None,
@@ -389,7 +393,10 @@ async def _present_settings(settings: AppSettings) -> AppSettings:
             )
         }
     )
-    redacted = redacted.model_copy(update={"share_effective": share_is_effective(settings)})
+    community_on = await share_community_on()
+    redacted = redacted.model_copy(
+        update={"share_effective": share_is_effective(settings, community_on=community_on)}
+    )
     return await annotate_directory_available(redacted)
 
 
@@ -582,6 +589,9 @@ async def update_settings(
         logger.info("Updating share_enabled to %s", update.share_enabled)
         kwargs["share_enabled"] = update.share_enabled
         share_was_enabled = (await AppSettingsRepository.get()).share_enabled
+        if update.share_enabled is True and not await share_community_on():
+            # Links runs on TwinRocket infrastructure: Community first (MSHL-445).
+            raise ShareError("share_community_off")
     if update.store_online is not None:
         logger.info("Updating store_online to %s", update.store_online)
         kwargs["store_online"] = update.store_online

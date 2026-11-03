@@ -9,6 +9,8 @@
       "intro": "Raccourcissez les liens longs et partagez des fichiers. Désactivé tant que vous ne l'activez pas.",
       "enable": "Activer le partage de liens et de fichiers",
       "unreachable": "Le service de partage ne répond pas. Réessayez plus tard.",
+      "communityOff": "Le partage a besoin de Meshloom Community. Community est désactivé : partage en pause, réglages conservés.",
+      "openCommunity": "Ouvrir les réglages Community",
       "banned": {
         "title": "Partage banni pour ce Meshloom",
         "body": "Le service de partage a banni ce Meshloom pour 12 heures ; les liens déjà partagés marchent toujours. Une erreur ? Écrivez à <email>ban@meshloom.app</email>."

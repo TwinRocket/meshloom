@@ -50,16 +50,26 @@ capped at 16 KiB. `tests/test_remote_off_no_egress.py` sweeps it.
 The relay socket follows the same rule: `remote_relay` connects only while Remote is on
 **and** registered, to `wss://<RELAY_HOST>/v1/connect` and nowhere else (never a host read from storage: the
 registered `relay_url` is informative), without any system proxy.
-Community plays no part in either direction: with Community on and Remote off nothing
-reaches the relay (`tests/test_remote_off_no_egress.py`); with Community off and Remote
-on, only the relay host is reached (`tests/test_community_off_no_egress.py`,
-`TestRemoteEgressIsSeparate`).
+Remote needs Community on (MSHL-445: every feature backed by TwinRocket infrastructure
+does). `remote.community_on()` reads the stored opt-in (`meshloom_community.community_enabled()`,
+waiting for a position counts as on). While Community is off, `enable()` and every
+`_registry()` call answer 409 `remote_community_off` with no connection and nothing
+written, and the relay client does not connect (`link_status` `community_off`).
+Turning Community off while Remote is on **pauses** it, the least destructive choice:
+`remote_state` (opt-in, slug, devices, gate) is kept, the relay loop is stopped (socket
+closed), the pending access requests are dropped; turning Community on again restarts
+the loop. The hook is `meshloom_community.add_enabled_change_listener`, called by
+`_update_community_locked` once the opt-in flipped (after the opt-out teardown); `remote`
+registers `_on_community_change`, which runs the Remote change listeners. With Community
+on and Remote off nothing reaches the relay (`tests/test_remote_off_no_egress.py`); with
+Community off and Remote on nothing does either (`tests/test_community_off_no_egress.py`,
+`TestRemoteNeedsCommunity`, and `tests/test_community_required.py`).
 
 ## State changes
 
 | Call | Route | Effect |
 |---|---|---|
-| `enable` | `POST /api/remote/enable` | Turns Remote on and registers (`POST /v1/instances` with `version`, `install_kind`, `plugins: {enabled, isolation}`) when not registered. Stores `slug`, `hostname`, `relay_url` and declares the hostname to the host guard. A registry failure keeps Remote on, unregistered, with `last_error`; calling it again retries |
+| `enable` | `POST /api/remote/enable` | 409 `remote_community_off` while Community is off (nothing written). Otherwise turns Remote on and registers (`POST /v1/instances` with `version`, `install_kind`, `plugins: {enabled, isolation}`) when not registered. Stores `slug`, `hostname`, `relay_url` and declares the hostname to the host guard. A registry failure keeps Remote on, unregistered, with `last_error`; calling it again retries |
 | `register` | (relay client) | The same registration, idempotent: after a close `4003` |
 | `disable` | `POST /api/remote/disable` | Turns Remote off and withdraws the hostname; registration and devices are kept |
 | `unregister` | `DELETE /api/remote` | `DELETE /v1/instances/self` (a 404 `instance_unknown` counts as done), forgets slug and hostname, turns Remote off, **keeps the key** (the registry holds the slug 30 days for it). 409 `remote_disabled` while off |
@@ -67,7 +77,8 @@ on, only the relay host is reached (`tests/test_community_off_no_egress.py`,
 | on_restore `remote` | any restore | The `instance_identity` hook replaced the key; this one forgets registration, devices and tokens and turns Remote off. A database copy also empties the three tables (`SNAPSHOT_EMPTIED_TABLES`) |
 
 `GET /api/remote` returns `state`: `disabled`, `unregistered` (on, no slug) or
-`registered`, plus `relay_connected` and `link_status` as the relay client reports them.
+`registered`, plus `relay_connected` and `link_status` as the relay client reports them,
+and `community_enabled` (the Community opt-in Remote needs).
 
 ## Device passes
 
@@ -229,9 +240,10 @@ drops, every stream ends at once and the app tasks get 5 s before they are cance
 | `1002`, `1009` | Logged as a protocol error, then the backoff below | `reconnecting` |
 | anything else, HTTP refusals | Backoff from 1 s doubling to 5 min, full jitter, reset after 60 s connected; a 429 waits at least its `Retry-After` (at most 15 min) | `reconnecting` |
 
-`link_status` is null while Remote is off, and `not_registered` while it is on without
-a slug. A stopped state stays until Remote changes (enable, disable, register, rotate,
-unregister, restore), which restarts the loop.
+`link_status` is null while Remote is off, `community_off` while it is on with Community
+off, and `not_registered` while it is on without a slug. A stopped state stays until
+Remote changes (enable, disable, register, rotate, unregister, restore) or Community is
+turned on or off, which restarts the loop.
 
 ## Custom domain test (MSHL-428)
 
@@ -282,10 +294,13 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
   registration sends; a relayed request is never the local network) lives in that page and
   the relay's terms, not in the UI (MSHL-449).
 - State badge from `state` and `link_status` (`remoteShared.ts` `remoteBadge`): every
-  `LINK_STATES` value, `off`, `unregistered` and `unknown` has a label and a help in
-  `settings.remote.badge.*` / `badgeHelp.*`, and an action where one helps (enable or
-  retry, off and on again for `not_registered`, replace the key for `replaced`, open
-  Updates for `update_required`). Hostname with copy, key fingerprint.
+  `LINK_STATES` value, `off`, `needs_community`, `unregistered` and `unknown` has a label
+  and a help in `settings.remote.badge.*` / `badgeHelp.*`, and an action where one helps
+  (enable or retry, off and on again for `not_registered`, replace the key for `replaced`,
+  open Updates for `update_required`, open the Community settings for `needs_community` and
+  `community_off`). With `community_enabled` false the badge is `needs_community` (Remote
+  off: no enable button) or `community_off` (Remote on, paused). Hostname with copy, key
+  fingerprint.
 - Administrators: enable (a two-line dialog, without the relay paragraph; it blocks until
   acknowledged while plugins run with reduced isolation, the rule of the
   `remote_reduced_plugin_isolation` notice),
@@ -329,7 +344,9 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 of the registry's JWT checks proved on every case, then the minted tokens),
 `tests/test_remote_service.py` (fake registry, fake relay and edge: registration,
 enrolment, access requests, revocation, rotation, restore, routes),
-`tests/test_remote_off_no_egress.py`, `tests/test_remote_domain.py` (the custom domain
+`tests/test_remote_off_no_egress.py`, `tests/test_community_required.py` (Community off:
+enable refused, no registry request, the relay link follows the opt-in, restore),
+`tests/test_remote_domain.py` (the custom domain
 test: results, scheme fallback, private addresses, off), `tests/test_migrations/test_migration_138.py`.
 Settings UI: `frontend/src/test/settingsRemoteSection.test.tsx` (mocked `/api/remote`
 states) and `tests/test_remote_ui_strings.py`.

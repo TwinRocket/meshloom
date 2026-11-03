@@ -26,6 +26,7 @@ import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import type { SettingsSection } from './settingsConstants';
 import { formatShareBytes, ShareUploadsList } from './ShareUploadsList';
 
 // Same contact as the Community ban banner (SettingsCommunitySection).
@@ -236,9 +237,11 @@ function StatusLine({ status }: { status: ShareStatus }) {
 export function SettingsShareSection({
   className,
   onSaveAppSettings,
+  onOpenSection,
 }: {
   className?: string;
   onSaveAppSettings: (update: AppSettingsUpdate) => Promise<void>;
+  onOpenSection?: (section: SettingsSection) => void;
 }) {
   const { t } = useTranslation();
   const { isAdmin, canSend } = useCapabilities();
@@ -297,6 +300,9 @@ export function SettingsShareSection({
   // The terms live on the service: while it does not answer they cannot be read, so
   // sharing cannot be turned on (turning it off stays possible).
   const blockedByService = status.unreachable && !status.enabled;
+  // Sharing runs on TwinRocket infrastructure, so it needs Community (MSHL-445): off,
+  // sharing is paused and cannot be turned on; the stored choice is kept.
+  const blockedByCommunity = status.community_enabled === false;
 
   const handleToggle = (next: boolean) => {
     // Enabling always goes through the consent; disabling needs none.
@@ -346,7 +352,7 @@ export function SettingsShareSection({
           id="share-enabled"
           checked={status.enabled}
           onCheckedChange={(value) => handleToggle(value === true)}
-          disabled={busy || blockedByService}
+          disabled={busy || blockedByService || blockedByCommunity}
         />
         <Label htmlFor="share-enabled" className="text-[0.8125rem] font-medium">
           {t('settings.share.enable')}
@@ -357,6 +363,24 @@ export function SettingsShareSection({
         <p data-testid="share-terms-stale" className="text-[0.8125rem] text-muted-foreground">
           {t('settings.share.termsStale')}
         </p>
+      )}
+
+      {blockedByCommunity && (
+        <div data-testid="share-community-off" role="status" className="space-y-1.5">
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.share.communityOff')}
+          </p>
+          {onOpenSection && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onOpenSection('community')}
+            >
+              {t('settings.share.openCommunity')}
+            </Button>
+          )}
+        </div>
       )}
 
       {blockedByService && (

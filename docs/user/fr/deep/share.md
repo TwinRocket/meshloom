@@ -11,6 +11,8 @@ Cette version raccourcit des **adresses web** et envoie des **photos** depuis le
 
 ## L’activer
 
+Le partage passe par les serveurs de TwinRocket : il a donc besoin de **Meshloom Community** activé. Tant que Community est désactivé, la case est grisée et la section propose un bouton vers les réglages Community. Désactiver Community met le partage en pause sans perdre votre choix ni les conditions acceptées : voir [Fonctions qui ont besoin de Community](/docs/deep/community/#fonctions-qui-ont-besoin-de-community).
+
 Ouvrez **Réglages > Partage : liens et fichiers** (administrateurs ; un membre n’y voit que **Mes envois**, voir plus bas). La section indique si le partage est activé, si l’identité de partage de ce Meshloom est prête et si les fichiers chiffrés pour les messages directs sont disponibles.
 
 Cocher **Activer le partage de liens et de fichiers** ouvre toujours une fenêtre de consentement : une phrase, un lien vers cette page et une case à cocher pour accepter les conditions d’utilisation et la politique de confidentialité du service (toutes deux en lien). Ce qui quitte ce Meshloom et pour combien de temps est décrit plus bas ; qui exploite le service figure dans ses pages légales. Annuler, fermer la fenêtre ou laisser la case décochée ne change rien. Votre acceptation est enregistrée sur ce Meshloom, avec la version des conditions et la date : si les conditions changent dans une version ultérieure, le partage reste désactivé et la section vous le signale, jusqu’à ce qu’un administrateur lise et accepte les nouvelles conditions en le réactivant. Désactiver le partage ne demande aucun consentement et prend effet aussitôt : les requêtes déjà en route sont interrompues.

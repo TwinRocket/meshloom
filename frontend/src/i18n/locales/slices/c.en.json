@@ -722,7 +722,7 @@
       },
       "optOut": {
         "title": "Leave Meshloom Community?",
-        "intro": "Meshloom stops sharing with Community and asks it to delete your radio’s position.",
+        "intro": "Meshloom stops sharing with Community, asks it to delete your radio’s position, and pauses Remote and sharing.",
         "fullDeletion": "To have everything deleted, write to <email>privacy@meshloom.app</email>.",
         "reasonLabel": "Why are you leaving? (optional)",
         "reasons": {

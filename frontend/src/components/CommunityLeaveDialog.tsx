@@ -22,8 +22,9 @@ export const COMMUNITY_OPT_OUT_REASONS: CommunityOptOutReason[] = [
 const PRIVACY_EMAIL = 'privacy@meshloom.app';
 
 /**
- * Confirms an opt-out: what Community keeps and deletes, where to ask for a
- * full deletion, and an optional reason sent with `POST /v1/me/opt-out`.
+ * Confirms an opt-out in one short intro (Meshloom stops sharing, asks Community to
+ * delete the radio's position, and Remote and sharing pause with it, MSHL-445), where
+ * to ask for a full deletion, and an optional reason sent with `POST /v1/me/opt-out`.
  */
 export function CommunityLeaveDialog({
   open,

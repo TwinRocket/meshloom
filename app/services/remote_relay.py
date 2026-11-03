@@ -2,12 +2,13 @@
 (docs/dev/remote.md, "Relay client"; contract meshloom-community
 ``docs/contracts/remote-relay.md``).
 
-- **Egress.** Nothing connects unless ``remote_state.enabled`` and the instance is
-  registered (a slug). The only destination is ``wss://<RELAY_HOST>/v1/connect``
-  (``connect_url``), with a fresh instance JWT per attempt (``mint_remote_jwt``) and
-  ``X-Meshloom-Relay-Protocol: 1``. No system proxy. Community state plays no part, in
-  either direction (``tests/test_remote_off_no_egress.py``,
-  ``tests/test_community_off_no_egress.py``).
+- **Egress.** Nothing connects unless ``remote_state.enabled``, Community is on
+  (``remote.community_on()``, MSHL-445; ``link_status`` is ``community_off`` otherwise)
+  and the instance is registered (a slug). The only destination is
+  ``wss://<RELAY_HOST>/v1/connect`` (``connect_url``), with a fresh instance JWT per
+  attempt (``mint_remote_jwt``) and ``X-Meshloom-Relay-Protocol: 1``. No system proxy.
+  Turning Community off restarts the loop, which closes the socket
+  (``tests/test_remote_off_no_egress.py``, ``tests/test_community_off_no_egress.py``).
 - **Handshake.** The instance sends its HELLO first (version, install kind,
   ``plugins: {enabled, isolation}``, the gate state, the limits it wants), then waits
   10 s for the relay's HELLO and its effective limits. Liveness is the library's
@@ -34,7 +35,8 @@
   4009 ``banned`` and 4010 ``update_required`` stop; 1013 and unknown 4xxx
   ``relay_paused`` (5 to 15 min); anything else is an exponential backoff from 1 s to
   5 min with full jitter, reset after 60 s connected. A stopped state stays until
-  Remote changes (enable, disable, register, rotate, restore), which restarts the loop.
+  Remote changes (enable, disable, register, rotate, restore) or Community is turned on
+  or off, which restarts the loop.
 
 Never log a pass, a token or a request header value.
 """
@@ -93,6 +95,8 @@ REPLACED = "replaced"
 BANNED = "banned"
 UPDATE_REQUIRED = "update_required"
 RELAY_PAUSED = "relay_paused"
+# Remote is on but Community is off (MSHL-445): nothing connects until it is on again.
+COMMUNITY_OFF = "community_off"
 LINK_STATES = (
     CONNECTING,
     CONNECTED,
@@ -103,6 +107,7 @@ LINK_STATES = (
     BANNED,
     UPDATE_REQUIRED,
     RELAY_PAUSED,
+    COMMUNITY_OFF,
 )
 
 _HOP_BY_HOP = frozenset(
@@ -1048,13 +1053,18 @@ class RelayClient:
         """Stop the current loop, then start one when Remote is on and registered."""
         async with self._lock:
             await self._stop_locked()
-            self._start_locked_if_wanted(await remote.RemoteRepository.get_state())
+            self._start_locked_if_wanted(
+                await remote.RemoteRepository.get_state(), await remote.community_on()
+            )
 
-    def _start_locked_if_wanted(self, state: remote.RemoteState) -> None:
+    def _start_locked_if_wanted(self, state: remote.RemoteState, community_on: bool) -> None:
         if self.app is None:
             return
         if not state.enabled:
             remote.set_link_status(None)
+            return
+        if not community_on:
+            remote.set_link_status(COMMUNITY_OFF)
             return
         if not state.slug:
             remote.set_link_status(NOT_REGISTERED)
@@ -1157,6 +1167,9 @@ class RelayClient:
             state = await remote.RemoteRepository.get_state()
             if not state.enabled:
                 remote.set_link_status(None)
+                return
+            if not await remote.community_on():
+                remote.set_link_status(COMMUNITY_OFF)
                 return
             if not state.slug:
                 remote.set_link_status(NOT_REGISTERED)

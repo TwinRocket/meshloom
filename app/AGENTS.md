@@ -318,10 +318,17 @@ Design and flows: `docs/dev/remote.md`.
   `RELAY_HOST` as the only host). `tests/test_remote_off_no_egress.py` classifies every
   coroutine of the module and sweeps every `/api/remote` route but `POST /enable`;
   `tests/test_community_off_no_egress.py` forbids `*.meshloom.link` while off. The
-  relay socket (`services/remote_relay.py`) connects only while Remote is on and
-  registered, to `wss://<RELAY_HOST>/v1/connect` only, without a system proxy, and
-  independently of Community in both directions (Remote off with Community on: nothing
-  to the relay; Remote on with Community off: only the relay host; both tests above).
+  relay socket (`services/remote_relay.py`) connects only while Remote is on,
+  Community is on and Remote is registered, to `wss://<RELAY_HOST>/v1/connect` only,
+  without a system proxy.
+- **Community required** (MSHL-445). Remote runs on TwinRocket infrastructure: with
+  Community off (`remote.community_on()`), `enable()` and every registry call answer 409
+  `remote_community_off`, and the relay link stays down (`link_status` `community_off`).
+  Turning Community off pauses an enabled Remote (state and devices kept, socket closed,
+  pending access requests dropped) through `meshloom_community.add_enabled_change_listener`;
+  turning it on resumes it. `GET /api/remote` reports `community_enabled`. Tests:
+  `tests/test_community_required.py`, `TestRemoteNeedsCommunity` in
+  `tests/test_community_off_no_egress.py`; `docs/dev/remote.md`, "Opt-in and egress".
 - **Identity.** The `remote` instance key (above) signs the instance JWT and the device
   passes. Rotation, unregistration and the `remote` on_restore hook are in
   `docs/dev/remote.md`; any restore leaves Remote off, unregistered and without devices.
@@ -357,7 +364,18 @@ Design and flows: `docs/dev/remote.md`.
 
 Contract: `meshloom-community/docs/contracts/links-files.md`. A distinct opt-in
 from Community, with its own hosts and switch, never an exception to the
-Community guard.
+Community guard, and it needs Community on (MSHL-445).
+
+- **Community required.** `share_is_effective(settings, community_on=...)` is also false
+  while Community is off (`share.community_on()`, the stored opt-in), so
+  `share_egress_state()` is None, `GET /api/share/status` says `enabled: false` with
+  `community_enabled: false`, and `share_effective` in `GET /api/settings` is false.
+  `PATCH /api/settings` `{share_enabled: true}` answers 409 `share_community_off`
+  (turning it off stays possible). Turning Community off pauses sharing: `share_enabled`
+  and the accepted terms are kept, and the `_on_community_change` listener
+  (`meshloom_community.add_enabled_change_listener`) cancels the requests in flight like a
+  share opt-out, without ending a banned state. Tests: `tests/test_community_required.py`;
+  the share test modules turn Community on with the `community_on` fixture.
 
 - **Hosts.** `SHARE_HOST` (write host, `meshl.ink`) and `SHARE_HOSTS` (every
   recognised host, current and former; `is_share_host()`) are module constants

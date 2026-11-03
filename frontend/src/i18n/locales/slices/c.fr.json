@@ -722,7 +722,7 @@
       },
       "optOut": {
         "title": "Quitter Meshloom Community ?",
-        "intro": "Meshloom arrête de partager avec Community et lui demande d’effacer la position de votre radio.",
+        "intro": "Meshloom cesse de partager avec Community, lui fait effacer la position de votre radio et suspend Remote et le partage.",
         "fullDeletion": "Pour tout faire supprimer, écrivez à <email>privacy@meshloom.app</email>.",
         "reasonLabel": "Pourquoi partez-vous ? (facultatif)",
         "reasons": {

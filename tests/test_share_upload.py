@@ -24,6 +24,12 @@ from app.repository import AppSettingsRepository
 from app.services import share, share_upload
 from tests.share_fakes import Dns, Recorder, json_response
 
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 VECTORS = json.loads((Path(__file__).parent / "fixtures" / "links_files_vectors.json").read_text())[
     "files"
 ]

@@ -293,7 +293,38 @@ async def get_community_effective() -> CommunityEffective:
 
 
 async def community_enabled() -> bool:
+    """The stored Community opt-in (waiting for a position counts as on).
+
+    The gate of every feature backed by TwinRocket infrastructure outside
+    Community itself (MSHL-445): Meshloom Remote (``app/services/remote.py``,
+    ``remote_relay.py``) and Links & Files (``app/services/share.py``) need it.
+    """
     return (await get_community_effective()).enabled
+
+
+# Called (sync or async, under ``_update_lock``, so a listener must not call
+# ``update_community``) after the stored opt-in flips: on a join and once an
+# opt-out's teardown is done. Remote and Links listen, so turning Community off
+# pauses them at once.
+_enabled_listeners: list[Callable[[], Any]] = []
+
+
+def add_enabled_change_listener(callback: Callable[[], Any]) -> None:
+    """Run ``callback`` after Community is turned on or off. Adding it twice is a no-op."""
+    if callback not in _enabled_listeners:
+        _enabled_listeners.append(callback)
+
+
+async def _notify_enabled_change() -> None:
+    import inspect
+
+    for callback in list(_enabled_listeners):
+        try:
+            result = callback()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception("Community enabled-change listener failed")
 
 
 async def update_community(
@@ -537,6 +568,9 @@ async def _update_community_locked(
         elif written and before.enabled:
             topic_moved = await _run_to_completion(_move_status_topic(before, status_retired))
     state = await get_community_effective()
+    if state.enabled != before.enabled:
+        # Remote and Links follow the Community opt-in (MSHL-445).
+        await _notify_enabled_change()
     if opting_out:
         return state
     if state.enabled and not before.enabled:

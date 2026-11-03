@@ -1,6 +1,7 @@
 {
   "errors": {
     "share_disabled": "Sharing is turned off on this Meshloom. An administrator can turn it on in the settings.",
+    "share_community_off": "Sharing needs Meshloom Community. Turn Community on first.",
     "share_unavailable": "The share service cannot be reached right now. Try again later.",
     "share_quota_exceeded": "This Meshloom has reached its share quota. Try again later.",
     "share_quota_key": "This Meshloom has reached its daily share quota. Try again later.",

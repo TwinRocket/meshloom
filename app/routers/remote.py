@@ -10,7 +10,7 @@ replacing the key, revoking every device and testing a custom domain are ``admin
 an enrolment QR code for itself (never through the relay: ``remote_lan_only``), issues
 a client pass, and approves (the new device is the approver's) or denies an access
 request. An administrator sees and revokes every device.
-Every write is audited (``remote.*``). Responses are ``Cache-Control: no-store``
+Remote needs Community on (MSHL-445, ``remote_community_off``). Every write is audited (``remote.*``). Responses are ``Cache-Control: no-store``
 (``app/middleware/security_headers.py``); a pass or an enrolment URL is returned once
 and never logged.
 """
@@ -68,7 +68,13 @@ class RemoteStatus(BaseModel):
         description=(
             "The relay client's state (app/services/remote_relay.py LINK_STATES): "
             "connecting, connected, reconnecting, not_registered, paused, replaced, "
-            "banned, update_required or relay_paused; null while Remote is off"
+            "banned, update_required, relay_paused or community_off; null while Remote is off"
+        ),
+    )
+    community_enabled: bool = Field(
+        description=(
+            "Community is on. Remote needs it (MSHL-445): while it is off, enabling answers "
+            "409 remote_community_off and an enabled Remote is paused (no relay link)"
         ),
     )
     gate: RemoteGate
@@ -164,6 +170,7 @@ async def _status(principal: Principal | None) -> RemoteStatus:
         last_error=state.last_error,
         relay_connected=remote.relay_connected(),
         link_status=remote.link_status(),
+        community_enabled=await remote.community_on(),
         gate=RemoteGate(gen=gate["gen"], revoked=len(gate["revoked"])),
         devices=[_item(device, state.gate_gen) for device in devices],
     )
@@ -179,7 +186,8 @@ async def get_remote(request: Request) -> RemoteStatus:
 @router.post("/enable", response_model=RemoteStatus, dependencies=[Depends(require("admin"))])
 async def enable_remote(request: Request, actor: RequestActor = SYSTEM_ACTOR) -> RemoteStatus:
     """Turn Remote on and register (``POST /v1/instances``). A registry failure leaves
-    the state ``unregistered`` with ``last_error``; calling it again retries."""
+    the state ``unregistered`` with ``last_error``; calling it again retries. 409
+    ``remote_community_off`` while Community is off (nothing is written)."""
     await remote.enable(actor)
     return await _status(get_principal(request))
 

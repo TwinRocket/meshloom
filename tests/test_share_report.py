@@ -15,6 +15,12 @@ from app.repository import AppSettingsRepository
 from app.services.instance_identity import instance_public_key
 from tests.share_fakes import Dns, Recorder, json_response
 
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 # The recorder replaces httpx.AsyncClient: keep the real class for the app client.
 _RealAsyncClient = httpx.AsyncClient
 

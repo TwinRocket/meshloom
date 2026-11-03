@@ -70,6 +70,16 @@ Meshloom never sends your radio's private key to Community. It is only used to s
 
 The extension Store is independent from Community: it has its own switch, off by default, and talks to other servers (GitHub, see [What leaves your instance](/en/docs/deep/plugins/#what-leaves-your-instance)). Turning Community on or off changes nothing for the Store, and the other way round.
 
+## Features that need Community
+
+These features run on TwinRocket's servers, so they work only while Community is on:
+
+- **Meshloom Remote** (**Settings → Remote access**), the relay on `meshloom.link`;
+- **link and file sharing** (**Settings → Share: links and files**), the service on `meshl.ink`;
+- the **Live** map and feed, and everything your radio reports as an observer (above).
+
+While Community is off, Meshloom Remote and sharing cannot be turned on: their settings say so and offer a button to the Community settings. If you turn Community off while they are on, they **pause**: Meshloom stops contacting the relay and the share service at once, your devices can no longer open the instance from outside, new links and files cannot be shared, and shared links and photos no longer load. Nothing is deleted: the Remote address, the allowed devices, the sharing choice and the accepted terms are kept, and both resume as soon as you turn Community on again. The window that confirms leaving Community says so.
+
 ## Leaving
 
 **Leave Meshloom Community** (in the settings, or **Leave Community** in the waiting banner's explanation) first asks you to confirm, in a short window that links the privacy address below. What leaving means:
@@ -77,6 +87,7 @@ The extension Store is independent from Community: it has its own switch, off by
 - the packets your radio already reported stay in Community's statistics, under your radio's name;
 - your radio's position is deleted from Community;
 - if your radio's adverts broadcast its position, it stays visible on the map like any other node heard on the mesh;
+- Meshloom Remote and link and file sharing pause too (see [Features that need Community](#features-that-need-community));
 - to have everything deleted, write to [privacy@meshloom.app](mailto:privacy@meshloom.app).
 
 You can also say why you leave (privacy, not useful, technical issue, other); this is optional. Once you confirm, Meshloom sends one last request to Community to record the opt-out, with the reason if you gave one: Community deletes your radio's position, clears its status on the broker (at once, or shortly after) and refuses this radio until it joins again. Then Meshloom cuts everything, as described below.

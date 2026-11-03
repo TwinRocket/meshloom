@@ -14,6 +14,12 @@ from app.services import share
 from app.services.backup import BACKUP_COVERAGE, export_json, restore_json
 from app.services.share import SHARE_TERMS_VERSION
 
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 SEED = "ab" * 32
 
 

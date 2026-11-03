@@ -444,6 +444,7 @@ export function SettingsModal(props: SettingsModalProps) {
             <SettingsShareSection
               className={sectionContentClass}
               onSaveAppSettings={onSaveAppSettings}
+              onOpenSection={openSection}
             />
           )}
         </section>

@@ -35,7 +35,9 @@
         "banned": "Banned",
         "update_required": "Update required",
         "relay_paused": "Relay paused",
-        "unknown": "Unknown state"
+        "unknown": "Unknown state",
+        "needs_community": "Needs Community",
+        "community_off": "Paused: Community is off"
       },
       "badgeHelp": {
         "off": "Remote is off: nothing is sent to the relay.",
@@ -49,7 +51,9 @@
         "banned": "The relay banned this instance. Contact TwinRocket if this is a mistake.",
         "update_required": "Update Meshloom to use Remote.",
         "relay_paused": "Meshloom Remote is paused for everyone. Meshloom tries again on its own.",
-        "unknown": "The relay reports a state this version does not know."
+        "unknown": "The relay reports a state this version does not know.",
+        "needs_community": "Remote needs Meshloom Community. Turn Community on first.",
+        "community_off": "Community is off, so Remote is paused. Your address and devices are kept."
       },
       "actions": {
         "enable": "Turn on Meshloom Remote",
@@ -58,7 +62,8 @@
         "update": "Open Updates",
         "disable": "Turn off",
         "unregister": "Leave Meshloom Remote",
-        "rotate": "Replace the key"
+        "rotate": "Replace the key",
+        "community": "Open Community settings"
       },
       "enabledToast": "Meshloom Remote is on.",
       "disabledToast": "Meshloom Remote is off.",
@@ -212,6 +217,7 @@
     "remote_offline": "The connection to the relay is down: try again once it is back.",
     "remote_pass_required": "This device is not allowed with Meshloom Remote.",
     "remote_host_mismatch": "This request is not for this instance's Remote address.",
-    "remote_request_invalid": "The relay sent an invalid request."
+    "remote_request_invalid": "The relay sent an invalid request.",
+    "remote_community_off": "Remote needs Meshloom Community. Turn Community on first."
   }
 }

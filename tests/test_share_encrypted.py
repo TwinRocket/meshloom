@@ -31,6 +31,12 @@ from app.services import share, share_crypto, share_upload
 from app.share_conversation import channel_conversation_id
 from tests.share_fakes import Dns, Recorder, json_response
 
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Links & Files and Remote need Community on (MSHL-445)."""
+
+
 _RealAsyncClient = httpx.AsyncClient
 
 # A valid 1x1 PNG (checked again after decryption).

@@ -41,7 +41,7 @@ La plupart des registrars parlent de « redirection d’URL », « redirection w
 
 ## Tester depuis Meshloom
 
-En tant qu’administrateur, ouvrez **Réglages → Accès à distance**. Quand Meshloom Remote est activé et enregistré, le groupe **Votre propre domaine** apparaît. Saisissez votre domaine et appuyez sur **Tester**. Votre instance envoie une requête à ce domaine (HTTPS d’abord, puis HTTP si HTTPS échoue) sans suivre la redirection. Elle ne contacte jamais le relais pour cela. Le résultat est l’un de :
+En tant qu’administrateur, ouvrez **Réglages → Accès à distance**. Meshloom Remote a besoin de Meshloom Community activé (voir [Fonctions qui ont besoin de Community](/docs/deep/community/#fonctions-qui-ont-besoin-de-community)). Quand Meshloom Remote est activé et enregistré, le groupe **Votre propre domaine** apparaît. Saisissez votre domaine et appuyez sur **Tester**. Votre instance envoie une requête à ce domaine (HTTPS d’abord, puis HTTP si HTTPS échoue) sans suivre la redirection. Elle ne contacte jamais le relais pour cela. Le résultat est l’un de :
 
 | Résultat | Signification | Que faire |
 |---|---|---|
