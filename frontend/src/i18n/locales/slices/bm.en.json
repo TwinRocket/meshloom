@@ -3,8 +3,8 @@
     "access": {
       "tokens": {
         "title": "API and device tokens",
-        "help": "A token lets a script, a Home Assistant sensor or a phone app use Meshloom without your password. Create one per device, give it the fewest scopes it needs and revoke it when you stop using it.",
-        "ingressNotice": "You are signed in through Home Assistant. Tokens do not work through Home Assistant's ingress, which signs users in itself: a device must reach Meshloom at its own address. You can still create tokens here for such devices.",
+        "help": "A token lets a script or an app use Meshloom without your password. Create one per device.",
+        "ingressNotice": "Tokens do not work through Home Assistant: the device must reach Meshloom at its own address.",
         "none": "No token yet.",
         "add": "Create a token",
         "createTitle": "Create a token",
@@ -29,7 +29,7 @@
         "create": "Create",
         "secretTitle": "Copy your token now",
         "secretHelp": "The token “{{name}}” is created.",
-        "secretWarning": "This is the only time this token is shown. Meshloom keeps only a fingerprint of it and cannot show it again: copy it now and store it somewhere safe. If you lose it, revoke it and create another.",
+        "secretWarning": "Copy this token now: it will not be shown again.",
         "secretLabel": "Token",
         "copy": "Copy",
         "copied": "Copied",

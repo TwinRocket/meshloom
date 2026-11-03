@@ -1,7 +1,7 @@
 {
   "settings": {
     "fullBackup": {
-      "warningSensitiveUnencrypted": "This backup holds secrets from parts added by other features (accounts, plugins…) and is not encrypted: keep it like the radio key itself, or download it again with a passphrase.",
+      "warningSensitiveUnencrypted": "This backup holds secrets and is not encrypted: keep it safe, or download it again with a passphrase.",
       "warningSectionExportFailed": "Part of this backup could not be exported: it is not in the file."
     },
     "fullRestore": {
@@ -21,7 +21,7 @@
     }
   },
   "errors": {
-    "backup_identity_seed_leak": "This backup would contain an instance identity key, which never leaves the server: export refused. Report this bug.",
+    "backup_identity_seed_leak": "Export refused: the backup would contain a key that must never leave the server. Report this bug.",
     "backup_too_large": "This backup file is too large (over 64 MiB) to be read."
   }
 }

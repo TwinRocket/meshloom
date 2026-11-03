@@ -31,9 +31,9 @@
   },
   "radioIdentity": {
     "mismatchTitle": "Cette radio ne correspond pas à l’identité enregistrée",
-    "mismatchBody": "La radio connectée a une clé publique différente de l’identité liée à cette instance Meshloom. L’adopter efface les contacts et messages mesh locaux avant de lier la nouvelle radio.",
+    "mismatchBody": "Cette radio n’est pas celle liée à Meshloom. L’adopter efface les contacts et messages mesh locaux.",
     "unboundTitle": "Cette radio n’est pas liée à cette instance",
-    "unboundBody": "Cette base Meshloom précède le lien d’identité radio. Confirmez qu’il s’agit de la radio historique pour conserver les données mesh, ou traitez-la comme une nouvelle radio et effacez les contacts et messages mesh locaux.",
+    "unboundBody": "Est-ce la radio que vous utilisiez déjà ? Confirmez pour garder les données mesh, ou traitez-la comme une nouvelle radio (contacts et messages mesh effacés).",
     "previousKey": "Clé précédente",
     "newKey": "Nouvelle clé",
     "newName": "Nom de la radio",

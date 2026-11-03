@@ -44,7 +44,7 @@ describe('channel digest mode', () => {
   it('picks an interval in the advanced section, in English and French', async () => {
     await i18n.changeLanguage('en');
     render(<ChannelForm entry={entry()} onSubmit={vi.fn()} submitLabel="Save" idPrefix="d" />);
-    expect(screen.getByTestId('channel-digest')).toHaveTextContent('Mentions, keyword alerts');
+    expect(screen.getByTestId('channel-digest')).toHaveTextContent('Mentions, keywords');
     const select = screen.getByLabelText('Digest mode');
     expect(select).toHaveValue('0');
     expect(screen.getByRole('option', { name: 'Every 15 minutes' })).toBeInTheDocument();

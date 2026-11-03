@@ -3,7 +3,7 @@
     "access": {
       "audit": {
         "title": "Audit log",
-        "help": "Who did what, newest first. Passwords, tokens and codes are never recorded. Filters apply to the entries loaded so far.",
+        "help": "Who did what, newest first.",
         "filterFamily": "Action family",
         "filterAction": "Action",
         "filterOutcome": "Outcome",

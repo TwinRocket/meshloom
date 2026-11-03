@@ -6,7 +6,7 @@
         "username": "Username (optional)"
       },
       "help": {
-        "discord_webhook": "Copy it from Discord: channel settings, Integrations, Webhooks. Only discord.com addresses are accepted. Write-only: it is never shown again."
+        "discord_webhook": "Copy it from Discord: channel settings, Integrations, Webhooks."
       }
     }
   },

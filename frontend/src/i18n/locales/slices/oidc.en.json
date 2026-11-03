@@ -14,7 +14,7 @@
     "access": {
       "oidc": {
         "title": "OpenID Connect",
-        "help": "Let people sign in with an account of a provider you choose (Google, Discord, Keycloak, Authentik...). The provider only proves who they are: each one signs in an existing Meshloom account, which keeps its role, its second factor and every other rule. Register Meshloom at the provider first, then copy its issuer, client id and client secret here.",
+        "help": "Sign in with a Google, Discord, Keycloak… account. Each identity signs in an existing Meshloom account. Register Meshloom at the provider first.",
         "enabled": "Offer sign-in with this provider",
         "preset": "Provider",
         "presets": {
@@ -26,8 +26,8 @@
         "presetHelp": {
           "generic": "Give the issuer of your provider: its address without /.well-known/openid-configuration.",
           "google": "Create an OAuth client of type \"Web application\" in the Google Cloud console and add the redirect address below.",
-          "discord": "Create an application in the Discord developer portal and add the redirect address below. Discord may not send a verified e-mail: link accounts by subject if e-mail links do not match.",
-          "keycloak": "The issuer is your realm's address, such as https://keycloak.example/realms/home. Create a confidential OpenID Connect client with the redirect address below."
+          "discord": "Create an application in the Discord developer portal and add the redirect address below. Link accounts by subject.",
+          "keycloak": "The issuer is your realm's address (https://keycloak.example/realms/home). Create a confidential client with the redirect address below."
         },
         "label": "Button label",
         "issuer": "Issuer",
@@ -43,18 +43,18 @@
           "client_secret_post": "In the form (client_secret_post)"
         },
         "privateNetwork": "The provider is on my local network",
-        "privateNetworkHelp": "Allows a provider at a private address (Keycloak on the same network), and plain http to such an address only. Off: https to a public address only.",
+        "privateNetworkHelp": "For a provider on your local network, such as Keycloak.",
         "autoCreate": "Create an account for an unknown identity",
-        "autoCreateHelp": "Off by default: only identities linked below can sign in. On: anyone the provider signs in gets a new account with the Viewer role (read only, no sending, no settings). Turn it on only for a provider whose users you trust.",
+        "autoCreateHelp": "On, anyone the provider signs in gets a Viewer account. Only for a provider whose users you trust.",
         "redirectUris": "Redirect addresses to register at the provider",
-        "redirectUrisHelp": "The first one is the address you use now; the others come from the public addresses declared in Users & Access. Register each address you sign in from.",
+        "redirectUrisHelp": "Register each address people sign in from at the provider.",
         "save": "Save",
         "saved": "OpenID Connect settings saved.",
         "test": "Test the saved provider",
         "testOk": "The provider answered: issuer {{issuer}}, {{keys}} signing key(s).",
         "links": {
           "title": "Linked identities",
-          "help": "Each line lets one identity of the provider sign in an existing account. By e-mail: the provider must say the address is verified, and the first sign-in then remembers the identity (its subject), so a later change of address does not matter. By subject: the provider's identifier of the person (the sub claim).",
+          "help": "Each line links one provider identity to an existing account, by verified e-mail or by subject.",
           "empty": "No identity is linked yet.",
           "account": "Account",
           "kind": "Match on",

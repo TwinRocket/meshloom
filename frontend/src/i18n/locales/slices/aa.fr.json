@@ -6,7 +6,7 @@
     "auth_last_admin": "C'est le dernier administrateur : gardez-en au moins un.",
     "auth_no_session": "La connexion n'a pas ouvert de session. Rechargez la page et réessayez.",
     "auth_https_required": "HTTPS est obligatoire depuis Internet : ouvrez Meshloom avec son adresse https:// (votre reverse-proxy, Tailscale ou Meshloom Remote).",
-    "auth_https_would_lock_out": "Déclarer une adresse publique refuserait la connexion http:// simple que vous utilisez depuis Internet, et vous en priverait. Ouvrez d'abord Meshloom en https:// ou depuis votre réseau local."
+    "auth_https_would_lock_out": "Une adresse publique bloquerait votre connexion http:// actuelle. Ouvrez d'abord Meshloom en https:// ou depuis le réseau local."
   },
   "auth": {
     "loading": "Chargement…",
@@ -30,7 +30,7 @@
       "submit": "Se connecter",
       "remember": "Rester connecté sur cet appareil",
       "rememberHint": "Décoché, vous êtes déconnecté à la fermeture du navigateur, et après 12 heures sans activité.",
-      "insecureContext": "Cette page n'est pas servie en HTTPS : votre mot de passe circule en clair sur le réseau. Ne l'utilisez que sur un réseau de confiance."
+      "insecureContext": "Connexion non chiffrée (HTTP) : n'utilisez votre mot de passe que sur un réseau de confiance."
     },
     "relogin": {
       "title": "Session terminée",
@@ -50,7 +50,7 @@
         "strong": "Solide"
       },
       "code": "Code d'installation",
-      "codeHint": "Ce Meshloom demande le code à 8 chiffres écrit dans son journal : il contient déjà des données, ou il a été ouvert depuis l'extérieur du réseau local (depuis le réseau local, un nouveau Meshloom n'en demande pas). Où le trouver :",
+      "codeHint": "Saisissez le code à 8 chiffres écrit dans le journal de Meshloom. Où le trouver :",
       "codeWhereDocker": "Docker : docker logs <conteneur>, cherchez « installation code ».",
       "codeWhereSystemd": "Installation par paquet : journalctl -u meshloom.",
       "codeWhereAddon": "Module Home Assistant : l'onglet Journal du module.",
@@ -61,7 +61,7 @@
       "open": "Compte de {{name}}",
       "signOut": "Se déconnecter",
       "ingressNote": "Home Assistant vous connecte : il n'y a pas de session Meshloom à terminer.",
-      "stillSignedInNote": "Cet appareil est toujours connecté : le serveur le connecte sans identification (accès sans connexion sur le réseau local). Un administrateur peut le changer dans Réglages → Connexion → Réseau local."
+      "stillSignedInNote": "Cet appareil reste connecté : le réseau local est en accès sans connexion (Réglages → Connexion → Réseau local)."
     }
   }
 }

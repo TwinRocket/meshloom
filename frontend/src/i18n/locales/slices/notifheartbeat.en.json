@@ -8,10 +8,10 @@
         "everyMinutes_other": "Every {{count}} minutes",
         "everyHours_one": "Every hour",
         "everyHours_other": "Every {{count}} hours",
-        "help": "Sends a “Meshloom is alive” message (instance name, uptime, version) on this channel at the chosen interval, so a power cut or a stopped host shows up as silence. It skips quiet hours, pause and limits. ntfy and Gotify cannot alert on a missing message: use a Home Assistant binary_sensor, or a healthchecks-style ping URL below.",
+        "help": "Sends a regular “Meshloom is alive” message on this channel, so an outage shows up as silence.",
         "url": "Ping URL (optional)",
         "urlKept": "Saved: leave empty to keep it",
-        "urlHelp": "With a URL, Meshloom pings it (healthchecks.io, Uptime Kuma push, etc.) instead of sending a message. The service alerts you when pings stop. The URL is stored encrypted and is never shown again.",
+        "urlHelp": "With a URL (healthchecks.io, Uptime Kuma…), Meshloom pings it instead of sending a message, and the service alerts you when pings stop.",
         "method": "Method",
         "urlClear": "Remove the saved ping URL"
       }

@@ -56,7 +56,7 @@ describe('channel heartbeat', () => {
   it('picks an interval, then shows the ping URL and method', async () => {
     await i18n.changeLanguage('en');
     render(<ChannelForm entry={entry({})} onSubmit={vi.fn()} submitLabel="Save" idPrefix="h" />);
-    expect(screen.getByTestId('channel-heartbeat')).toHaveTextContent('Home Assistant');
+    expect(screen.getByTestId('channel-heartbeat')).toHaveTextContent('Meshloom is alive');
     expect(screen.queryByLabelText('Ping URL (optional)')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Heartbeat'), { target: { value: '900' } });

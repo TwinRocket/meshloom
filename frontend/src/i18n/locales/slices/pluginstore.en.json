@@ -4,7 +4,7 @@
     "navBadge_other": "{{count}} updates",
     "activation": {
       "title": "Turn on the Store",
-      "intro": "The Store is off: Meshloom contacts nobody to look for plugins or their updates. Turning it on lets this Meshloom reach the hosts below. Plugins you already installed keep working either way.",
+      "intro": "The Store is off. Turning it on lets Meshloom contact the hosts below to find plugins.",
       "sendsTitle": "What leaves when it is on",
       "sends": {
         "ip_address": "Your Meshloom's public IP address, as for any internet request.",
@@ -12,7 +12,7 @@
       },
       "sendsNone": "Nothing else: no account, no key, no message, no radio or contact data.",
       "hostsTitle": "Hosts it may reach",
-      "cadence": "Releases are checked every {{hours}} hours, and only while a plugin installed from a repository exists or when you press Refresh.",
+      "cadence": "Releases are checked every {{hours}} hours, or when you press Refresh.",
       "missedTitle": "What you do not receive while it is off",
       "missed": {
         "updates": "Notices and installation of plugin updates."
@@ -21,7 +21,7 @@
     },
     "online": {
       "toggle": "Store online",
-      "help": "Turning this off stops all Store access to the internet: no catalogue browsing, no update checks and no automatic updates. Installed plugins keep running."
+      "help": "Off, the Store stays offline. Installed plugins keep running."
     },
     "refresh": {
       "button": "Refresh",
@@ -65,9 +65,9 @@
     },
     "updates": {
       "title": "Plugin updates",
-      "intro": "Newer releases found by the last Store refresh, for plugins installed from a repository. Listing them makes no request.",
+      "intro": "Newer releases found by the last Store refresh.",
       "adminOnly": "Only an administrator can see and apply plugin updates.",
-      "offline": "The Store is off: updates are not looked for and cannot be installed. Turn it on in the Store tab.",
+      "offline": "The Store is off: turn it on in the Store tab to look for updates.",
       "none": "Every plugin installed from a repository is up to date.",
       "review": "Review and update",
       "update": "Update",
@@ -76,7 +76,7 @@
         "config_required": "{{label}} would wait for settings it now requires."
       },
       "dropped": "{{label}}: the new version no longer accepts the value of {{fields}}; the update resets it.",
-      "droppedWarning": "{{label}}: the new version no longer accepts the value of {{fields}}. Updating resets it to its default; the extension then shows which settings to check.",
+      "droppedWarning": "{{label}}: {{fields}} will go back to its default.",
       "autoHeld": {
         "consent_required": "Automatic update waits for you: the new version asks for new permissions. Review and update it yourself.",
         "config_required": "Automatic update waits for you: the new version requires new settings. Review and update it yourself.",
@@ -98,20 +98,20 @@
       "fieldsAdded": "New settings: {{fields}}",
       "fieldsRequired": "Now required: {{fields}}",
       "fieldsRemoved": "Removed settings: {{fields}}",
-      "sharedNote": "Every instance of this plugin is updated together. The permissions and settings you give here apply to one of them; the others wait for their own review in the Installed tab.",
-      "reviewLater": "This release is no longer the one the Store holds, so its settings cannot be asked here. It will be installed and wait for your review in the Installed tab.",
+      "sharedNote": "Every instance of this plugin is updated together; the others wait for your review in the Installed tab.",
+      "reviewLater": "This release will be installed, then wait for your review in the Installed tab.",
       "consentTitle": "Accept the permissions of this release",
       "configIntro": "Fill in the settings this release needs.",
       "updated": "{{name}} updated to v{{version}}.",
       "autoTitle": "Automatic updates",
-      "autoIntro": "Applies new releases on its own inside the update window of Settings > Updates, per instance. It never applies one that needs new permissions or settings.",
+      "autoIntro": "Installs new releases on its own, except those that ask for new permissions or settings.",
       "autoToggle": "Update {{name}} automatically",
       "openMeshloomUpdates": "Meshloom updates",
       "openExtensionUpdates": "Plugin updates",
       "linkCount_one": "{{count}} plugin has an update.",
       "linkCount_other": "{{count}} plugins have an update.",
       "linkNone": "No plugin update is waiting.",
-      "consentUnavailable": "The Store no longer holds the release this update targets, so its permissions cannot be shown and accepted here. Refresh the Store (Store tab), then review the update again."
+      "consentUnavailable": "This release is no longer available. Refresh the Store, then try again."
     }
   }
 }

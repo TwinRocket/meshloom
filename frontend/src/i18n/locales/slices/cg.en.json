@@ -20,7 +20,7 @@
         "email_to": "Separate several addresses with commas.",
         "webhook_url": "The URL receives a JSON POST. It is write-only: it is never shown again.",
         "apprise_urls": "One Apprise URL per line, for example ntfys://ntfy.sh/my-topic. Write-only.",
-        "webhook_body_type": "v2 (new channels): a typed, documented JSON body whose signature covers the timestamp. v1: the 4.18 body, kept for existing receivers."
+        "webhook_body_type": "v2 for new channels; v1 keeps the 4.18 format for existing receivers."
       }
     }
   },
@@ -121,16 +121,16 @@
         "deleted": "Channel deleted.",
         "name": "Name",
         "language": "Language of the notifications",
-        "cloudNote": "This service is operated by a third party: what you send leaves your network. By default, messages from private conversations are not included.",
+        "cloudNote": "Third-party service: what you send leaves your network.",
         "includeText": "Include message text",
         "includeTextPublicOnly": "Public channels only (default)",
         "includeTextAlways": "Always",
         "includeTextNever": "Never (a generic notice)",
         "lan": "Allow a private-network destination",
-        "lanWarning": "Only tick this if the destination is yours (a server on your LAN or this machine). It lets Meshloom reach private addresses.",
+        "lanWarning": "Only tick this if the destination is yours, on your network.",
         "verifyTls": "Verify the TLS certificate",
         "verifyTlsHelp": "Untick only for a server with a self-signed certificate you trust.",
-        "legacyHelp": "This is your 4.18.x destination: it is edited here, with its own form, until Meshloom delivers from the new rules.",
+        "legacyHelp": "Your 4.18.x destination: edit it here, with its own form.",
         "legacyTaken": "Already set up as a 4.18.x destination: edit it from its card.",
         "legacyRemove": "Remove this destination"
       }

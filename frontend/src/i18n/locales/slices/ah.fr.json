@@ -7,7 +7,7 @@
     "share_quota_ip": "Trop de partages depuis ce réseau aujourd’hui. Réessayez plus tard.",
     "share_quota_global": "Le service de partage a atteint sa limite quotidienne. Réessayez plus tard.",
     "share_rate_limited": "Trop de demandes de partage à la fois. Patientez un instant puis réessayez.",
-    "share_banned": "Le service de partage a banni ce Meshloom. L’envoi est refusé pendant 12 heures ; les liens existants s’ouvrent toujours. Cela vaut pour cette instance et tous ceux qui l’utilisent : écrivez à ban@meshloom.app si vous pensez à une erreur.",
+    "share_banned": "Le service de partage a bloqué ce Meshloom pour 12 heures ; les liens existants s’ouvrent toujours. Une erreur ? Écrivez à ban@meshloom.app.",
     "share_too_large": "Ce fichier est trop volumineux pour être partagé.",
     "share_type_refused": "Ce type de fichier ne peut pas être partagé.",
     "share_not_found": "Ce lien ou ce fichier n’existe pas.",
@@ -20,11 +20,11 @@
     "share_role_forbidden": "Ce compte ne peut pas ouvrir un objet partagé depuis un message direct.",
     "share_mode_unavailable": "Le partage chiffré n’est pas encore disponible.",
     "share_upload_timeout": "L’envoi a mis trop de temps à arriver sur ce Meshloom. Vérifiez la connexion puis réessayez.",
-    "share_storage_failed": "Ce Meshloom n’a pas pu enregistrer le fichier (disque plein ou dossier temporaire inutilisable). Un administrateur doit vérifier le dossier de données.",
+    "share_storage_failed": "Le fichier n’a pas pu être enregistré (disque plein ?). Un administrateur doit vérifier le dossier de données.",
     "share_not_owner": "Ce lien ou ce fichier n'a pas été partagé depuis ce Meshloom : il ne peut pas être supprimé ici.",
     "share_object_blocked": "Le service de partage a bloqué ce lien ou ce fichier. Il ne peut pas être supprimé ; contactez le service si vous contestez ce blocage.",
     "share_mode_not_allowed": "Les fichiers chiffrés ne sont pas possibles dans cette conversation : envoyez la photo en mode public.",
-    "share_radio_key_unavailable": "La clé de la radio n'a pas encore été lue : les fichiers chiffrés en message direct sont indisponibles. Réessayez plus tard ou envoyez en mode public.",
+    "share_radio_key_unavailable": "La clé de la radio n’est pas encore lue. Réessayez plus tard ou envoyez en mode public.",
     "share_undecryptable": "Ce fichier chiffré ne peut pas être déchiffré dans cette conversation."
   }
 }

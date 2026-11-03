@@ -3,7 +3,7 @@
     "access": {
       "audit": {
         "title": "Journal d'audit",
-        "help": "Qui a fait quoi, du plus récent au plus ancien. Les mots de passe, jetons et codes ne sont jamais enregistrés. Les filtres s'appliquent aux entrées déjà chargées.",
+        "help": "Qui a fait quoi, du plus récent au plus ancien.",
         "filterFamily": "Famille d'action",
         "filterAction": "Action",
         "filterOutcome": "Résultat",

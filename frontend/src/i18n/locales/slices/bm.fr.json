@@ -3,8 +3,8 @@
     "access": {
       "tokens": {
         "title": "Jetons d’API et d’appareil",
-        "help": "Un jeton permet à un script, un capteur Home Assistant ou une application mobile d’utiliser Meshloom sans votre mot de passe. Créez-en un par appareil, donnez-lui le moins de portées possible et révoquez-le quand vous cessez de l’utiliser.",
-        "ingressNotice": "Vous êtes connecté par Home Assistant. Les jetons ne fonctionnent pas à travers l’ingress de Home Assistant, qui connecte lui-même les utilisateurs : un appareil doit joindre Meshloom à sa propre adresse. Vous pouvez quand même créer ici les jetons de ces appareils.",
+        "help": "Un jeton permet à un script ou à une application d’utiliser Meshloom sans votre mot de passe. Créez-en un par appareil.",
+        "ingressNotice": "Les jetons ne fonctionnent pas à travers Home Assistant : l’appareil doit joindre Meshloom à sa propre adresse.",
         "none": "Aucun jeton pour l’instant.",
         "add": "Créer un jeton",
         "createTitle": "Créer un jeton",
@@ -29,7 +29,7 @@
         "create": "Créer",
         "secretTitle": "Copiez votre jeton maintenant",
         "secretHelp": "Le jeton « {{name}} » est créé.",
-        "secretWarning": "C’est la seule fois que ce jeton est affiché. Meshloom n’en garde qu’une empreinte et ne pourra plus le montrer : copiez-le maintenant et rangez-le en lieu sûr. Si vous le perdez, révoquez-le et créez-en un autre.",
+        "secretWarning": "Copiez ce jeton maintenant : il ne sera plus affiché.",
         "secretLabel": "Jeton",
         "copy": "Copier",
         "copied": "Copié",

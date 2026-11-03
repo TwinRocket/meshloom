@@ -2,24 +2,24 @@
   "settings": {
     "fullRestore": {
       "warnings": {
-        "notification_secrets_missing": "{{value}} canal(aux) de notification restauré(s) désactivé(s) : les secrets ne quittent jamais Meshloom, saisissez-les à nouveau dans Réglages > Notifications, puis activez le canal.",
+        "notification_secrets_missing": "{{value}} canal(aux) de notification restauré(s) désactivé(s) : saisissez à nouveau leurs secrets, puis activez-les.",
         "notification_channel_dropped": "Un canal de notification de la sauvegarde ({{value}}) n’a pas pu être restauré et a été laissé de côté.",
         "notification_user_rules_dropped": "Un choix de notification de la sauvegarde visait un compte inexistant ici et a été ignoré.",
         "notification_rules_dropped": "Les règles de notification de la sauvegarde sont trop volumineuses et n’ont pas été restaurées.",
-        "notification_destination_secrets_missing": "Les secrets des destinations e-mail, webhook ou Apprise n’étaient pas dans la sauvegarde : saisissez-les à nouveau dans Réglages > Notifications.",
+        "notification_destination_secrets_missing": "Saisissez à nouveau les secrets des destinations e-mail, webhook ou Apprise dans Réglages > Notifications.",
         "notification_rules_sanitized": "Certaines règles de notification de la sauvegarde étaient mal formées et ont été laissées de côté.",
-        "notification_text_policy_forced": "La politique de texte d’un canal de notification ({{value}}) a été remise à sa valeur fixe (jamais) : un service SMS coupe les textes longs."
+        "notification_text_policy_forced": "Le texte des messages est désactivé pour le canal {{value}} : un service SMS coupe les textes longs."
       }
     },
     "fanout": {
       "list": {
-        "secretUnreadable": "Un secret enregistré de cette intégration ne peut pas être déchiffré : la base a été déplacée ou restaurée sans son fichier secrets.key. Remettez ce fichier à côté de la base et redémarrez, ou modifiez l’intégration et saisissez le secret à nouveau."
+        "secretUnreadable": "Un secret de cette intégration est illisible (fichier secrets.key manquant). Saisissez-le à nouveau."
       }
     }
   },
   "errors": {
     "secret_missing": "Secret manquant après une restauration : saisissez-le à nouveau, puis activez le canal.",
-    "secret_unreadable": "Un secret enregistré de ce canal ne peut pas être déchiffré : la base a été déplacée ou restaurée sans son fichier secrets.key. Remettez ce fichier à côté de la base et redémarrez, ou saisissez le secret à nouveau.",
-    "secret_store_unavailable": "Les secrets ne peuvent pas être enregistrés : le fichier secrets.key à côté de la base ne peut être ni lu ni créé. Vérifiez que Meshloom peut écrire dans le dossier de données, puis réessayez."
+    "secret_unreadable": "Un secret de ce canal est illisible (fichier secrets.key manquant). Saisissez-le à nouveau.",
+    "secret_store_unavailable": "Les secrets ne peuvent pas être enregistrés : vérifiez que Meshloom peut écrire dans son dossier de données."
   }
 }

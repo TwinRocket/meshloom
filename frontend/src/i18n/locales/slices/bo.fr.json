@@ -13,7 +13,7 @@
     },
     "recoveryCodes": {
       "title": "Codes de secours",
-      "warning": "Conservez ces codes en lieu sûr, par exemple dans un gestionnaire de mots de passe. Ils ne sont affichés qu'une seule fois et chacun ne sert qu'une fois, si vous perdez votre application d'authentification.",
+      "warning": "Rangez ces codes en lieu sûr : ils ne seront plus affichés, et chacun ne sert qu'une fois.",
       "copy": "Copier",
       "copied": "Codes de secours copiés.",
       "copyFailed": "Copie impossible : sélectionnez les codes et copiez-les à la main.",
@@ -27,7 +27,7 @@
       "currentPassword": "Mot de passe actuel",
       "start": "Continuer",
       "cancel": "Annuler",
-      "scanHelp": "Scannez ce QR code avec une application d'authentification, ou saisissez la clé à la main. Le code est dessiné dans ce navigateur ; la clé ne quitte jamais votre Meshloom.",
+      "scanHelp": "Scannez ce QR code avec une application d'authentification, ou saisissez la clé à la main.",
       "qrTitle": "QR code de configuration à deux facteurs",
       "manualKey": "Clé de configuration",
       "manualHelp": "Basé sur l'heure, {{digits}} chiffres, toutes les {{period}} secondes.",
@@ -46,10 +46,10 @@
     "access": {
       "security": {
         "title": "Authentification à deux facteurs",
-        "ingress": "L'authentification à deux facteurs ne s'applique pas sous Home Assistant : Home Assistant vous a déjà connecté et gère la sécurité de votre connexion.",
+        "ingress": "Sous Home Assistant, c'est Home Assistant qui sécurise votre connexion.",
         "noPassword": "Ce compte n'a pas de mot de passe Meshloom (il se connecte autrement), donc pas de second facteur.",
         "on": "L'authentification à deux facteurs est activée.",
-        "off": "L'authentification à deux facteurs est désactivée. Ajoutez une seconde étape à votre connexion avec une application d'authentification.",
+        "off": "Double authentification désactivée. Protégez votre compte avec une application d'authentification.",
         "codesLeft_one": "{{count}} code de secours restant.",
         "codesLeft_other": "{{count}} codes de secours restants.",
         "pending": "Une configuration a été commencée mais pas terminée. En recommencer une la remplace.",
@@ -60,7 +60,7 @@
         "disableSubmit": "Désactiver l'authentification à deux facteurs",
         "disabled": "Authentification à deux facteurs désactivée.",
         "require": "Exiger l'authentification à deux facteurs pour les administrateurs",
-        "requireHelp": "Un administrateur avec mot de passe qui ne l'a pas configurée ne peut rien faire d'autre que la configurer. Les membres et les lecteurs ne sont pas concernés.",
+        "requireHelp": "Un administrateur sans double authentification devra d'abord la configurer. Les membres et lecteurs ne sont pas concernés.",
         "requireOwnFirst": "Configurez d'abord votre propre second facteur, sinon il vous sera demandé dès l'activation.",
         "requireOn": "Les administrateurs doivent désormais utiliser l'authentification à deux facteurs.",
         "requireOff": "L'authentification à deux facteurs n'est plus exigée des administrateurs."

@@ -9,7 +9,7 @@
     },
     "fullRestore": {
       "warnings": {
-        "api_token_dropped": "The device token {{value}} was not restored: its account is missing from the backup or its role no longer allows that token's scopes."
+        "api_token_dropped": "The device token {{value}} was not restored: create a new one."
       }
     }
   },

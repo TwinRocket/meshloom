@@ -3,14 +3,14 @@
     "share": {
       "cache": {
         "title": "Local copies",
-        "help": "Shared images this Meshloom has fetched are kept here so they are not downloaded again. Clearing them frees disk space; they are fetched again when someone opens them.",
+        "help": "Shared images already fetched. Clearing them frees space; they are fetched again when needed.",
         "clear": "Clear the cache",
         "cleared": "Cache cleared: {{size}} freed."
       },
       "uploads": {
         "title": "My uploads",
         "intro": "Links and files shared from this Meshloom. Deleting one removes it from the share service and from this Meshloom's cache.",
-        "off": "Sharing is off, so this Meshloom does not contact the share service and cannot list what it shared. Links and files already shared stay online until they expire.",
+        "off": "Sharing is off. Links and files already shared stay online until they expire.",
         "refresh": "Refresh",
         "loading": "Loading…",
         "empty": "Nothing shared from this Meshloom yet.",
@@ -40,7 +40,7 @@
         "deleteLabel": "Delete {{id}}",
         "confirm": {
           "title": "Delete this upload?",
-          "body": "It is removed from the share service and from this Meshloom's cache. Anyone who has the link will no longer be able to open it. This cannot be undone.",
+          "body": "The link will no longer open for anyone. This cannot be undone.",
           "cancel": "Cancel",
           "confirm": "Delete"
         },

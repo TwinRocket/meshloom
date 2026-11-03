@@ -8,7 +8,7 @@
     "access": {
       "emailSignIn": {
         "title": "E-mail sign-in",
-        "help": "Sign-in mails (a code after the password, sign-in links) go through one of your notification e-mail channels, with its SMTP settings. Each account then opts in itself in Users & Access. Without a channel, both are refused.",
+        "help": "Sign-in e-mails go through one of your notification e-mail channels.",
         "channel": "Send through",
         "none": "No channel (e-mail sign-in off)",
         "channelOff": "{{name}} (off or incomplete)",
@@ -20,7 +20,7 @@
       },
       "emailFactor": {
         "title": "E-mail sign-in",
-        "help": "Optional. Verify an address, then ask for a code sent to it after your password, or sign in with a link sent to it. OpenID Connect sign-ins never ask for this code.",
+        "help": "Optional. Get a sign-in code or link at a verified address.",
         "unavailable": "An administrator must pick an e-mail channel first (Settings → Connection → E-mail sign-in).",
         "address": "Address:",
         "newAddress": "E-mail address",
@@ -71,6 +71,6 @@
     "auth_email_not_pending": "Ask for a new code to verify this address.",
     "auth_email_channel_invalid": "Pick an e-mail notification channel.",
     "auth_magic_link_invalid": "This sign-in link expired or was already used: ask for a new one.",
-    "auth_magic_link_origin_untrusted": "Sign-in links cannot be sent from this address: an administrator declares Meshloom's public address under Public addresses in the access settings, or open Meshloom by this machine's own address."
+    "auth_magic_link_origin_untrusted": "A sign-in link cannot be sent from this address. An administrator must declare Meshloom's public address."
   }
 }

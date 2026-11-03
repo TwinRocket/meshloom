@@ -24,7 +24,7 @@
       "remove": "Remove",
       "uploadFailed": "The upload failed. Check the connection and try again.",
       "error": {
-        "heic": "HEIC photos (iPhone) cannot be read by this browser. Share the photo as JPEG (Settings > Camera > Formats > Most Compatible) or pick it again through the photo picker, which converts it.",
+        "heic": "This browser cannot read HEIC photos. Pick the photo through the photo picker, which converts it, or share it as JPEG.",
         "unsupported": "This file is not a photo that can be shared. Use a JPEG, PNG, WebP or GIF image.",
         "tooLarge": "This file is too large to share (10 MiB at most once prepared, 5 MiB for a GIF).",
         "decode": "This browser cannot read this image."
@@ -35,7 +35,7 @@
         "encrypted": "Encrypted",
         "publicHint": "Anyone with the link can open the photo.",
         "encryptedHint": "Sealed for this conversation: only its members can open the photo.",
-        "dmUnavailable": "Encrypted photos in direct messages need the radio's key, which this Meshloom has not read yet. Only public sending is possible for now.",
+        "dmUnavailable": "The radio's key has not been read yet: only public sending is possible for now.",
         "noConversationId": "This Meshloom did not give this channel a sharing id: only public sending is possible.",
         "clear": {
           "public": "The Public channel's key is known to everyone: files are published in clear.",

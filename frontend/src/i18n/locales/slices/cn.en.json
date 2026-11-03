@@ -2,24 +2,24 @@
   "settings": {
     "fullRestore": {
       "warnings": {
-        "notification_secrets_missing": "{{value}} notification channel(s) were restored disabled: secrets never leave Meshloom, so enter them again in Settings > Notifications, then turn the channel on.",
+        "notification_secrets_missing": "{{value}} notification channel(s) restored disabled: enter their secrets again, then turn them on.",
         "notification_channel_dropped": "A notification channel ({{value}}) of the backup could not be restored and was left out.",
         "notification_user_rules_dropped": "A notification choice of the backup named an account that does not exist here and was left out.",
         "notification_rules_dropped": "The notification rules of the backup are too large and were not restored.",
-        "notification_destination_secrets_missing": "The e-mail, webhook or Apprise destination secrets were not in the backup: enter them again in Settings > Notifications.",
+        "notification_destination_secrets_missing": "Enter the e-mail, webhook or Apprise destination secrets again in Settings > Notifications.",
         "notification_rules_sanitized": "Some notification rules of the backup were malformed and were left out.",
-        "notification_text_policy_forced": "The message text policy of a notification channel ({{value}}) was set back to its fixed value (never): an SMS service cuts long texts."
+        "notification_text_policy_forced": "Message text is turned off for the channel {{value}}: an SMS service cuts long texts."
       }
     },
     "fanout": {
       "list": {
-        "secretUnreadable": "A stored secret of this integration cannot be decrypted: the database was moved or restored without its secrets.key file. Copy that file back next to the database and restart, or edit the integration and enter the secret again."
+        "secretUnreadable": "A secret of this integration cannot be read (secrets.key file missing). Enter it again."
       }
     }
   },
   "errors": {
     "secret_missing": "Secret missing after a restore: enter it again, then turn the channel on.",
-    "secret_unreadable": "A stored secret of this channel cannot be decrypted: the database was moved or restored without its secrets.key file. Copy that file back next to the database and restart, or enter the secret again.",
-    "secret_store_unavailable": "Secrets cannot be saved: the secrets.key file next to the database cannot be read or created. Check that the data folder is writable by Meshloom, then try again."
+    "secret_unreadable": "A secret of this channel cannot be read (secrets.key file missing). Enter it again.",
+    "secret_store_unavailable": "Secrets cannot be saved: check that Meshloom can write to its data folder."
   }
 }
