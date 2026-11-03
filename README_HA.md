@@ -36,11 +36,6 @@ When this README shows `<node_id>`, it always means that 12-character value. Nod
 
 **Entity IDs** are different — HA auto-generates them from the device name and entity name, not from the node ID. For example, a radio named "MyRadio" produces entities like `binary_sensor.myradio_connected` and `event.myradio_messages`. A contact named "Alice" produces `device_tracker.alice`. You can find your actual entity IDs in **Settings > Devices & Services > MQTT** in HA, and you can rename them in HA's UI without affecting the integration.
 
-You can also see the MQTT topic IDs in Meshloom's Home Assistant integration UI:
-
-- `What gets created in Home Assistant`
-- `Published topic summary`
-
 ## What Gets Created
 
 ### Local Radio Device

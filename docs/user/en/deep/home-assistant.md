@@ -24,7 +24,7 @@ This is different from the Home Assistant add-on, which runs Meshloom itself ins
 5. Under **Message Events**, choose which messages should trigger an event.
 6. Choose **Save as Enabled**.
 
-The devices appear in Home Assistant under **Settings → Devices & services → MQTT**. The form also lists what will be created and the exact topics.
+The devices appear in Home Assistant under **Settings → Devices & services → MQTT**. The entities and topics are listed below. Turning the integration off or deleting it removes its entities from Home Assistant.
 
 ## Names and identifiers
 

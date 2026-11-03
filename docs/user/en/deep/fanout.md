@@ -43,6 +43,13 @@ Messages leave **decrypted**, in plain text, including those you send. Only poin
 
 This sends raw packets to a collector run by a community, such as LetsMesh or MeshRank, so your radio also acts as an observer. Only raw packets leave, never decrypted messages. The default is the LetsMesh US server, over WebSockets. A region code (IATA) is required, and an e-mail address is optional (it lets the collector link the node to you). With LetsMesh, your radio signs the connection pass with its key; MeshRank needs no pass. Besides the packets, the collector receives a status message every five minutes: radio name, model, firmware version and radio settings.
 
+The presets fill everything in for you, and each one is saved as a regular Community MQTT integration, so every field stays editable afterwards:
+
+- **MeshRank**: `meshrank.net`, port 8883 over TCP, TLS with certificate checks, no authentication, region code `XYZ`. You only paste the packet topic MeshRank gives you, such as `meshrank/uplink/<your id>/{PUBLIC_KEY}/packets`.
+- **LetsMesh (US)** and **LetsMesh (EU)**: `mqtt-us-v1.letsmesh.net` or `mqtt-eu-v1.letsmesh.net`, port 443 over WebSockets, TLS with certificate checks, token authentication with the broker host as token audience. You give your e-mail and region code. Running both gives you redundancy.
+
+In the advanced editor, the packet topic accepts `{IATA}` and `{PUBLIC_KEY}`, and the WebSocket path defaults to `/` (some brokers need `/mqtt`).
+
 This is a different thing from the official [Meshloom Community](/en/docs/deep/community/). Both can run at the same time.
 
 ### Map Upload
@@ -50,6 +57,11 @@ This is a different thing from the official [Meshloom Community](/en/docs/deep/c
 It sends the adverts of repeaters and room servers that share a position to map.meshcore.io. It needs the radio's private key to sign them, so the radio firmware must allow key export. A given node is sent at most once per hour.
 
 **It starts in dry-run mode.** In dry-run, Meshloom only writes what it would send to its log. Nothing reaches the map until you untick **Dry Run (log only, no uploads)** in the form. An optional geofence restricts uploads to nodes within a radius of your own radio.
+
+- The firmware option that allows key export is `ENABLE_PRIVATE_KEY_EXPORT=1`.
+- In dry-run, the payload is written to the log at INFO level. Check it before you turn dry-run off.
+- The geofence is centered on the latitude and longitude set in **Settings → Radio**. While the radio has none, the check is skipped and uploads continue. It helps leave out nodes that advertise a wrong or forged position.
+- Leave the API address empty to use map.meshcore.io.
 
 ## Choosing what is sent: the scope
 
@@ -137,6 +149,8 @@ Integrations you had set up before this check keep working: the upgrade ticks th
 **Notifications have moved.** To be told about events (direct messages, mentions, radio offline, new contacts, alerts) on Telegram, Discord, ntfy, Home Assistant, Gotify or any Apprise service, add a **channel** in [Notifications](/en/docs/deep/notifications/): it has its own rules, a pause, a test button, retries, a delivery log and a text policy that keeps private messages out of third-party services. The Apprise output described here stays, and keeps doing what it did: forward every message of the channels and contacts you pick, rendered with your own templates. It has no rules, no pause and no per-event choice. The Apprise output is deprecated and will be removed in 5.2.0: it can no longer be added from the interface, and [converting it](#converting-to-a-notification-channel) into a notification channel takes one click. If the same address is in both, you will be notified twice.
 
 Give one address per line. Each message is sent to all of them. You can write your own text templates for direct messages and channel messages, with variables such as the sender, the text, the channel, the number of hops, and the signal strength. The same variables work in the [message templates](/en/docs/deep/notifications/#message-templates) of a notification channel. Messages you sent yourself are not forwarded unless you tick the option. For Discord, you can keep the webhook's own name and picture.
+
+Messages sent by Meshloom carry no route or signal data: in your templates the path variables show `direct` and RSSI/SNR stay empty. For a Matrix room of version 12 (room identifiers without a server name), add `?hsreq=no` to the address. If a service such as Telegram rejects messages because of special characters in sender names, turn off **Markdown formatting**.
 
 Apprise skips messages from a blocked contact or name and messages on a muted channel (until the mute ends), like the conversation list. The machine outputs (Private MQTT, Webhook, Amazon SQS) still receive them: a script or a broker decides for itself. To be notified of system events (radio offline, new contacts, alerts) through Apprise, use an Apprise channel in [Notifications](/en/docs/deep/notifications/#apprise-destination) instead.
 

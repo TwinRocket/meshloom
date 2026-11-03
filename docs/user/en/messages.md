@@ -17,7 +17,7 @@ After you send, the message shows how its delivery is going:
 
 - A **receipt** (an acknowledgement) means the recipient confirmed it received the message. Without one, the message was sent, but nothing proves it arrived.
 - A direct message with no receipt is retried automatically, up to three attempts in all. Before the last attempt, Meshloom forgets the route it had learned, so the message goes out as a *flood*: it spreads from repeater to repeater until it finds the recipient.
-- Click the hop count or the path next to a message to see which repeaters it went through.
+- Click the hop count or the path next to a message to see which repeaters it went through. Repeater identities are worked out from the adverts and routes Meshloom knows, so a hop can be missing or misidentified.
 
 A receipt takes time. The message has to cross every repeater on the way, and the confirmation has to come back. Over several hops, a few tens of seconds is normal.
 

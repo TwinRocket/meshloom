@@ -17,7 +17,7 @@ Après l’envoi, le message montre l’avancement de sa livraison :
 
 - Un **accusé de réception** signifie que le destinataire a confirmé avoir reçu le message. Sans accusé, le message est parti, mais rien ne prouve qu’il est arrivé.
 - Un message direct sans accusé est renvoyé automatiquement, jusqu’à trois tentatives en tout. Avant la dernière, Meshloom oublie la route qu’il avait apprise : le message part alors en *flood*, c’est-à-dire qu’il se propage de répéteur en répéteur jusqu’à trouver le destinataire.
-- Cliquez sur le nombre de sauts ou sur le chemin à côté d’un message pour voir par quels répéteurs il est passé.
+- Cliquez sur le nombre de sauts ou sur le chemin à côté d’un message pour voir par quels répéteurs il est passé. L’identité des répéteurs est déduite des annonces et des routes que Meshloom connaît : un saut peut manquer ou être mal identifié.
 
 Un accusé prend du temps. Le message doit traverser tous les répéteurs à l’aller, et la confirmation doit revenir. Sur plusieurs sauts, quelques dizaines de secondes sont normales.
 

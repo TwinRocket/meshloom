@@ -23,52 +23,52 @@
         },
         "mqtt_private": {
           "label": "Private MQTT",
-          "description": "Customizable-scope forwarding of all or some messages to an MQTT broker of your choosing, in raw and/or decrypted form.",
+          "description": "Sends messages to your own MQTT broker.",
           "defaultName": "Private MQTT"
         },
         "mqtt_ha": {
           "label": "Home Assistant MQTT Discovery",
-          "description": "Publishes MQTT Discovery payloads so mesh devices appear natively in Home Assistant. Requires HA's built-in MQTT integration connected to the same broker. Select specific contacts for GPS tracking and repeaters for telemetry sensors.",
+          "description": "Shows your radio, repeaters and contacts in Home Assistant.",
           "defaultName": "Home Assistant"
         },
         "mqtt_community": {
           "label": "Community MQTT/meshcoretomqtt",
-          "description": "MeshcoreToMQTT-compatible raw-packet feed publishing, compatible with community aggregators (in other words, make your companion radio also serve as an observer node). Superset of other Community MQTT presets.",
+          "description": "Shares the packets you hear with a meshcoretomqtt-compatible community collector.",
           "defaultName": "Community MQTT"
         },
         "mqtt_community_meshrank": {
           "label": "MeshRank",
-          "description": "A community MQTT config preconfigured for MeshRank, requiring only the provided topic from your MeshRank configuration. A subset of the primary Community MQTT/meshcoretomqtt configuration; you are free to edit all configuration after creation.",
+          "description": "Shares packets with MeshRank. All it needs is the topic MeshRank gives you.",
           "defaultName": "MeshRank"
         },
         "mqtt_community_letsmesh_us": {
           "label": "LetsMesh (US)",
-          "description": "A community MQTT config preconfigured for the LetsMesh US-ingest endpoint, requiring only your email and IATA region code. Good to use with an additional EU configuration for redundancy. A subset of the primary Community MQTT/meshcoretomqtt configuration; you are free to edit all configuration after creation.",
+          "description": "Shares packets with LetsMesh, US server.",
           "defaultName": "LetsMesh (US)"
         },
         "mqtt_community_letsmesh_eu": {
           "label": "LetsMesh (EU)",
-          "description": "A community MQTT config preconfigured for the LetsMesh EU-ingest endpoint, requiring only your email and IATA region code. Good to use with an additional US configuration for redundancy. A subset of the primary Community MQTT/meshcoretomqtt configuration; you are free to edit all configuration after creation.",
+          "description": "Shares packets with LetsMesh, EU server.",
           "defaultName": "LetsMesh (EU)"
         },
         "webhook": {
           "label": "Webhook",
-          "description": "Generic webhook for decrypted channel/DM messages with customizable verb, method, and optional HMAC signature.",
+          "description": "Sends each message as JSON to a web address.",
           "defaultName": "Webhook"
         },
         "apprise": {
           "label": "Apprise",
-          "description": "A wide-ranging generic fanout, capable of forwarding decrypted channel/DM messages to Discord, Telegram, email, SMS, and many others.",
+          "description": "Forwards messages to Discord, Telegram, e-mail and other services.",
           "defaultName": "Apprise"
         },
         "sqs": {
           "label": "Amazon SQS",
-          "description": "Send full or scope-customized raw or decrypted packets to an SQS",
+          "description": "Sends messages to an Amazon SQS queue.",
           "defaultName": "Amazon SQS"
         },
         "map_upload": {
           "label": "Map Upload",
-          "description": "Upload repeaters and room servers to map.meshcore.io or a compatible map API endpoint.",
+          "description": "Puts the repeaters you hear on map.meshcore.io.",
           "defaultName": "Map Upload"
         }
       },
@@ -92,7 +92,7 @@
         "failedSave": "Failed to save",
         "deleted": "Integration deleted",
         "failedDelete": "Failed to delete",
-        "missingId": "Missing fanout config id for update",
+        "missingId": "Integration not found. Reload the page.",
         "meshrankTopicRequired": "MeshRank packet topic is required"
       },
       "confirm": {
@@ -100,7 +100,7 @@
         "delete": "Delete \"{{name}}\"? This cannot be undone."
       },
       "list": {
-        "experimentalBanner": "Integrations are an experimental feature in open beta, and allow you to fanout raw and decrypted messages across multiple services for automation, analysis, or archiving.",
+        "experimentalBanner": "Integrations are in beta: they send what Meshloom hears to other services.",
         "addIntegration": "Add Integration",
         "backToList": "← Back to list",
         "name": "Name",
@@ -118,7 +118,7 @@
         "viewLatestError": "View latest error",
         "errorTitle": "{{name}} Error",
         "errorTitleFallback": "Integration Error",
-        "errorDescription": "Most recent backend error retained for this integration.",
+        "errorDescription": "Latest error from this integration.",
         "broker": "Broker: {{summary}}",
         "topic": "Topic:",
         "topics": "Topics:",
@@ -126,11 +126,11 @@
         "targets": "Targets:",
         "queue": "Queue:",
         "notSet": "Not set",
-        "botsMoved": "Bots are now extensions. Add or review them in Settings > Extensions; the bundled “Echo” extension (meshloom.echo) is the example to start from."
+        "botsMoved": "Bots are now extensions: find them in Settings > Extensions."
       },
       "mqtt": {
-        "privateHelp": "Forward mesh data to your own MQTT broker for home automation, logging, or alerting.",
-        "outgoingWarning": "Outgoing messages (DMs and group messages) will be reported to private MQTT brokers in decrypted/plaintext form.",
+        "privateHelp": "Sends mesh data to your own MQTT broker.",
+        "outgoingWarning": "Messages are sent unencrypted: use a broker you trust.",
         "brokerHost": "Broker Host",
         "brokerPort": "Broker Port",
         "username": "Username",
@@ -144,58 +144,23 @@
       },
       "ha": {
         "title": "Home Assistant MQTT Discovery",
-        "help": "Publish discovery configs and MeshCore state to your MQTT broker so Home Assistant creates native devices, sensors, GPS trackers, and message events automatically.",
-        "step1Title": "1. Same broker",
-        "step1Help": "Home Assistant's built-in MQTT integration must point at the same broker configured below.",
-        "step2Title": "2. Pick what to expose",
-        "step2Help": "Choose repeaters for telemetry sensors and contacts for GPS tracker entities.",
-        "step3Title": "3. Automate in HA",
-        "step3Help": "Radio health and message events publish continuously; repeater and contact data update when new data is heard or collected.",
-        "usesDiscovery": "Uses <discovery>MQTT Discovery</discovery> and the topic conventions documented in <readme>README_HA.md</readme>.",
-        "whatGetsCreated": "What gets created in Home Assistant",
-        "localRadio": "Local radio device",
-        "localRadioAlways": "(always)",
-        "updatesEvery60s": "— updates every 60s",
-        "radioOnline": "— radio online/offline",
-        "radioNoiseFloor": "— radio noise floor (dBm)",
-        "perRepeater": "Per tracked repeater",
-        "perRepeaterHelp": "— updates on telemetry collect cycle (~8h) or manual dashboard fetch. Entity IDs shown use one repeater for example; these sensors are created for each selected repeater.",
-        "lppAuto": ", etc. — CayenneLPP sensors (auto-detected from repeater)",
-        "perContact": "Per tracked contact",
-        "perContactHelp": "— updates passively when advertisements with GPS are heard, and from any GPS reading in the contact's CayenneLPP telemetry. Shown for one contact; a tracker is created for each selected contact.",
-        "trackerHelp": "— latitude/longitude (plus altitude when telemetry provides it)",
-        "contactLpp": ", etc. — CayenneLPP sensors (when the contact is tracked for telemetry; GPS goes to the tracker above)",
-        "messageEventsTitle": "Message events",
-        "messageEventsFires": "— fires for each message matching the scope below",
-        "messageEventsTrigger": "— trigger automations on sender, channel, or message content",
-        "entityIdsHelp": "Entity IDs use the first 12 characters of the node's public key. Entities are removed from HA when this integration is disabled or deleted. State topics are published under <code>{{prefix}}/&lt;node_id&gt;/health|telemetry|gps</code>.",
-        "publishedTopicSummary": "Published topic summary",
-        "topicSummaryHelp": "Home Assistant device and entity IDs are keyed off the first 12 characters of each node's public key, not the display name. Those same 12 characters are used in the MQTT state topics below.",
-        "noTopicPreviews": "No topic previews available yet. Connect to a radio to resolve the local radio key, and select contacts or repeaters above to preview their published topics.",
-        "nodeId": "node id {{id}}",
-        "key": "key {{key}}",
-        "discoveryTopics": "Discovery config topics are also published under <code>homeassistant/.../config</code>, but the topics above are the primary runtime state and event topics.",
+        "help": "Your radio, repeaters and contacts show up in Home Assistant on their own.",
         "mqttBroker": "MQTT Broker",
-        "topicPrefixHelp": "State updates publish under <code>{{prefix}}/</code>. Discovery configs always use the <code>homeassistant/</code> prefix.",
         "gpsTitle": "GPS Tracked Contacts",
-        "gpsHelp": "Each selected contact becomes a <code>device_tracker</code> in HA, updated whenever an advertisement with GPS coordinates is heard. Useful for tracking mobile nodes on an HA map dashboard.",
+        "gpsHelp": "Each contact you pick shows on the Home Assistant map.",
         "searchContacts": "Search {{count}} contacts...",
         "noContacts": "No contacts available.",
         "noContactsMatch": "No contacts match “{{query}}”",
         "removeAria": "Remove {{name}}",
         "telemetryTitle": "Telemetry Tracked Repeaters",
-        "telemetryHelp": "Each selected repeater becomes an HA device with sensors for battery voltage, RSSI, SNR, noise floor, packet counts, and uptime. Data updates whenever telemetry is collected (auto-collect runs every ~8 hours, or on manual dashboard fetch). Only repeaters already in the auto-telemetry tracking list appear here (add new repeaters by logging into the repeater and opting in at the bottom of the page).",
-        "noTrackedRepeaters": "No repeaters are being auto-tracked for telemetry. Add repeaters to the auto-telemetry tracking list in the Radio section first, then return here to select which ones to expose to HA.",
-        "trackedNotFound": "Auto-tracked repeaters not found in contact list.",
+        "telemetryHelp": "Each repeater you pick becomes a device with its sensors. Only repeaters tracked for telemetry are listed.",
+        "noTrackedRepeaters": "No tracked repeaters. Turn on telemetry tracking from a repeater’s dashboard.",
+        "trackedNotFound": "The tracked repeaters are not in your contacts.",
         "messageEventsHeading": "Message Events",
-        "messageEventsHelp": "Matching messages fire an <code>{{entity}}</code> entity in HA with sender, text, channel, and direction attributes. Use HA automations to trigger actions on specific messages, channels, or contacts.",
-        "kindRadio": "Local radio state",
-        "kindEvent": "Message events",
-        "kindRepeater": "Repeater telemetry",
-        "kindContact": "Contact GPS"
+        "messageEventsHelp": "The messages you pick fire an event in Home Assistant for your automations."
       },
       "community": {
-        "help": "Advanced community MQTT editor. Use this for manual meshcoretomqtt-compatible setups or for modifying a saved preset after creation. Only raw RF packets are shared — never decrypted messages.",
+        "help": "Advanced settings for a meshcoretomqtt-compatible community collector.",
         "transport": "Transport",
         "websockets": "WebSockets",
         "tcp": "TCP",
@@ -205,42 +170,38 @@
         "passwordAuth": "Username / Password",
         "letsMeshAuthHelp": "LetsMesh uses <code>token</code> auth. MeshRank uses <code>none</code>.",
         "wsPath": "WebSocket Path",
-        "wsPathHelp": "Defaults to <code>/</code> — use <code>/mqtt</code> for brokers that require a path",
+        "wsPathHelp": "Defaults to <code>/</code>.",
         "tokenAudience": "Token Audience",
-        "tokenAudienceHelp": "Defaults to the broker host when blank",
+        "tokenAudienceHelp": "Empty: the broker host.",
         "ownerEmail": "Owner Email (optional)",
         "emailPlaceholder": "you@example.com",
-        "ownerEmailHelp": "Used to claim your node on the community aggregator",
+        "ownerEmailHelp": "Lets the collector link the node to you.",
         "regionCode": "Region Code (IATA)",
         "regionPlaceholder": "e.g. DEN, LAX, NYC",
-        "regionHelp": "Your nearest airport's IATA code (required)",
+        "regionHelp": "Code of the nearest airport (required)",
         "packetTopicTemplate": "Packet Topic Template",
         "packetTopicHelp": "Use <code>{IATA}</code> and <code>{PUBLIC_KEY}</code>. Default: <code>{{defaultTemplate}}</code>"
       },
       "meshrank": {
-        "help": "Pre-filled MeshRank setup. This saves as a regular Community MQTT integration once created, but only asks for the MeshRank packet topic you were given.",
-        "brokerSummary": "Broker <code>{{host}}</code> on port <code>{{port}}</code> via <code>{{transport}}</code>, auth <code>{{auth}}</code>, TLS on, certificate verification on, region code fixed to <code>{{iata}}</code>.",
-        "topicHelp": "Paste the full topic template from your MeshRank config, for example <code>meshrank/uplink/B435F6D5F7896B74C6B995FE221C2C1F/{PUBLIC_KEY}/packets</code>."
+        "help": "Paste the topic MeshRank gave you; the rest is pre-filled.",
+        "topicHelp": "The full topic from your MeshRank setup."
       },
       "letsmesh": {
-        "help": "Pre-filled LetsMesh setup. This saves as a regular Community MQTT integration once created, but only asks for the values LetsMesh expects from you.",
-        "brokerSummary": "Broker <code>{{host}}</code> on port <code>{{port}}</code> via <code>{{transport}}</code>, auth <code>{{auth}}</code>, TLS on, certificate verification on, token audience fixed to <code>{{host}}</code>.",
+        "help": "Only your e-mail and region code are needed; the rest is pre-filled.",
         "email": "Email"
       },
       "map": {
-        "help": "Automatically upload heard repeater and room server advertisements to <map>map.meshcore.io</map>. Requires the radio's private key to be available (firmware must have <code>ENABLE_PRIVATE_KEY_EXPORT=1</code>). Only raw RF packets are shared — never decrypted messages.",
-        "dryRunStatusOn": "<strong>Dry Run is ON.</strong> No uploads will be sent. Check the backend logs to verify the payload looks correct before enabling live sends.",
-        "dryRunStatusOff": "<strong>Dry Run is OFF.</strong> Live uploads are enabled. Each advert is rate-limited to once per hour per node.",
+        "help": "Puts the repeaters and room servers you hear on <map>map.meshcore.io</map>. Your radio firmware must allow private key export.",
+        "dryRunStatusOn": "<strong>Dry run on:</strong> nothing is sent, it only goes to the log.",
+        "dryRunStatusOff": "<strong>Dry run off:</strong> uploads are live.",
         "dryRunLabel": "Dry Run (log only, no uploads)",
-        "dryRunHelp": "When enabled, upload payloads are logged at INFO level but not sent. Disable once you have confirmed the logged output looks correct.",
         "apiUrl": "API URL (optional)",
-        "apiUrlHelp": "Leave blank to use the default <code>map.meshcore.io</code> endpoint.",
+        "apiUrlHelp": "Leave empty for <code>map.meshcore.io</code>.",
         "enableGeofence": "Enable Geofence",
-        "geofenceHelp": "Only upload nodes whose location falls within the configured radius of your radio's own position. Helps exclude nodes with false or spoofed coordinates. Uses the latitude/longitude set in Radio Settings.",
-        "noCoords": "Your radio does not currently have a latitude/longitude configured. Geofencing will be silently skipped until coordinates are set in <strong>Settings → Radio → Location</strong>.",
-        "usingPosition": "Using radio position <code>{{lat}}, {{lon}}</code> as the geofence center. Update coordinates in Radio Settings to move the center.",
+        "geofenceHelp": "Only uploads nodes near your radio.",
+        "noCoords": "Your radio has no position: set it in <strong>Settings → Radio → Location</strong>.",
+        "usingPosition": "Center: your radio’s position, <code>{{lat}}, {{lon}}</code>.",
         "radius": "Radius (km)",
-        "radiusHelp": "Nodes further than this distance from your radio's position will not be uploaded.",
         "radiusPlaceholder": "e.g. 100"
       },
       "scope": {
@@ -250,9 +211,9 @@
         "noMessages": "No messages",
         "onlyListed": "Only listed channels/contacts",
         "allExcept": "All except listed channels/contacts",
-        "emptyWarning": "Nothing is selected — this integration will not forward any data.",
-        "onlyHint": "Newly added channels or contacts will not be automatically included.",
-        "exceptHint": "Newly added channels or contacts will be automatically included unless excluded here.",
+        "emptyWarning": "Nothing is selected: this integration will send nothing.",
+        "onlyHint": "New channels and contacts will not be included.",
+        "exceptHint": "New channels and contacts will be included.",
         "channels": "Channels",
         "contacts": "Contacts",
         "include": "include",
@@ -267,20 +228,20 @@
         "noContacts": "No contacts available.",
         "noChannelsMatch": "No channels match “{{query}}”",
         "noContactsMatch": "No contacts match “{{query}}”",
-        "hidePills": ">{{max}} selections made; hiding selection preview to keep the interface clean",
+        "hidePills": "Over {{max}} selected: preview hidden",
         "removeAria": "Remove {{name}}"
       },
       "apprise": {
-        "help": "Send push notifications via <apprise>Apprise</apprise> when messages are received. Supports Discord, Slack, Telegram, email, and <services>100+ other services</services>.",
+        "help": "Sends a notification through <apprise>Apprise</apprise> for each message: Discord, Telegram, e-mail and <services>many more</services>.",
         "urls": "Notification URLs",
-        "urlsHelp": "One URL per line. All URLs receive every matched notification. For Matrix room version 12 (servername-less room IDs), append <code>?hsreq=no</code> to the URL.",
+        "urlsHelp": "One URL per line.",
         "preserveIdentity": "Preserve identity on Discord",
-        "preserveIdentityHelp": "When enabled, Discord webhooks will use their configured name/avatar instead of overriding with MeshCore sender info.",
+        "preserveIdentityHelp": "Keeps the Discord webhook’s own name and avatar.",
         "includeOutgoing": "Forward Meshloom-sent messages",
-        "includeOutgoingHelp": "Include DMs and channel messages sent by this Meshloom instance, including manual sends and extension replies. Outgoing messages carry no routing path or signal data, so path-related format fields render as direct and RSSI/SNR are empty.",
+        "includeOutgoingHelp": "Also includes messages sent from Meshloom.",
         "messageFormat": "Message Format",
         "markdown": "Markdown formatting",
-        "markdownHelp": "If notifications fail on services like Telegram due to special characters in sender names, disable this option.",
+        "markdownHelp": "Turn off if Telegram rejects some sender names.",
         "availableVars": "Available variables",
         "varText": "Message body",
         "varSenderName": "Sender display name",
@@ -293,7 +254,7 @@
         "varHopCount": "Number of hops (0 for direct)",
         "varRssi": "Last-hop RSSI in dBm",
         "varSnr": "Last-hop SNR in dB",
-        "varsFooter": "Empty textareas use the default format. RSSI/SNR may be empty if unavailable.",
+        "varsFooter": "Left empty, the default format applies.",
         "dmFormat": "DM format",
         "channelFormat": "Channel format",
         "resetDefault": "Reset to default",
@@ -305,11 +266,11 @@
         "noTargets": "No targets configured"
       },
       "webhook": {
-        "help": "Send message data as JSON to an HTTP endpoint when messages are received.",
+        "help": "Sends each message as JSON to a web address.",
         "url": "URL",
         "httpMethod": "HTTP Method",
         "hmacTitle": "HMAC Signing",
-        "hmacHelp": "When a secret is set, each request includes an HMAC-SHA256 signature of the JSON body in the specified header (e.g. <code>sha256=ab12cd...</code>).",
+        "hmacHelp": "With a secret, each request is signed (HMAC-SHA256).",
         "hmacSecret": "HMAC Secret",
         "hmacSecretPlaceholder": "Leave empty to disable signing",
         "signatureHeader": "Signature Header Name",
@@ -318,19 +279,20 @@
         "invalidJson": "Invalid JSON"
       },
       "sqs": {
-        "help": "Send matched mesh events to an Amazon SQS queue for durable processing by workers, Lambdas, or downstream automation.",
-        "warning": "Outgoing messages and any selected raw packets will be delivered exactly as forwarded by the fanout scope, including decrypted/plaintext message content.",
+        "help": "Sends messages to an Amazon SQS queue.",
+        "warning": "Messages are sent unencrypted: restrict access to the queue.",
         "queueUrl": "Queue URL",
         "region": "Region (optional)",
         "endpoint": "Endpoint URL (optional)",
         "endpointHelp": "Useful for LocalStack or custom endpoints",
         "staticCreds": "Static Credentials (optional)",
-        "staticCredsHelp": "Leave blank to use the server's normal AWS credential chain.",
+        "staticCredsHelp": "Leave empty to use the server’s AWS credentials.",
         "accessKey": "Access Key ID",
         "secretKey": "Secret Access Key",
         "sessionToken": "Session Token (optional)",
         "noQueue": "No queue configured"
-      }
+      },
+      "learnMore": "Learn more"
     }
   }
 }
