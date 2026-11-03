@@ -2,7 +2,10 @@ import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SettingsIndexView } from '../components/SettingsIndexView';
-import { SETTINGS_SECTION_LABELS } from '../components/settings/settingsConstants';
+import {
+  SETTINGS_SECTION_LABELS,
+  SETTINGS_SECTION_ORDER,
+} from '../components/settings/settingsConstants';
 import i18n from '../i18n';
 
 describe('SettingsIndexView', () => {
@@ -43,5 +46,21 @@ describe('SettingsIndexView', () => {
     );
     expect(radioAppIdx).toBeGreaterThanOrEqual(0);
     expect(alertsIdx).toBe(radioAppIdx + 1);
+  });
+
+  it('lists every settings section once, Share right after Community', () => {
+    render(<SettingsIndexView onSelectSection={vi.fn()} />);
+    const labels = screen.getAllByRole('button').map((button) => button.textContent ?? '');
+    for (const section of SETTINGS_SECTION_ORDER) {
+      const label = i18n.t(SETTINGS_SECTION_LABELS[section]);
+      expect(labels.filter((text) => text.includes(label)), section).toHaveLength(1);
+    }
+    const communityIdx = labels.findIndex((text) =>
+      text.includes(i18n.t(SETTINGS_SECTION_LABELS.community))
+    );
+    const shareIdx = labels.findIndex((text) =>
+      text.includes(i18n.t(SETTINGS_SECTION_LABELS.share))
+    );
+    expect(shareIdx).toBe(communityIdx + 1);
   });
 });

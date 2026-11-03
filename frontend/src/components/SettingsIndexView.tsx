@@ -51,6 +51,7 @@ const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
       'notifications',
       'updates',
       'community',
+      'share',
       'fanout',
       'extensions',
     ],
