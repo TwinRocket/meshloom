@@ -33,7 +33,8 @@ only place that asks for one. The browser never does.
   own coded errors: ``radio_not_heard``, ``opted_out``, ``banned`` and ``unavailable``
   (everything else: try later).
 - **Community off.** Turning Community off (or a restore) forgets every cached token and
-  hold: a later join asks again.
+  hold: a later join asks again. It takes the audience locks, so a request in flight
+  then cannot store its token after the forget.
 
 Never log a token. Tests: ``tests/test_community_attestation.py``.
 """
@@ -345,10 +346,16 @@ def _local_refusal(audience: str, exc: HTTPException) -> AttestationUnavailable:
 
 
 async def forget_attestations() -> None:
-    """Forget every cached token and hold (Community off, a restore)."""
-    _state.holds.clear()
-    _state.failures.clear()
-    await CommunityAttestationRepository.delete()
+    """Forget every cached token and hold (Community off, a restore).
+
+    Under every audience lock, in a fixed order: a request to Community in flight
+    when Community is turned off finishes first, so the token it stores is deleted
+    here and never outlives the opt-out.
+    """
+    async with _lock(AUDIENCE_LINKS), _lock(AUDIENCE_REMOTE):
+        _state.holds.clear()
+        _state.failures.clear()
+        await CommunityAttestationRepository.delete()
 
 
 async def _on_community_change() -> None:

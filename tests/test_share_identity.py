@@ -39,6 +39,7 @@ from app.services.instance_identity import (
     mint_instance_jwt,
     mint_share_jwt,
     regenerate,
+    share_account_id,
 )
 
 VECTORS_PATH = Path(__file__).parent / "fixtures" / "links_files_vectors.json"
@@ -52,6 +53,7 @@ _PUBLIC_KEY = re.compile(r"^[0-9A-F]{64}$")
 _JTI = re.compile(r"^[A-Za-z0-9_-]{22}$")
 _BH = re.compile(r"^[0-9a-f]{64}$")
 _IATA = re.compile(r"^[A-Z]{3}$")
+_ACCT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class Rejected(Exception):
@@ -124,6 +126,10 @@ def _worker_verify(token: str, binding: str, now: int, seen: set[str]) -> str:
         if not (isinstance(jti, str) and _JTI.match(jti)):
             raise Rejected("token_malformed")
         if not (isinstance(bh, str) and _BH.match(bh)):
+            raise Rejected("token_malformed")
+        if "acct" in claims and not (
+            isinstance(claims["acct"], str) and _ACCT.match(claims["acct"])
+        ):
             raise Rejected("token_malformed")
         if bh != hashlib.sha256(binding.encode("utf-8")).hexdigest():
             raise Rejected("token_binding")
@@ -306,3 +312,41 @@ async def test_created_is_logged_only_by_the_writer_that_won(test_db, caplog, mo
     await AppSettingsRepository.set_instance_seed(SHARE_SERVICE, "")
     await ensure_instance_key(SHARE_SERVICE)
     assert "Created the share instance identity" in caplog.text
+
+
+# acct (MSHL-445): pinned for the vector seed, so a change of the derivation is seen.
+ACCT_OF_VECTOR_SEED = {1: "5iNOri-9E5jsd6fTOYiTGw", 2: "JUzZF4jgJotLQh7rphua2A"}
+
+
+@pytest.mark.asyncio
+async def test_acct_is_pinned_for_the_vector_seed(test_db):
+    await AppSettingsRepository.set_instance_seed(SHARE_SERVICE, JWT["key"]["seed_hex"])
+    for user_id, expected in ACCT_OF_VECTOR_SEED.items():
+        assert await share_account_id(user_id) == expected
+
+
+@pytest.mark.asyncio
+async def test_share_token_carries_acct_only_when_asked(test_db):
+    binding = "https://example.com/a"
+    token = await mint_share_jwt(binding, account_id=7)
+    claims = _claims(token)
+    assert claims["acct"] == await share_account_id(7)
+    assert _ACCT.match(claims["acct"]) and len(claims["acct"]) == 22
+    assert _worker_verify(token, binding, int(time.time()), set()) == "accept"
+    assert "acct" not in _claims(await mint_share_jwt(binding))
+
+
+@pytest.mark.asyncio
+async def test_acct_is_stable_per_key_and_names_nobody(test_db):
+    first = await share_account_id(1)
+    assert await share_account_id(1) == first
+    assert await share_account_id(2) != first
+    # Not the id, nor a plain hash of it: a keyed hash of this instance.
+    for plain in ("1", hashlib.sha256(b"1").hexdigest()):
+        assert plain not in first
+    assert base64.urlsafe_b64encode(hashlib.sha256(b"1").digest()[:16]).rstrip(b"=").decode() != (
+        first
+    )
+    # A new Links key (regenerate, restore) gives every account a new acct.
+    await regenerate(SHARE_SERVICE)
+    assert await share_account_id(1) != first

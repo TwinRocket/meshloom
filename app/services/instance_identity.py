@@ -12,14 +12,16 @@ Every restore regenerates it through the ``on_restore`` hook registered below.
 
 Tokens use the Community wire format (``_generate_jwt_token`` in
 ``app/fanout/community_mqtt.py``, signed here with PyNaCl instead of the
-expanded radio key). The Remote key also signs the device passes of the edge lock
-(``sign_with_instance_key``; the pass format and its rules are in
-``app/services/remote_passes.py``). Never log a token or a pass either.
+expanded radio key). A share creation token may carry ``acct``, the pseudonymous id
+of the local account behind it (``share_account_id``, MSHL-445). The Remote key also
+signs the device passes of the edge lock (``sign_with_instance_key``; the pass format
+and its rules are in ``app/services/remote_passes.py``). Never log a token or a pass either.
 """
 
 import asyncio
 import base64
 import hashlib
+import hmac
 import logging
 import secrets
 from typing import Any
@@ -43,6 +45,11 @@ SHARE_TOKEN_LIFETIME = 110
 
 REMOTE_SERVICE = "remote"
 REMOTE_AUDIENCE = "relay.meshloom.link"
+# ``acct`` (links-files.md, "Instance JWT"): [A-Za-z0-9_-]{1,64}. 16 bytes of an HMAC in
+# base64url without padding are 22 characters.
+SHARE_ACCOUNT_CONTEXT = b"meshloom/links-acct/v1"
+SHARE_ACCOUNT_BYTES = 16
+
 # remote-registration.md allows exp - iat <= 3600 s and recommends 300 s.
 REMOTE_TOKEN_LIFETIME = 300
 
@@ -168,17 +175,42 @@ def binding_hash(binding: str) -> str:
     return hashlib.sha256(binding.encode("utf-8")).hexdigest()
 
 
-async def mint_share_jwt(binding: str) -> str:
+def share_account_id_for(key: SigningKey, user_id: int) -> str:
+    """``acct`` of ``user_id`` under the share key ``key`` (see ``share_account_id``)."""
+    subkey = hmac.new(key.encode(), SHARE_ACCOUNT_CONTEXT, hashlib.sha256).digest()
+    digest = hmac.new(subkey, str(int(user_id)).encode("ascii"), hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest[:SHARE_ACCOUNT_BYTES]).rstrip(b"=").decode()
+
+
+async def share_account_id(user_id: int) -> str:
+    """The pseudonymous ``acct`` of a local account for the share service.
+
+    HMAC-SHA256 of the local user id under a key derived from the share instance
+    seed, cut to 16 bytes, base64url (22 characters). Stable while the Links
+    instance key is: the service sees the pair (instance key, ``acct``), and only
+    this instance can tell which account it names. Without the seed it cannot be
+    reversed or linked to an account, a username or another instance. It holds no
+    username, e-mail or name. A new Links key (regenerate, restore) gives every
+    account a new ``acct``, as it gives the instance a new key.
+    """
+    return share_account_id_for(await ensure_instance_key(SHARE_SERVICE), user_id)
+
+
+async def mint_share_jwt(binding: str, *, account_id: int | None = None) -> str:
     """A share-service token bound to one request (``bh`` of ``binding``).
 
     The binding strings are in the links-files contract (the ``url`` of a link,
-    ``id + "\\n" + reason`` for a report). Never cache the result.
+    ``id + "\\n" + reason`` for a report). ``account_id`` (the local user id) adds
+    the ``acct`` claim. Never cache the result.
     """
+    claims: dict[str, Any] = {"bh": binding_hash(binding)}
+    if account_id is not None:
+        claims["acct"] = await share_account_id(account_id)
     return await mint_instance_jwt(
         SHARE_SERVICE,
         SHARE_AUDIENCE,
         lifetime=SHARE_TOKEN_LIFETIME,
-        extra_claims={"bh": binding_hash(binding)},
+        extra_claims=claims,
     )
 
 

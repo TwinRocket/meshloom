@@ -28,6 +28,7 @@ Only this server contacts the service, never your browser, and always over HTTPS
 - **When you read:** nothing when a message is displayed, except a shared photo, which this server downloads when the preview setting below lets it load or when you tap it (once: it is then kept in a local cache). When you hover over or focus a short link, Meshloom asks the service what it is (its kind, its destination's host and its expiry) to show the hint described below. These requests carry the object's id and this Meshloom's IP address, and no token.
 
 - **Before a new link or file:** this server asks Meshloom Community for a proof that it knows your radio and that another station heard it recently, then sends that proof with the creation. The proof names the sharing key, not your radio. See [Proof for Remote and sharing](/en/docs/deep/community/#proof-for-remote-and-sharing).
+- **Which account shared:** the token of a new link or file also carries a pseudonymous code for the local account that created it, never its name or e-mail. The operator keeps it with the creation for one year, and only the owner of this Meshloom can tell which account it is.
 
 The service itself keeps short links for 365 days and files, public or encrypted, for 30 days. Its terms of use and privacy policy, linked from the consent window and published on the service's own domain, say what it keeps and for whom.
 

@@ -267,9 +267,13 @@ one per service key, from the backend only:
 - **Community off, restore.** The `add_enabled_change_listener` hook forgets every token and
   hold when Community is turned off; the `community_attestation` on_restore hook does the same
   after any restore, and a database copy empties the table (`SNAPSHOT_EMPTIED_TABLES`).
+  `forget_attestations` takes both audience locks (links, then remote): a request in flight
+  when Community is turned off finishes first, and its token is deleted with the rest instead
+  of being stored after the forget.
 
 Tests: `tests/test_community_attestation.py` (cache, renewal, holds, budget, Community answers,
-Links and Remote retries, against a mocked Community, Links and relay). Every other test gets
+the restore hook registry, the forget/fetch race, Links and Remote retries, against a mocked
+Community, Links and relay). Every other test gets
 `tests/attestation_fakes.FAKE_ATTESTATION` from the autouse `_fake_community_attestation`
 fixture (`tests/conftest.py`).
 

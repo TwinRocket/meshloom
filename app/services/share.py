@@ -32,6 +32,10 @@ the Community guard, and it needs Community on (below).
   creation does not leave (``share_radio_not_heard``, ``share_community_opted_out``,
   ``share_community_banned``, ``share_attestation_unavailable``); after a service
   ``attestation_*`` refusal it is renewed once and the creation retried once.
+- **Account** (MSHL-445). Inside ``share_account(user_id)`` (the creation routes of
+  ``app/routers/share.py``), the token of a creation carries ``acct``: the
+  pseudonymous id of the local account (``instance_identity.share_account_id``, a
+  keyed hash, never a username or an e-mail), kept by Links in its creation log.
 - **Errors** are coded ``HTTPException`` details ``{code, message, params}``
   (``SHARE_ERRORS``). A 429 ``quota_exceeded`` with a contract ``scope`` (``key``,
   ``ip``, ``global``) becomes ``share_quota_key`` / ``_ip`` / ``_global`` (generic
@@ -82,12 +86,14 @@ Never log a token, a request body or a response body. Tests:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import io
 import json
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -235,6 +241,28 @@ _ATTESTATION_CODES: dict[str, str] = {
 }
 # The creations that need a Community attestation (links-files.md, attestation.md).
 _ATTESTED_PATHS = frozenset({"/v1/links", "/v1/files"})
+
+# The local account behind the creation in progress (``share_account``).
+_creation_account: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "share_creation_account", default=None
+)
+
+
+@contextmanager
+def share_account(user_id: int | None) -> Iterator[None]:
+    """Name the local account (``User.id``) a creation is made for (MSHL-445).
+
+    Inside the block, the token of ``POST /v1/links`` and ``POST /v1/files`` carries
+    ``acct``, the pseudonymous id of that account (``instance_identity.share_account_id``),
+    which Links keeps in its creation log. ``None`` (no signed-in account) sends none.
+    Other requests never carry it.
+    """
+    token = _creation_account.set(user_id)
+    try:
+        yield
+    finally:
+        _creation_account.reset(token)
+
 
 # The contract's optional ``scope`` of a 429 ``quota_exceeded`` -> local code. An
 # absent or unknown scope keeps the generic ``share_quota_exceeded``.
@@ -660,7 +688,13 @@ async def _share_request_once(
         if limiter is not None:
             await limiter.acquire()
         if binding is not None:
-            headers["Authorization"] = f"Bearer {await mint_share_jwt(binding)}"
+            account = (
+                _creation_account.get()
+                if method.upper() == "POST" and path in _ATTESTED_PATHS
+                else None
+            )
+            token = await mint_share_jwt(binding, account_id=account)
+            headers["Authorization"] = f"Bearer {token}"
         if json_body is not None:
             content = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
