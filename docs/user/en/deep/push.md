@@ -19,9 +19,9 @@ Web Push is one channel among the others (the built-in **Web Push** channel). Ea
 
 Meshloom signs each notification with a key pair created on first start. The signature also carries a contact address, called the VAPID subject.
 
-Set it in **Settings → Notifications → Channels**, in the **VAPID subject** field of the Web Push card (**Devices and Web Push settings**). It must be `mailto:you@domain.tld` (recommended) or `https://your-host` with no path. When the field is empty, Meshloom uses `mailto:noreply@meshcore.local`.
+Set it in **Settings → Notifications → Channels**, in the **VAPID subject** field of the Web Push card (**Devices and Web Push settings**). It must be `mailto:you@domain.tld` (recommended) or `https://your-host` with no path. When the field is empty, Meshloom uses the Meshloom Remote address (`https://<name>.meshloom.link`) while Remote is on, and `mailto:noreply@meshcore.local` otherwise. The line below the field shows the address in use and where it comes from. What you type always wins.
 
-**Apple requires a real address.** APNs rejects a subject that is not a genuine contact and the `.local` default, answering `403 BadJwtToken`. Set a real address in that field.
+**Apple requires a real address.** APNs rejects a subject that is not a genuine contact and the `.local` default, answering `403 BadJwtToken`. Turn on Meshloom Remote or set a real address in that field. Changing the address, or turning Remote on or off, does not touch the subscribed devices: they depend on the key pair, not on the address. Your own domain for Remote is never used here, since Meshloom does not save it.
 
 The environment variable `MESHCORE_VAPID_SUBJECT` is no longer read. If it was still set when you updated, Meshloom copied it into this field once, at the first start, provided the field was empty. The Home Assistant add-on's `vapid_subject` option works the same way: it is copied once into this field, and is deprecated (it goes away in the next release).
 

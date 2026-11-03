@@ -53,4 +53,4 @@ As an administrator, open **Settings → Remote access**. Once Meshloom Remote i
 
 A domain that points to your own network (a private or local address) is never contacted by this test, as for every address Meshloom is asked to call. The test runs from your instance, so it sees what your instance sees; a registrar change can take a while to reach every resolver.
 
-The domain you type is not saved anywhere.
+The domain you type is not saved anywhere. Web Push notifications therefore use your `<name>.meshloom.link` address as their contact address when none is set, never your own domain (see [Push notifications](/en/docs/deep/push/#the-contact-address-vapid)).

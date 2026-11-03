@@ -3,10 +3,19 @@
 Generates a P-256 key pair on first use and caches it in app_settings
 via ``AppSettingsRepository``.  The public key is served to browsers
 for ``PushManager.subscribe()``.
+
+The JWT ``sub`` (``get_vapid_claims``) is, in order: the subject typed in Settings →
+Notifications (``app_settings.vapid_subject``) when py-vapid accepts it; else, while
+Meshloom Remote is on and registered, the Remote address ``https://<slug>.meshloom.link``
+(MSHL-446, derived from ``remote_state``, never written to ``app_settings``); else
+``DEFAULT_VAPID_SUBJECT``. The Remote part is cached here and refreshed by a Remote change
+listener (enable, disable, register, rotate, unregister, restore). Changing the subject
+does not touch subscriptions: they depend on the VAPID keys only.
 """
 
 import base64
 import logging
+from typing import Literal
 from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -23,6 +32,9 @@ DEFAULT_VAPID_SUBJECT = "mailto:noreply@meshcore.local"
 _cached_private_key: str = ""
 _cached_public_key: str = ""
 _cached_subject: str = ""
+_cached_remote_subject: str = ""
+
+VapidSubjectSource = Literal["stored", "remote", "default"]
 
 
 def normalize_vapid_subject(raw: str) -> str:
@@ -63,22 +75,83 @@ def vapid_subject_is_usable(subject: str) -> bool:
     return False
 
 
-def resolve_vapid_subject(stored: str = "") -> str:
-    """The stored subject when py-vapid accepts it, otherwise the built-in default.
+def resolve_vapid_subject_with_source(
+    stored: str = "", remote: str = ""
+) -> tuple[str, VapidSubjectSource]:
+    """``(subject, source)``: the stored subject when py-vapid accepts it, else the
+    Remote address when usable, else the built-in default.
 
     ``MESHCORE_VAPID_SUBJECT`` is no longer read here: a leftover value was copied
     into the database once (``services/legacy_env_settings.py``).
     """
     normalized = normalize_vapid_subject(stored)
     if vapid_subject_is_usable(normalized):
-        return normalized
-    return DEFAULT_VAPID_SUBJECT
+        return normalized, "stored"
+    remote_normalized = normalize_vapid_subject(remote)
+    if vapid_subject_is_usable(remote_normalized):
+        return remote_normalized, "remote"
+    return DEFAULT_VAPID_SUBJECT, "default"
+
+
+def resolve_vapid_subject(stored: str = "", remote: str = "") -> str:
+    """The subject ``resolve_vapid_subject_with_source`` picks."""
+    return resolve_vapid_subject_with_source(stored, remote)[0]
 
 
 def set_cached_vapid_subject(subject: str) -> None:
-    """Update the in-memory VAPID subject. Empty means the built-in default."""
+    """Update the in-memory stored VAPID subject. Empty means no stored subject."""
     global _cached_subject
     _cached_subject = normalize_vapid_subject(subject)
+
+
+def remote_vapid_subject(enabled: bool, hostname: str) -> str:
+    """``https://<hostname>`` while Remote is on and registered, else ''.
+
+    The custom domain of MSHL-428 is only tested, never stored, so the registry
+    hostname (``<slug>.meshloom.link``) is the one address the instance knows.
+    """
+    host = (hostname or "").strip().lower()
+    if not enabled or not host:
+        return ""
+    subject = f"https://{host}"
+    return subject if vapid_subject_is_usable(subject) else ""
+
+
+def set_cached_remote_vapid_subject(subject: str) -> None:
+    """Update the in-memory Remote-derived subject. Empty means Remote is not usable."""
+    global _cached_remote_subject
+    _cached_remote_subject = normalize_vapid_subject(subject)
+
+
+def get_cached_remote_vapid_subject() -> str:
+    return _cached_remote_subject
+
+
+async def refresh_remote_vapid_subject() -> str:
+    """Recompute the Remote-derived subject from ``remote_state``. Never raises."""
+    from app.repository.remote import RemoteRepository
+
+    try:
+        state = await RemoteRepository.get_state()
+    except Exception:
+        logger.warning("VAPID: the Remote state could not be read; no Remote subject")
+        set_cached_remote_vapid_subject("")
+        return ""
+    subject = remote_vapid_subject(state.enabled, state.hostname)
+    set_cached_remote_vapid_subject(subject)
+    return subject
+
+
+def watch_remote_for_vapid_subject() -> None:
+    """Recompute the Remote-derived subject on every Remote change (idempotent)."""
+    from app.services import remote
+
+    remote.add_change_listener(refresh_remote_vapid_subject)
+
+
+def effective_vapid_subject() -> tuple[str, VapidSubjectSource]:
+    """The subject Web Push signs with now, and where it comes from."""
+    return resolve_vapid_subject_with_source(_cached_subject, _cached_remote_subject)
 
 
 async def ensure_vapid_keys() -> tuple[str, str]:
@@ -87,6 +160,8 @@ async def ensure_vapid_keys() -> tuple[str, str]:
 
     stored_subject = await AppSettingsRepository.get_vapid_subject()
     set_cached_vapid_subject(stored_subject)
+    watch_remote_for_vapid_subject()
+    await refresh_remote_vapid_subject()
 
     private, public = await AppSettingsRepository.get_vapid_keys()
     if private and public:
@@ -128,11 +203,11 @@ def get_vapid_private_key() -> str:
 def get_vapid_claims() -> dict[str, str]:
     """VAPID JWT claims for Web Push.
 
-    Precedence: usable DB-cached subject (Settings → Notifications), then
-    ``DEFAULT_VAPID_SUBJECT``. https origins are normalized to scheme +
-    host so a trailing slash cannot trip py-vapid's ``sub`` regex.
-    Apple's push service (APNs) rejects subjects on reserved TLDs such as
-    ``.local`` with ``403 BadJwtToken``, so iOS/Safari operators must set this
-    to a real ``mailto:`` or ``https:`` contact.
+    Precedence: usable DB-cached subject (Settings → Notifications), then the
+    Meshloom Remote address while Remote is on, then ``DEFAULT_VAPID_SUBJECT``.
+    https origins are normalized to scheme + host so a trailing slash cannot trip
+    py-vapid's ``sub`` regex. Apple's push service (APNs) rejects subjects on
+    reserved TLDs such as ``.local`` with ``403 BadJwtToken``, so iOS/Safari
+    operators without Remote must set a real ``mailto:`` or ``https:`` contact.
     """
-    return {"sub": resolve_vapid_subject(_cached_subject)}
+    return {"sub": effective_vapid_subject()[0]}

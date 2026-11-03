@@ -23,10 +23,13 @@ from app.auth.principal import Principal, get_principal
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.push.send import send_push
 from app.push.vapid import (
+    VapidSubjectSource,
+    get_cached_remote_vapid_subject,
     get_vapid_claims,
     get_vapid_private_key,
     get_vapid_public_key,
     normalize_vapid_subject,
+    resolve_vapid_subject_with_source,
     set_cached_vapid_subject,
     vapid_subject_is_usable,
 )
@@ -103,7 +106,14 @@ class PushDefaultsPatch(BaseModel):
 class PushPreferencesResponse(BaseModel):
     defaults: PushDefaultsModel
     overrides: dict[str, dict[str, bool]]
-    vapid_subject: str
+    vapid_subject: str = Field(description="The subject typed in Settings (may be empty)")
+    vapid_subject_effective: str = Field(
+        description="The subject Web Push signs with: the typed one, else the Meshloom "
+        "Remote address while Remote is on, else the built-in default"
+    )
+    vapid_subject_source: VapidSubjectSource = Field(
+        description="Where vapid_subject_effective comes from"
+    )
 
 
 class PushPreferencesPatch(BaseModel):
@@ -116,7 +126,7 @@ class PushConversationOverrideBody(BaseModel):
 
 
 def _validate_vapid_subject(subject: str) -> str:
-    """Empty stores as '' (env fallback). Non-empty must be a usable mailto: or https origin."""
+    """Empty stores as '' (Remote address or built-in default). Non-empty must be a usable mailto: or https origin."""
     stored = normalize_vapid_subject(subject)
     if not stored:
         return ""
@@ -571,10 +581,15 @@ async def get_push_preferences() -> PushPreferencesResponse:
     defaults = await AppSettingsRepository.get_push_defaults()
     overrides = await AppSettingsRepository.get_push_conversation_overrides()
     vapid_subject = await AppSettingsRepository.get_vapid_subject()
+    effective, source = resolve_vapid_subject_with_source(
+        vapid_subject, get_cached_remote_vapid_subject()
+    )
     return PushPreferencesResponse(
         defaults=PushDefaultsModel.model_validate(defaults),
         overrides=overrides,
         vapid_subject=vapid_subject,
+        vapid_subject_effective=effective,
+        vapid_subject_source=source,
     )
 
 

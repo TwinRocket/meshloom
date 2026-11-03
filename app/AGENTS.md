@@ -1687,8 +1687,13 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Web Push (`app/push/`)
 
-VAPID subject: `app_settings.vapid_subject`, falling back to `DEFAULT_VAPID_SUBJECT`;
-Apple rejects `.local`. Which events reach Web Push is the notification rules' decision
+VAPID subject (`push/vapid.py`, `get_vapid_claims`): the usable `app_settings.vapid_subject`,
+else `https://<remote_state.hostname>` while Remote is on and registered (MSHL-446; derived and
+cached, refreshed by a `services/remote.add_change_listener` callback installed by
+`ensure_vapid_keys`, never written to `app_settings`; the MSHL-428 custom domain is not stored,
+so it is never used), else `DEFAULT_VAPID_SUBJECT`; Apple rejects `.local`. `GET /push/preferences`
+reports `vapid_subject_effective` and `vapid_subject_source` (`stored`/`remote`/`default`) for
+the Settings line under the field. Subscriptions depend on the keys only, not on the subject. Which events reach Web Push is the notification rules' decision
 (`app/notifications/rules.py`, `conversation_channel_enabled`; `app/push/policy.py` is a
 deprecated adapter kept for one release; `frontend/src/utils/notificationPolicy.ts` mirrors it
 over the same fixture, `pushPolicy.ts` only re-exports it for one release). `PushManager` only sends
