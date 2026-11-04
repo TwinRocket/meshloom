@@ -11,11 +11,19 @@ Meshloom is designed for a trusted network. Several architectural choices depend
 
 **No user accounts.** There are no sessions, authorization model, or per-feature permissions. Anyone who reaches the UI can read history, send messages, change radio settings, and edit bots.
 
-**No origin restriction.** The backend allows all origins (`allow_origins=["*"]`, with `allow_credentials=True`). This makes LAN access easy, but a third-party page in the same browser can also call the API.
-
 **Arbitrary bot execution.** Bots run user-supplied Python through `exec()` with full `__builtins__`. Anyone on the network can execute arbitrary code on the Meshloom host. This is intentional.
 
 These choices do not weaken MeshCore message encryption, channel keys, or the node private key. They describe application access.
+
+## Other sites
+
+Meshloom answers its own address only. The API sends no CORS headers, and changes and the live feed (WebSocket) from a page of another site get `403`. Scripts that send no `Origin` header keep working. A frontend hosted on another address does not.
+
+Behind a reverse proxy, see [HTTPS](/en/docs/deep/https/).
+
+## Bots and domain names
+
+Bots can be created or changed only from an IP address, `localhost`, a `.local`, `.lan`, `.home.arpa` or `.internal` name, the machine's own name, or Home Assistant ingress. Through another domain, existing bots keep running and can be deleted, but not edited. This blocks DNS rebinding, where a hostile page takes on your server's address.
 
 ## HTTP Basic authentication
 

@@ -29,7 +29,7 @@ This file is the canonical entry point for every coding agent and tool.
   never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
-  - Access: accounts, login, CORS and credentials, Origin/Host checks.
+  - Access: accounts, login, allowed-origin settings, a general Host guard.
   - Plugins: a marketplace that will replace the bots' `exec`.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 - Prefer fewer, stronger modules over thin wrappers. Use typed contracts (Pydantic
@@ -40,7 +40,7 @@ This file is the canonical entry point for every coding agent and tool.
 
 ```
 app/                  FastAPI backend (see app/AGENTS.md)
-  main.py             app, lifespan, middleware (CORS, Basic auth, security headers), router mounting
+  main.py             app, lifespan, middleware (cross-site guard, Basic auth, security headers), router mounting
   config.py           Settings (env prefix MESHCORE_)
   routers/            one module per API area, all mounted under /api
   services/           orchestration: radio lifecycle/runtime, message send, Community client, updates
@@ -162,14 +162,18 @@ are not part of the gate. See `CONTRIBUTING.md`.
   set. `MESHLOOM_COMMUNITY` only seeds a new database.
 - **Current security posture.** This is a description, not a recommendation;
   changing it belongs to the Access and Plugins work.
-  - CORS is `allow_origins=["*"]` with `allow_credentials=True` (`app/main.py`).
+  - No CORS. Non-safe methods and `/api/ws` refuse another site's `Origin`
+    (`app/origin_policy.py`); a client with no `Origin` passes.
   - Access control is optional app-wide HTTP Basic auth only
     (`MESHCORE_BASIC_AUTH_USERNAME` and `_PASSWORD`, set together).
   - Bots run user Python through `exec()` with full builtins
     (`app/fanout/bot_exec.py`). `MESHCORE_DISABLE_BOTS=true` turns them off;
     the `.deb`/`.rpm` sets it by default in `/etc/meshloom/meshloom.env`.
+    Creating or changing a bot needs a local raw `Host` or Home Assistant ingress
+    (DNS rebinding, `app/origin_policy.py`).
   - The radio proxy listens on `0.0.0.0:5001` by default, without
-    authentication.
+    authentication. It closes a connection whose stream breaks the frame format
+    (`FrameAssembler`, no resync).
 - **The `meshcore` reader can raise `IndexError`** on a truncated advert in
   `LOG_DATA`. This is a library parsing gap. One packet's task fails and later
   packets still process.

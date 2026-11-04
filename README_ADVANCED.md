@@ -79,11 +79,15 @@ Setting `MESHCORE_LOAD_WITH_AUTOEVICT=true` enables an alternative contact loadi
 
 ## Sub-Path Reverse Proxy
 
-Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed.
+Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix.
 
 The proxy must ensure the sub-path URL has a **trailing slash**. If a user visits `/meshcore` (no slash), relative paths break. For Nginx, a `location /meshcore/ { ... }` block (note the trailing slash) does the right thing.
 
-CORS currently allows every origin with credentials (`allow_origins=["*"]`, `allow_credentials=True`). Do not expose the interface beyond a trusted network on the strength of Basic auth alone.
+The proxy must forward the browser's `Host`, or name it in `X-Forwarded-Host` with its port. Writes and the WebSocket refuse an `Origin` that matches neither (`app/origin_policy.py`). Over HTTPS, `Sec-Fetch-Site: same-origin` also passes. A frontend served from another origin no longer works: there are no CORS headers.
+
+Bots can only be created or changed when `Host` is an IP address, `localhost`, a `.local`, `.lan`, `.home.arpa` or `.internal` name, or the machine's own name, or through Home Assistant ingress. Through another domain they keep running, and can be deleted, but not edited: open Meshloom by its local address for that.
+
+Do not expose the interface beyond a trusted network on the strength of Basic auth alone.
 
 ## HTTPS
 

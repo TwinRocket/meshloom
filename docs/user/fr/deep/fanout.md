@@ -89,6 +89,8 @@ L’exécution est bornée : pool de threads, délai maximal, limite de concurre
 
 Deux interrupteurs existent. `MESHCORE_DISABLE_BOTS=true` désactive le système au démarrage : plus d’exécution, `403` sur les modifications de configuration de bots, et un message d’indisponibilité dans l’interface. `POST /api/fanout/bots/disable-until-restart` arrête les modules bots et les maintient désactivés jusqu’au redémarrage du processus, sans toucher à l’environnement.
 
+On ne crée ou ne modifie un bot que depuis une adresse locale ou l’ingress Home Assistant, pas via un nom de domaine. Voir [Sécurité](/docs/deep/security/).
+
 Une limite de principe du projet, valable aussi pour les bots : pas de trafic radio réellement automatisé, et pas d’injection de contenu venu d’Internet sur le mesh. Les réponses de bots sont la limite de ce que le projet veut automatiser.
 
 ## MQTT communautaire

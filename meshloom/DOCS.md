@@ -79,7 +79,7 @@ address and a port, and Meshloom answers to whatever name it is asked for. Ingre
 keeps working meanwhile; the two ways in are independent. A published port is
 reachable by anything that can route to that machine, so set
 `basic_auth_username` / `basic_auth_password` unless the tunnel authenticates for
-you.
+you. Bots cannot be created or changed through that hostname: use ingress for that.
 
 ## The radio identity
 

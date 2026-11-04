@@ -11,7 +11,7 @@ Stack: FastAPI, aiosqlite, Pydantic v2 (+ pydantic-settings), `meshcore` (PyPI),
 
 ```text
 app/
-├── main.py              # lifespan, middleware (CORS, gzip, Basic auth), router registration, static mount
+├── main.py              # lifespan, middleware (cross-site guard, gzip, Basic auth), router registration, static mount
 ├── config.py            # pydantic-settings, env prefix MESHCORE_ (see root env table)
 ├── database.py          # SQLite connection, base schema and indexes
 ├── migrations/          # _NNN_name.py, each exposes `async def migrate(conn)`; tracked by PRAGMA user_version
@@ -27,6 +27,7 @@ app/
 ├── event_handlers.py    # MeshCore event subscriptions (on_rx_log_data, on_ack, CONTACT_MSG_RECV fallback)
 ├── region_resolver.py   # name a packet's region by recomputing transport codes per known region
 ├── security.py          # optional app-wide HTTP Basic auth (HTTP + WS)
+├── origin_policy.py     # cross-site rule (writes, /api/ws) and the bot-edit Host rule
 ├── frontend_static.py   # serve frontend/dist, else frontend/prebuilt
 ├── keystore.py          # in-memory private key for DM decryption
 ├── push/                # Web Push (not a fanout module)
@@ -131,8 +132,8 @@ Per-browser subscriptions in `push_subscriptions` (`UNIQUE(endpoint)`). VAPID ke
 
 ## Security posture: facts, not endorsements
 
-- CORS is `allow_origins=["*"]` **with** `allow_credentials=True` (`main.py`). No accounts or sessions; optional app-wide Basic auth (`security.py`).
-- Bots run user Python through `exec()` (`MESHCORE_DISABLE_BOTS=true` turns this off).
+- No CORS middleware. Non-safe methods and `/api/ws` refuse another site's `Origin` (`origin_policy.py`, HA ingress exempt). No accounts or sessions; optional app-wide Basic auth (`security.py`).
+- Bots run user Python through `exec()` (`MESHCORE_DISABLE_BOTS=true` turns this off). Creating or patching one needs a local raw `Host` or HA ingress (`bot_edit_allowed`).
 - Changing these belongs to the out-of-scope Access and Plugins workstreams (root `AGENTS.md`, "Working rules"). Do not change them in passing.
 
 ## API routes (all under `/api`)

@@ -42,7 +42,13 @@ The read-only mounts are intentional. `command` replaces the image command, so i
 
 ## Reverse proxy under a subpath
 
-Meshloom can run under a prefix such as `/meshcore/`, including through the Home Assistant ingress. Keep the trailing slash. Asset, API, and web-manifest URLs are relative (`start_url` and `scope` are `./`), so no `X-Forwarded-*` header is needed.
+Meshloom can run under a prefix such as `/meshcore/`, including through the Home Assistant ingress. Keep the trailing slash. Asset, API, and web-manifest URLs are relative (`start_url` and `scope` are `./`).
+
+## Reverse proxy and addresses
+
+The proxy must forward the browser's `Host`, or give it in `X-Forwarded-Host`, port included. Otherwise changes and the live feed answer `403` (over HTTPS, recent browsers are recognized anyway). Nginx: `proxy_set_header Host $http_host;`.
+
+Through a domain name, bots cannot be created or changed: open Meshloom by its local address for that. See [Security](/en/docs/deep/security/).
 
 ## WebSocket
 

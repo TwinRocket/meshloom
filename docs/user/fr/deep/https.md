@@ -54,6 +54,12 @@ Une exigence côté proxy.
 
 **La barre oblique finale.** L’URL du sous-chemin doit en avoir une. Si un visiteur atteint `/meshcore` sans barre finale, les chemins relatifs cassent. La plupart des proxys s’en occupent seuls ; pour Nginx, un bloc `location /meshcore/ { ... }` — avec la barre — fait ce qu’il faut.
 
+## Reverse-proxy et adresses
+
+Le proxy doit transmettre le `Host` du navigateur, ou l’indiquer dans `X-Forwarded-Host`, port compris. Sinon, les modifications et le flux en direct répondent `403` (en HTTPS, les navigateurs récents sont reconnus quand même). Nginx : `proxy_set_header Host $http_host;`.
+
+Via un nom de domaine, on ne peut ni créer ni modifier de bot : ouvrez Meshloom par son adresse locale pour cela. Voir [Sécurité](/docs/deep/security/).
+
 **Pas d’en-tête `X-Forwarded-*` requis.** Le manifeste web est lui aussi relatif (`start_url` et `scope` valent `./`), donc l’installation en PWA fonctionne sous le préfixe sans `X-Forwarded-Prefix`.
 
 ## WebSocket

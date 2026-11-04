@@ -58,6 +58,8 @@ Optional keyword arguments include `region`, `scoped`, `is_outgoing`, `path_byte
 
 `MESHCORE_DISABLE_BOTS=true` disables the system at startup and returns `403` for bot configuration changes. `POST /api/fanout/bots/disable-until-restart` stops bot modules until process restart.
 
+Bots can be created or changed only from a local address or Home Assistant ingress, not through a domain name. See [Security](/en/docs/deep/security/).
+
 ## Community MQTT
 
 It publishes raw packets only. A direct packet’s optional `path` is a comma-separated list of hop identifiers, with widths of 1, 2, or 3 bytes according to `path_hash_mode`; it is not a byte-by-byte rendering.

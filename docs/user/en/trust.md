@@ -13,7 +13,7 @@ There are no user accounts, sessions, roles, or per-feature permissions. Anyone 
 
 That means reading the complete history of direct messages and channels, writing as your node, changing its name and radio settings, deleting contacts, and purging the database. There is no middle ground between “cannot open the page” and “controls everything”.
 
-The server also applies no origin restriction to requests: any web page can call its API. This is deliberate — it lets you open the interface from any device on the network without extra configuration — and it requires that same trusted network.
+The server only answers its own address: pages of other sites cannot act on it. Any device or script on the network still can.
 
 While bots are enabled and no password is set, the interface shows a warning about this posture until you acknowledge it. It is not decorative.
 
@@ -27,6 +27,7 @@ Two safeguards:
 
 - Bots are **enabled by default**. Only the Linux package turns them off (`MESHCORE_DISABLE_BOTS=true` in `/etc/meshloom/meshloom.env`); the installer asks nothing about them, and Docker installs keep them on.
 - The environment variable `MESHCORE_DISABLE_BOTS=true` turns off the bot system at startup. No bot runs, the related settings are rejected, and the interface shows the feature as disabled.
+- Bots can be created or changed only from a local address (IP, `localhost`, `.local` name), not through a domain name. See [Security](/en/docs/deep/security/).
 
 If people you do not all know can reach the instance, keep bots disabled.
 

@@ -109,6 +109,10 @@ Depuis un checkout, la correction est de construire : `cd frontend && npm instal
 
 L’interface s’affiche, l’historique se charge, mais les nouveaux messages n’apparaissent pas sans rechargement. C’est le WebSocket `/api/ws` qui ne passe pas. Cause habituelle : un reverse-proxy qui ne relaie pas la mise à niveau de connexion, ou qui coupe les connexions inactives en moins de trente secondes. Voir [HTTPS](/docs/deep/https/).
 
+## 403 sur les modifications derrière un proxy
+
+« Refusé : cette requête vient d’un autre site » : le proxy ne transmet pas l’adresse utilisée par le navigateur. Voir [HTTPS](/docs/deep/https/). « Les bots ne se créent ou ne se modifient que depuis une adresse locale » : ouvrez Meshloom par son adresse IP ou son nom en `.local`.
+
 ## Rapporter un bug
 
 Avec les logs en `DEBUG` et le bloc `/api/debug` — tronqué au marqueur si vous préférez — sur le [dépôt GitHub](https://github.com/TwinRocket/meshloom). Une discussion ou une issue avant une pull request est la voie attendue par le projet.

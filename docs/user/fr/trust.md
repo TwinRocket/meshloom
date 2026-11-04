@@ -13,7 +13,7 @@ Pas de comptes utilisateurs, pas de sessions, pas de rôles, pas de permissions 
 
 Cela veut dire : lire tout l’historique des messages directs et des salons, écrire au nom de votre nœud, changer le nom et les paramètres radio, supprimer des contacts, purger la base. Il n’y a aucun niveau intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ».
 
-Le serveur n’applique pas non plus de restriction d’origine pour les requêtes : n’importe quelle page web peut appeler son API. C’est délibéré — cela permet d’ouvrir l’interface depuis n’importe quel appareil du réseau sans configuration — et cela suppose le même réseau de confiance.
+Le serveur ne répond qu’à sa propre adresse : les pages d’autres sites ne peuvent pas agir sur lui. Tout appareil ou script du réseau le peut toujours.
 
 Tant que les bots sont actifs et qu’aucun mot de passe n’est posé, l’interface affiche un avertissement qui rappelle cette posture, jusqu’à ce que vous en preniez acte. Il n’est pas décoratif.
 

@@ -79,6 +79,10 @@ Build the frontend: `cd frontend && npm install && npm run build`. The backend f
 
 The WebSocket `/api/ws` is not passing through the proxy. Check upgrade headers and idle timeouts shorter than 30 seconds. See [HTTPS](/en/docs/deep/https/).
 
+## 403 on changes behind a proxy
+
+"Refused: this request came from another site": the proxy does not forward the address the browser used. See [HTTPS](/en/docs/deep/https/). "Bots can only be created or changed from a local address": open Meshloom by its IP address or `.local` name.
+
 ## Report a bug
 
 Include DEBUG logs and `/api/debug` in an issue on the [GitHub repository](https://github.com/TwinRocket/meshloom).

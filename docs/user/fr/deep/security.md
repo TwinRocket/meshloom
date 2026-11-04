@@ -13,11 +13,19 @@ Les décisions listées ci-dessous sont **délibérées**. Elles ne sont pas des
 
 **Pas de comptes utilisateurs.** Aucune session, aucun modèle d’autorisation, aucune permission par fonctionnalité. Quiconque atteint l’interface peut tout faire : lire l’historique, envoyer des messages, modifier la configuration radio, éditer des bots.
 
-**Pas de restriction d’origine.** Le backend autorise toutes les origines (`allow_origins=["*"]`, avec `allow_credentials=True`). C’est ce qui permet de consulter sa radio depuis n’importe quel appareil du réseau local sans configuration. C’est aussi ce qui fait qu’une page web tierce ouverte dans le même navigateur peut parler à l’API.
-
 **Exécution de code arbitraire par les bots.** Le système de bots exécute du Python fourni par l’utilisateur via `exec()`, avec l’ensemble des `__builtins__`. C’est assumé : les bots sont une fonctionnalité de puissance pour l’automatisation. La conséquence directe est que **toute personne sur le réseau peut exécuter du code arbitraire** sur la machine qui héberge Meshloom.
 
 Ces trois points ne changent rien à la sécurité du mesh lui-même. Le chiffrement des messages MeshCore, les clés de salon et la clé privée du nœud fonctionnent comme prévu. C’est l’accès **à l’application** qui n’est pas cloisonné.
+
+## Les autres sites
+
+Meshloom ne répond qu’à sa propre adresse. L’API n’envoie aucun en-tête CORS, et les modifications comme le flux en direct (WebSocket) venant d’une page d’un autre site reçoivent un `403`. Les scripts qui n’envoient pas d’en-tête `Origin` continuent de fonctionner. Une interface hébergée à une autre adresse, non.
+
+Derrière un reverse-proxy, voir [HTTPS](/docs/deep/https/).
+
+## Les bots et les noms de domaine
+
+On ne crée ou ne modifie un bot que depuis une adresse IP, `localhost`, un nom en `.local`, `.lan`, `.home.arpa` ou `.internal`, le nom de la machine ou l’ingress Home Assistant. Via un autre domaine, les bots existants continuent de tourner et peuvent être supprimés, mais pas modifiés. Cela bloque le DNS rebinding, où une page hostile prend l’adresse de votre serveur.
 
 ## Authentification HTTP Basic
 
