@@ -6,11 +6,12 @@ import logging
 import re
 import string
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.fanout.bot_exec import _analyze_bot_signature
 from app.fanout.manager import fanout_manager, is_reserved_fanout_id
+from app.origin_policy import bot_edit_allowed
 from app.repository.fanout import FanoutConfigRepository
 
 logger = logging.getLogger(__name__)
@@ -423,6 +424,21 @@ def _bot_system_disabled_detail() -> str | None:
     return None
 
 
+def _require_bot_edit_host(request: Request) -> None:
+    """Refuse a bot change through a name a rebinding page could have (app/origin_policy.py)."""
+    if not bot_edit_allowed(request.scope):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "bot_edit_host_refused",
+                "message": (
+                    "Bots can only be created or changed from a local address "
+                    "(IP, localhost or .local name)"
+                ),
+            },
+        )
+
+
 @router.get("")
 async def list_fanout_configs() -> list[dict]:
     """List all fanout configs."""
@@ -431,8 +447,14 @@ async def list_fanout_configs() -> list[dict]:
 
 
 @router.post("")
-async def create_fanout_config(body: FanoutConfigCreate) -> dict:
+async def post_fanout_config(body: FanoutConfigCreate, request: Request) -> dict:
     """Create a new fanout config."""
+    if body.type == "bot":
+        _require_bot_edit_host(request)
+    return await create_fanout_config(body)
+
+
+async def create_fanout_config(body: FanoutConfigCreate) -> dict:
     if body.type not in _VALID_TYPES:
         raise HTTPException(
             status_code=400,
@@ -464,8 +486,15 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
 
 
 @router.patch("/{config_id}")
-async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict:
+async def patch_fanout_config(config_id: str, body: FanoutConfigUpdate, request: Request) -> dict:
     """Update a fanout config. Triggers module reload."""
+    existing = await FanoutConfigRepository.get(config_id)
+    if existing is not None and existing["type"] == "bot":
+        _require_bot_edit_host(request)
+    return await update_fanout_config(config_id, body)
+
+
+async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict:
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
     existing = await FanoutConfigRepository.get(config_id)

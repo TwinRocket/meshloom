@@ -21,6 +21,13 @@ describe('formatApiError', () => {
     expect(formatApiError(err, i18n.t)).toBe(i18n.t('errors.radio_not_connected'));
   });
 
+  it('translates the cross-site and bot host refusals', () => {
+    for (const code of ['cross_site_refused', 'bot_edit_host_refused']) {
+      const err = new ApiError('english text', 403, { code, message: 'english text' });
+      expect(formatApiError(err, i18n.t)).toBe(i18n.t(`errors.${code}`));
+    }
+  });
+
   it('falls back to Error.message for unknown values', () => {
     expect(formatApiError(new Error('boom'), i18n.t)).toBe('boom');
     expect(formatApiError('plain', i18n.t)).toBe('plain');

@@ -45,7 +45,6 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
@@ -57,6 +56,7 @@ from app.frontend_static import (
     register_first_available_frontend_static_routes,
     register_frontend_missing_fallback,
 )
+from app.origin_policy import CrossSiteGuardMiddleware
 from app.radio import RadioDisconnectedError
 from app.radio_sync import (
     stop_background_contact_reconciliation,
@@ -297,13 +297,9 @@ app = FastAPI(
 register_api_docs_routes(app)
 add_optional_basic_auth_middleware(app, server_settings)
 app.add_middleware(GZipMiddleware, minimum_size=500)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS middleware on purpose: the frontend is same-origin, so no other site gets to
+# read a response or to send a preflighted request. See app/origin_policy.py.
+app.add_middleware(CrossSiteGuardMiddleware)
 
 
 @app.exception_handler(RadioDisconnectedError)

@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.origin_policy import WS_REFUSED_CLOSE_CODE, request_allowed
 from app.routers.health import build_health_data
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.websocket import ws_manager
@@ -19,6 +20,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     Only sends health status on initial connect. Contacts and channels
     are fetched via REST endpoints for faster parallel loading.
     """
+    # Before accept, so the page of another site gets an HTTP 403 and no frame.
+    if not request_allowed(websocket.scope):
+        await websocket.close(code=WS_REFUSED_CLOSE_CODE)
+        return
+
     await ws_manager.connect(websocket)
 
     # Send initial health status

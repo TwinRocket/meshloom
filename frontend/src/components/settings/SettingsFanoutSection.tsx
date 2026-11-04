@@ -16,7 +16,7 @@ import {
 } from '../ui/dialog';
 import { toast } from '../ui/sonner';
 import { cn } from '@/lib/utils';
-import { api } from '../../api';
+import { api, formatApiError } from '../../api';
 import type { Channel, Contact, FanoutConfig, HealthStatus } from '../../types';
 import { LazyBoundary } from '../LazyBoundary';
 
@@ -3117,7 +3117,9 @@ export function SettingsFanoutSection({
         cfg.enabled ? t('settings.fanout.toast.disabled') : t('settings.fanout.toast.enabled')
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('settings.fanout.toast.failedUpdate'));
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.toast.failedUpdate')
+      );
     }
   };
 
@@ -3179,7 +3181,9 @@ export function SettingsFanoutSection({
       await loadConfigs();
       toast.success(t('settings.fanout.toast.nameUpdated'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('settings.fanout.toast.failedUpdateName'));
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.toast.failedUpdateName')
+      );
     } finally {
       handleCancelInlineEdit();
     }
@@ -3227,7 +3231,9 @@ export function SettingsFanoutSection({
         enabled ? t('settings.fanout.toast.savedEnabled') : t('settings.fanout.toast.saved')
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('settings.fanout.toast.failedSave'));
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.toast.failedSave')
+      );
     } finally {
       setBusy(false);
     }

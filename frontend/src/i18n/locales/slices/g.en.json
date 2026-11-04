@@ -1,6 +1,8 @@
 {
   "errors": {
     "radio_not_connected": "Radio not connected",
+    "cross_site_refused": "Refused: this request came from another site. Open Meshloom from its own address.",
+    "bot_edit_host_refused": "Bots can only be created or changed from a local address (IP, localhost or .local name).",
     "radio_initializing": "Radio is initializing",
     "radio_startup_stuck": "Radio startup appears stuck",
     "reconnection_failed": "Reconnection failed",
