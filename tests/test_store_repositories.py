@@ -592,9 +592,7 @@ async def test_concurrent_refreshes_run_one_tick(api, net, online, tmp_path, mon
     assert len(calls) == 1
 
 
-async def test_refresh_contacts_nobody_under_the_host_lock(
-    api, net, online, tmp_path, monkeypatch
-):
+async def test_refresh_contacts_nobody_under_the_host_lock(api, net, online, tmp_path, monkeypatch):
     from app.plugins import custom_repos
     from app.routers import plugins as plugins_router
 
