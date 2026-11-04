@@ -10,13 +10,13 @@ Meshloom 5.0 change la structure de votre base de données à son premier démar
 ## Avant de mettre à jour
 
 1. **Désactivez les mises à jour automatiques** dans **Réglages → Mises à jour** jusqu’à ce que vous soyez prêt, pour que la mise à jour ait lieu au moment que vous choisissez.
-2. **Téléchargez une copie de la base** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la ailleurs que sur cette machine. C’est votre propre filet de sécurité, en plus de la copie automatique ci-dessous. Gardez aussi avec elle le fichier `secrets.key` du dossier de données (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour)).
+2. **Téléchargez une copie de la base en 4.18, avant la mise à jour** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la ailleurs que sur cette machine. C’est votre propre filet de sécurité, en plus de la copie automatique ci-dessous. Une copie téléchargée en 5.0 est déjà migrée et expurgée : elle ne peut pas vous ramener en arrière. Gardez aussi avec elle le fichier `secrets.key` du dossier de données (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour)).
 3. **Faites une sauvegarde complète** (**Réglages → Base de données → Sauvegarde et restauration**, voir [Sauvegarder votre radio](/docs/backup/)). Une sauvegarde faite en 5.0 a un format plus récent que la 4.18 ne lit pas entièrement : servez-vous-en pour restaurer en 5.0 ou après, jamais en 4.18.
 4. **Notez vos bots Python** si vous en avez : ils deviennent des extensions (ci-dessous).
 
 ## La copie faite automatiquement
 
-Au premier démarrage de la 5.0 sur une base 4.18, Meshloom fait une copie de la base **avant** de rien changer, dans le dossier de données, à côté de la base (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour) pour son emplacement). La copie est une copie de toute la base : elle contient vos messages, contacts et réglages tels que la 4.18 les a laissés. Gardez-la tant que vous n’êtes pas sûr de rester en 5.0 ; Meshloom ne s’en sert plus.
+Au premier démarrage de la 5.0 sur une base 4.18, Meshloom fait une copie de la base **avant** de rien changer, dans le dossier de données, à côté de la base (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour) pour son emplacement). La copie est une copie de toute la base : elle contient vos messages, contacts et réglages tels que la 4.18 les a laissés. Pour utiliser la copie, il vous faut le `secrets.key` du dossier de données d’avant la mise à jour : il reste où il est, ne le supprimez pas. Gardez la copie tant que vous n’êtes pas sûr de rester en 5.0 ; Meshloom ne s’en sert plus.
 
 ## Ce qui change
 
@@ -35,7 +35,7 @@ Pour revenir en arrière, depuis la copie :
 
 1. Arrêtez Meshloom.
 2. Réinstallez la 4.18. Avec un paquet Linux, installez cette version du paquet ; avec Docker, remettez l’image 4.18 dans le fichier Compose. L’assistant de mise à jour ne passe jamais seul à une version plus ancienne.
-3. Dans le dossier de données, remplacez `meshcore.db` par la copie de la base faite avant la migration (ou celle que vous avez téléchargée), avec le `secrets.key` qui l’accompagnait.
+3. Dans le dossier de données, remplacez `meshcore.db` par la copie de la base faite avant la migration (ou celle que vous avez téléchargée en 4.18 avant la mise à jour, jamais une téléchargée en 5.0), avec le `secrets.key` d’avant la mise à jour.
 4. Démarrez Meshloom.
 
 Tout ce que vous avez fait en 5.0 après la mise à jour (messages entendus, réglages, comptes) disparaît avec : la copie date du moment de la mise à jour.

@@ -104,7 +104,7 @@ export interface LanHostSuggestion {
   host: string;
   /** The first source line that mentions it. */
   line: number;
-  /** A known service port (Home Assistant 8123, radio proxy 5051, Meshloom 8000). */
+  /** A known service port (Home Assistant 8123, radio proxy 5001 or 5051, Meshloom 8000). */
   service_port: boolean;
 }
 

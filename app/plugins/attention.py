@@ -99,9 +99,10 @@ _URL_RE = re.compile(r"(https?)://([^/\s?#'\"<>\\]+)", re.IGNORECASE)
 # crowd out public hosts or the reverse; they share the byte and URL budgets.
 MAX_LAN_SUGGESTIONS = HTTP_MAX_LAN_HOSTS
 # Ports of services that take orders without a password or hold a whole home: Home
-# Assistant (8123), a Meshloom radio proxy (5051), a Meshloom web app (8000). The
+# Assistant (8123), a Meshloom radio proxy (5001 by default, 5051 in the Home Assistant
+# add-on), a Meshloom web app (8000). The
 # editor warns before such a device is added.
-SERVICE_PORTS = frozenset({8123, 5051, 8000})
+SERVICE_PORTS = frozenset({8123, 5001, 5051, 8000})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 # Names that always reach the machine Meshloom runs on (or its container host).
 _SELF_NAMES = frozenset(

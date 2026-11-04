@@ -118,7 +118,7 @@ MESHCORE_DATABASE_PATH=data/meshcore.db
 MESHCORE_DISABLE_PLUGINS=false
 ```
 
-Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. Pour rester sur les versions publiées, utilisez plutôt `docker-compose.example.yml`.
+Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. `docker-compose.example.yml` ne le publie pas : ajoutez le port vous-même si vous activez le proxy. Pour rester sur les versions publiées, utilisez plutôt `docker-compose.example.yml`.
 
 Rien n’est construit sur votre serveur. L’image est publiée quelques minutes après chaque modification, mais Portainer met la pile à jour dès qu’il voit la modification : il récupère donc en général l’image précédente, et la garde jusqu’à la modification suivante. Pour avoir la dernière, redéployez la pile à la main quelques minutes plus tard : Meshloom récupère l’image la plus récente à chaque déploiement. Portainer Business Edition peut aussi le faire tout seul avec **Force redeployment**.
 

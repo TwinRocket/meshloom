@@ -12,7 +12,7 @@ Release 5.0.0 changes your database in ways an older version cannot undo. **Befo
 
 - **What to try.** Create the administrator account (with the installation code from the log when you come from 4.x), sign in with a passkey or two-factor authentication, turn on [Meshloom Remote](docs/user/en/deep/remote.md) and allow a phone, share a node or an image ([Sharing](docs/user/en/deep/share.md)), review a converted bot or install an extension ([Extensions](docs/user/en/deep/plugins.md)), set up a notification channel and Web Push, and restore a full backup.
 - **Known limits.** There is no 32-bit (armhf) package in the release candidates, so a Raspberry Pi on 32-bit Raspberry Pi OS cannot test them. The Home Assistant add-on is not covered either. Meshloom Remote has a monthly quota per instance ([Limits](docs/user/en/deep/remote.md#limits)). There is no way back to 4.18 in place.
-- **How to report.** Open an issue on [GitHub](https://github.com/TwinRocket/meshloom/issues) with the bug report form: the version shown in **Settings → Updates**, how you installed it, what you did and what happened. Never paste a password, token or installation code; a security problem goes through [SECURITY.md](SECURITY.md), not a public issue.
+- **How to report.** Open an issue on [GitHub](https://github.com/TwinRocket/meshloom/issues) with the bug report form: the version shown in **Settings → About** (also on **Settings → Updates**), how you installed it, what you did and what happened. Never paste a password, token or installation code; a security problem goes through [SECURITY.md](SECURITY.md), not a public issue.
 
 ### Breaking
 
@@ -237,7 +237,7 @@ La version 5.0.0 modifie votre base de données d’une façon qu’une version 
 
 - **À essayer.** Créer le compte administrateur (avec le code d’installation du journal quand vous venez de la 4.x), se connecter avec une clé d’accès (passkey) ou la double authentification, activer [Meshloom Remote](docs/user/fr/deep/remote.md) et autoriser un téléphone, partager un nœud ou une image ([Partage](docs/user/fr/deep/share.md)), examiner un bot converti ou installer une extension ([Extensions](docs/user/fr/deep/plugins.md)), configurer un canal de notification et le Web Push, et restaurer une sauvegarde complète.
 - **Limites connues.** Il n’y a pas de paquet 32 bits (armhf) dans les versions candidates : un Raspberry Pi sous Raspberry Pi OS 32 bits ne peut pas les tester. L’add-on Home Assistant n’est pas couvert non plus. Meshloom Remote a un quota mensuel par instance ([Limites](docs/user/fr/deep/remote.md#limites)). Il n’y a pas de retour en place à la 4.18.
-- **Comment signaler.** Ouvrez un ticket sur [GitHub](https://github.com/TwinRocket/meshloom/issues) avec le formulaire de bug : la version affichée dans **Réglages → Mises à jour**, comment vous l’avez installée, ce que vous avez fait et ce qui s’est passé. Ne collez jamais de mot de passe, de jeton ni de code d’installation ; un problème de sécurité passe par [SECURITY.md](SECURITY.md), pas par un ticket public.
+- **Comment signaler.** Ouvrez un ticket sur [GitHub](https://github.com/TwinRocket/meshloom/issues) avec le formulaire de bug : la version affichée dans **Réglages → À propos** (aussi dans **Réglages → Mises à jour**), comment vous l’avez installée, ce que vous avez fait et ce qui s’est passé. Ne collez jamais de mot de passe, de jeton ni de code d’installation ; un problème de sécurité passe par [SECURITY.md](SECURITY.md), pas par un ticket public.
 
 #### Ruptures
 
