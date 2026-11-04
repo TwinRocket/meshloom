@@ -3,15 +3,24 @@ name: All Quality
 # Also a reusable workflow: docker.yml and release.yml call it and wait for it
 # (`needs:`) before building or publishing anything. Tag pushes are therefore
 # not a trigger here: the release and the image run it themselves, once each.
-# Every branch and every pull request, whatever its base: main and the 5.0.0
-# integration branch preversion-5 are both covered without being named. A
+# Pushes to main and to the 5.0.0 integration branch preversion-5, and every pull
+# request whatever its base. Other branches run through their pull request only:
+# running on both tested the same commit twice. A
 # forward-merge into preversion-5 (forward-merge.yml) is merged with GITHUB_TOKEN
 # and starts nothing; the docker.yml run it dispatches calls this workflow.
 on:
   push:
-    branches: ["**"]
+    branches: [main, preversion-5]
   pull_request:
   workflow_call:
+
+concurrency:
+  # A pull request's newer push supersedes the older run. Any other run keeps a
+  # group of its own and is never cancelled or replaced: a commit on main needs
+  # its checks (tag_release.sh and the forward-merge PR read them), and GitHub
+  # drops an older pending run in a shared group even without cancel-in-progress.
+  group: all-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
@@ -154,7 +163,7 @@ jobs:
         run: |
           pip install --no-cache-dir -q "uv==0.6.17"
           uv sync --frozen --dev --python "$(command -v python)"
-          PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py
+          PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py tests/test_plugin_start_any_loop.py
 
       # setpriv as docker-entrypoint.sh calls it: uid 10001 keeps exactly
       # CAP_SETUID and CAP_SETGID ambient, enough for the setuid level.
@@ -170,7 +179,7 @@ jobs:
             --inh-caps=-all,+setgid,+setuid --ambient-caps=+setgid,+setuid -- \
             env HOME=/tmp/caps-home PYTHONPATH=. .venv/bin/python -m pytest -p no:cacheprovider -o addopts= -v \
             tests/test_plugin_isolation.py tests/test_plugin_runner.py tests/test_plugin_seccomp.py \
-            tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py
+            tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py tests/test_plugin_start_any_loop.py
 
   frontend-checks:
     name: Frontend
