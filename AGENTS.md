@@ -177,6 +177,12 @@ pytest quietly with `-rfE --tb=short`, appends the failed tests to the job
 summary (`scripts/ci/junit_summary.py`) and uploads `pytest-report.xml` as an
 artifact, so a failure stays visible even if the raw log is cut short.
 
+The `test_db` fixture (`patched_database()`, `tests/conftest.py`) loads each `:memory:` database
+from a fully migrated image built once per process by a real `Database.connect()`
+(`Database.export_snapshot` / `connect_from_snapshot`); file paths still replay the real
+migrations. `tests/test_database_snapshot.py` pins the two to the same schema. A new migration
+needs nothing; a test that needs a half-migrated database opens its own `Database(path)`.
+
 Targeted runs:
 
 ```bash

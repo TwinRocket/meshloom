@@ -27,6 +27,26 @@ def cleanup_test_db_dir():
     shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
 
 
+# Fully migrated schema, built once per process (so once per xdist worker) by a real
+# ``Database(":memory:").connect()`` and then only read: ``bytes`` is immutable and
+# ``deserialize`` copies it into each test's own connection. Replaying the 140+
+# migrations per test was ~70% of the suite's time. File paths still run the real
+# migrations (``tests/test_migrations``, ``tests/test_ip_ban.py``, backup tests).
+_TEMPLATE: bytes | None = None
+
+
+async def _template_snapshot() -> bytes:
+    global _TEMPLATE
+    if _TEMPLATE is None:
+        seed = Database(":memory:")
+        await seed.connect()
+        try:
+            _TEMPLATE = await seed.export_snapshot()
+        finally:
+            await seed.disconnect()
+    return _TEMPLATE
+
+
 @asynccontextmanager
 async def patched_database(path: str = ":memory:"):
     """A connected Database with schema + migrations, wired into every repository."""
@@ -60,7 +80,10 @@ async def patched_database(path: str = ":memory:"):
 
     notification_channels.invalidate_cache()
     db = Database(path)
-    await db.connect()
+    if path == ":memory:":
+        await db.connect_from_snapshot(await _template_snapshot())
+    else:
+        await db.connect()
 
     submodules = [
         auth,

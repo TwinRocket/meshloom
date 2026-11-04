@@ -84,6 +84,10 @@ async def _set_rules(db, rules: dict) -> None:
         )
 
 
+async def _no_wait(_seconds: float) -> None:
+    await asyncio.sleep(0)
+
+
 async def _settle(dispatcher: Dispatcher) -> None:
     await dispatcher.wait_idle()
     await asyncio.sleep(0)
@@ -168,7 +172,8 @@ async def test_suppressed_exempt_and_urgent(test_db):
     await _setup(test_db)
     wall = Wall(at(2, 23))
     transport = StubTransport()
-    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    # The per-channel send spacing (~10 s for an email channel) is not what this proves.
+    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall, sleep=_no_wait)
     targets = ["email-1", "webhook-1"]
     await dispatcher.emit(None, payload=_dm(), targets=targets)
     await _settle(dispatcher)
