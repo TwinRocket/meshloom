@@ -592,6 +592,20 @@ async def test_concurrent_refreshes_run_one_tick(api, net, online, tmp_path, mon
     assert len(calls) == 1
 
 
+async def test_refresh_contacts_nobody_under_the_host_lock(
+    api, net, online, tmp_path, monkeypatch
+):
+    from app.plugins import custom_repos
+    from app.routers import plugins as plugins_router
+
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    net.requests.clear()
+    monkeypatch.setattr(plugins_router.plugin_manager, "disabled_source", lambda: "env")
+    await custom_repos.refresh_repositories()
+    assert net.requests == []
+
+
 async def test_refresh_does_nothing_while_the_store_is_off(api, net, tmp_path):
     await AppSettingsRepository.update(store_online=False)
     response = await api.post("/api/store/refresh")

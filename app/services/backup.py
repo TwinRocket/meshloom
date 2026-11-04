@@ -603,6 +603,10 @@ async def _restore_settings(settings: AppSettings, warnings: list[str]) -> None:
     later field (``ui_preferences``...) keeps the current value."""
     present = settings.model_fields_set
     updates = {name: getattr(settings, name) for name in _RESTORED_SETTINGS if name in present}
+    # Every export of a default install says on: a file may turn the Store off, never on,
+    # or an old backup would undo a choice made since.
+    if updates.get("store_online") is True:
+        del updates["store_online"]
     if "notification_destinations" in updates:
         updates["notification_destinations"] = await _restorable_destinations(
             updates["notification_destinations"], warnings

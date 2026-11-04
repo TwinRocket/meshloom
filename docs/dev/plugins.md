@@ -1155,7 +1155,8 @@ from the share service. Its switch is `app_settings.store_online`, on by default
 | Never twice within 10 minutes | `MIN_REFRESH_GAP_S`; `last_refresh_at` is in memory (`_State`), so a restart resets the gap |
 | Hourly auto-update check contacts nobody | `EVALUATE_INTERVAL_S`, `register_store_evaluator`; the download of an applied update goes through `store_fetch` |
 | Off cuts at once | `note_store_online_changed(False)`: generation bump, in-flight sends cancelled, loop stopped |
-| Backups carry the switch, so an off is not lost | `V1_SETTING_COLUMNS` (exported, restored when the file has it), kept in a database copy, `_after_restore` re-reads the database |
+| Backups carry the switch; a restore can turn it off, never on | `V1_SETTING_COLUMNS`, `_restore_settings` drops an on, kept in a database copy, `_after_restore` re-reads the database |
+| The host lock stops the repository checks | `refresh_repositories` returns while `disabled_source()` is set |
 
 Change a row of this table and the two user pages (en and fr) together. The Store tab's
 **Store online** switch sends `PATCH /api/settings {"store_online": ...}` both ways; there is no

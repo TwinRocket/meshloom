@@ -31,7 +31,7 @@ Up to 4.18 the only lock was a shared HTTP Basic login (`MESHCORE_BASIC_AUTH_USE
 
 ## Lock extensions
 
-`MESHCORE_DISABLE_PLUGINS=true` locks the extension system at startup. No extension can be installed, changed or started, whatever the settings say; you can still view and delete them, and pause them all. Extensions restored from a backup come back turned off. The Linux package leaves it unset (commented out in `/etc/meshloom/meshloom.env`). See [Plugins](/en/docs/deep/plugins/) for the other ways to stop extensions.
+`MESHCORE_DISABLE_PLUGINS=true` locks the extension system at startup. No extension can be installed, changed or started, whatever the settings say, and the Store checks no repository; you can still view and delete them, and pause them all. Extensions restored from a backup come back turned off. The Linux package leaves it unset (commented out in `/etc/meshloom/meshloom.env`). See [Plugins](/en/docs/deep/plugins/) for the other ways to stop extensions.
 
 The online Store, which downloads extensions from GitHub, is a separate egress with its own switch, on by default, which sends nothing until you add a repository: see [What leaves your instance](/en/docs/deep/plugins/#what-leaves-your-instance).
 

@@ -244,7 +244,7 @@ async def _views() -> list[RepositoryView]:
 
 @router.get("/status", response_model=StoreStatus, dependencies=[Admin])
 async def get_store_status() -> StoreStatus:
-    """The Store consent, the hosts it may reach, what leaves and what is missed when off."""
+    """The Store switch, the hosts it may reach, what leaves and what is missed when off."""
     return await store_status()
 
 

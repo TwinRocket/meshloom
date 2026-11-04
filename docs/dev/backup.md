@@ -227,8 +227,8 @@ These hold for every section; a restore function must keep them:
    never restored, and set to 0 in the SQLite snapshot
    copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
    sharing egress. The Store switch (`app_settings.store_online`) is an ordinary setting:
-   on by default, exported, restored when the file carries it and kept in the copy, so a
-   choice to turn it off is not lost.
+   on by default, exported and kept in the copy, so a choice to turn it off is not lost. A JSON
+   restore applies only an off: every default export says on, which must not undo a later off.
 
    The seeds are regenerated after a restore, through the hook below.
 5. **Secrets in `data` are plain JSON.** Unlike `identity`, `wifi` and

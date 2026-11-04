@@ -7,7 +7,7 @@ Every installed kind goes through one pipeline (`prepare_install` then
 (`RemoteArchiveSource`, tiers `custom` and `store`) is downloaded only when the
 download gate says yes (`set_download_gate`, wired at startup to the Store switch
 `store_egress_allowed`; fail closed: no gate, no download), through the Store egress
-gate `store_fetch` (`app/plugins/store_egress.py`: the consent checked again, the
+gate `store_fetch` (`app/plugins/store_egress.py`: the switch checked again, the
 download cancelled when the Store is turned off, `STORE_ALLOWLIST` narrowed by the
 source's hosts, no user info in the URL) and so the egress guard
 (`app/net/egress_guard.py`: https, public addresses, checked redirects), with the
@@ -546,7 +546,7 @@ async def download_archive(url: str, *, allowed_hosts: HostAllowlist, max_bytes:
 
 # Store egress (MSHL-194): remote downloads are refused until a gate says yes. The app
 # wires `store_egress_allowed` at startup (`app/main.py`); `download_archive` checks the
-# consent again through `store_fetch`.
+# switch again through `store_fetch`.
 DownloadGate = Callable[[], Awaitable[bool]]
 
 

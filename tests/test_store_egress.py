@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app.models import AppSettings, BackupExport
+from app.models import AppSettings, BackupExport, BackupRestoreRequest
 from app.net.egress_guard import EgressBlocked
 from app.plugins import custom_repos, store_egress
 from app.plugins.store_egress import (
@@ -150,7 +150,7 @@ class TestDefaultOn:
 
 
 class TestBackups:
-    async def test_a_restore_applies_the_file_and_an_older_file_changes_nothing(self, test_db):
+    async def test_a_restore_can_turn_it_off_never_on(self, test_db):
         from app.services.backup import _restore_settings
 
         await _restore_settings(AppSettings.model_validate({"store_online": False}), [])
@@ -160,9 +160,20 @@ class TestBackups:
         await _restore_settings(AppSettings.model_validate({}), [])
         assert (await AppSettingsRepository.get()).store_online is False
 
+        # Every default export says on: an old file must not undo the choice.
         await _restore_settings(AppSettings.model_validate({"store_online": True}), [])
-        assert (await AppSettingsRepository.get()).store_online is True
-        assert store_egress.store_refresh_running()
+        assert (await AppSettingsRepository.get()).store_online is False
+        assert not store_egress.store_refresh_running()
+
+    async def test_an_export_restored_round_trip_keeps_an_off(self, test_db):
+        from app.services.backup import export_json, restore_json
+
+        await AppSettingsRepository.update(store_online=False)
+        exported = (await export_json()).model_dump(mode="json")
+        assert exported["settings"]["store_online"] is False
+        await AppSettingsRepository.update(store_online=True)
+        await restore_json(BackupRestoreRequest.model_validate({**exported, "confirm": True}))
+        assert (await AppSettingsRepository.get()).store_online is False
 
 
 class TestOffNothingLeaves:
