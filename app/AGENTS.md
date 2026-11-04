@@ -830,6 +830,9 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 145 (MSHL-459) adds `channel_slot_clears_pending` (keys of deleted channels
+  still on a radio slot); `IF NOT EXISTS`, no `SCHEMA_TABLES` change. Excluded from the JSON
+  backup, emptied in a database copy (`SNAPSHOT_EMPTIED_TABLES`).
 - Migration 144 sets `share_preview_policy` to `always`, the new default, where it holds
   `private`, sharing is off and the share terms were never accepted (`share_terms_version = 0`); any other keeps its value. The column
   default from migration 102 stays `private` (SQLite cannot change it), which is harmless:
@@ -1199,7 +1202,11 @@ run as root).
   budget; `tests/test_message_limits.py` reads the composer's TSX constants and fails
   when they drift or are not found.
 - Channel slots are reused through a session LRU cache, except on TCP or with
-  `force_channel_slot_reconfigure`, where every send calls `set_channel(...)`.
+  `force_channel_slot_reconfigure`, where every send rewrites the slot. A real channel is
+  always written through `services/channel_slots.py` (`write_channel_slot`, raw
+  `CMD_SET_CHANNEL` frame), never `mc.commands.set_channel`: the library replaces the secret
+  of any `#` name by the hash of the name, which breaks a private channel named `#x`.
+  `set_channel` remains for emptying a slot (empty name, zero secret).
 - `keep_channels_on_radio` (MSHL-41, `app_settings`, off by default, migration 139).
   Off: `sync_and_offload_channels()` copies every slot into the DB and empties it
   at each connect. On: it copies them without clearing (`on_radio=True`) and seeds
@@ -1210,9 +1217,11 @@ run as root).
   forced reconfigure) every send rewrites the scratch slot. One-off sends that
   borrow a slot (the mesh test, `routers/tools.py`) ask
   `temp_channel_slot()`, which answers the scratch slot in keep mode. Deleting a
-  channel (`DELETE /api/channels/{key}`) empties the slots holding it in keep mode
-  (`radio_sync.clear_channel_from_radio_slots()`), or the next connect would adopt
-  it again. The setting is in the v1 backup settings. Tests:
+  channel (`DELETE /api/channels/{key}`) forgets its cached slot and empties the slots
+  holding it in both modes (`radio_sync.clear_channel_from_radio_slots()`), or the next
+  connect would adopt it again. A slot out of reach (radio away, read or clear failed)
+  leaves the key in `channel_slot_clears_pending` (migration 145): the next connect sync
+  empties it without adopting it, unless the channel was added back. The setting is in the v1 backup settings. Tests:
   `tests/test_keep_channels_on_radio.py`.
 - Path hash modes `0`/`1`/`2` mean 1-, 2- and 3-byte hop IDs. `path_len` in the
   API is always a hop count.

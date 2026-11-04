@@ -22,6 +22,7 @@ from app.repository import (
     MessageRepository,
 )
 from app.services import dm_ack_tracker
+from app.services.channel_slots import write_channel_slot
 from app.services.flood_scope import set_radio_flood_scope
 from app.services.messages import (
     BroadcastFn,
@@ -289,11 +290,7 @@ async def send_channel_message_with_effective_scope(
                 ),
             )
             try:
-                set_result = await mc.commands.set_channel(
-                    channel_idx=channel_slot,
-                    channel_name=channel.name,
-                    channel_secret=key_bytes,
-                )
+                set_result = await write_channel_slot(mc, channel_slot, channel.name, key_bytes)
             except Exception:
                 if evicted_channel_key is not None:
                     radio_manager.invalidate_cached_channel_slot(evicted_channel_key)

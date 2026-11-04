@@ -25,7 +25,7 @@ If you see that warning, or if messages on the radio never show up in the app, t
 
 ### Force Channel Slot Reconfigure
 
-If room sends appear to be using the wrong channel slot or another client is changing slots underneath this app, turn on **Rewrite the channel before every send**: channel-slot reuse is disabled and `set_channel(...)` runs before every channel send (sending is a little slower, because the radio is written to before each send). It applies immediately. TCP connections always behave this way.
+If room sends appear to be using the wrong channel slot or another client is changing slots underneath this app, turn on **Rewrite the channel before every send**: channel-slot reuse is disabled and the channel is written to the radio before every channel send (sending is a little slower, because the radio is written to before each send). It applies immediately. TCP connections always behave this way.
 
 ### Private Key and Full Backup
 

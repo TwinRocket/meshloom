@@ -7,7 +7,11 @@ import pytest
 
 from app import radio_workarounds
 from app.radio import radio_manager
-from app.radio_sync import clear_channel_from_radio_slots, sync_and_offload_channels
+from app.radio_sync import (
+    audit_channel_send_cache,
+    clear_channel_from_radio_slots,
+    sync_and_offload_channels,
+)
 from app.repository import ChannelRepository
 from app.repository.settings import AppSettingsRepository
 from tests.fixtures.fake_node import FakeNode, connected_node
@@ -161,10 +165,113 @@ async def test_on_deleting_a_channel_empties_its_kept_slot(test_db, client):
     assert node.channels[2] == ("#far", bytes.fromhex(KEY_B))
 
 
+class _SendingNode(FakeNode):
+    """A fake node that also accepts SEND_CHANNEL_TXT."""
+
+    def _cmd_03(self, body: bytes) -> list[bytes]:
+        return [b"\x00"]
+
+
+async def _send_once(client, key: str = KEY_A) -> None:
+    response = await client.post("/api/messages/channel", json={"channel_key": key, "text": "hi"})
+    assert response.status_code == 200, response.text
+
+
 @pytest.mark.asyncio
-async def test_off_deleting_a_channel_leaves_the_radio_alone(test_db):
+@pytest.mark.parametrize("kind", ["serial", "tcp"])
+async def test_off_a_deleted_channel_does_not_come_back_at_the_next_connect(test_db, client, kind):
+    radio_manager._connection_info = "Serial: x" if kind == "serial" else "TCP: x:1"
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    node = _SendingNode()
+    async with connected_node(node, kind=kind) as (loop, _):
+        await _send_once(client)
+        assert node.channels[0] == ("ops", bytes.fromhex(KEY_A))
+
+        assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+        assert node.channels[0] == ("", bytes(16))
+
+        await sync_and_offload_channels(loop.mc)
+    assert await ChannelRepository.get_by_key(KEY_A) is None
+
+
+@pytest.mark.asyncio
+async def test_off_deleting_leaves_the_slots_of_other_channels_alone(test_db):
     node = FakeNode()
-    node.channels = {1: ("#ops", bytes.fromhex(KEY_A))}
+    node.channels = {1: ("#far", bytes.fromhex(KEY_B))}
     async with connected_node(node, kind="serial"):
         assert await clear_channel_from_radio_slots(KEY_A) == 0
-    assert node.channels[1] == ("#ops", bytes.fromhex(KEY_A))
+    assert node.channels[1] == ("#far", bytes.fromhex(KEY_B))
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_channel_does_not_trip_the_hourly_audit(test_db, client):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    node = _SendingNode()
+    async with connected_node(node, kind="serial") as (loop, _):
+        await _send_once(client)
+        assert await audit_channel_send_cache(loop.mc) is True
+        assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+        assert radio_manager.get_cached_channel_slot(KEY_A) is None
+        assert await audit_channel_send_cache(loop.mc) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keep", [False, True])
+async def test_deleted_while_disconnected_the_next_sync_clears_it_without_adopting(
+    test_db, client, keep
+):
+    _keep(keep)
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    # No radio connected: the delete cannot reach the slot.
+    assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+
+    node = FakeNode()
+    node.channels = {1: ("ops", bytes.fromhex(KEY_A)), 2: ("far", bytes.fromhex(KEY_B))}
+    async with connected_node(node, kind="serial") as (loop, _):
+        result = await sync_and_offload_channels(loop.mc)
+
+    assert await ChannelRepository.get_by_key(KEY_A) is None
+    assert node.channels[1] == ("", bytes(16))
+    assert await ChannelRepository.get_by_key(KEY_B) is not None
+    assert result["synced"] == 1
+    assert radio_manager.get_cached_channel_slot(KEY_A) is None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_clear_stays_pending_for_the_next_sync(test_db, client):
+    class _Refusing(FakeNode):
+        refuse = True
+
+        def _cmd_20(self, body: bytes) -> list[bytes]:
+            if self.refuse:
+                return [b"\x01\x02"]
+            return super()._cmd_20(body)
+
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    node = _Refusing()
+    node.channels = {1: ("ops", bytes.fromhex(KEY_A))}
+    async with connected_node(node, kind="serial") as (loop, _):
+        assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+
+        await sync_and_offload_channels(loop.mc)
+        assert await ChannelRepository.get_by_key(KEY_A) is None
+
+        node.refuse = False
+        await sync_and_offload_channels(loop.mc)
+    assert await ChannelRepository.get_by_key(KEY_A) is None
+    assert node.channels[1] == ("", bytes(16))
+
+
+@pytest.mark.asyncio
+async def test_a_channel_added_back_before_the_sync_is_not_cleared(test_db, client):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+
+    node = FakeNode()
+    node.channels = {1: ("ops", bytes.fromhex(KEY_A))}
+    async with connected_node(node, kind="serial") as (loop, _):
+        result = await sync_and_offload_channels(loop.mc)
+
+    assert result["synced"] == 1
+    assert await ChannelRepository.get_by_key(KEY_A) is not None

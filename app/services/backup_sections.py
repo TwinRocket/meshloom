@@ -395,6 +395,8 @@ SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = (
     "remote_enroll_tokens",
     # Community attestations of the instance keys (migration 142).
     "community_attestations",
+    # Keys of deleted channels still on a radio slot (migration 145).
+    "channel_slot_clears_pending",
 )
 
 

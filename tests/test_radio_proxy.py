@@ -73,6 +73,7 @@ def _make_host_radio(name: str = "HostRadio") -> MagicMock:
     mc.commands.get_msg = AsyncMock()
     mc.commands.get_channel = AsyncMock()
     mc.commands.set_channel = AsyncMock()
+    mc.commands.send = AsyncMock(return_value=MagicMock(type=EventType.OK, payload={}))
     mc.commands.add_contact = AsyncMock(return_value=MagicMock(type=EventType.OK, payload={}))
     mc.commands.remove_contact = AsyncMock()
     mc.commands.send_msg = AsyncMock(

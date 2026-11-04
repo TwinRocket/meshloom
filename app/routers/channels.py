@@ -526,10 +526,10 @@ async def refuse_channel(key: str) -> dict:
 async def delete_channel(key: str) -> dict:
     """Delete a channel from the database by key.
 
-    Channels are offloaded from the radio at every connect and loaded into a
-    slot on demand, so the radio is not touched here; when they are kept on the
-    radio (``keep_channels_on_radio``, MSHL-41), the slots holding this channel
-    are emptied too, or the next connect sync would adopt it again.
+    The slots holding this channel are emptied too, or the next connect sync would
+    adopt it again: a send leaves it on a slot until then, and
+    ``keep_channels_on_radio`` keeps it there. A radio out of reach is handled at
+    its next connect sync.
     """
     if is_public_channel_key(key):
         raise HTTPException(
