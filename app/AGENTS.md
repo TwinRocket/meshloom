@@ -456,8 +456,8 @@ Community guard, and it needs Community on (MSHL-445).
   share setting (`AppSettingsRepository.update` calls
   `note_share_settings_changed(enabled=...)`) ends it. `GET /api/share/status`
   reports it as `banned`; `SettingsShareSection` shows a banner (contact
-  ban@meshloom.app, the ban is per instance) and the Shorten button toasts the
-  coded `errors.share_banned`.
+  ban@meshloom.app, the ban is per instance); the composer sends links as typed in
+  `auto` and toasts the coded `errors.share_banned` in `always`.
 - **Read protections.** Order in `share_request`: opt-in, ban (writes, except
   `banned_ok=True`: listing one's own objects stays possible; deleting does not, the
   service refuses a banned key too), negative
@@ -828,6 +828,10 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 143 sets `share_preview_policy` to `always`, the new default, where it holds
+  `private` and sharing is off: an instance with sharing on keeps its value. The column
+  default from migration 102 stays `private` (SQLite cannot change it), which is harmless:
+  the singleton row exists before the migrations run.
 - Migration 142 (MSHL-445) adds `community_attestations` (one row per audience,
   `links` or `remote`: the last Community attestation of that instance key, CHECK on the
   audience); `IF NOT EXISTS`, no `SCHEMA_TABLES` change. `patched_database()` patches

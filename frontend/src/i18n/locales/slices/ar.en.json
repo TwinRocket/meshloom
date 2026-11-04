@@ -35,9 +35,9 @@
       "shorten": {
         "legend": "Shorten links when you write a message",
         "auto": "Automatic",
-        "autoHelp": "Only long links are shortened.",
+        "autoHelp": "On send, links over 26 characters are shortened. If the service does not answer, they go out as typed.",
         "always": "Always",
-        "alwaysHelp": "Every link you send is shortened.",
+        "alwaysHelp": "Every link is shortened on send. If the service does not answer, the message is not sent.",
         "never": "Never",
         "neverHelp": "Links are sent as you typed them."
       },

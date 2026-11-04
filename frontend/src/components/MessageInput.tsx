@@ -12,7 +12,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { Link2, Send, Smile, X } from 'lucide-react';
+import { Plus, Send, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
@@ -20,6 +20,7 @@ import { api, formatApiError } from '../api';
 import { cn } from '@/lib/utils';
 import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
 import type { IncomingFile } from './ComposerFileTab';
+import type { ShareShortenMode } from '../types';
 import type { ShareTarget } from '../utils/channelClass';
 import {
   getTextReplaceEnabled,
@@ -29,7 +30,13 @@ import {
 import { loadConversationDraft, saveConversationDraft } from '../utils/conversationDrafts';
 import { getDesktopEnterSends, subscribeDesktopEnterSends } from '../utils/composerEnterKey';
 import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
-import { findLongUrls, isShareLink, rewriteUrls } from '../utils/share';
+import {
+  AUTO_SHORTEN_MIN_BYTES,
+  findLongUrls,
+  isShareLink,
+  rewriteUrls,
+  shortenedByteLength,
+} from '../utils/share';
 import { refreshShareStatus, useShareStatus } from '../stores/shareStatusStore';
 
 // MeshCore message size limits (empirically determined from LoRa packet constraints)
@@ -46,9 +53,22 @@ const CHANNEL_DANGER_BUFFER = 8; // Red zone starts this many bytes before hard 
 
 const textEncoder = new TextEncoder();
 const RADIO_NO_RESPONSE_SNIPPET = 'no response was heard back';
+// `auto` mode: how long Send waits for short links before sending the links as typed.
+const AUTO_SHORTEN_WAIT_MS = 4000;
 /** Get UTF-8 byte length of a string (LoRa packets are byte-constrained, not character-constrained). */
 function byteLen(s: string): number {
   return textEncoder.encode(s).length;
+}
+
+/** `promise`, or null once `ms` have passed. */
+function settleWithin<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(null), ms);
+    void promise.then((value) => {
+      window.clearTimeout(timer);
+      resolve(value);
+    });
+  });
 }
 
 interface MessageInputProps {
@@ -106,7 +126,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   const [text, setText] = useState('');
   const [replyQuote, setReplyQuote] = useState<{ sender: string; quote: string } | null>(null);
   const [sending, setSending] = useState(false);
-  const [shortening, setShortening] = useState(false);
   const [composerPanel, setComposerPanel] = useState<ComposerAttachTab | null>(null);
   const [incomingFile, setIncomingFile] = useState<IncomingFile | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -213,8 +232,33 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     return null; // Raw/other - no limits
   }, [conversationType, senderName]);
 
-  // UTF-8 byte length of the current text (LoRa packets are byte-constrained)
-  const textByteLen = useMemo(() => byteLen(text), [text]);
+  // Link shortening needs sharing on; `/api/share/status` is local (no egress).
+  const shareStatus = useShareStatus();
+  useEffect(() => {
+    if (!shareStatus) void refreshShareStatus();
+  }, [shareStatus]);
+  const shareHosts = shareStatus?.hosts;
+  // `auto` never waits on a service known to refuse: the links go out as typed.
+  const shareServiceDown = !!shareStatus && (shareStatus.unreachable || shareStatus.banned);
+  const shortenMode: ShareShortenMode = !shareStatus?.enabled
+    ? 'never'
+    : shareStatus.shorten_mode === 'auto' && shareServiceDown
+      ? 'never'
+      : shareStatus.shorten_mode;
+  const shortenMinBytes = shortenMode === 'auto' ? AUTO_SHORTEN_MIN_BYTES : 0;
+  const longUrls = useMemo(
+    () => (shortenMode === 'never' ? [] : findLongUrls(text, shareHosts, shortenMinBytes)),
+    [shortenMode, text, shareHosts, shortenMinBytes]
+  );
+  // `auto` and `always`: Send shortens first, the size guard judges what goes on the air.
+  const shortenOnSend = longUrls.length > 0;
+
+  // UTF-8 bytes the message will take (LoRa packets are byte-constrained). Long URLs
+  // count as the short links Send will turn them into.
+  const textByteLen = useMemo(
+    () => (longUrls.length > 0 ? shortenedByteLength(text, longUrls, shareHosts) : byteLen(text)),
+    [text, longUrls, shareHosts]
+  );
 
   // Determine current limit state
   const { limitState, warningMessage } = useMemo((): {
@@ -237,32 +281,16 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
 
   const remaining = limits ? limits.hardLimit - textByteLen : 0;
 
-  // Link shortening needs sharing on; `/api/share/status` is local (no egress).
-  const shareStatus = useShareStatus();
-  useEffect(() => {
-    if (!shareStatus) void refreshShareStatus();
-  }, [shareStatus]);
-  const shareHosts = shareStatus?.hosts;
-  const shortenMode = shareStatus?.enabled ? shareStatus.shorten_mode : 'never';
-  const longUrls = useMemo(
-    () => (shortenMode === 'never' ? [] : findLongUrls(text, shareHosts)),
-    [shortenMode, text, shareHosts]
-  );
-  // `auto`: a button next to the counter, only once the text is over the limit.
-  const showShortenButton = shortenMode === 'auto' && limitState === 'error' && longUrls.length > 0;
-  // `always`: Send shortens first; the size guard then judges the shortened text.
-  const shortenOnSend = shortenMode === 'always' && longUrls.length > 0;
-
   /**
    * Shorten every long URL of `source` through the backend, one after the other.
-   * All or nothing: on any failure a coded toast is shown and null returned, so
-   * the caller keeps the original text.
+   * All or nothing: on any failure null is returned, so the caller keeps the
+   * original text; a coded toast is shown unless `silent`.
    */
   const shortenText = useCallback(
-    async (source: string): Promise<string | null> => {
+    async (source: string, silent = false): Promise<string | null> => {
       const mapping = new Map<string, string>();
       try {
-        for (const url of findLongUrls(source, shareHosts)) {
+        for (const url of findLongUrls(source, shareHosts, shortenMinBytes)) {
           const link = await api.shortenLink(url);
           // Only ever write a link of the share service into the message.
           if (!isShareLink(link.url, shareHosts)) throw new Error('unexpected short link');
@@ -270,22 +298,25 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         }
       } catch (err) {
         console.error('Failed to shorten link:', err);
-        toast.error(t('chat.shortenFailed'), {
-          description: err instanceof Error ? formatApiError(err, t) : undefined,
-        });
+        if (!silent) {
+          toast.error(t('chat.shortenFailed'), {
+            description: err instanceof Error ? formatApiError(err, t) : undefined,
+          });
+        }
         return null;
       }
       return rewriteUrls(source, mapping);
     },
-    [shareHosts, t]
+    [shareHosts, shortenMinBytes, t]
   );
 
   /** Put a rewritten text in the textarea, saving the draft; Undo restores `original`. */
   const applyShortened = useCallback(
-    (original: string, shortened: string, withUndo: boolean) => {
+    (original: string, shortened: string, withUndo: boolean, notify = true) => {
       setText(shortened);
       textRef.current = shortened;
       if (draftIdentity) saveConversationDraft(draftIdentity.type, draftIdentity.id, shortened);
+      if (!notify) return;
       toast.success(
         t('chat.linkShortened', { before: byteLen(original), after: byteLen(shortened) }),
         withUndo
@@ -310,41 +341,39 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     [draftIdentity, t]
   );
 
-  const handleShorten = useCallback(async () => {
-    if (shortening || sending || disabled) return;
-    const original = text;
-    setShortening(true);
-    try {
-      const shortened = await shortenText(original);
-      if (shortened === null || shortened === original) return;
-      // Typed meanwhile: keep what the user wrote rather than overwrite it.
-      if (textRef.current !== original) return;
-      applyShortened(original, shortened, true);
-    } finally {
-      setShortening(false);
-    }
-  }, [shortening, sending, disabled, text, shortenText, applyShortened]);
-
   const submitMessage = useCallback(async () => {
     let trimmed = text.trim();
-    if (!trimmed || sending || shortening || disabled) return;
-    // The size guard stays: in `always` mode it judges the shortened text instead.
-    if (limitState === 'error' && !shortenOnSend) return;
+    if (!trimmed || sending || disabled) return;
+    // The size guard stays: with long URLs it already counts them as short links.
+    if (limitState === 'error') return;
 
     setSending(true);
     try {
       if (shortenOnSend) {
-        const shortened = await shortenText(trimmed);
-        if (shortened === null) return;
+        // `auto` is best effort: a message that fits as typed never waits long for the
+        // service (off-grid, a mesh must keep working) and never fails because of it.
+        const fitsAsTyped = limits === null || byteLen(trimmed) < limits.hardLimit;
+        const bestEffort = shortenMode === 'auto' && fitsAsTyped;
+        const shortened = bestEffort
+          ? await settleWithin(shortenText(trimmed, true), AUTO_SHORTEN_WAIT_MS)
+          : await shortenText(trimmed);
+        if (shortened === null && !bestEffort) return;
         // Edited while waiting: do not send or overwrite, let the user re-read.
         if (textRef.current.trim() !== trimmed) return;
-        const rewritten = shortened.trim();
-        const stillTooLong = limits !== null && byteLen(rewritten) >= limits.hardLimit;
-        // Nothing sent when the shortened text still fails the guard: the user
-        // sees it in the textarea and can undo.
-        applyShortened(trimmed, rewritten, stillTooLong);
-        if (stillTooLong) return;
-        trimmed = rewritten;
+        if (shortened === null) {
+          void refreshShareStatus().catch(() => undefined);
+        } else {
+          const rewritten = shortened.trim();
+          const stillTooLong = limits !== null && byteLen(rewritten) >= limits.hardLimit;
+          // Nothing sent when the shortened text still fails the guard: the user
+          // sees it in the textarea and can undo. `auto` says nothing otherwise.
+          applyShortened(trimmed, rewritten, stillTooLong, shortenMode !== 'auto' || stillTooLong);
+          if (stillTooLong) return;
+          trimmed = rewritten;
+        }
+      } else if (shareServiceDown) {
+        // Nothing else re-reads the status: this is how `auto` notices the service is back.
+        void refreshShareStatus().catch(() => undefined);
       }
       await onSend(trimmed);
       setText('');
@@ -371,11 +400,12 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   }, [
     text,
     sending,
-    shortening,
     disabled,
     limitState,
     limits,
     shortenOnSend,
+    shortenMode,
+    shareServiceDown,
     shortenText,
     applyShortened,
     onSend,
@@ -545,29 +575,12 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     };
   }, [composerPanel]);
 
-  const canSubmit = text.trim().length > 0 && (limitState !== 'error' || shortenOnSend);
+  const canSubmit = text.trim().length > 0 && limitState !== 'error';
 
   // Show counter for messages (not raw).
   // Desktop: always visible. Mobile: only after the UTF-8 warning threshold.
   const showCharCounter = limits !== null;
   const showMobileCounterValue = limits !== null && textByteLen >= limits.warningAt;
-
-  const shortenButton = showShortenButton ? (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="h-6 gap-1 px-2 text-xs"
-      data-testid="composer-shorten"
-      aria-busy={shortening}
-      disabled={disabled || sending || shortening}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={() => void handleShorten()}
-    >
-      <Link2 className="h-3 w-3" aria-hidden="true" />
-      {shortening ? t('chat.shortening') : t('chat.shorten')}
-    </Button>
-  ) : null;
 
   return (
     <form
@@ -630,7 +643,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
             setComposerPanel((open) => (open ? null : 'emoji'));
           }}
         >
-          <Smile className="h-5 w-5" />
+          <Plus className="h-5 w-5" />
         </Button>
         <textarea
           ref={textareaRef}
@@ -660,7 +673,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         />
         <Button
           type="submit"
-          disabled={disabled || sending || shortening || !canSubmit}
+          disabled={disabled || sending || !canSubmit}
           className={cn(
             'h-10 w-10 shrink-0 px-0 sm:w-auto sm:px-4',
             !canSubmit && 'hidden md:inline-flex'
@@ -693,7 +706,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
                 — {warningMessage}
               </span>
             )}
-            {shortenButton}
           </div>
 
           {(showMobileCounterValue || warningMessage) && (
@@ -718,7 +730,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
                   — {warningMessage}
                 </span>
               )}
-              {shortenButton}
             </div>
           )}
         </>

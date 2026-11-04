@@ -779,14 +779,18 @@ shared image in a message loads without a tap (Message rendering, `SharePayload`
 `docs/user/{en,fr}/deep/share.md` (also `messages.md`, `trust.md`, `deep/security.md`).
 
 **Composer shortening.** `MessageInput` reads `useShareStatus()` (local, no egress;
-off or `shorten_mode: never` means no button, no request). Pure helpers in
-`utils/share.ts` (`findLongUrls`, `rewriteUrls`, `shortFormBytes`, `isShareLink`;
-it owns `URL_PATTERN`, shared with the linkifier). Mode `auto`: the Shorten button
-beside the counter appears only at `limitState === 'error'` with a long non-service
-URL; a click calls `api.shortenLink` per URL, sequentially, and rewrites the
-**textarea** (all or nothing, toast with Undo, nothing sent). Mode `always`: Send
-shortens first, then the byte guard judges the shortened text; if it still fails,
-the text stays in the textarea and nothing is sent. Shortening never happens in
+off or `shorten_mode: never` means no request). Pure helpers in
+`utils/share.ts` (`findLongUrls`, `rewriteUrls`, `shortFormBytes`, `shortenedByteLength`,
+`isShareLink`; it owns `URL_PATTERN`, shared with the linkifier). In `auto` and `always`
+the counter and `limitState` count each long URL as the short link it will become, and
+Send calls `api.shortenLink` per URL, sequentially (all or nothing). Mode `auto` takes URLs
+over `AUTO_SHORTEN_MIN_BYTES` (26), says nothing on success and is best effort: a message
+that fits as typed waits at most `AUTO_SHORTEN_WAIT_MS`, then goes out as typed on a failure
+or a timeout, with no toast; a message that only fits shortened stays, with the toast.
+`unreachable` or `banned` in the status turn `auto` into `never` (each send re-reads the
+status, so it comes back). Mode `always` takes every URL longer than a short link, toasts the
+saving and sends nothing on a failure. A short link longer than announced that breaks the
+limit leaves the rewritten text with an Undo toast. Shortening never happens in
 `onSend`/`message_send.py`, and `submitMessage` keeps its `error` check. Never
 rewritten: share-host URLs, `g:`/`m:`/`r:` payloads. Tests:
 `src/test/messageInputShorten.test.tsx`, `shareShortenUtils.test.ts`.

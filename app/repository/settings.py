@@ -559,7 +559,7 @@ class AppSettingsRepository:
                 row, "share_shorten_mode", SHARE_SHORTEN_MODES, "auto"
             ),
             share_preview_policy=_share_choice(
-                row, "share_preview_policy", SHARE_PREVIEW_POLICIES, "private"
+                row, "share_preview_policy", SHARE_PREVIEW_POLICIES, "always"
             ),
             notification_language=_share_choice(
                 row, "notification_language", NOTIFICATION_LANGUAGES, "auto"

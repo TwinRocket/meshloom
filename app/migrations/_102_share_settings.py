@@ -4,7 +4,8 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-# (column, DDL). Defaults are off / auto / private, also for an existing row.
+# (column, DDL). Defaults are off / auto / private, also for an existing row
+# (migration 143 then moves the previews to `always`).
 _COLUMNS = (
     ("share_enabled", "INTEGER DEFAULT 0"),
     ("share_shorten_mode", "TEXT DEFAULT 'auto'"),
