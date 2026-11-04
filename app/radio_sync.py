@@ -794,6 +794,8 @@ async def audit_channel_send_cache(mc: MeshCore) -> bool:
     mismatches: list[str] = []
     for channel_key, slot in cached_slots:
         result = await mc.commands.get_channel(slot)
+        if not _reply_is_for_slot(result, slot):
+            continue  # the late reply of an earlier read says nothing about this slot
         if result.type != EventType.CHANNEL_INFO:
             mismatches.append(
                 f"slot {slot}: expected {channel_key[:8]} but radio returned {result.type}"

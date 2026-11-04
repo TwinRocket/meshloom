@@ -9,17 +9,6 @@ import pytest
 
 import app.main as main
 from app.models import RadioTransportSnapshot
-from app.plugins import host
-from app.plugins import pause as pause_module
-
-
-@pytest.fixture(autouse=True)
-def _keep_the_plugin_pause_state(monkeypatch):
-    """The lifespan loads the pause: without a database it fails closed, and that must
-    not stay on this worker for the next test."""
-    monkeypatch.setattr(pause_module, "_state", pause_module.PauseState())
-    monkeypatch.setattr(host.plugin_manager, "paused", host.plugin_manager.paused)
-
 
 _STOPPERS = [
     "stop_background_contact_reconciliation",
