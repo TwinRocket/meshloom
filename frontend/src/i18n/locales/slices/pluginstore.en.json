@@ -2,23 +2,6 @@
   "pluginStore": {
     "navBadge_one": "{{count}} update",
     "navBadge_other": "{{count}} updates",
-    "activation": {
-      "title": "Turn on the Store",
-      "intro": "The Store is off. Turning it on lets Meshloom contact the hosts below to find plugins.",
-      "sendsTitle": "What leaves when it is on",
-      "sends": {
-        "ip_address": "Your Meshloom's public IP address, as for any internet request.",
-        "user_agent": "The User-Agent {{userAgent}} (the application and its version)."
-      },
-      "sendsNone": "Nothing else: no account, no key, no message, no radio or contact data.",
-      "hostsTitle": "Hosts it may reach",
-      "cadence": "Releases are checked every {{hours}} hours, or when you press Refresh.",
-      "missedTitle": "What you do not receive while it is off",
-      "missed": {
-        "updates": "Notices and installation of plugin updates."
-      },
-      "revocationLater": "Alerts when a plugin is withdrawn online are not available yet: they come later."
-    },
     "online": {
       "toggle": "Store online",
       "help": "Off, the Store stays offline. Installed plugins keep running."

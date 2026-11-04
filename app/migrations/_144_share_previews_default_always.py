@@ -1,4 +1,4 @@
-"""Migration 143: shared image previews default to ``always``.
+"""Migration 144: shared image previews default to ``always``.
 
 The default was ``private``. SQLite cannot change a column default, and nothing tells
 a default from a choice in the stored value, so the rule is: an instance with sharing

@@ -706,7 +706,7 @@ Community guard, and it needs Community on (MSHL-445).
 ## Store egress (`plugins/store_egress.py`)
 
 The Store's own egress class (MSHL-194): distinct from Community and from the share
-service, with its own consent, `app_settings.store_online` (in `AppSettings`, off by
+service, with its own switch, `app_settings.store_online` (in `AppSettings`, on by
 default, `PATCH /api/settings`). Community on or off changes nothing here.
 
 - **Hosts.** `STORE_HOSTS`, fixed in code: the GitHub hosts of custom repositories
@@ -727,9 +727,9 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   `note_store_online_changed()`: off bumps a generation, cancels the requests in flight
   (they raise `StoreOffline`) and stops the refresh loop; a switch from off to on starts
   or wakes it (a `true` sent again while already on does nothing). A restore re-applies
-  the stored consent: the `store_egress` restore hook (`register_on_restore`, run after
+  the stored switch: the `store_egress` restore hook (`register_on_restore`, run after
   JSON restores and by `run_sqlite_restore_hooks`) calls `note_store_online_changed()`.
-- **Refresh loop.** Started at boot only when the consent is on; every
+- **Refresh loop.** Started at boot unless the switch is off; every
   `REFRESH_INTERVAL_S` (6 h), and once when turned on, but never twice within
   `MIN_REFRESH_GAP_S` (10 min; a tick skipped by that gap waits only the rest of it),
   it runs the steps registered with
@@ -738,7 +738,7 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   manual **Refresh** button (`POST /api/store/refresh`) runs even with nothing installed,
   still gated by `store_online` and the 10-minute gap. Between refreshes the loop runs the
   evaluators alone every `EVALUATE_INTERVAL_S` (1 h, `run_store_evaluation()`): same
-  consent and installed-instance gates, never the gap nor `last_refresh_at`, and an
+  switch and installed-instance gates, never the gap nor `last_refresh_at`, and an
   evaluator must not fetch on its own (it reads the cache; applying an update goes
   through the usual install pipeline). The lock is created lazily (`_lock()`).
   Registered: `custom_repos.refresh_repositories` (MSHL-196) as a refresher,
@@ -751,12 +751,14 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   /api/store/repositories` (admin); table `store_repositories` (migration 126; 127 adds
   `config_schema`, 128 `readme`; `GET .../{owner}/{name}/readme`, `POST /api/store/refresh`). Updates: `plugins/updates.py`, `GET /api/store/updates`.
 - **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
-  consent, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
+  switch, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
   reaches), what is sent (IP address, User-Agent), the cadence, what is missed while off
   (updates only: online revocation alerts do not exist in 5.0.0) and the last refresh.
-- **Backups.** `store_online` is a consent: left out of the JSON export
-  (`_CONSENT_FIELDS`), never restored, reset to 0 in a database copy.
-- Tests: `tests/test_store_egress.py` (nothing leaves while off, Community on or off,
+- **Backups.** `store_online` is an ordinary setting since MSHL-456 (`V1_SETTING_COLUMNS`):
+  exported, kept in a database copy, and a restore applies only an off (`_restore_settings`:
+  every default export says on, which must not undo a later off).
+- Tests: `tests/test_store_egress.py` (nothing leaves by default with nothing installed,
+  nothing leaves while off, Community on or off,
   loop included, the repository routes included); `tests/test_store_repositories.py`
   (custom repositories, GitHub mocked); `tests/test_store_updates.py` (updates, holds,
   auto-update window, compat at start); `tests/test_community_off_no_egress.py` allows exactly
@@ -828,7 +830,7 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
-- Migration 143 sets `share_preview_policy` to `always`, the new default, where it holds
+- Migration 144 sets `share_preview_policy` to `always`, the new default, where it holds
   `private`, sharing is off and the share terms were never accepted (`share_terms_version = 0`); any other keeps its value. The column
   default from migration 102 stays `private` (SQLite cannot change it), which is harmless:
   the singleton row exists before the migrations run.
@@ -884,8 +886,8 @@ run as root).
   contract exists in `meshloom-community/docs/contracts` (checked): no `CONTRACTS:` commit.
 - Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
   also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
-  and `app_settings.store_online` (Store consent, off; in `AppSettings` since MSHL-194,
-  see "Store egress"; excluded from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
+  and `app_settings.store_online` (Store switch, on since migration 143; in `AppSettings` since MSHL-194,
+  see "Store egress"; travels with backups). Additive: bots in `fanout_configs`
   were untouched until migration 122 converted them. One `plugin_id` can have several instances, each
   with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
   never exported (`plugin_secrets` emptied in the database download, `secret_omitted`

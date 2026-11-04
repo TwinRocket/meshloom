@@ -1,9 +1,9 @@
-"""The Store (``/api/store``): the activation card and the custom repositories.
+"""The Store (``/api/store``): its status and the custom repositories.
 
-The consent itself is ``store_online`` in ``PATCH /api/settings``; every Store
+The switch itself is ``store_online`` in ``PATCH /api/settings``; every Store
 request goes through ``app.plugins.store_egress`` (``store_fetch``).
 
-- ``GET /store/status``: what the activation card says. No egress.
+- ``GET /store/status``: whether the Store is on and what it may reach. No egress.
 - ``GET /store/repositories``: the custom GitHub repositories (MSHL-196) with the
   catalogue entry of each one's last good release (tier ``custom``, ``signed: false``,
   the warning) and the instances installed from it, each with its ``auto_update`` switch
@@ -244,7 +244,7 @@ async def _views() -> list[RepositoryView]:
 
 @router.get("/status", response_model=StoreStatus, dependencies=[Admin])
 async def get_store_status() -> StoreStatus:
-    """The Store consent, the hosts it may reach, what leaves and what is missed when off."""
+    """The Store switch, the hosts it may reach, what leaves and what is missed when off."""
     return await store_status()
 
 

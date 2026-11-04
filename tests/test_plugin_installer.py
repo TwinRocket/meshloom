@@ -267,6 +267,7 @@ async def test_the_gate_is_the_store_consent(tmp_path, net, monkeypatch, test_db
     installer.set_download_gate(store_egress.store_egress_allowed)
     data = build_archive(tmp_path)
     net.serve(ARCHIVE_URL, data)
+    await AppSettingsRepository.update(store_online=False)
     assert not await installer.downloads_allowed()
     with pytest.raises(installer.InstallError) as err:
         await installer.prepare_install(remote(data), tmp_path / "plugins", plugin_id="acme.echo")
