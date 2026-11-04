@@ -372,7 +372,8 @@ SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
     "share_terms_accepted_at",
 )
 
-# Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets,
+# Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets (with
+# the TOTP state: an enabled flag without its secret asks a code nobody can give),
 # the setup code hash and the known-device cookie key are set to NULL, and the
 # sessions, TOTP recovery codes and device pairing codes are deleted. The
 # plugin config secrets (docs/dev/plugins.md) are deleted too: a restored
@@ -380,7 +381,7 @@ SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
 # can log in with a password: recovery goes through the admin reset (Access
 # tickets).
 SNAPSHOT_SCRUBBED_AUTH_COLUMNS: dict[str, tuple[str, ...]] = {
-    "users": ("password_hash", "totp_secret"),
+    "users": ("password_hash", "totp_secret", "totp_enabled_at", "totp_last_counter"),
     "auth_settings": ("setup_code_hash", "device_cookie_key"),
     "oidc_provider": ("client_secret",),
 }

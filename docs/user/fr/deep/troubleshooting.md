@@ -83,6 +83,10 @@ Une autre application modifie probablement les emplacements de canal de la radio
 
 Un port série ne peut servir qu’un programme. Si une autre application MeshCore, une console série ou un second Meshloom le tient, les tentatives de connexion échouent en boucle. Après trois lignes « Serial Connection started » identiques, Meshloom écrit un seul `WARNING` sur une possible contention et cesse de répéter la ligne. Fermez l’autre programme.
 
+## Meshloom refuse de démarrer après une mise à niveau
+
+Le journal dit lequel de ces cas vous concerne. **Not enough free disk space to copy the database** : libérez la place indiquée, puis redémarrez. Votre base n’a pas changé. **This database is at schema N, newer than this version** : vous lancez une version plus ancienne que celle qui a utilisé la base en dernier. Relancez cette version, ou [remettez la copie faite avant la mise à niveau](/docs/deep/install-paths/#revenir-à-une-version-plus-ancienne).
+
 ## Le travail de démarrage boucle
 
 Si la radio est injoignable un instant, Meshloom relance son travail de démarrage toutes les cinq secondes. C’est voulu. Si ce travail dépasse cinq minutes deux fois de suite, Meshloom signale « Radio startup appears stuck » : redémarrez la radio et le serveur. Après trois échecs de suite, le log évoque les causes habituelles : un autre programme tient le port, la radio tourne avec le firmware répéteur au lieu du firmware companion, ou elle doit être débranchée puis rebranchée.

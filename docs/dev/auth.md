@@ -282,7 +282,8 @@ the setup code are never exported; `auth_audit` is not in the JSON backup but
 stays in the SQLite download (IPs, usernames). The SQLite download
 (`GET /settings/backup/database`) keeps the accounts and the audit trail but
 not their secrets: `prepare_sqlite_snapshot()` sets `users.password_hash`,
-`users.totp_secret` and `auth_settings.setup_code_hash` to NULL and empties
+`users.totp_secret` with `totp_enabled_at` and `totp_last_counter`, and
+`auth_settings.setup_code_hash` to NULL and empties
 `sessions` and `recovery_codes` in the copy, under `secure_delete`. A restored snapshot therefore
 has accounts that cannot log in with a password until an admin reset. The
 passkeys (`webauthn_credentials`) stay in the copy: they are public keys, and

@@ -206,6 +206,6 @@ The online Store has a switch of its own, separate from Community and from the s
 
 An extension reaches the internet only if you accepted the **Connect to the internet** permission, and then only the servers listed in its consent screen, through Meshloom (see above). What it sends there is its own business, which is why reading private channels or direct messages together with that permission deserves a warning. The backup never contains an extension's secrets or stored data (see [Backup](/en/docs/backup/)). A converted bot keeps its code; if it embedded a token in that code, it is in the backup like any local extension's code, so move it to a setting.
 
-## No way back to 4.18
+## Going back to 4.18
 
-The conversion of bots changes the database when 5.0.0 starts and is not undone by an older version. 4.18 does not know extensions: if you downgrade, your converted bots are not shown as bots. The originals are kept in a table of the database until 5.2.0, but 4.18 does not read it. Before upgrading, download a **full copy of the database** (**Settings → Database → Download meshcore.db**) and keep it: it is the only way back.
+The conversion of bots changes the database when 5.0.0 starts and is not undone by an older version. 4.18 does not know extensions: on a converted database, your bots are not shown as bots. The originals are kept in a table of the database until 5.2.0, but 4.18 does not read it. Meshloom copies the database before converting it: to go back, put that copy back, which brings the bots back as they were (see [Going back to an older version](/en/docs/deep/install-paths/#going-back-to-an-older-version)).

@@ -817,6 +817,9 @@ run as root).
 
 ## Migrations
 
+- `app/database_copy.py` runs first (`Database.connect`): it refuses a schema newer than
+  the highest migration, and copies a populated database with pending migrations, or
+  stops the start if it cannot (`docs/dev/database.md`).
 - One file per version: `app/migrations/_NNN_description.py`, discovered by numeric
   prefix, run in order, tracked by `PRAGMA user_version`.
 - Never rename or delete one (root `AGENTS.md`, "Deployments that never delete

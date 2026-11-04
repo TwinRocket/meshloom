@@ -187,3 +187,33 @@ sudo docker compose pull && sudo docker compose up -d
 La première ligne vaut pour Debian, Ubuntu et Raspberry Pi OS, la deuxième pour Fedora et les systèmes proches, la troisième pour Docker.
 
 Lancé à la main sans `--host`, Meshloom ne répond que sur la machine elle-même, à `http://127.0.0.1:8000`. La page `/docs` documente l’interface de programmation (API). Ce n’est pas ce site.
+
+### La copie faite avant une mise à niveau
+
+Quand une mise à niveau doit changer la structure de votre base, Meshloom en fait d’abord une copie, dans le même dossier, sous un nom qui dit quelle structure elle contient et quelle version l’a faite : par exemple `meshcore.db.schema87.before-5.0.0.db` (le schéma 87 est celui de toutes les 4.18). Quand un fichier `secrets.key` existe, il est copié aussi, sous le nom `meshcore.db.schema144.before-5.1.0.secrets.key`. Une nouvelle installation, ou un démarrage sans rien à mettre à niveau, ne fait pas de copie.
+
+- **Taille.** La copie est aussi grande que la base, et prend jusqu’à quelques minutes sur un Raspberry Pi avec une grosse base (le journal montre sa progression). Meshloom demande de la place libre dans ce dossier : la taille de la base plus un quart, 64 Mo au minimum.
+- **Si la copie échoue.** Meshloom ne met pas à niveau et ne démarre pas, et le journal dit pourquoi et combien de place il lui faut. Votre base reste telle quelle. Libérez de la place et redémarrez. Une mise à niveau ne s’annule pas : Meshloom préfère un démarrage qui attend à une mise à niveau sans retour.
+- **Combien.** Deux au plus : la plus ancienne, votre chemin de retour vers la version de départ, et la plus récente. Supprimez-les vous-même quand vous n’avez plus besoin de revenir en arrière.
+- **Privée.** Chaque fichier n’est lisible que par l’utilisateur de Meshloom (mode 0600). Une copie contient tout ce que contient la base, secrets compris. La sauvegarde complète ne l’inclut pas, et les sauvegardes de Home Assistant la laissent de côté. Si vous sauvegardez vous-même le dossier de données, laissez de côté `meshcore.db.schema*` pour gagner de la place, ou protégez-la comme la base.
+
+### Revenir à une version plus ancienne
+
+Meshloom refuse de démarrer sur une base faite par une version plus récente, et n’y touche pas. Pour revenir en arrière, remettez la copie. Tout ce qui a été reçu ou modifié depuis la mise à niveau est perdu.
+
+1. Arrêtez Meshloom.
+2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les deux fichiers qui accompagnent l’ancienne (avec `sudo` si les fichiers ne sont pas à vous) :
+
+   ```bash
+   cp -p meshcore.db.schema87.before-5.0.0.db meshcore.db
+   rm -f meshcore.db-wal meshcore.db-shm
+   ```
+
+   Pour revenir à une 5.0 ou plus récente, remettez aussi la clé si la copie en a une : `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
+3. Installez l’ancienne version, puis démarrez-la :
+   - Docker : indiquez l’image `ghcr.io/twinrocket/meshloom:4.18.2` dans `docker-compose.yml` ou `.env`, puis `docker compose up -d`.
+   - Paquet Linux : téléchargez le paquet sur la [page des versions](https://github.com/TwinRocket/meshloom/releases), puis `sudo apt install --allow-downgrades ./<fichier>.deb` ou `sudo dnf downgrade ./<fichier>.rpm`.
+   - Copie du code : `git checkout 4.18.2`, puis relancez `install_service.sh`.
+   - Home Assistant : restaurez l’add-on depuis la sauvegarde que Home Assistant a faite avant la mise à jour. Elle contient déjà l’ancienne base.
+
+Vos bots reviennent tels qu’ils étaient en 4.18, et le fichier `secrets.key` resté dans le dossier n’est simplement pas utilisé. À la prochaine mise à niveau, Meshloom refait une copie et reconvertit les bots.

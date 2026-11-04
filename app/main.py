@@ -57,6 +57,7 @@ from app.config import settings as server_settings
 from app.config import setup_logging
 from app.cors import AllowedOriginsCORSMiddleware
 from app.database import db
+from app.database_copy import StartupRefused
 from app.frontend_static import (
     register_first_available_frontend_static_routes,
     register_frontend_missing_fallback,
@@ -491,13 +492,46 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
     await _shutdown_step("background tasks", drain_background_tasks)
 
 
+def _not_a_startup_traceback(record: logging.LogRecord) -> bool:
+    return "Traceback (most recent call last)" not in record.getMessage()[:64]
+
+
+def _log_startup_failure(exc: Exception) -> None:
+    """Say why the start failed, in full.
+
+    Starlette hands uvicorn the whole traceback as one message, and logging gives
+    a message one line, capped at ``MAX_LINE_BYTES`` (``app/log_redaction.py``): the
+    cause, at its end, is cut. So it is logged here, and uvicorn's line, which then
+    only repeats it, is dropped.
+    """
+    if isinstance(exc, StartupRefused):
+        logger.critical("%s", exc)
+    else:
+        logger.critical("Meshloom could not start", exc_info=exc)
+    logging.getLogger("uvicorn.error").addFilter(_not_a_startup_traceback)
+
+
+@asynccontextmanager
+async def _lifespan_logging_startup_failure(app: FastAPI):
+    """``lifespan``, with a readable log when the start fails."""
+    started = False
+    try:
+        async with lifespan(app):
+            started = True
+            yield
+    except Exception as exc:
+        if not started:
+            _log_startup_failure(exc)
+        raise
+
+
 app = FastAPI(
     title="Meshloom API",
     description=API_DESCRIPTION,
     version=get_app_build_info().version,
     openapi_tags=API_TAGS_METADATA,
     docs_url=None,
-    lifespan=lifespan,
+    lifespan=_lifespan_logging_startup_failure,
     # Default deny: an /api route that declares no permission is admin-only
     # (app/auth/permissions.py).
     dependencies=[Depends(enforce_declaration)],

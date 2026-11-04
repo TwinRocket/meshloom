@@ -26,6 +26,11 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 
 ## Migrations
 
+- Before opening the database, `Database.connect` calls `app/database_copy.py`: a schema
+  above the highest migration stops the start (`SchemaTooNewError`), and pending
+  migrations on a populated database make a copy first, or stop the start when it fails
+  (`CopyFailedError`). Name, retention, marker file and reasons: the header of that
+  module. `app.main.lifespan` logs a `StartupRefused` as one line, without a traceback.
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
