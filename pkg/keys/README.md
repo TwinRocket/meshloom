@@ -129,7 +129,9 @@ cd / && find "$WORK" "$T" -type f -exec shred -u {} + && rm -rf "$WORK" "$T"
 ```
 
 
-Then, in GitHub (repository secrets, **by the owner only**):
+Then, in GitHub (**by the owner only**), in the secrets of the environment
+`release-signing` if it exists, otherwise in the repository secrets
+(`docs/dev/releasing.md`, "Who can read the key"):
 
 * `MESHLOOM_REPO_GPG_PRIVATE_KEY` = content of `meshloom-ci-subkey.asc`
   (no passphrase secret exists)

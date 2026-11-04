@@ -253,7 +253,7 @@ MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
    `analyze (python)` and `analyze (javascript-typescript)` green, merge commit
    only, no deletion or force-push. Admins bypass it (that is how `publish.sh`
    pushes the release commit). `preversion-5` gets the same rules. The
-   `release-tags` ruleset reserves `X.Y.Z` tags to admins. No workflow pushes
+   `release-tags` ruleset reserves `X.Y.Z` and `X.Y.Z-rc.N` tags to admins. No workflow pushes
    `main` or creates a tag; the only workflow that writes a branch is
    `forward-merge.yml`: every push to `main` reaches `preversion-5` through a PR
    `main → preversion-5` it opens (or reuses) and auto-merges (merge commit,
@@ -270,6 +270,15 @@ MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
   publishes everything. Never bump versions or push tags by hand
   (`scripts/build/tag_release.sh` is the recovery tool). The whole chain is in
   `docs/dev/releasing.md`; the key procedure is in `pkg/keys/README.md`.
+- A release candidate is `scripts/build/publish.sh X.Y.Z-rc.N`, on `main` or
+  `preversion-5`: a signed GitHub pre-release, `:X.Y.Z-rc.N`, and the apt/dnf
+  `testing` suite. It must reach no stable user: no `:latest`, no `:X.Y`, no
+  `stable` suite, no add-on bump, no site rebuild, no armhf. Keep that true, and
+  covered by `tests/test_release_flow.py`.
+- No job that runs third-party code (npm, `uv sync`, a Docker build) may hold the
+  signing key or a write token; key-holding jobs declare
+  `environment: release-signing` and receive the key as a named secret, never
+  through `secrets: inherit`.
 - Clients trust only the public key committed in `pkg/keys` (fingerprint
   `D852F2F0892ABF379F52D110FB3EB7BBC43935C8`) or embedded in `install.sh`, never
   a key fetched at install time. CI holds only the signing subkey.

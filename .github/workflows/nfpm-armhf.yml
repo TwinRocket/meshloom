@@ -4,6 +4,10 @@ name: Packages (armhf)
 # Dispatched from Release after publish, or by hand with a version input.
 # Recipe (this file, Dockerfile, script) comes from the default branch; app
 # sources come from the tag so a rattrapage uses the already-fixed builder.
+#
+# Three jobs so the signing key meets no third-party code: `frontend` runs npm,
+# `assemble` runs the build backends, and only `package` holds the key. X.Y.Z only:
+# a release candidate has no armhf package.
 
 on:
   workflow_dispatch:
@@ -19,12 +23,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  package:
+  # Strict on purpose: an rc has no armhf package, and this recipe comes from the
+  # default branch, not from the rc's commit.
+  version:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: write   # attach the package to the release
-      packages: write   # buildx registry cache
+    permissions: {}
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
@@ -37,29 +40,67 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
 
+  # npm runs third-party code: no key and no write token here.
+  frontend:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.version }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-dist-armhf
+          path: frontend/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  # Build backends run here under QEMU. No key either; the token only writes the
+  # buildx registry cache.
+  assemble:
+    needs: [version, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write   # buildx registry cache
+    steps:
       # Recipe always comes from default branch. Dispatching from a tag would
       # reuse a pre-fix Dockerfile the same way rpi-image.yml avoids that.
       - name: Check out recipe
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
 
       - name: Check out tagged sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.ver.outputs.version }}
+          ref: ${{ needs.version.outputs.version }}
           path: tag-src
+          persist-credentials: false
 
       - name: Version consistency of the tag
         env:
           MESHLOOM_VERSION_ROOT: ${{ github.workspace }}/tag-src
-        run: scripts/build/check_version_consistency.sh "${{ steps.ver.outputs.version }}"
-
-      - name: Import signing key
-        id: key
-        uses: ./.github/actions/import-signing-key
-        with:
-          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
+        run: scripts/build/check_version_consistency.sh "${{ needs.version.outputs.version }}"
 
       - name: Overlay tagged sources
         run: |
@@ -77,17 +118,10 @@ jobs:
           [ -f tag-src/LICENSES.md ] && cp tag-src/LICENSES.md .
           rm -rf tag-src
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Build frontend
-        run: |
-          npm ci
-          npm run build
-        working-directory: frontend
+          name: frontend-dist-armhf
+          path: frontend/dist
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -113,17 +147,58 @@ jobs:
           file: Dockerfile.nfpm-armhf
           platforms: linux/arm/v7
           provenance: false
-          build-args: VERSION=${{ steps.ver.outputs.version }}
+          build-args: VERSION=${{ needs.version.outputs.version }}
           outputs: type=local,dest=stage-armhf
           cache-from: type=registry,ref=${{ steps.image.outputs.image }}:buildcache-nfpm-armhf
           cache-to: type=registry,ref=${{ steps.image.outputs.image }}:buildcache-nfpm-armhf,mode=max
 
-      - name: Install nFPM
+      # A tarball: an artifact would lose the symlinks and the file modes.
+      - name: Pack the tree
+        run: tar -C stage-armhf -czf stage-armhf.tar.gz .
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nfpm-stage-armhf
+          path: stage-armhf.tar.gz
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  # Holds the key and runs only the checked-out scripts and the pinned nFPM. The
+  # tree from `assemble` is data here: it is packed, never executed.
+  package:
+    needs: [version, assemble]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release-signing
+    permissions:
+      contents: write   # attach the package to the release
+    outputs:
+      version: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Check out recipe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nfpm-stage-armhf
+
+      - name: Unpack the tree
         run: |
-          NFPM_VER=2.46.3
-          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_x86_64.tar.gz" \
-            | tar -xz nfpm
-          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+          mkdir stage-armhf
+          tar -xpzf stage-armhf.tar.gz -C stage-armhf
+
+      - name: Install nFPM
+        run: scripts/build/install_nfpm.sh
+
+      - name: Import signing key
+        id: key
+        uses: ./.github/actions/import-signing-key
+        with:
+          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
 
       - name: Pack
         env:
@@ -132,7 +207,7 @@ jobs:
         run: |
           chmod +x scripts/build/build_nfpm_packages.sh
           scripts/build/build_nfpm_packages.sh \
-            --version "${{ steps.ver.outputs.version }}" \
+            --version "${{ needs.version.outputs.version }}" \
             --arch armhf \
             --stage-dir stage-armhf \
             --package-only \
@@ -147,7 +222,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ steps.ver.outputs.version }}" dist/* \
+          gh release upload "${{ needs.version.outputs.version }}" dist/* \
             --clobber --repo "$GITHUB_REPOSITORY"
 
   # Both re-run now that armhf is attached: the apt index gains the architecture
@@ -158,7 +233,8 @@ jobs:
     with:
       version: ${{ needs.package.outputs.version }}
       require_armhf: true
-    secrets: inherit
+    secrets:
+      MESHLOOM_REPO_GPG_PRIVATE_KEY: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
     permissions:
       contents: read
       pages: write
@@ -170,7 +246,8 @@ jobs:
     with:
       version: ${{ needs.package.outputs.version }}
       require_armhf: true
-    secrets: inherit
+    secrets:
+      MESHLOOM_REPO_GPG_PRIVATE_KEY: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
     permissions:
       contents: write
       actions: read

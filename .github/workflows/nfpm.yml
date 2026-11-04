@@ -9,6 +9,7 @@ on:
       - "pkg/nfpm/**"
       - "pkg/keys/**"
       - "scripts/build/check_*"
+      - "scripts/build/install_nfpm.sh"
       - "scripts/build/build_nfpm_packages.sh"
       - "scripts/test/fail2ban_filter.sh"
       - "docs/dev/auth-fail-log.md"
@@ -46,6 +47,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.1"
 
       # Placeholders are tolerated on pull requests (packaging is still tested,
       # unsigned); a real key in pkg/keys is validated in full.
@@ -53,11 +56,7 @@ jobs:
         run: scripts/build/check_signing_keys.sh --allow-placeholder
 
       - name: Install nFPM
-        run: |
-          NFPM_VER=2.46.3
-          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_x86_64.tar.gz" \
-            | tar -xz nfpm
-          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+        run: scripts/build/install_nfpm.sh
 
       # Three steps: the armhf release path is --deps-only, --skip-deps, then
       # --package-only. Exercising that split here (still amd64, no QEMU)
