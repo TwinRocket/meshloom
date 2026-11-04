@@ -2,7 +2,9 @@
 
 import re
 import shutil
+import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -113,11 +115,16 @@ def test_deb_ships_the_launcher_and_postinstall_marks_existing_kiosks():
     assert "/var/lib/meshloom/kiosk" in build
 
 
-def _run_postinstall(tmp_path: Path, with_autostart: bool, with_setup: bool = False):
+def _run_postinstall(
+    tmp_path: Path, with_autostart: bool, with_setup: bool = False, planted: Path | None = None
+):
     root = tmp_path / "root"
     (root / "etc/xdg/autostart").mkdir(parents=True)
     (root / "usr/lib/meshloom").mkdir(parents=True)
     (root / "var/lib/meshloom").mkdir(parents=True)
+    (root / "var/lib/meshloom-update").mkdir(parents=True)
+    if planted is not None:
+        (root / "var/lib/meshloom/kiosk").symlink_to(planted)
     if with_autostart:
         (root / "etc/xdg/autostart/meshloom-kiosk.desktop").touch()
     if with_setup:
@@ -128,6 +135,8 @@ def _run_postinstall(tmp_path: Path, with_autostart: bool, with_setup: bool = Fa
     func = script[start:end]
     func = func.replace("/etc/xdg", f"{root}/etc/xdg").replace("/usr/lib", f"{root}/usr/lib")
     func = func.replace("/var/lib", f"{root}/var/lib")
+    if sys.platform != "linux":
+        func = func.replace("mv -fT", "mv -f")  # BSD mv has no -T; the packages are Linux only
     subprocess.run(["sh", "-c", f"{func}\nmark_kiosk_host\nmark_kiosk_host"], check=True)
     return root / "var/lib/meshloom/kiosk"
 
@@ -137,6 +146,15 @@ def test_postinstall_marker_follows_the_kiosk_files(tmp_path):
     assert not _run_postinstall(tmp_path / "plain", with_autostart=False).exists()
     assert _run_postinstall(tmp_path / "a", with_autostart=True).exists()
     assert _run_postinstall(tmp_path / "b", with_autostart=False, with_setup=True).exists()
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
+def test_postinstall_marker_replaces_a_planted_link_and_never_writes_through_it(tmp_path):
+    target = tmp_path / "elsewhere"
+    marker = _run_postinstall(tmp_path / "a", with_autostart=True, planted=target)
+    assert not target.exists()
+    assert marker.is_file() and not marker.is_symlink()
+    assert stat.S_IMODE(marker.stat().st_mode) == 0o644
 
 
 @pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")

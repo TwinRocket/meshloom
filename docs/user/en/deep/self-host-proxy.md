@@ -63,7 +63,7 @@ server {
 }
 ```
 
-Without the `Upgrade` and `Connection` lines the WebSocket is answered 404 and nothing arrives live. `client_max_body_size 64m;` matters: nginx refuses request bodies over 1 MB by default (413), while restoring or inspecting a backup accepts up to 64 MiB and photo shares up to 10 MiB. Meshloom refuses any other request over 1 MiB itself (8 MiB for an extension's source), with a 413. Caddy and Traefik set no request size limit unless you add one.
+Without the `Upgrade` and `Connection` lines the WebSocket is answered 404 and nothing arrives live. `client_max_body_size 64m;` matters: nginx refuses request bodies over 1 MB by default (413), while restoring or inspecting a backup accepts up to 64 MiB and photo shares up to 10 MiB. Meshloom refuses any other request over 1 MiB itself (8 MiB for an extension's source), with a 413. Such a request must also finish arriving within 30 seconds (about two minutes for an extension's source), or it gets a 408; backups and photo shares have no time limit. Sign-in stays available if someone floods Meshloom with large anonymous requests: those get a 503. Caddy and Traefik set no request size limit unless you add one.
 
 ## Traefik (v3)
 
