@@ -184,6 +184,10 @@ class _BodyRead:
             self._anonymous = principal_from_scope(self._scope) is None
             if self._anonymous and self._declared:
                 self._reserve(self._declared)
+        if self._finished:
+            # The body has ended: nothing left to bound. Before ASGI spec 2.4 a
+            # StreamingResponse waits here for the disconnect, for as long as it streams.
+            return await self._receive()
         try:
             async with asyncio.timeout_at(self._deadline):
                 message = await self._receive()
