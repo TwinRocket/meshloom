@@ -1156,7 +1156,7 @@ from the share service. Its switch is `app_settings.store_online`, on by default
 | Hourly auto-update check contacts nobody | `EVALUATE_INTERVAL_S`, `register_store_evaluator`; the download of an applied update goes through `store_fetch` |
 | Off cuts at once | `note_store_online_changed(False)`: generation bump, in-flight sends cancelled, loop stopped |
 | Backups carry the switch; a restore can turn it off, never on | `V1_SETTING_COLUMNS`, `_restore_settings` drops an on, kept in a database copy, `_after_restore` re-reads the database |
-| The host lock stops the repository checks | `refresh_repositories` returns while `disabled_source()` is set |
+| The host lock stops the repository checks | `run_store_refresh` returns false while `disabled_source()` is set, with `last_refresh_at` untouched |
 
 Change a row of this table and the two user pages (en and fr) together. The Store tab's
 **Store online** switch sends `PATCH /api/settings {"store_online": ...}` both ways; there is no
@@ -1443,7 +1443,7 @@ else: a refusal has no side effect, uses no quota and touches no network.
   `encoding: "base64"` when the bytes are not UTF-8 or the escaped text would be
   longer. Each call is logged at INFO with the instance, the method, the URL
   without user info, query or fragment (`sdk.safe_url`) and the status or the
-  refusal code. `store_online` (the Store's consent) does not gate it: installed
+  refusal code. `store_online` (the Store's switch) does not gate it: installed
   plugins keep working when the Store is off. Tests: `tests/test_plugin_http.py`.
 - **`notifications.send`** (`capabilities/notifications.py`, MSHL-213): the plugin
   notifies through the host's notification service, never with a URL or a destination of

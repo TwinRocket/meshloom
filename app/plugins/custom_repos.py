@@ -366,12 +366,7 @@ async def remove_repository(key: str) -> bool:
 async def refresh_repositories() -> None:
     """Store refresher: read each repository's latest release again; a new tag is
     downloaded and checked like an add. A failure is recorded on the row
-    (``last_error``, a code) and the last good release kept. Nothing while the plugin
-    system is off (host lock, platform, failed isolation): nothing could use a release."""
-    from app.routers import plugins
-
-    if plugins.plugin_manager.disabled_source() is not None:
-        return
+    (``last_error``, a code) and the last good release kept."""
     for row in await list_rows():
         repo = Repository(row["repository"], row["display_name"])
         now = int(time.time())

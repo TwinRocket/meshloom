@@ -231,9 +231,17 @@ async def has_online_instances() -> bool:
     return any(row.get("kind") in ONLINE_KINDS for row in await PluginRepository.get_all())
 
 
+def _plugin_system_off() -> bool:
+    """Host lock, platform or failed isolation: nothing could use a release, so the
+    refresh contacts nobody and does not count as one."""
+    from app.routers import plugins
+
+    return plugins.plugin_manager.disabled_source() is not None
+
+
 async def run_store_refresh(*, manual: bool = False) -> bool:
-    """One refresh tick. True when it ran (switch on, an online instance, a refresher,
-    and no tick in the last ``MIN_REFRESH_GAP_S``). ``manual`` (the Refresh button)
+    """One refresh tick. True when it ran (switch on, plugin system on, an online
+    instance, a refresher, and no tick in the last ``MIN_REFRESH_GAP_S``). ``manual`` (the Refresh button)
     does not need an installed instance: the repositories listed are read as well, so
     a newly added one can be browsed. The evaluators run after the refreshers. Ticks are
     serialised, so two calls at once run one tick and the other is held by the gap."""
@@ -243,7 +251,7 @@ async def run_store_refresh(*, manual: bool = False) -> bool:
         last = _state.last_refresh_at
         if last is not None and _state.clock() - last < MIN_REFRESH_GAP_S:
             return False
-        if not await store_egress_allowed():
+        if not await store_egress_allowed() or _plugin_system_off():
             return False
         if not manual and not await has_online_instances():
             return False

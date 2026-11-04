@@ -337,11 +337,6 @@ async def lifespan(app: FastAPI):
     from app.plugins import custom_repos
 
     custom_repos.register()
-    try:
-        await start_store_refresh()
-    except Exception:
-        logger.exception("Failed to start the Store refresh loop")
-
     # Always start connection monitor (even if initial connection failed)
     await radio_manager.start_connection_monitor()
 
@@ -379,6 +374,13 @@ async def lifespan(app: FastAPI):
     from app.plugins import lifecycle as plugin_lifecycle
 
     await plugin_lifecycle.start()
+
+    # After the plugin start, which may turn the plugin system off (failed isolation):
+    # the first tick runs at once and must see that.
+    try:
+        await start_store_refresh()
+    except Exception:
+        logger.exception("Failed to start the Store refresh loop")
 
     from app.radio_proxy.manager import radio_proxy_manager
 

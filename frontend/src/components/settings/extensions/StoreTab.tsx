@@ -129,7 +129,7 @@ export function StoreTab({
               size="sm"
               variant="outline"
               onClick={() => void refresh()}
-              disabled={!online || refreshing || cooling}
+              disabled={!online || locked || refreshing || cooling}
             >
               {t('pluginStore.refresh.button')}
             </Button>
