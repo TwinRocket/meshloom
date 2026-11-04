@@ -9,6 +9,7 @@ that launches with those same arguments, as far as an unprivileged process can.
 """
 
 import asyncio
+import copy
 import os
 import sys
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from app.plugins import host as host_module
 from app.plugins import installer
 from app.plugins.child_process import ChildProcess
 from app.plugins.host import Budgets, PluginManager
-from app.plugins.isolation import selection
+from app.plugins.isolation import selection, setuid
 from app.plugins.isolation.base import IsolationBackend
 from tests.conftest import patched_database
 from tests.plugin_isolation_support import available_backends, shared_tmp_dir
@@ -141,6 +142,10 @@ def test_a_bundled_plugin_starts_at_the_real_setuid_level(
     if backend is None:
         pytest.skip("the setuid level needs root or CAP_SETUID and the plugin account")
     data_dir = shared_tmp_dir("meshloom-any-loop-")
+    # Its own uid leases and data dir: `available_backends()` is cached, and leases left in
+    # /tmp by a root run would refuse the non-root run of the same CI job.
+    monkeypatch.setattr(setuid, "lease_domains", lambda: [data_dir])
+    backend = copy.copy(backend)
     backend.prepare_data_dir(data_dir)
     monkeypatch.setattr(selection, "_current", selection.Selection(backend))
     with asyncio.Runner(loop_factory=new_loop) as runner:
