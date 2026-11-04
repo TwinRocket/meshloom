@@ -166,55 +166,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Store tab: activation card', () => {
-  it('lists the hosts, what leaves and what is missed, from GET /store/status', async () => {
-    vi.spyOn(api, 'getStoreStatus').mockResolvedValue(status({ enabled: false }));
-    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(repositories({ store_online: false }));
+describe('Store tab: Store online switch', () => {
+  it('has no activation step: the switch is on, the panel usable at once', async () => {
+    vi.spyOn(api, 'getStoreStatus').mockResolvedValue(status());
+    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(repositories());
     render(<StoreTab canManage locked={false} onInstalled={vi.fn()} />);
-    await screen.findByTestId('store-offline');
-    const hosts = within(screen.getByTestId('store-hosts'))
-      .getAllByRole('listitem')
-      .map((li) => li.textContent);
-    expect(hosts).toEqual(['github.com', 'objects.githubusercontent.com', 'store.meshloom.app']);
-    expect(screen.getByTestId('store-sends')).toHaveTextContent('Meshloom/5.0.0');
-    expect(within(screen.getByTestId('store-missed')).getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByTestId('store-revocation-later')).toBeInTheDocument();
+    const toggle = await screen.findByRole('switch', { name: t('pluginStore.online.toggle') });
+    expect(toggle).toBeChecked();
+    expect(screen.queryByTestId('store-offline')).toBeNull();
+    expect(screen.getByTestId('store-online')).toHaveTextContent(t('pluginStore.online.help'));
   });
 
-  it('one click turns the Store on and the card goes away', async () => {
-    const get = vi
-      .spyOn(api, 'getStoreStatus')
+  it('turns the Store off and back on with the same switch', async () => {
+    vi.spyOn(api, 'getStoreStatus')
+      .mockResolvedValueOnce(status())
       .mockResolvedValueOnce(status({ enabled: false }))
       .mockResolvedValue(status());
     vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(repositories());
     const update = vi.spyOn(api, 'updateSettings').mockResolvedValue({} as never);
     render(<StoreTab canManage locked={false} onInstalled={vi.fn()} />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: t('settings.extensions.store.goOnline') })
-    );
-    await waitFor(() => expect(update).toHaveBeenCalledWith({ store_online: true }));
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByTestId('store-offline')).not.toBeInTheDocument());
-    expect(screen.getByTestId('store-online')).toBeInTheDocument();
-  });
-
-  it('shows the Store online switch on and one click turns the Store off', async () => {
-    const get = vi
-      .spyOn(api, 'getStoreStatus')
-      .mockResolvedValueOnce(status())
-      .mockResolvedValue(status({ enabled: false }));
-    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(repositories());
-    const update = vi.spyOn(api, 'updateSettings').mockResolvedValue({} as never);
-    render(<StoreTab canManage locked={false} onInstalled={vi.fn()} />);
-    const toggle = await screen.findByRole('switch', { name: t('pluginStore.online.toggle') });
-    expect(toggle).toBeChecked();
-    expect(screen.getByTestId('store-online')).toHaveTextContent(t('pluginStore.online.help'));
-    fireEvent.click(toggle);
-    await waitFor(() => expect(update).toHaveBeenCalledWith({ store_online: false }));
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    await screen.findByTestId('store-offline');
-    expect(screen.queryByTestId('store-online')).not.toBeInTheDocument();
-    expect(screen.queryByRole('switch', { name: t('pluginStore.online.toggle') })).toBeNull();
+    const name = t('pluginStore.online.toggle');
+    fireEvent.click(await screen.findByRole('switch', { name }));
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ store_online: false }));
+    await waitFor(() => expect(screen.getByRole('switch', { name })).not.toBeChecked());
+    expect(screen.getByRole('button', { name: t('pluginStore.refresh.button') })).toBeDisabled();
+    fireEvent.click(screen.getByRole('switch', { name }));
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ store_online: true }));
+    await waitFor(() => expect(screen.getByRole('switch', { name })).toBeChecked());
   });
 
   it('keeps the switch on and reports the error when turning off fails', async () => {

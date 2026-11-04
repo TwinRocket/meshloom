@@ -5,16 +5,15 @@ import { api, formatApiError } from '../../../api';
 import { Button } from '../../ui/button';
 import { toast } from '../../ui/sonner';
 import { CustomRepositoriesPanel } from './CustomRepositoriesPanel';
-import { StoreActivationCard } from './StoreActivationCard';
 import type { StoreStatus } from './pluginsTypes';
 
 /** The Refresh button is held for this long after a click (the server limits it too). */
 export const REFRESH_COOLDOWN_MS = 10_000;
 
 /**
- * Settings > Extensions > Store: the activation card while the Store is off (admins
- * only: the status route is admin-only), then the custom repositories and their plugins
- * with a Refresh button and the switch that turns the Store off again. A member sees the warning and a notice, and nothing is requested.
+ * Settings > Extensions > Store: the Store online switch, on by default, with a Refresh
+ * button (admins only: the status route is admin-only), then the custom repositories and
+ * their plugins. A member sees the warning and a notice, and nothing is requested.
  */
 export function StoreTab({
   canManage,
@@ -62,23 +61,10 @@ export function StoreTab({
     };
   }, [canManage, t, tick, reloadKey]);
 
-  const enable = async () => {
+  const setOnline = async (next: boolean) => {
     setBusy(true);
     try {
-      await api.updateSettings({ store_online: true });
-      reload();
-      setListKey((n) => n + 1);
-    } catch (err) {
-      toast.error(formatApiError(err, t));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const disable = async () => {
-    setBusy(true);
-    try {
-      await api.updateSettings({ store_online: false });
+      await api.updateSettings({ store_online: next });
       reload();
       setListKey((n) => n + 1);
     } catch (err) {
@@ -116,10 +102,7 @@ export function StoreTab({
           {error}
         </p>
       )}
-      {canManage && status && !online && (
-        <StoreActivationCard status={status} canManage busy={busy} onEnable={() => void enable()} />
-      )}
-      {canManage && online && (
+      {canManage && status && (
         <div
           className="space-y-2 rounded-md border border-border p-3 text-sm"
           data-testid="store-online"
@@ -129,23 +112,24 @@ export function StoreTab({
               <input
                 type="checkbox"
                 role="switch"
-                checked
+                checked={online}
                 disabled={busy}
                 aria-describedby="store-online-help"
-                onChange={() => void disable()}
+                onChange={() => void setOnline(!online)}
               />
               <span>{t('pluginStore.online.toggle')}</span>
             </label>
             <span className="min-w-0 flex-1 text-muted-foreground">
-              {lastRefresh
-                ? t('pluginStore.refresh.last', { time: lastRefresh })
-                : t('pluginStore.refresh.never')}
+              {online &&
+                (lastRefresh
+                  ? t('pluginStore.refresh.last', { time: lastRefresh })
+                  : t('pluginStore.refresh.never'))}
             </span>
             <Button
               size="sm"
               variant="outline"
               onClick={() => void refresh()}
-              disabled={refreshing || cooling}
+              disabled={!online || refreshing || cooling}
             >
               {t('pluginStore.refresh.button')}
             </Button>

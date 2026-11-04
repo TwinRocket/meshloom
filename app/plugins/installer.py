@@ -5,7 +5,7 @@ Every installed kind goes through one pipeline (`prepare_install` then
 `PreparedInstall.commit`): an `ArchiveSource` gives the source's entry for the plugin
 (id, version, permissions) and the archive with its sha256. A remote archive
 (`RemoteArchiveSource`, tiers `custom` and `store`) is downloaded only when the
-download gate says yes (`set_download_gate`, wired at startup to the Store consent
+download gate says yes (`set_download_gate`, wired at startup to the Store switch
 `store_egress_allowed`; fail closed: no gate, no download), through the Store egress
 gate `store_fetch` (`app/plugins/store_egress.py`: the consent checked again, the
 download cancelled when the Store is turned off, `STORE_ALLOWLIST` narrowed by the
@@ -513,7 +513,7 @@ class RemoteArchiveSource(ArchiveSource):
 
 async def download_archive(url: str, *, allowed_hosts: HostAllowlist, max_bytes: int) -> bytes:
     """GET ``url`` through the Store egress gate (``store_fetch``): refused
-    (``store_offline``) while the Store consent is off and cancelled when it is turned
+    (``store_offline``) while the Store switch is off and cancelled when it is turned
     off mid-download; https only, the hosts in both ``allowed_hosts`` and
     ``STORE_ALLOWLIST`` on every redirect hop, no user info, public addresses only,
     ``Content-Length`` checked first and the body aborted as soon as it streams past

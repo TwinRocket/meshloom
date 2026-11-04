@@ -9,7 +9,7 @@ isolation"). The server starts one supervised child per enabled instance, isolat
 the OS, and answers its requests (see "Capabilities"). Custom repositories (GitHub
 `owner/name`, tier `custom`, MSHL-196) are in: see "Custom repositories", and so are
 updates of installed `custom` instances (MSHL-197, MSHL-393, see "Updates"). The Store
-consent `app_settings.store_online` (off by default) and its egress gate exist since
+switch `app_settings.store_online` (on by default since MSHL-456) and its egress gate exist since
 MSHL-194 (see "Sources and egress class" below). Not in 5.0.0: the index Store and
 updates of `store` instances, and Windows (no plugins). Two bundled packages ship ("Bundled
 plugins"). Like every doc here, this
@@ -168,7 +168,7 @@ manifest can produce.
 ## Data model
 
 Migration 103 adds three tables (columns in `docs/dev/database.md`) and
-`app_settings.store_online` (the Store egress consent, off; in `AppSettings` and
+`app_settings.store_online` (the Store egress switch, on since migration 143; in `AppSettings` and
 `PATCH /api/settings` since MSHL-194, read by `app/plugins/store_egress.py`). It was additive; migration 122 (MSHL-192) then converted the bots of
 `fanout_configs` into local instances (see "Legacy bots"), so no release has bots without
 a runtime.
@@ -813,9 +813,9 @@ then `PreparedInstall.commit()` (or `discard()`).
   `set_download_gate(async callable)`, fail closed (no gate, or a gate that raises, means
   409 `store_offline`, and no request leaves). `app/main.py` wires
   `set_download_gate(store_egress_allowed)` at startup (MSHL-366), so the gate is the
-  Store consent (`store_online`, MSHL-194).
+  Store switch (`store_online`, MSHL-194).
 - **Download.** Through `store_fetch` (`app/plugins/store_egress.py`, MSHL-366), which
-  checks the consent again (409 `store_offline`) and cancels the download when the Store
+  checks the switch again (409 `store_offline`) and cancels the download when the Store
   is turned off mid-way (also 409 `store_offline`), then `follow_checked_redirects`
   (`app/net/egress_guard.py`): https only, no user info in the URL (`egress_userinfo`),
   only the hosts in both the source's allowlist and `STORE_ALLOWLIST` on every hop (a
@@ -1138,7 +1138,7 @@ Meshloom), `local` (typed in the editor), `custom` (a GitHub `owner/name`, unsig
 `store_egress.ONLINE_KINDS`) ever use the network.
 
 Every request made for them is the **Store egress class**, separate from Community and
-from the share service. Its consent is `app_settings.store_online`; the one gate is
+from the share service. Its switch is `app_settings.store_online`, on by default; the one gate is
 `store_fetch()` in `app/plugins/store_egress.py` (module docstring and "Store egress" in
 `app/AGENTS.md` are the reference). What the user docs promise
 (`docs/user/*/deep/plugins.md`, "What leaves your instance", and `trust.md`) maps to code:
@@ -1147,6 +1147,7 @@ from the share service. Its consent is `app_settings.store_online`; the one gate
 |---|---|
 | Only four hosts, HTTPS | `STORE_HOSTS`, `STORE_ALLOWLIST`, `STORE_SCHEMES`; custom repositories narrow to `CUSTOM_REPO_HOSTS` (no `store.meshloom.app`) |
 | Nothing leaves while off | `store_fetch` raises `StoreOffline` before any lookup; the loop is not started |
+| On by default, nothing sent with nothing installed | `AppSettings.store_online`, migration 143; the loop runs but `run_store_refresh` skips without an online instance, and the manual refresh has no repository to read; `tests/test_store_egress.py`, `TestDefaultOn` |
 | `GET` only, no body, no cookie, no token | `store_fetch` takes no body; `follow_checked_redirects` sets no cookie jar; `custom_repos` uses no API and no token |
 | Headers | `User-Agent: Meshloom/<version>` forced by `store_user_agent()`; `Accept: application/octet-stream` only on `installer.download_archive` (install, update); the archive read by `custom_repos` at add time and by a refresh that sees a new tag goes through `custom_repos._get`, with no `Accept` of ours |
 | Opening the tabs sends nothing | `GET /store/status`, `/store/repositories`, `/store/updates`, `.../readme` read the cache; only `POST /store/refresh`, `POST /store/repositories`, installs and updates fetch |
@@ -1154,11 +1155,11 @@ from the share service. Its consent is `app_settings.store_online`; the one gate
 | Never twice within 10 minutes | `MIN_REFRESH_GAP_S`; `last_refresh_at` is in memory (`_State`), so a restart resets the gap |
 | Hourly auto-update check contacts nobody | `EVALUATE_INTERVAL_S`, `register_store_evaluator`; the download of an applied update goes through `store_fetch` |
 | Off cuts at once | `note_store_online_changed(False)`: generation bump, in-flight sends cancelled, loop stopped |
-| Backups never carry the consent | `_CONSENT_FIELDS`, reset to 0 in a database copy, `_after_restore` re-reads the database |
+| Backups carry the switch, so an off is not lost | `V1_SETTING_COLUMNS` (exported, restored when the file has it), kept in a database copy, `_after_restore` re-reads the database |
 
-Change a row of this table and the two user pages (en and fr) together. The UI only
-turns the switch on (Store tab activation card); turning it off is
-`PATCH /api/settings {"store_online": false}`.
+Change a row of this table and the two user pages (en and fr) together. The Store tab's
+**Store online** switch sends `PATCH /api/settings {"store_online": ...}` both ways; there is no
+activation step.
 
 ### Custom repositories
 
@@ -1191,7 +1192,7 @@ an unsigned source.
   `refresh_repositories` is a Store refresher (`register_store_refresher`), so it runs
   only while `store_online` is on and a `custom`/`store` instance is installed. Every
   request goes through `store_fetch`, which raises `store_offline` before any lookup
-  while the consent is off.
+  while the switch is off.
 - **Install.** `resolve_custom(plugin_id, version, repository)` serves the **latest**
   release only, and only for a registered repository or the repository of an installed
   `custom` instance of that plugin (a restored backup brings the instances back without

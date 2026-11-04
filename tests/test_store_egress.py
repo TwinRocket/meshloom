@@ -1,7 +1,7 @@
-"""Store egress (MSHL-194): nothing leaves for the Store while ``store_online`` is off.
+"""Store egress (MSHL-194): on by default, and nothing leaves while ``store_online`` is off.
 
 A DNS table and an ``httpx.AsyncClient`` recorder (``tests/share_fakes.py``) see every
-lookup and request. With ``store_online`` false (the default), Community on or off,
+lookup and request. With ``store_online`` false, Community on or off,
 ``store_fetch`` to every Store host, every ``/api/store`` route, the settings writes
 and the background refresh make no lookup and no request. With it on, requests go only
 to the hosts of ``STORE_ALLOWLIST`` (the hosts ``GET /api/store/status`` names), over
@@ -21,7 +21,7 @@ import pytest
 
 from app.models import AppSettings, BackupExport
 from app.net.egress_guard import EgressBlocked
-from app.plugins import store_egress
+from app.plugins import custom_repos, store_egress
 from app.plugins.store_egress import (
     STORE_ALLOWLIST,
     STORE_HOSTS,
@@ -104,36 +104,72 @@ async def _client():
     return _RealAsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
-class TestDefaultOff:
-    def test_model_default_is_off(self):
-        assert AppSettings().store_online is False
+class TestDefaultOn:
+    def test_model_default_is_on(self):
+        assert AppSettings().store_online is True
 
-    async def test_fresh_database_is_off(self, test_db):
-        assert (await AppSettingsRepository.get()).store_online is False
-        assert await store_egress.store_egress_allowed() is False
+    async def test_fresh_database_is_on(self, test_db):
+        assert (await AppSettingsRepository.get()).store_online is True
+        assert await store_egress.store_egress_allowed() is True
+
+    async def test_nothing_leaves_by_default_with_nothing_installed(self, test_db, dns, recorder):
+        """The promise of the user docs: on by default, and a new install sends nothing."""
+        register_store_refresher(custom_repos.refresh_repositories)
+        await store_egress.start_store_refresh()
+        assert store_egress.store_refresh_running()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert await store_egress.run_store_refresh() is False
+        async with await _client() as client:
+            for path in ("/api/store/status", "/api/store/repositories", "/api/store/updates"):
+                assert (await client.get(path)).status_code == 200
+            await client.post("/api/store/refresh")
+        assert recorder.requests == [] and dns.lookups == []
 
     async def test_settings_api_reads_and_writes_it(self, test_db, dns, recorder):
         async with await _client() as client:
-            assert (await client.get("/api/settings")).json()["store_online"] is False
-            response = await client.patch("/api/settings", json={"store_online": True})
+            assert (await client.get("/api/settings")).json()["store_online"] is True
+            response = await client.patch("/api/settings", json={"store_online": False})
             assert response.status_code == 200, response.text
+            assert response.json()["store_online"] is False
+            assert not store_egress.store_refresh_running()
+            response = await client.patch("/api/settings", json={"store_online": True})
             assert response.json()["store_online"] is True
             assert store_egress.store_refresh_running()
-            response = await client.patch("/api/settings", json={"store_online": False})
-            assert response.json()["store_online"] is False
+            await client.patch("/api/settings", json={"store_online": False})
         assert not store_egress.store_refresh_running()
         assert recorder.requests == []
 
-    def test_never_written_to_a_backup(self):
+    def test_written_to_a_backup_so_an_off_is_not_lost(self):
         export = BackupExport(
             format="meshloom-backup-v1",
             exported_at=0,
-            settings=AppSettings(store_online=True),
+            settings=AppSettings(store_online=False),
         )
-        assert "store_online" not in export.model_dump()["settings"]
+        assert export.model_dump()["settings"]["store_online"] is False
+
+
+class TestBackups:
+    async def test_a_restore_applies_the_file_and_an_older_file_changes_nothing(self, test_db):
+        from app.services.backup import _restore_settings
+
+        await _restore_settings(AppSettings.model_validate({"store_online": False}), [])
+        assert (await AppSettingsRepository.get()).store_online is False
+        assert not store_egress.store_refresh_running()
+
+        await _restore_settings(AppSettings.model_validate({}), [])
+        assert (await AppSettingsRepository.get()).store_online is False
+
+        await _restore_settings(AppSettings.model_validate({"store_online": True}), [])
+        assert (await AppSettingsRepository.get()).store_online is True
+        assert store_egress.store_refresh_running()
 
 
 class TestOffNothingLeaves:
+    @pytest.fixture(autouse=True)
+    async def _store_off(self, test_db):
+        await AppSettingsRepository.update(store_online=False)
+
     @pytest.mark.parametrize("host", STORE_HOSTS)
     async def test_store_fetch_refuses_before_any_lookup(
         self, test_db, dns, recorder, community, host
@@ -292,9 +328,9 @@ class TestOn:
 
     async def test_status_names_exactly_the_guard_allowlist(self, test_db):
         async with await _client() as client:
-            off = (await client.get("/api/store/status")).json()
-            await AppSettingsRepository.update(store_online=True)
             on = (await client.get("/api/store/status")).json()
+            await AppSettingsRepository.update(store_online=False)
+            off = (await client.get("/api/store/status")).json()
         assert off["enabled"] is False and on["enabled"] is True
         allowlisted = sorted(host for host, _port in STORE_ALLOWLIST.entries)
         assert on["hosts"] == allowlisted == sorted(STORE_HOSTS)
@@ -350,6 +386,7 @@ class TestRefreshLoop:
         assert recorder.requests == []
 
     async def test_starts_at_boot_only_when_on(self, test_db):
+        await AppSettingsRepository.update(store_online=False)
         await start_store_refresh()
         assert not store_egress.store_refresh_running()
         await AppSettingsRepository.update(store_online=True)
@@ -396,6 +433,7 @@ class TestReviewFollowUps:
     async def test_user_info_is_refused_even_before_the_consent_check_passes(
         self, test_db, dns, recorder
     ):
+        await AppSettingsRepository.update(store_online=False)
         with pytest.raises(StoreOffline):
             await store_fetch("GET", "https://user:pw@github.com/o/r", max_response_bytes=MAX)
         assert recorder.requests == []

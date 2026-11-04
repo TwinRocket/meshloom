@@ -101,6 +101,7 @@ _HISTORY = "history or cache (the database download covers history)"
 # The v1 settings: exported in ``settings`` and written back by ``restore_json``
 # (one list, so a column marked included here is never dropped on restore).
 V1_SETTING_COLUMNS: tuple[str, ...] = (
+    "store_online",
     "max_radio_contacts",
     "auto_decrypt_dm_on_advert",
     "advert_interval",
@@ -221,10 +222,6 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "community_attestations": (
         "excluded",
         "Community attestations of the instance keys: the restore rotates those keys",
-    ),
-    "app_settings.store_online": (
-        "excluded",
-        "Store consent: a copy restored elsewhere would enable an egress nobody clicked",
     ),
     **{
         f"app_settings.{column}": (
