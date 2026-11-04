@@ -155,30 +155,27 @@ async def test_concurrent_fills_never_exceed_the_cap(tmp_path):
 
     limit = 600_000
     cache = ShareCache(tmp_path / "c", size_limit=limit)
-    peak = 0
+    totals: list[int] = []
+    store = cache._set
 
-    async def watch(stop: asyncio.Event) -> None:
-        nonlocal peak
-        while not stop.is_set():
-            if cache.opened:
-                # The accounted total (files + index + reserved log budget + shm): the
-                # guarantee. The raw log size is not, a reader pinning a snapshot (this
-                # watcher is one) blocks its truncation by design (share_cache docstring).
-                peak = max(peak, cache._used(cache._open()))
-            await asyncio.sleep(0)
+    def store_and_measure(key, obj):
+        store(key, obj)
+        # The accounted total (files + index + reserved log budget + shm) is the
+        # guarantee. Read under the lock _set holds: `_used` reads the log size twice,
+        # so a checkpoint in between would count the truncated log as shm.
+        with cache._write_lock:
+            totals.append(cache._used(cache._open()))
 
+    cache._set = store_and_measure
     try:
-        stop = asyncio.Event()
-        watcher = asyncio.create_task(watch(stop))
         await asyncio.gather(
             *(
                 cache.set(f"Con{i:04d}", CachedObject(bytes([i]) * 150_000, "image/png"))
                 for i in range(24)
             )
         )
-        stop.set()
-        await watcher
-        assert peak <= limit
+        assert len(totals) == 24
+        assert max(totals) <= limit
         # At rest (no reader left) the log truncates and the real size is under the cap too.
         cache._wal_retry_at = 0.0
         cache._truncate_wal()
