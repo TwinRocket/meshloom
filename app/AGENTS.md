@@ -727,9 +727,9 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   `note_store_online_changed()`: off bumps a generation, cancels the requests in flight
   (they raise `StoreOffline`) and stops the refresh loop; a switch from off to on starts
   or wakes it (a `true` sent again while already on does nothing). A restore re-applies
-  the stored consent: the `store_egress` restore hook (`register_on_restore`, run after
+  the stored switch: the `store_egress` restore hook (`register_on_restore`, run after
   JSON restores and by `run_sqlite_restore_hooks`) calls `note_store_online_changed()`.
-- **Refresh loop.** Started at boot only when the consent is on; every
+- **Refresh loop.** Started at boot unless the switch is off; every
   `REFRESH_INTERVAL_S` (6 h), and once when turned on, but never twice within
   `MIN_REFRESH_GAP_S` (10 min; a tick skipped by that gap waits only the rest of it),
   it runs the steps registered with
@@ -738,7 +738,7 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   manual **Refresh** button (`POST /api/store/refresh`) runs even with nothing installed,
   still gated by `store_online` and the 10-minute gap. Between refreshes the loop runs the
   evaluators alone every `EVALUATE_INTERVAL_S` (1 h, `run_store_evaluation()`): same
-  consent and installed-instance gates, never the gap nor `last_refresh_at`, and an
+  switch and installed-instance gates, never the gap nor `last_refresh_at`, and an
   evaluator must not fetch on its own (it reads the cache; applying an update goes
   through the usual install pipeline). The lock is created lazily (`_lock()`).
   Registered: `custom_repos.refresh_repositories` (MSHL-196) as a refresher,
