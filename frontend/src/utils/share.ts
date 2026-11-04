@@ -12,6 +12,12 @@ export const URL_PATTERN =
 // `https://` + host + `/` + the seven-character id (the contract's id grammar).
 const SHORT_FORM_FIXED_BYTES = 'https://'.length + '/'.length + 7;
 
+/**
+ * `auto` mode threshold: a link of the share service is about this long, so a public
+ * URL over it is worth replacing. In `always` mode anything longer than a short link is.
+ */
+export const AUTO_SHORTEN_MIN_BYTES = 26;
+
 // Mirrors `_checked_url` in app/routers/share.py (shared cases: tests/fixtures/share_url_cases.json).
 const MAX_URL_LENGTH = 2048;
 const PRIVATE_SUFFIXES = ['.localhost', '.local', '.lan', '.internal', '.home.arpa'];
@@ -92,20 +98,31 @@ function matchUrls(text: string): { url: string; start: number }[] {
 
 /**
  * The distinct URLs of `text` worth shortening, in order: not on a share host,
- * and longer than a short link. Nothing inside a `g:`/`m:`/`r:` payload.
+ * longer than a short link and than `minBytes`. Nothing inside a `g:`/`m:`/`r:` payload.
  */
 export function findLongUrls(
   text: string,
-  hosts: readonly string[] = DEFAULT_SHARE_HOSTS
+  hosts: readonly string[] = DEFAULT_SHARE_HOSTS,
+  minBytes = 0
 ): string[] {
   if (isOpenPayload(text)) return [];
-  const shortBytes = shortFormBytes(hosts[0] ?? DEFAULT_SHARE_HOSTS[0]);
+  const threshold = Math.max(shortFormBytes(hosts[0] ?? DEFAULT_SHARE_HOSTS[0]), minBytes);
   const seen = new Set<string>();
   for (const { url } of matchUrls(text)) {
-    if (isShareLink(url, hosts) || byteLength(url) <= shortBytes || !isShortenable(url)) continue;
+    if (isShareLink(url, hosts) || byteLength(url) <= threshold || !isShortenable(url)) continue;
     seen.add(url);
   }
   return [...seen];
+}
+
+/** Bytes of `text` once each of `urls` is a short link: what Send would put on the air. */
+export function shortenedByteLength(
+  text: string,
+  urls: readonly string[],
+  hosts: readonly string[] = DEFAULT_SHARE_HOSTS
+): number {
+  const placeholder = 'x'.repeat(shortFormBytes(hosts[0] ?? DEFAULT_SHARE_HOSTS[0]));
+  return byteLength(rewriteUrls(text, new Map(urls.map((url) => [url, placeholder]))));
 }
 
 /** Replace each URL found in `mapping` (long -> short); everything else is untouched. */

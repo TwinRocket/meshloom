@@ -15,6 +15,17 @@ URL = "tgram://111111:AAAA-token-a/1001"
 
 
 @pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """Creating an Apprise channel delivers a first message: stub the send, or each
+    POST makes a real HTTPS attempt to api.telegram.org (tens of seconds offline)."""
+
+    async def sent(_urls, **_kwargs):
+        return []
+
+    monkeypatch.setattr("app.notifications.transports.apprise.send_to_urls", sent)
+
+
+@pytest.fixture(autouse=True)
 def _public_dns(monkeypatch):
     real = socket.getaddrinfo
 

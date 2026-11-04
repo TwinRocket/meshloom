@@ -161,8 +161,9 @@ cd frontend && npm ci && npm run dev      # Vite on :5173, proxies /api to :8000
 `eslint --fix`, `prettier --write`), so it may leave edits behind: commit them.
 Then it runs `pyright app/ meshloom_plugin/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
 CI (`.github/workflows/all-quality.yml`, aggregate job `all-quality`) runs the
-same checks in check mode, so an unformatted file passes locally and fails in CI
-if you do not commit the autofix. Prettier checks every file under
+same checks in check mode, on every pull request and on pushes to `main` and
+`preversion-5` (a branch without a pull request gets no CI), so an unformatted
+file passes locally and fails in CI if you do not commit the autofix. Prettier checks every file under
 `frontend/src/`, Markdown included.
 
 `dbus-fast` is a runtime dependency on Linux only, but the dev group installs it
@@ -175,6 +176,12 @@ also formats the Python code blocks inside Markdown (`docs/**/*.md`): format the
 pytest quietly with `-rfE --tb=short`, appends the failed tests to the job
 summary (`scripts/ci/junit_summary.py`) and uploads `pytest-report.xml` as an
 artifact, so a failure stays visible even if the raw log is cut short.
+
+The `test_db` fixture (`patched_database()`, `tests/conftest.py`) loads each `:memory:` database
+from a fully migrated image built once per process by a real `Database.connect()`
+(`Database.export_snapshot` / `connect_from_snapshot`); file paths still replay the real
+migrations. `tests/test_database_snapshot.py` pins the two to the same schema. A new migration
+needs nothing; a test that needs a half-migrated database opens its own `Database(path)`.
 
 Targeted runs:
 

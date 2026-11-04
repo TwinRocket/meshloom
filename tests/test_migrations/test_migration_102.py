@@ -17,7 +17,7 @@ async def test_upgrade_gives_an_existing_row_off_auto_private_and_no_seed():
         await conn.commit()
         await run_migrations(conn)
         cursor = await conn.execute(f"{_ROW} FROM app_settings")
-        assert tuple(await cursor.fetchone()) == (0, "auto", "private", "")
+        assert tuple(await cursor.fetchone()) == (0, "auto", "always", "")
     finally:
         await conn.close()
 
@@ -29,7 +29,7 @@ async def test_fresh_database_has_the_same_defaults(tmp_path):
     try:
         async with database.readonly() as conn:
             async with conn.execute(f"{_ROW} FROM app_settings WHERE id = 1") as cursor:
-                assert tuple(await cursor.fetchone()) == (0, "auto", "private", "")
+                assert tuple(await cursor.fetchone()) == (0, "auto", "always", "")
     finally:
         await database.disconnect()
 

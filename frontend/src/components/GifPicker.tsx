@@ -160,9 +160,6 @@ export function GifPicker({
             {t('chat.gifUse')}
           </Button>
         </div>
-        {!apiKey && (
-          <p className="text-[0.8125rem] text-muted-foreground">{t('chat.gifNeedKey')}</p>
-        )}
         {error && <p className="text-xs text-destructive">{error}</p>}
         {apiKey && (
           <div

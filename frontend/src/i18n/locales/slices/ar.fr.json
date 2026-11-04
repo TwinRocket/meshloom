@@ -35,9 +35,9 @@
       "shorten": {
         "legend": "Raccourcir les liens à l'écriture d'un message",
         "auto": "Automatique",
-        "autoHelp": "Seuls les liens longs sont raccourcis.",
+        "autoHelp": "À l'envoi, les liens de plus de 26 caractères sont raccourcis. Si le service ne répond pas, ils partent tels quels.",
         "always": "Toujours",
-        "alwaysHelp": "Tous les liens envoyés sont raccourcis.",
+        "alwaysHelp": "Tous les liens sont raccourcis à l'envoi. Si le service ne répond pas, le message n'est pas envoyé.",
         "never": "Jamais",
         "neverHelp": "Les liens partent tels que vous les avez saisis."
       },
