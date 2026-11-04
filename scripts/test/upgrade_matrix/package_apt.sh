@@ -16,6 +16,7 @@
 #   4. After N's postinstall: source rewritten to signed-by=, apt pin present,
 #      /etc/meshloom root:meshloom 0750, update-job.json gone, path unit enabled
 #      and edge-triggered, symlink target untouched.
+#      /var/lib/meshloom 0750 with no access for others, meshcore.db included.
 #   5. An in-app style trigger (touch as meshloom) runs the N helper, which
 #      publishes /var/lib/meshloom-update/status.json and leaves app files alone.
 set -euo pipefail
@@ -68,6 +69,9 @@ run_in "grep -q 'signed-by=/usr/share/keyrings/meshloom-archive-keyring.gpg' /et
     systemctl is-enabled meshloom-update.path
     ! grep -q PathExists /usr/lib/systemd/system/meshloom-update.path
     systemctl is-active meshloom
+    [ \"\$(stat -c '%a' /var/lib/meshloom)\" = 750 ]
+    [ -z \"\$(find /var/lib/meshloom -maxdepth 1 -name 'meshcore.db*' -perm /o=rwx)\" ]
+    ! su -s /bin/sh nobody -c 'cat /var/lib/meshloom/meshcore.db' >/dev/null 2>&1
     apt-get update -q"
 
 echo "== 5. trigger an update as the app would"

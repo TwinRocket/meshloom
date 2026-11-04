@@ -24,6 +24,17 @@ migration runs on top of it. The final shape is "base schema + all migrations", 
 a migration must tolerate columns that `SCHEMA_TABLES` already created. Never read
 `SCHEMA_TABLES` alone as the current schema: it is not complete.
 
+## File modes
+
+SQLite creates the database with the process umask and gives `-wal` and `-shm` the
+database's mode. On a package install, `meshloom.service` sets `StateDirectoryMode=0750`
+and `UMask=0027`; `pkg/nfpm/postinstall.sh` closes the directory of an existing install (root
+does not walk it: the `meshloom` user could plant links there), and
+`app/services/data_permissions.py` removes the other-account bits from the database, its
+companions and `<db>.*` copies at startup, as `meshloom`, before the first connection (MSHL-461).
+At the plugin `setuid` level the model is `app/plugins/isolation/permissions.py`. Docker and
+source installs keep the umask they run with: `data/` belongs to whoever runs them.
+
 ## Migrations
 
 - One file per version: `app/migrations/_NNN_description.py`, exposing
