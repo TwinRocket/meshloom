@@ -195,13 +195,7 @@ def _check_expectation(
 def _open_path_applies(open_path: dict[str, Any] | None, level: str) -> bool:
     if open_path is None:
         return False
-    if open_path.get("nproc_bypass") and not _nproc_bypassed(level):
-        return False
-    below = open_path.get("python_below")
-    if below is None:
-        return True
-    major, minor = (int(part) for part in below.split("."))
-    return sys.version_info[:2] < (major, minor)
+    return not (open_path.get("nproc_bypass") and not _nproc_bypassed(level))
 
 
 def _nproc_bypassed(level: str) -> bool:

@@ -1242,7 +1242,7 @@ run as root).
   `mc.commands.run_cli_command` directly.
 - **Owner task.** `run()` refuses unless the calling task itself holds the lock,
   so a task spawned inside a session is refused. Never wrap a CLI call in
-  `asyncio.wait_for`/`shield`/`gather` (on 3.11 they run it in a new task); use
+  `asyncio.shield`/`gather` (they run it in a new task; `wait_for` did too before 3.12); use
   `run(timeout=...)` or `async with asyncio.timeout(...)`.
 - **Gate.** `capabilities()` and `run()` send nothing when `firmware_ver_code` is
   unknown or below 14, or through a Meshloom radio proxy (it reports fw ver 10

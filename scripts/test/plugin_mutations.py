@@ -7,9 +7,10 @@ from the repository root, ideally as root on Linux with bubblewrap and the
 
     uv run python scripts/test/plugin_mutations.py
 
-Exit 0 when every mutant is caught. The host pipe mutant is only caught on
-Python 3.11 with bwrap (the hang it guards against needs both), so on other
-setups it reports SURVIVED; CI's 3.11 backend job is the reference for it.
+Exit 0 when every mutant is caught; the exit code is 1 while the host pipe mutant survives (below). The host pipe mutant can no longer be
+caught: the hang it guards against (gh-119710) needs Python 3.11 with bwrap and
+3.13 is the minimum, so it always reports SURVIVED. The guards stay as defence
+in depth; the mutant is expected to survive.
 """
 
 import subprocess
@@ -102,7 +103,7 @@ MUTANTS = [
         "memory_bomb",
     ),
     (
-        # Both 3.11 pipe guards: either one alone keeps the instance restarting.
+        # Both pipe guards (gh-119710, 3.11 only): not caught on 3.13+, see the header.
         "host stdout drain and pipe close",
         "app/plugins/host.py",
         [

@@ -10,10 +10,6 @@
       },
       "expect": {
         "check": "namespace_refused"
-      },
-      "open_path": {
-        "python_below": "3.12",
-        "note": "os.unshare and os.setns exist from 3.12 only"
       }
     },
     {
@@ -22,10 +18,6 @@
       },
       "expect": {
         "check": "namespace_refused"
-      },
-      "open_path": {
-        "python_below": "3.12",
-        "note": "os.unshare and os.setns exist from 3.12 only"
       }
     }
   ]

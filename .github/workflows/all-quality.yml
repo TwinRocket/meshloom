@@ -22,10 +22,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # requires-python is >=3.11. 3.12 is the dev baseline, 3.13 is Debian
-        # trixie's python3 (the plugin host runs on it in deb installs), 3.14 is
-        # what the Docker image ships.
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # requires-python is >=3.13, so these are the supported versions: 3.13
+        # is the standalone Python bundled by the deb/rpm packages and the RPi
+        # image, 3.14 is what the Docker image and the Home Assistant add-on
+        # ship. Lint and types run once in backend-lint.
+        python-version: ["3.13", "3.14"]
     permissions:
       contents: read
     timeout-minutes: 45
@@ -49,15 +50,6 @@ jobs:
 
       - name: Install backend dependencies
         run: uv sync --dev
-
-      - name: Backend lint
-        run: uv run ruff check
-
-      - name: Backend format check
-        run: uv run ruff format --check
-
-      - name: Backend typecheck
-        run: uv run pyright app/ meshloom_plugin/
 
       # The bwrap isolation level of the plugin child (app/plugins/isolation/bwrap.py):
       # its integration tests and the hostile corpus run under it here. Ubuntu
@@ -97,10 +89,45 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  backend-lint:
+    name: Backend lint and types
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.13"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+
+      - name: Install backend dependencies
+        run: uv sync --dev
+
+      - name: Backend lint
+        run: uv run ruff check
+
+      - name: Backend format check
+        run: uv run ruff format --check
+
+      - name: Backend typecheck
+        run: uv run pyright app/ meshloom_plugin/
+
   # The dedicated-uid isolation level (app/plugins/isolation/setuid.py) needs a
   # root server and the meshloom-plugin account, as in the Docker image: a root
-  # container, on the oldest supported Python (3.11 has no thread-start audit
-  # event: the corpus checks RLIMIT_NPROC instead) and on the image's 3.14. The
+  # container, on the oldest supported Python (3.13, the one the deb/rpm packages
+  # bundle) and on the image's 3.14. The
   # stdlib-only plugin tests run first (`--noconftest`, including the seccomp
   # filter that keeps a root child from forking or exec'ing), then the hostile
   # corpus, the RPC fuzz and the host tests with the app's dependencies (the
@@ -121,8 +148,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: "3.11"
-            digest: python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
+          - image: "3.13"
+            digest: python:3.13-slim@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
           - image: "3.14"
             digest: python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
     container:
@@ -231,7 +258,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -249,7 +276,7 @@ jobs:
   all-quality:
     name: all-quality
     if: ${{ always() }}
-    needs: [backend-checks, plugin-isolation-root, ntfy-integration, frontend-checks]
+    needs: [backend-lint, backend-checks, plugin-isolation-root, ntfy-integration, frontend-checks]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

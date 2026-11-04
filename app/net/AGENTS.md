@@ -45,7 +45,7 @@ it against the code.
   `fass.de`).
 - One forbidden address among the answers refuses the host.
 - Ranges are tested one by one. Never use `ipaddress.is_private` / `is_global`:
-  they changed between Python 3.11 and 3.13 (mapped IPv6, 100.64/10).
+  they changed between Python releases (mapped IPv6, 100.64/10).
 
 ## Sending (IP pinning)
 

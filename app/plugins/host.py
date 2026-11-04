@@ -103,7 +103,8 @@ _DROP_LOG_INTERVAL = 10.0
 # cap, before it closes the pipe itself (`PluginProcess._discard_stdout`).
 STDOUT_DRAIN_SECONDS = 5.0
 # How long the host waits for a dead child's pipes to close before it closes them
-# itself (`PluginProcess._wait_exit`; Python 3.11 only, gh-119710).
+# itself (`PluginProcess._wait_exit`). gh-119710 made `wait()` wait for them on
+# Python 3.11 only; kept on 3.13+ as defence in depth.
 PIPE_CLOSE_SECONDS = 5.0
 # Requests a child may have pending at the host at once; past it: -32001.
 MAX_CHILD_REQUESTS = 32
@@ -572,8 +573,8 @@ class PluginProcess:
     async def _discard_stdout(self) -> None:
         """Drop what a killed child still writes, then close the pipe ourselves.
 
-        On Python 3.11 `Process.wait()` returns only once every pipe is closed
-        (gh-119710, fixed in 3.12): a reader that stopped on a full buffer would
+        On Python 3.11 `Process.wait()` returned only once every pipe is closed
+        (gh-119710, fixed in 3.12; kept as defence in depth): a reader that stopped on a full buffer would
         leave `_wait_exit` waiting for ever, the instance shown running with no
         process. Bounded, since a process that kept the descriptor (a grandchild)
         can hold it open as long as it lives.
@@ -612,8 +613,8 @@ class PluginProcess:
             await asyncio.wait({waiter}, timeout=0.5)
             if waiter.done() or self._proc.returncode is None:
                 continue
-            # The child is gone but, on 3.11, `wait()` also waits for every pipe
-            # to close (gh-119710): a grandchild that kept one would hold it for
+            # The child is gone but, on 3.11, `wait()` also waited for every pipe
+            # to close (gh-119710; no longer the case, kept as defence in depth): a grandchild that kept one would hold it for
             # ever. Bounded: kill the group, then close our ends.
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(asyncio.shield(waiter), PIPE_CLOSE_SECONDS)
