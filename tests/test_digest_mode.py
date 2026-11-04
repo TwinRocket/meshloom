@@ -126,9 +126,15 @@ async def _settle(dispatcher: Dispatcher) -> None:
     await dispatcher.wait_idle()
 
 
+async def _no_wait(_seconds: float) -> None:
+    await asyncio.sleep(0)
+
+
 def _make(wall: Wall) -> tuple[Dispatcher, Stub]:
     stub = Stub()
-    return Dispatcher(transport_for=lambda _c: stub, wall_clock=wall), stub
+    # No real wait between two sends to one channel (the per-channel spacing, ~10 s for an
+    # email channel): none of these tests is about it.
+    return Dispatcher(transport_for=lambda _c: stub, wall_clock=wall, sleep=_no_wait), stub
 
 
 @pytest.mark.asyncio

@@ -635,31 +635,7 @@ class Database:
         self._connection = await aiosqlite.connect(self.db_path)
         self._connection.row_factory = aiosqlite.Row
 
-        # WAL mode: faster writes, concurrent readers during writes, no journal file churn.
-        # Persists in the DB file but we set it explicitly on every connection.
-        await self._connection.execute("PRAGMA journal_mode = WAL")
-
-        # synchronous = NORMAL is safe with WAL — only the most recent
-        # transaction can be lost on an OS crash (no corruption risk).
-        # Reduces fsync overhead vs. the default FULL.
-        await self._connection.execute("PRAGMA synchronous = NORMAL")
-
-        # Retry for up to 5s on lock contention instead of failing instantly.
-        # Matters when a second connection (e.g. VACUUM) touches the DB.
-        await self._connection.execute("PRAGMA busy_timeout = 5000")
-
-        # Bump page cache to ~64 MB (negative value = KB). Keeps hot pages
-        # in memory for read-heavy queries (unreads, pagination, search).
-        await self._connection.execute("PRAGMA cache_size = -64000")
-
-        # Keep temp tables and sort spills in memory instead of on disk.
-        await self._connection.execute("PRAGMA temp_store = MEMORY")
-
-        # Incremental auto-vacuum: freed pages are reclaimable via
-        # PRAGMA incremental_vacuum without a full VACUUM. Must be set before
-        # the first table is created (for new databases); for existing databases
-        # migration 20 handles the one-time VACUUM to restructure the file.
-        await self._connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+        await self._apply_connection_pragmas(self._connection)
 
         # Foreign key enforcement: must be set per-connection (not persisted).
         # Disabled during schema init and migrations to avoid issues with
@@ -701,6 +677,39 @@ class Database:
         await self._connection.execute("PRAGMA foreign_keys = ON")
         logger.debug("Foreign key enforcement enabled")
 
+    @staticmethod
+    async def _apply_connection_pragmas(conn: aiosqlite.Connection) -> None:
+        """Per-connection tuning shared by ``connect`` and ``connect_from_snapshot``.
+
+        Foreign keys are not part of it: callers switch them on once the schema
+        and migrations are in place.
+        """
+        # WAL mode: faster writes, concurrent readers during writes, no journal file churn.
+        # Persists in the DB file but we set it explicitly on every connection.
+        await conn.execute("PRAGMA journal_mode = WAL")
+
+        # synchronous = NORMAL is safe with WAL — only the most recent
+        # transaction can be lost on an OS crash (no corruption risk).
+        # Reduces fsync overhead vs. the default FULL.
+        await conn.execute("PRAGMA synchronous = NORMAL")
+
+        # Retry for up to 5s on lock contention instead of failing instantly.
+        # Matters when a second connection (e.g. VACUUM) touches the DB.
+        await conn.execute("PRAGMA busy_timeout = 5000")
+
+        # Bump page cache to ~64 MB (negative value = KB). Keeps hot pages
+        # in memory for read-heavy queries (unreads, pagination, search).
+        await conn.execute("PRAGMA cache_size = -64000")
+
+        # Keep temp tables and sort spills in memory instead of on disk.
+        await conn.execute("PRAGMA temp_store = MEMORY")
+
+        # Incremental auto-vacuum: freed pages are reclaimable via
+        # PRAGMA incremental_vacuum without a full VACUUM. Must be set before
+        # the first table is created (for new databases); for existing databases
+        # migration 20 handles the one-time VACUUM to restructure the file.
+        await conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
+
     async def incremental_vacuum(self, max_pages: int) -> int:
         """Return up to ``max_pages`` free pages to the OS; returns pages freed.
 
@@ -714,22 +723,52 @@ class Database:
             before = int(row[0]) if row else 0
             if before == 0:
                 return 0
-            # Python 3.11's sqlite3 resets a PRAGMA statement after its first
-            # row, so one call frees a single page there (3.12+ frees them all).
-            # Repeat until the budget is spent or a call frees nothing.
             budget = min(max(1, int(max_pages)), before)
-            after = before
-            while before - after < budget:
-                remaining = budget - (before - after)
-                async with conn.execute(f"PRAGMA incremental_vacuum({remaining})") as c:
-                    await c.fetchall()
-                async with conn.execute("PRAGMA freelist_count") as cursor:
-                    row = await cursor.fetchone()
-                now = int(row[0]) if row else 0
-                if now >= after:
-                    break
-                after = now
+            async with conn.execute(f"PRAGMA incremental_vacuum({budget})") as c:
+                await c.fetchall()
+            async with conn.execute("PRAGMA freelist_count") as cursor:
+                row = await cursor.fetchone()
+            after = int(row[0]) if row else 0
         return before - after
+
+    async def export_snapshot(self) -> bytes:
+        """Serialize the connected database to an immutable byte image.
+
+        Test seam: a fully migrated image is built once per process and each test
+        opens a fresh in-memory database from it (``connect_from_snapshot``)
+        instead of replaying every migration. Production never calls it.
+        """
+        async with self._lock:
+            if self._connection is None:
+                raise RuntimeError("Database not connected")
+            conn = self._connection
+            # aiosqlite has no public serialize(); this is the one place it is reached into.
+            return bytes(await conn._execute(conn._conn.serialize))
+
+    async def connect_from_snapshot(self, snapshot: bytes) -> None:
+        """Connect a fresh in-memory database loaded from ``export_snapshot`` bytes.
+
+        Same end state as ``connect()`` on ``:memory:`` (schema, migrations,
+        indexes, pragmas, secrets key) without running them again.
+        """
+        async with self._lock:
+            if self._connection is not None:
+                return
+            if self.db_path != ":memory:":
+                raise ValueError("connect_from_snapshot only supports :memory:")
+            conn = await aiosqlite.connect(":memory:")
+            try:
+                conn.row_factory = aiosqlite.Row
+                await conn._execute(conn._conn.deserialize, snapshot)
+                await self._apply_connection_pragmas(conn)
+                from app import secret_store
+
+                secret_store.ensure_key()
+                await conn.execute("PRAGMA foreign_keys = ON")
+            except BaseException:
+                await conn.close()
+                raise
+            self._connection = conn
 
     async def disconnect(self) -> None:
         async with self._lock:

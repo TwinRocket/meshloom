@@ -28,9 +28,9 @@ this module adds the guard the protocol lacks:
   name (never the token after a one-word secret verb such as ``password``).
 
 Never call ``mc.commands.run_cli_command`` directly, and never wrap a CLI call
-in ``asyncio.wait_for``/``shield``/``gather``: on Python 3.11 they run it in a
-new task, which fails the owner-task check. Use ``run(timeout=...)`` or
-``async with asyncio.timeout(...)``.
+in ``asyncio.shield``/``gather``: they run it in a new task, which fails the
+owner-task check (``asyncio.wait_for`` did too before Python 3.12). Use
+``run(timeout=...)`` or ``async with asyncio.timeout(...)``.
 """
 
 from __future__ import annotations

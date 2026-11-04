@@ -340,8 +340,9 @@ The audit hook raises `PermissionError` on:
   compiled like the hook without globals or builtins, that raises
   `PermissionError`: the refusal is an error the plugin sees);
 - thread start (`_thread.start_new_thread`, `_thread.start_joinable_thread`;
-  3.12 and later only; on 3.11 the seccomp filter and `RLIMIT_NPROC` 0 fail
-  the clone, see below);
+  3.12 and later; Python 3.13 is the minimum, so always. On 3.11, no longer
+  supported, the seccomp filter and `RLIMIT_NPROC` 0 failed the clone, see
+  below);
 - `resource.setrlimit`, `resource.prlimit`;
 - the `import` event for every name in `policy.DENIED_MODULES`.
 - the `import` event of an extension module (it carries the file) whose file is
@@ -356,6 +357,9 @@ frame.
 
 ## Audit events per Python version (MSHL-417)
 
+Python 3.13 is the minimum supported version (3.11 and 3.12 run nowhere we
+ship); the 3.11 and 3.12 measurements below are kept as history.
+
 The hook's denylist (`_DENIED_EVENTS`, `_DENIED_EVENT_PREFIXES`) was compared
 on 2026-11-02 with the audit events table of the documentation
 (`library/audit_events.html`) of 3.11, 3.12, 3.13 and 3.14, and the calls a
@@ -369,14 +373,15 @@ table:
 | 3.13 | `sys.monitoring.register_callback`, `time.sleep` (`ctypes.set_exception` replaces `ctypes.seh_exception`; `nntplib` and `telnetlib` are gone) | no: monitoring, like `sys.settrace` and `sys.setprofile`, observes the same process, which is not a boundary; every `ctypes.*` event is denied by prefix |
 | 3.14 | `sys.remote_exec`, `cpython.remote_debugger_script`, `cpython.PyConfig_Set`, `ctypes.memoryview_at` | `sys.remote_exec` runs code in another process: now denied, and the seccomp filter refuses `process_vm_readv`/`process_vm_writev` and `ptrace`; the others act on this process only (`ctypes.*` denied by prefix) |
 
-The escape paths that raise **no audit event** on any of 3.11 to 3.14 (the
+The escape paths that raise **no audit event** on any of 3.11 to 3.14 (3.13 and later
+are supported; the
 hook cannot see them) and what closes each:
 
 | Call | Why it matters | Closed by |
 |---|---|---|
 | `os.unshare`, `os.setns` (3.12+) | a new user or network namespace | seccomp `unshare`, `setns` (both filters); `--disable-userns` under bwrap |
 | `_posixsubprocess.fork_exec`, a module rebuilt from its spec (`module_from_spec` of a built-in: no `import` event) | a process, a program | seccomp `clone`/`fork`/`execve` and `RLIMIT_NPROC` 0 (bypass 2) |
-| `_thread.start_new_thread` on 3.11 | a thread | seccomp `clone`, `RLIMIT_NPROC` 0 |
+| `_thread.start_new_thread` on 3.11 (no longer supported) | a thread | seccomp `clone`, `RLIMIT_NPROC` 0 |
 | `_socket.socketpair` | a connected pair of Unix sockets without `socket.__new__` | seccomp `socket`, `socketpair` (corpus `loopback_egress`) |
 | `os.pidfd_open`, `signal.pidfd_send_signal` | signal the server where `os.kill` is denied (same uid under `none`) | seccomp `pidfd_open`, `pidfd_send_signal`, `pidfd_getfd` (corpus `pidfd_signal`) |
 | `os.memfd_create` | an anonymous file to load native code from | the `import` rule (its `/proc/self/fd/<n>` path is not under the standard library); `mmap` is denied |
@@ -431,7 +436,7 @@ and the `open`/`os.*` mutation events are already checked against the roots.
 - `sys.meta_path`, `builtins.__import__` and `sys.modules` are mutable: plugin
   code can remove the import guard. The allowlist is an aid for authors (a clear
   error, a known surface), not a boundary; the hook keeps refusing the events.
-- On Python 3.11 starting a thread emits no audit event (the `threading` import
+- On Python 3.11 (no longer supported) starting a thread emitted no audit event (the `threading` import
   is refused to plugin code, `_thread` is not a boundary). The seccomp filter
   and `RLIMIT_NPROC` 0 make the clone fail (`RuntimeError: can't start new
   thread`) at every level, root included (corpus: `thread_start`).
@@ -629,9 +634,9 @@ What runs, and where:
   filter and `--disable-userns`. `tests/test_plugin_runner.py` also
   checks `Seccomp: 2` in a live child's `/proc/<pid>/status`.
 
-CI: the backend job (Python 3.11, 3.12, 3.13 and 3.14, `ubuntu-latest`, bubblewrap
+CI: the backend job (Python 3.13 and 3.14, `ubuntu-latest`, bubblewrap
 installed and its self-test required) runs everything at `none` and `bwrap`.
-The root container job (`plugin-isolation-root`, Python 3.11 and 3.14) creates
+The root container job (`plugin-isolation-root`, Python 3.13 and 3.14) creates
 the account, runs the isolation, runner and seccomp tests with `--noconftest`,
 then installs the dependencies and runs the corpus, the fuzz and the host tests
 as root, where all three levels are available, then all of them again as uid
@@ -658,7 +663,7 @@ docker-entrypoint.sh calls it), where `none` and `setuid` are.
 | `posixsubprocess_spec_rebuild` | runner | rebuild `_posixsubprocess` from its spec and run a program with `fork_exec` | refused: the import, or the fork (`EPERM` from the filter, `EAGAIN` from `RLIMIT_NPROC`), root included |
 | `fork_bomb` | runner | `os.fork()` in a loop | `PermissionError` at the first |
 | `kill_parent` | runner | `os.kill`, `os.killpg` (signal 0) | `PermissionError` |
-| `thread_start` | runner | `_thread.start_new_thread` | `PermissionError` on 3.12+; 3.11: `can't start new thread` (seccomp filter, `RLIMIT_NPROC` 0), root included |
+| `thread_start` | runner | `_thread.start_new_thread` | `PermissionError` (audit hook; on the old 3.11: `can't start new thread` from the seccomp filter and `RLIMIT_NPROC` 0, root included) |
 | `ctypes_import` | runner | `ctypes`, `_ctypes` | `PermissionError` |
 | `extension_import` | runner | `mmap`, `fcntl`, `sqlite3` | `PermissionError` |
 | `native_load_from_work_dir` | runner | load native code written to the work dir (bypass 4) | `PermissionError` |
@@ -669,7 +674,7 @@ docker-entrypoint.sh calls it), where `none` and `setuid` are.
 | `hook_frame` | runner | walk the traceback into the hook's frame (bypass 3) | empty globals and builtins, immutable locals |
 | `rlimit_raise` | runner | `resource.setrlimit`, module rebuilt from its spec | `PermissionError` |
 | `putenv` | runner | change the environment | `PermissionError` |
-| `namespaces` | runner (Linux) | `os.unshare(CLONE_NEWUSER)`, `os.setns` (no audit event) | `EPERM` from the seccomp filter (3.12+; 3.11 has neither function) |
+| `namespaces` | runner (Linux) | `os.unshare(CLONE_NEWUSER)`, `os.setns` (no audit event) | `EPERM` from the seccomp filter (`os.unshare` and `os.setns` exist since 3.12) |
 | `loopback_egress` | runner (Linux) | a rebuilt `_socket`: connect to `127.0.0.1:5051` and `[::1]:5051` (the radio proxy), an abstract Unix socket, a `socketpair` (no audit event) | the hook (the `_socket` import, `socket.__new__`) or `EPERM` from the seccomp filter, `setuid` included (MSHL-415); the `socketpair` event reaches the filter where `_socket` is built in (python-build-standalone, the deb/rpm interpreter), `test_plugin_seccomp.py` pins it everywhere |
 | `pidfd_signal` | runner (Linux) | `os.pidfd_open(<server>)` then `signal.pidfd_send_signal(fd, 0)` (no audit event; `signal` rebuilt from its spec) | `EPERM` from the seccomp filter on `pidfd_open`, every level (MSHL-417) |
 | `environ` | runner | read `os.environ` (parent passed a secret) | only `LANG`, `PYTHONHASHSEED` |
@@ -696,19 +701,18 @@ guards) are covered by `tests/test_plugin_quotas.py` and
 `tests/test_plugin_capabilities.py`, not by the corpus (they need a radio
 stand-in and a database, not a hostile child).
 
-**Mutation check** (`scripts/test/plugin_mutations.py`, MSHL-191; Python 3.11
-in a privileged Linux arm64 container, root, all three levels): each guard below
+**Mutation check** (`scripts/test/plugin_mutations.py`, MSHL-191; run on Python 3.11,
+the measurement is history, in a privileged Linux arm64 container, root, all three levels): each guard below
 was removed in turn and the cases pinning it failed: the `os.fork`,
 `sys.addaudithook`, `gc.get_objects` and `resource.setrlimit` refusals, the
 `sys.addaudithook` stub, `RLIMIT_NPROC` 0 (MSHL-289), the seccomp filter
 (MSHL-323), the open
 read roots, the native-suffix write rule, the native load roots, the environment
-scrub, `RLIMIT_AS`, the host's two 3.11 pipe guards together (the stdout drain
-after a framing kill and the bounded wait for the pipes: either one alone
-keeps the instance restarting), cancel then kill, the timer minimum, the archive symlink check, the nesting cap, the
-partial-line bound and the NaN refusal of `rpc.decode`. The pipe mutant is
-caught only on 3.11 with bwrap (the hang needs both): in CI that is the 3.11
-backend job.
+scrub, `RLIMIT_AS`, cancel then kill, the timer minimum, the archive symlink check, the nesting cap, the
+partial-line bound and the NaN refusal of `rpc.decode`. The host's two pipe guards (the stdout drain after a framing kill and the
+bounded wait for the pipes) were also mutated on 3.11, where either one alone
+kept the instance restarting. With 3.13 as the minimum that mutant is removed
+from the script: nothing can exercise the guards, which stay as defence in depth.
 
 **Found by the corpus** (MSHL-191): on Python 3.11 a child killed for a line over
 the cap left its instance shown `running` with no process, never restarted:
@@ -738,7 +742,7 @@ bubblewrap installed (and user namespaces allowed) to include `bwrap`.
 
 **These are not Raspberry Pi figures.** No Pi was available for MSHL-191; the
 real-Pi run is tracked separately. The figures below come from a
-Linux arm64 container (Debian bookworm, `python:3.11-slim`, Python 3.11.17, the
+Linux arm64 container (Debian bookworm, `python:3.11-slim`, Python 3.11.17 (historical: 3.13 is now the minimum), the
 same architecture and distribution as Raspberry Pi OS 64-bit) on an Apple M
 host: memory is comparable, start times are not (a Pi 3's Cortex-A53 is several
 times slower). Eight instances, one hour, one event every 5 s:

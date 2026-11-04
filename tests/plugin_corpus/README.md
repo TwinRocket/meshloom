@@ -40,11 +40,10 @@ the database and the app tree must be untouched and the child must answer
   the runner, or `EPERM` from the seccomp filter's `socket`/`socketpair`;
   `pidfd_refused`: `EPERM` from the filter's `pidfd_open`).
 
-An event may add `"open_path": {"note": "...", "python_below": "3.12",
-"nproc_bypass": true, "closed_by": ["bwrap"], "os_check": "<name>"}` for a
-documented path the runner does not close in-process (`python_below` optional;
-`nproc_bypass`: the path is open only where neither the seccomp filter nor
-`RLIMIT_NPROC` 0 holds, that is off Linux; a root child is covered by the filter,
+An event may add `"open_path": {"note": "...", "nproc_bypass": true,
+"closed_by": ["bwrap"], "os_check": "<name>"}` for a documented path the runner
+does not close in-process (`nproc_bypass`: the path is open only where neither
+the seccomp filter nor `RLIMIT_NPROC` 0 holds, that is off Linux; a root child is covered by the filter,
 MSHL-323). Where the expectation fails, a level in
 `closed_by` must pass `os_check` (`exec_escape`: a program with no hook, run in
 the same box, cannot read a `0600` database, `/proc/<server>/environ` or write

@@ -57,7 +57,7 @@ Rules that hold for every caller:
 - A zone id on a plain IPv6 address (``fe80::1%eth0``) is dropped after
   ``ipaddress`` accepted it: the address before the ``%`` decides.
 - Listed range by range, never ``ipaddress.is_private`` / ``is_global``: those
-  changed between Python 3.11 and 3.13 and cover the documentation ranges.
+  changed between Python releases and cover the documentation ranges.
 
 Not part of this definition: the on-link global IPv6 prefixes of the host,
 which only the ban and the login-free gate add (``app/auth/ip_ban.is_local``).
