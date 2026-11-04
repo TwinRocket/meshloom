@@ -1587,7 +1587,6 @@ _CONSENT_FIELDS = {
     "share_effective",
     "share_terms_version",
     "share_terms_accepted_at",
-    "store_online",
 }
 
 
@@ -1802,11 +1801,12 @@ class AppSettings(BaseModel):
         description="Unix time of that acceptance (0 = never). Never restored from a backup",
     )
     store_online: bool = Field(
-        default=False,
+        default=True,
         description=(
-            "Instance-level consent to the Store egress (custom GitHub repositories, later "
-            "the signed index on store.meshloom.app). Off: nothing is ever sent for the Store "
-            "and installed plugins keep working. Never restored from a backup"
+            "Instance-level switch of the Store egress (custom GitHub repositories, later "
+            "the signed index on store.meshloom.app), on by default. Off: nothing is ever sent "
+            "for the Store and installed plugins keep working. Travels with backups, so a "
+            "choice to turn it off is not lost"
         ),
     )
     share_shorten_mode: Literal["auto", "always", "never"] = Field(
@@ -3590,10 +3590,10 @@ class ShareMineResponse(BaseModel):
 
 
 class StoreStatus(BaseModel):
-    """``GET /api/store/status``: what the Store activation card says. No egress."""
+    """``GET /api/store/status``: whether the Store is on and what it may reach. No egress."""
 
     enabled: bool = Field(
-        description="The Store egress consent (app_settings.store_online). Off by default"
+        description="The Store egress switch (app_settings.store_online). On by default"
     )
     hosts: list[str] = Field(
         description=(
