@@ -829,7 +829,7 @@ run as root).
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
 - Migration 143 sets `share_preview_policy` to `always`, the new default, where it holds
-  `private` and sharing is off: an instance with sharing on keeps its value. The column
+  `private`, sharing is off and the share terms were never accepted (`share_terms_version = 0`); any other keeps its value. The column
   default from migration 102 stays `private` (SQLite cannot change it), which is harmless:
   the singleton row exists before the migrations run.
 - Migration 142 (MSHL-445) adds `community_attestations` (one row per audience,

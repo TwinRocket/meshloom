@@ -1602,8 +1602,8 @@ export const api = {
     }),
   getShareStatus: (signal?: AbortSignal) =>
     fetchJson<ShareStatus>('/share/status', signal ? { signal } : undefined),
-  shortenLink: (url: string) =>
-    fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
+  shortenLink: (url: string, signal?: AbortSignal) =>
+    fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }), signal }),
   uploadShareFile,
   /**
    * `messageId` names the message the id was seen in: an encrypted file is decrypted

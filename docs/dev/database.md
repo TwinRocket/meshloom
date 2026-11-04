@@ -85,7 +85,7 @@ notifications (migration 111, `app/notifications/AGENTS.md`);
 the import and, from the dispatcher ticket, by the rules API; outside `AppSettings` for now;
 shape in `app/notifications/AGENTS.md`);
 `share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
-(migration 102; migration 143 moves the previews to the default `always` where sharing is off; `GET /api/settings` also returns the computed `share_effective`, true only while
+(migration 102; migration 143 moves the previews to the default `always` where sharing is off and the terms were never accepted; `GET /api/settings` also returns the computed `share_effective`, true only while
 `share_enabled` and the accepted terms are current, never stored); `share_terms_version`, `share_terms_accepted_at` (migration 116): the version of the share
 terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS_VERSION` in
 `services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`

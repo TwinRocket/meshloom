@@ -75,7 +75,7 @@ describe('MessageInput link shortening', () => {
     fireEvent.click(sendButton());
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(SHORT));
     expect(shortenLink).toHaveBeenCalledTimes(1);
-    expect(shortenLink).toHaveBeenCalledWith(LONG);
+    expect(shortenLink.mock.calls[0][0]).toBe(LONG);
     expect(mockToast.success).not.toHaveBeenCalled();
     await waitFor(() => expect(input.value).toBe(''));
   });
@@ -109,7 +109,7 @@ describe('MessageInput link shortening', () => {
     fireEvent.change(input, { target: { value: over } });
     fireEvent.click(sendButton());
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(SHORT));
-    expect(shortenLink).toHaveBeenCalledWith(over);
+    expect(shortenLink.mock.calls[0][0]).toBe(over);
   });
 
   it('auto: shortens every distinct URL in order, keeping a reply prefix', async () => {
@@ -145,16 +145,25 @@ describe('MessageInput link shortening', () => {
   });
 
   it('auto: a service that does not answer in time does not hold the message', async () => {
-    shortenLink.mockImplementation(() => new Promise(() => {}));
+    shortenLink.mockImplementation(
+      (_url: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('x', 'AbortError')));
+        })
+    );
+    const other = 'https://other.org/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const input = setup();
     vi.useFakeTimers();
     try {
-      fireEvent.change(input, { target: { value: LONG } });
+      fireEvent.change(input, { target: { value: `${LONG} ${other}` } });
       fireEvent.click(sendButton());
       await vi.advanceTimersByTimeAsync(3999);
       expect(onSend).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
-      expect(onSend).toHaveBeenCalledWith(LONG);
+      expect(onSend).toHaveBeenCalledWith(`${LONG} ${other}`);
+      // The request is cancelled and the next URL never leaves.
+      expect(shortenLink).toHaveBeenCalledTimes(1);
+      expect(mockToast.error).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -169,8 +178,26 @@ describe('MessageInput link shortening', () => {
     fireEvent.click(sendButton());
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(LONG));
     expect(shortenLink).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unreachable', { unreachable: true }],
+    ['banned', { banned: true }],
+  ])('auto: %s status, a message too long as typed still tries', async (_name, patch) => {
+    const input = setup(true, 'auto', patch);
     fireEvent.change(input, { target: { value: OVER } });
-    expect(sendButton()).toBeDisabled();
+    expect(sendButton()).toBeEnabled();
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith(OVER.replace(LONG, SHORT)));
+  });
+
+  it('auto: a send re-reads a stale status', async () => {
+    const input = setup(true, 'auto', { unreachable: true });
+    const reads = vi.mocked(api.getShareStatus).mock.calls.length;
+    fireEvent.change(input, { target: { value: 'hello' } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('hello'));
+    expect(vi.mocked(api.getShareStatus).mock.calls.length).toBeGreaterThan(reads);
   });
 
   it.each([429, 502])('auto: on a %i a message too long as typed stays', async (code) => {

@@ -786,9 +786,10 @@ the counter and `limitState` count each long URL as the short link it will becom
 Send calls `api.shortenLink` per URL, sequentially (all or nothing). Mode `auto` takes URLs
 over `AUTO_SHORTEN_MIN_BYTES` (26), says nothing on success and is best effort: a message
 that fits as typed waits at most `AUTO_SHORTEN_WAIT_MS`, then goes out as typed on a failure
-or a timeout, with no toast; a message that only fits shortened stays, with the toast.
-`unreachable` or `banned` in the status turn `auto` into `never` (each send re-reads the
-status, so it comes back). Mode `always` takes every URL longer than a short link, toasts the
+or a timeout (the request is aborted), with no toast; a message that only fits shortened
+stays, with the toast. With `unreachable` or `banned` in the status, `auto` does not ask for a
+message that fits as typed; one that does not fit still tries, since the status may be stale.
+A send made while the status says so, and a failed shortening, re-read it. Mode `always` takes every URL longer than a short link, toasts the
 saving and sends nothing on a failure. A short link longer than announced that breaks the
 limit leaves the rewritten text with an Undo toast. Shortening never happens in
 `onSend`/`message_send.py`, and `submitMessage` keeps its `error` check. Never

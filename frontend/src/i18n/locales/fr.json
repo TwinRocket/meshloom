@@ -30,7 +30,6 @@
     "gifPaste": "URL Giphy ou g:id",
     "gifUse": "Envoyer le GIF",
     "gifClose": "Fermer le sélecteur GIF",
-    "gifNeedKey": "La recherche Giphy demande une clé API (Réglages → Local). Vous pouvez aussi coller une URL.",
     "gifError": "Recherche Giphy indisponible",
     "gifEmpty": "Aucun GIF",
     "gifLoading": "Chargement…",
@@ -229,7 +228,7 @@
     "restoreMergedDetail": "{{contacts}} contacts, {{channels}} canaux, {{groups}} groupes. Rechargez la page.",
     "restoreFailed": "Échec de la restauration JSON",
     "giphyKey": "Clé API Giphy",
-    "giphyKeyHelp": "Optionnelle. Sert uniquement à la recherche du sélecteur GIF. Créez une clé beta gratuite sur developers.giphy.com. Les GIF reçus s’affichent sans clé (chargés depuis media.giphy.com).",
+    "giphyKeyHelp": "Optionnelle. Ajoute les GIF au bouton + du champ de saisie. Créez une clé beta gratuite sur developers.giphy.com. Les GIF reçus s’affichent sans clé (chargés depuis media.giphy.com).",
     "local": {
       "deviceOnly": "Ces réglages s’appliquent uniquement à cet appareil/navigateur.",
       "colorScheme": "Thème de couleurs",

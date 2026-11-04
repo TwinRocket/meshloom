@@ -60,17 +60,6 @@ function byteLen(s: string): number {
   return textEncoder.encode(s).length;
 }
 
-/** `promise`, or null once `ms` have passed. */
-function settleWithin<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(() => resolve(null), ms);
-    void promise.then((value) => {
-      window.clearTimeout(timer);
-      resolve(value);
-    });
-  });
-}
-
 interface MessageInputProps {
   onSend: (text: string) => Promise<void>;
   disabled: boolean;
@@ -238,17 +227,21 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     if (!shareStatus) void refreshShareStatus();
   }, [shareStatus]);
   const shareHosts = shareStatus?.hosts;
-  // `auto` never waits on a service known to refuse: the links go out as typed.
   const shareServiceDown = !!shareStatus && (shareStatus.unreachable || shareStatus.banned);
-  const shortenMode: ShareShortenMode = !shareStatus?.enabled
-    ? 'never'
-    : shareStatus.shorten_mode === 'auto' && shareServiceDown
-      ? 'never'
-      : shareStatus.shorten_mode;
+  const shortenMode: ShareShortenMode = shareStatus?.enabled ? shareStatus.shorten_mode : 'never';
   const shortenMinBytes = shortenMode === 'auto' ? AUTO_SHORTEN_MIN_BYTES : 0;
+  // `auto` does not ask a service known to refuse for a message that fits as typed. One
+  // that does not fit still tries: the status may be stale, and an error says why.
+  const skipShortening =
+    shortenMode === 'auto' &&
+    shareServiceDown &&
+    (limits === null || byteLen(text) < limits.hardLimit);
   const longUrls = useMemo(
-    () => (shortenMode === 'never' ? [] : findLongUrls(text, shareHosts, shortenMinBytes)),
-    [shortenMode, text, shareHosts, shortenMinBytes]
+    () =>
+      shortenMode === 'never' || skipShortening
+        ? []
+        : findLongUrls(text, shareHosts, shortenMinBytes),
+    [shortenMode, skipShortening, text, shareHosts, shortenMinBytes]
   );
   // `auto` and `always`: Send shortens first, the size guard judges what goes on the air.
   const shortenOnSend = longUrls.length > 0;
@@ -287,11 +280,14 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
    * original text; a coded toast is shown unless `silent`.
    */
   const shortenText = useCallback(
-    async (source: string, silent = false): Promise<string | null> => {
+    async (
+      source: string,
+      { silent = false, signal }: { silent?: boolean; signal?: AbortSignal } = {}
+    ): Promise<string | null> => {
       const mapping = new Map<string, string>();
       try {
         for (const url of findLongUrls(source, shareHosts, shortenMinBytes)) {
-          const link = await api.shortenLink(url);
+          const link = await api.shortenLink(url, signal);
           // Only ever write a link of the share service into the message.
           if (!isShareLink(link.url, shareHosts)) throw new Error('unexpected short link');
           mapping.set(url, link.url);
@@ -354,15 +350,20 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         // service (off-grid, a mesh must keep working) and never fails because of it.
         const fitsAsTyped = limits === null || byteLen(trimmed) < limits.hardLimit;
         const bestEffort = shortenMode === 'auto' && fitsAsTyped;
-        const shortened = bestEffort
-          ? await settleWithin(shortenText(trimmed, true), AUTO_SHORTEN_WAIT_MS)
-          : await shortenText(trimmed);
+        const controller = new AbortController();
+        const timer = bestEffort
+          ? window.setTimeout(() => controller.abort(), AUTO_SHORTEN_WAIT_MS)
+          : undefined;
+        const shortened = await shortenText(trimmed, {
+          silent: bestEffort,
+          signal: controller.signal,
+        });
+        window.clearTimeout(timer);
+        if (shortened === null) void refreshShareStatus();
         if (shortened === null && !bestEffort) return;
         // Edited while waiting: do not send or overwrite, let the user re-read.
         if (textRef.current.trim() !== trimmed) return;
-        if (shortened === null) {
-          void refreshShareStatus().catch(() => undefined);
-        } else {
+        if (shortened !== null) {
           const rewritten = shortened.trim();
           const stillTooLong = limits !== null && byteLen(rewritten) >= limits.hardLimit;
           // Nothing sent when the shortened text still fails the guard: the user
@@ -371,10 +372,9 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           if (stillTooLong) return;
           trimmed = rewritten;
         }
-      } else if (shareServiceDown) {
-        // Nothing else re-reads the status: this is how `auto` notices the service is back.
-        void refreshShareStatus().catch(() => undefined);
       }
+      // Nothing else re-reads the status: this is how `auto` notices the service is back.
+      if (shareServiceDown) void refreshShareStatus();
       await onSend(trimmed);
       setText('');
       setReplyQuote(null);

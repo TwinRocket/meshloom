@@ -30,7 +30,6 @@
     "gifPaste": "Giphy URL or g:id",
     "gifUse": "Send GIF",
     "gifClose": "Close GIF picker",
-    "gifNeedKey": "Giphy search needs an API key (Settings → Local). You can also paste a URL.",
     "gifError": "Giphy search unavailable",
     "gifEmpty": "No GIFs",
     "gifLoading": "Loading…",
@@ -229,7 +228,7 @@
     "restoreMergedDetail": "{{contacts}} contacts, {{channels}} channels, {{groups}} groups. Reload the page.",
     "restoreFailed": "JSON restore failed",
     "giphyKey": "Giphy API key",
-    "giphyKeyHelp": "Optional. Used only for GIF picker search. Create a free beta key at developers.giphy.com. Incoming GIFs render without a key (they load from media.giphy.com).",
+    "giphyKeyHelp": "Optional. Adds GIFs to the composer's + button. Create a free beta key at developers.giphy.com. Incoming GIFs render without a key (they load from media.giphy.com).",
     "local": {
       "deviceOnly": "These settings apply only to this device/browser.",
       "colorScheme": "Color Scheme",
