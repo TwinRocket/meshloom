@@ -708,13 +708,11 @@ was removed in turn and the cases pinning it failed: the `os.fork`,
 `sys.addaudithook` stub, `RLIMIT_NPROC` 0 (MSHL-289), the seccomp filter
 (MSHL-323), the open
 read roots, the native-suffix write rule, the native load roots, the environment
-scrub, `RLIMIT_AS`, the host's two pipe guards (3.11) together (the stdout drain
-after a framing kill and the bounded wait for the pipes: either one alone
-keeps the instance restarting), cancel then kill, the timer minimum, the archive symlink check, the nesting cap, the
-partial-line bound and the NaN refusal of `rpc.decode`. The pipe mutant was
-caught only on 3.11 with bwrap (the hang needs both). With 3.13 as the minimum
-no CI job catches it any more: it reports SURVIVED and the script exits 1. The
-guards stay as defence in depth.
+scrub, `RLIMIT_AS`, cancel then kill, the timer minimum, the archive symlink check, the nesting cap, the
+partial-line bound and the NaN refusal of `rpc.decode`. The host's two pipe guards (the stdout drain after a framing kill and the
+bounded wait for the pipes) were also mutated on 3.11, where either one alone
+kept the instance restarting. With 3.13 as the minimum that mutant is removed
+from the script: nothing can exercise the guards, which stay as defence in depth.
 
 **Found by the corpus** (MSHL-191): on Python 3.11 a child killed for a line over
 the cap left its instance shown `running` with no process, never restarted:
