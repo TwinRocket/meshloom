@@ -43,11 +43,14 @@ concurrency:
 permissions: {}
 
 jobs:
-  # Pull requests already run All Quality as their own workflow; every other
-  # event (main, a version tag, a manual run) must pass it before any image is
-  # built, let alone pushed.
+  # A version tag or a manual run must pass All Quality before any image is built,
+  # let alone pushed. A manual run includes the one forward-merge.yml dispatches:
+  # its merge starts no All Quality of its own. Pull requests and pushes to main or
+  # preversion-5 already run All Quality as their own workflow on the same commit,
+  # so :edge and :next are published without waiting for it: a merged commit passed
+  # it on its pull request, and a red run after the merge still shows on the branch.
   quality:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     uses: ./.github/workflows/all-quality.yml
     permissions:
       contents: read
@@ -55,7 +58,8 @@ jobs:
   matrix:
     name: Architectures
     needs: quality
-    # `quality` is skipped on pull requests; anything else must have passed it.
+    # `quality` is skipped on pull requests and branch pushes; anything else must
+    # have passed it.
     if: ${{ !cancelled() && (needs.quality.result == 'success' || needs.quality.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions: {}
@@ -82,7 +86,8 @@ jobs:
     name: ${{ matrix.slug }}
     needs: matrix
     # Without this, the implicit success() also looks at `quality`, which is
-    # skipped on pull requests, so the PR build never ran. Pull requests still
+    # skipped on pull requests and branch pushes, so the build never ran there.
+    # Pull requests still
     # push nothing: no GHCR login, outputs=type=cacheonly, no cache-to, and the
     # digest steps and `merge` are skipped.
     if: ${{ !cancelled() && needs.matrix.result == 'success' }}
@@ -172,7 +177,9 @@ jobs:
 
   merge:
     name: Manifest
-    if: github.event_name != 'pull_request'
+    # Explicit results for the same reason as `build`: a skipped `quality` must not
+    # skip the publication through the implicit success().
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.matrix.result == 'success' && needs.build.result == 'success' }}
     needs: [matrix, build]
     runs-on: ubuntu-latest
     permissions:
@@ -257,7 +264,7 @@ jobs:
   deploy:
     # A static name, so the required check keeps its name on every ref.
     name: Deploy
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preversion-5'
+    if: ${{ !cancelled() && needs.merge.result == 'success' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preversion-5') }}
     needs: merge
     runs-on: ubuntu-latest
     permissions: {}

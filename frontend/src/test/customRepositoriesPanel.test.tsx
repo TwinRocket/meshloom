@@ -124,7 +124,7 @@ describe('CustomRepositoriesPanel', () => {
     );
   });
 
-  it("offline: no add, no install (the activation card is the Store tab's)", async () => {
+  it("offline: no add, no install (the switch is the Store tab's)", async () => {
     vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(payload({ store_online: false }));
     renderPanel();
     await screen.findByTestId('store-offline-note');

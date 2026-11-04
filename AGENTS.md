@@ -161,8 +161,9 @@ cd frontend && npm ci && npm run dev      # Vite on :5173, proxies /api to :8000
 `eslint --fix`, `prettier --write`), so it may leave edits behind: commit them.
 Then it runs `pyright app/ meshloom_plugin/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
 CI (`.github/workflows/all-quality.yml`, aggregate job `all-quality`) runs the
-same checks in check mode, so an unformatted file passes locally and fails in CI
-if you do not commit the autofix. Prettier checks every file under
+same checks in check mode, on every pull request and on pushes to `main` and
+`preversion-5` (a branch without a pull request gets no CI), so an unformatted
+file passes locally and fails in CI if you do not commit the autofix. Prettier checks every file under
 `frontend/src/`, Markdown included.
 
 `dbus-fast` is a runtime dependency on Linux only, but the dev group installs it

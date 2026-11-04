@@ -4,7 +4,7 @@ A backend wraps the launch contract of `app/plugins/launch.py` (the runner
 command and its `subprocess.Popen` arguments) without changing what the child
 sees: the same parameters line, the same RPC pipes, the same scrubbed
 environment. `launch()` returns argv and keyword arguments, so the supervisor
-can hand them to `asyncio.create_subprocess_exec` and the tests to
+can hand them to `child_process.ChildProcess.spawn` and the tests to
 `subprocess.Popen` (`spawn()`).
 """
 

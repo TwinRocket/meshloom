@@ -211,7 +211,7 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   `store_fetch()` sends through `follow_checked_redirects` with `STORE_ALLOWLIST`
   (`github.com`, the exact release-asset redirect hosts `objects.githubusercontent.com`
   and `release-assets.githubusercontent.com`, and `store.meshloom.app`), HTTPS only,
-  only while `app_settings.store_online`; `StoreOffline` otherwise, before any lookup.
+  unless `app_settings.store_online` (on by default) is off; `StoreOffline` then, before any lookup.
   It refuses a URL with user info (`egress_userinfo`) and narrows a caller's
   `allowed_hosts` to `STORE_ALLOWLIST`. Plugin archive downloads use it (MSHL-366), and
   so do the custom repository lookups (`app/plugins/custom_repos.py`, MSHL-196: GitHub

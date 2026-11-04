@@ -6,6 +6,7 @@ import { ComposerEmojiPicker } from './ComposerEmojiPicker';
 import { ComposerFileTab, type IncomingFile } from './ComposerFileTab';
 import type { ShareTarget } from '../utils/channelClass';
 import { GifPicker } from './GifPicker';
+import { getSavedGiphyApiKey } from '../utils/giphyPreference';
 import { cn } from '@/lib/utils';
 
 export type ComposerAttachTab = 'emoji' | 'gif' | 'location' | 'file';
@@ -31,7 +32,7 @@ interface ComposerAttachPickerProps {
 }
 
 export function ComposerAttachPicker({
-  tab,
+  tab: requestedTab,
   onTabChange,
   onSelectEmoji,
   onSelectGif,
@@ -47,6 +48,10 @@ export function ComposerAttachPicker({
   locationLabel,
 }: ComposerAttachPickerProps) {
   const { t } = useTranslation();
+  // GIFs are offered only with a Giphy key. It is read on each render: it can be removed
+  // in the settings while the composer stays mounted.
+  const gifAvailable = getSavedGiphyApiKey() !== '';
+  const tab = requestedTab === 'gif' && !gifAvailable ? 'emoji' : requestedTab;
   const title =
     tab === 'gif'
       ? t('chat.gifPicker')
@@ -117,17 +122,19 @@ export function ComposerAttachPicker({
         >
           <Smile className="h-5 w-5" />
         </AttachTab>
-        <AttachTab
-          active={tab === 'gif'}
-          label={t('chat.gif')}
-          testId="composer-attach-tab-gif"
-          onSelect={() => onTabChange('gif')}
-        >
-          <Sticker className="h-5 w-5" />
-          <span className="text-[0.625rem] font-semibold uppercase tracking-wider">
-            {t('chat.gif')}
-          </span>
-        </AttachTab>
+        {gifAvailable && (
+          <AttachTab
+            active={tab === 'gif'}
+            label={t('chat.gif')}
+            testId="composer-attach-tab-gif"
+            onSelect={() => onTabChange('gif')}
+          >
+            <Sticker className="h-5 w-5" />
+            <span className="text-[0.625rem] font-semibold uppercase tracking-wider">
+              {t('chat.gif')}
+            </span>
+          </AttachTab>
+        )}
         <AttachTab
           active={tab === 'location'}
           label={t('share.shareLocation')}

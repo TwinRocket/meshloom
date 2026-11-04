@@ -28,7 +28,7 @@ async def test_defaults_are_off_auto_private(test_db):
     settings = await AppSettingsRepository.get()
     assert settings.share_enabled is False
     assert settings.share_shorten_mode == "auto"
-    assert settings.share_preview_policy == "private"
+    assert settings.share_preview_policy == "always"
     assert await AppSettingsRepository.get_instance_seed("share") == ""
 
 
@@ -93,7 +93,7 @@ async def test_a_bad_stored_value_reads_as_the_default(test_db):
         )
     settings = await AppSettingsRepository.get()
     assert settings.share_shorten_mode == "auto"
-    assert settings.share_preview_policy == "private"
+    assert settings.share_preview_policy == "always"
 
 
 @pytest.mark.asyncio

@@ -278,7 +278,19 @@ def test_docker_pr_build_runs_but_pushes_nothing() -> None:
     assert "github.event_name != 'pull_request' && format('type=image" in build
     assert "|| 'type=cacheonly'" in build
     merge = docker[docker.index("\n  merge:\n") :]
-    assert "if: github.event_name != 'pull_request'" in merge.split("steps:")[0]
+    gate = merge.split("steps:")[0]
+    assert "github.event_name != 'pull_request'" in gate
+    # `quality` is skipped on branch pushes too; publication must not skip with it.
+    assert "needs.build.result == 'success'" in gate
+    assert "!cancelled()" in gate
+    # Only version tags and manual runs (the forward-merge dispatch) run `quality`.
+    quality = docker[docker.index("\n  quality:\n") : docker.index("\n  matrix:\n")]
+    assert (
+        "github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')"
+        in quality
+    )
+    deploy = docker[docker.index("\n  deploy:\n") :]
+    assert "needs.merge.result == 'success'" in deploy.split("steps:")[0]
 
 
 # publish.sh: the one command that cuts a release.

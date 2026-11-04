@@ -13,6 +13,14 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+concurrency:
+  # A pull request's newer push supersedes the older run. Any other run keeps a
+  # group of its own and is never cancelled or replaced: a commit on main needs
+  # its checks (tag_release.sh and the forward-merge PR read them), and GitHub
+  # drops an older pending run in a shared group even without cancel-in-progress.
+  group: codeql-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions: {}
 
 jobs:

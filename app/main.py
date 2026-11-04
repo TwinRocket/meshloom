@@ -327,8 +327,8 @@ async def lifespan(app: FastAPI):
     await start_oss_update_polling()
     start_hashtag_catalogue_polling()
     start_stale_contact_purge()
-    # The Store refresh loop runs only while store_online is on (MSHL-194), and plugin
-    # archives are downloaded only then (MSHL-366: the installer's gate is the consent).
+    # The Store refresh loop runs unless store_online is off (MSHL-194), and plugin
+    # archives are downloaded only then (MSHL-366: the installer's gate is the switch).
     from app.plugins.installer import set_download_gate
     from app.plugins.store_egress import start_store_refresh, store_egress_allowed
 
@@ -337,11 +337,6 @@ async def lifespan(app: FastAPI):
     from app.plugins import custom_repos
 
     custom_repos.register()
-    try:
-        await start_store_refresh()
-    except Exception:
-        logger.exception("Failed to start the Store refresh loop")
-
     # Always start connection monitor (even if initial connection failed)
     await radio_manager.start_connection_monitor()
 
@@ -379,6 +374,13 @@ async def lifespan(app: FastAPI):
     from app.plugins import lifecycle as plugin_lifecycle
 
     await plugin_lifecycle.start()
+
+    # After the plugin start, which may turn the plugin system off (failed isolation):
+    # the first tick runs at once and must see that.
+    try:
+        await start_store_refresh()
+    except Exception:
+        logger.exception("Failed to start the Store refresh loop")
 
     from app.radio_proxy.manager import radio_proxy_manager
 
