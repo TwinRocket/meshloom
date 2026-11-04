@@ -145,6 +145,12 @@ and the OpenAPI page (`/docs`), not a table here.
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
   middleware): HSTS only over direct https (never ingress or relay: the relay owns it), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).
+- `middleware/body_limit.py` (`BodyLimitMiddleware`, just outside the auth gate, MSHL-461):
+  1 MiB per request by default, on `Content-Length` before reading and counted for a
+  chunked body; 413 `request_too_large` with `Connection: close`. `SELF_LIMITED_ROUTES`
+  (backup inspect and restore, share uploads) read in chunks and refuse with their own
+  code; `LARGER_ROUTES` holds JSON routes that need more (plugin source). A new route
+  taking a large body goes in one of the two.
 - `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
   gate and CORS) is the only interpreter of `X-Forwarded-For` and
   `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from

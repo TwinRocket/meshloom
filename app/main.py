@@ -63,6 +63,7 @@ from app.frontend_static import (
     register_frontend_missing_fallback,
 )
 from app.middleware import proxy_headers
+from app.middleware.body_limit import BodyLimitMiddleware
 from app.middleware.host_guard import HostGuardMiddleware
 from app.middleware.https_required import HttpsRequiredMiddleware
 from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
@@ -109,6 +110,7 @@ from app.routers import (
     ws,
 )
 from app.secret_store import SecretStoreUnavailable
+from app.services.data_permissions import tighten_database_files
 from app.services.hardening import set_not_dumpable
 from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
@@ -195,6 +197,8 @@ async def lifespan(app: FastAPI):
     db_path = Path(server_settings.database_path)
     file_existed = db_path.is_file() and db_path.stat().st_size > 0
 
+    # Before the first connection: SQLite gives -wal and -shm the database's mode.
+    tighten_database_files(db_path)
     await db.connect()
     logger.info("Database connected")
 
@@ -540,6 +544,8 @@ app = FastAPI(
 register_api_docs_routes(app)
 # Innermost: every route needs a principal except the public ones (app/auth/middleware.py).
 app.add_middleware(AuthMiddleware)
+# Outside the gate: a public route (login, setup) would read its body too.
+app.add_middleware(BodyLimitMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 # Same-origin by default; Settings lists the other sites allowed (app/cors.py).
 app.add_middleware(AllowedOriginsCORSMiddleware)

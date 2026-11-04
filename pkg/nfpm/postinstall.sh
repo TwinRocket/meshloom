@@ -129,6 +129,15 @@ mark_kiosk_host() {
 }
 mark_kiosk_host || true
 
+# Up to 4.18 meshloom.service reset this directory to 0755 at every start, with a
+# 0644 database inside. Closing the directory shuts out other accounts now; the
+# server tightens the database files itself at its next start, as meshloom. Root
+# does not walk this tree: the meshloom user could plant links in it.
+state_dir=/var/lib/meshloom
+if [ -d "$state_dir" ] && [ ! -L "$state_dir" ]; then
+    chmod 0750 "$state_dir" || true
+fi
+
 # Kiosk device token (app/services/kiosk.py, docs/dev/auth.md "Kiosk device
 # token"): the server writes /var/lib/meshloom-kiosk/kiosk.token (0640) and the
 # desktop session user, uid 1000 as in meshloom-kiosk-setup, reads it through
