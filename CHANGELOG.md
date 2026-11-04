@@ -1,3 +1,42 @@
+## [4.18.3] - 2026-11-04
+
+A security release: other websites can no longer act on your Meshloom, and the radio proxy only accepts its own protocol.
+
+### Before you upgrade
+
+- **A frontend on another address no longer works.** Meshloom must be opened from the address it serves. Scripts and tools that send no `Origin` header are not affected.
+- **Bots cannot be edited through a reverse-proxy domain.** They can be created or changed from an IP address, `localhost`, a `.local`, `.lan`, `.home.arpa` or `.internal` name, the machine's own name, or Home Assistant ingress. Through another domain, existing bots keep running and can be deleted.
+- **Reverse proxies must forward the browser's address.** Forward `Host`, or give it in `X-Forwarded-Host` with its port, or changes and the live feed answer 403. See HTTPS in the documentation.
+
+### Security
+
+- **Same-origin by default.** The API no longer sends CORS headers, so a page of another site cannot read its answers.
+- **Requests from other sites are refused.** Changes and the live feed (WebSocket) from a page of another site get a 403, including requests that need no preflight.
+- **Bot changes need a local address.** This blocks DNS rebinding, which a same-origin check cannot see.
+- **The radio proxy closes anything that is not its protocol.** It used to skip ahead to the next frame marker, so a request of another protocol could carry frames. Companion apps are not affected.
+
+---
+
+### Français
+
+Une version de sécurité : les autres sites web ne peuvent plus agir sur votre Meshloom, et le proxy radio n'accepte que son propre protocole.
+
+#### Avant de mettre à jour
+
+- **Une interface hébergée à une autre adresse ne fonctionne plus.** Meshloom doit être ouvert depuis l'adresse qu'il sert. Les scripts et outils qui n'envoient pas d'en-tête `Origin` ne sont pas concernés.
+- **Les bots ne se modifient plus via le domaine d'un reverse-proxy.** On les crée ou les modifie depuis une adresse IP, `localhost`, un nom en `.local`, `.lan`, `.home.arpa` ou `.internal`, le nom de la machine ou l'ingress Home Assistant. Via un autre domaine, les bots existants continuent de tourner et peuvent être supprimés.
+- **Les reverse-proxys doivent transmettre l'adresse du navigateur.** Transmettez `Host`, ou indiquez-la dans `X-Forwarded-Host` avec son port, sinon les modifications et le flux en direct répondent 403. Voir HTTPS dans la documentation.
+
+#### Sécurité
+
+- **Même origine par défaut.** L'API n'envoie plus d'en-têtes CORS : une page d'un autre site ne peut pas lire ses réponses.
+- **Les requêtes venant d'autres sites sont refusées.** Les modifications et le flux en direct (WebSocket) venant d'une page d'un autre site reçoivent un 403, y compris les requêtes sans preflight.
+- **Modifier un bot demande une adresse locale.** Cela bloque le DNS rebinding, qu'une vérification de même origine ne voit pas.
+- **Le proxy radio ferme tout ce qui n'est pas son protocole.** Il sautait auparavant jusqu'au marqueur de trame suivant : une requête d'un autre protocole pouvait donc transporter des trames. Les applications compagnon ne sont pas concernées.
+
+---
+
+
 ## [4.18.2] - 2026-10-10
 
 Re-running the installer on a Docker stack now keeps the changes you made to your compose file.
