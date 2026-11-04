@@ -750,7 +750,9 @@ async def test_a_retry_from_an_old_connection_never_writes(wifi, fast_schedule, 
     assert wifi.firmware.commands.count("get wifi.pwd") == 1
 
 
-async def test_a_task_spawned_before_a_new_connection_never_adopts_it(wifi, monkeypatch):
+async def test_a_task_spawned_before_a_new_connection_never_adopts_it(
+    wifi, fast_schedule, monkeypatch
+):
     spawned = []
     monkeypatch.setattr(
         "app.background_tasks.spawn", lambda coro, *, name=None: spawned.append(coro)
