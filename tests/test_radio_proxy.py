@@ -827,3 +827,17 @@ async def test_host_port_is_ignored_without_managed_ports(test_db, monkeypatch):
     monkeypatch.setattr(settings, "radio_proxy_port", 5051)
 
     assert (await RadioProxyRepository.get()).port == 5001
+
+
+@pytest.mark.asyncio
+async def test_http_request_is_disconnected_and_runs_no_command(test_db):
+    """A browser POST aimed at the proxy port is closed, its body never read as frames."""
+    frame = bytes([0x3C, 1, 0, 1])
+    async with _started_proxy(test_db) as (manager, port):
+        with patch.object(manager, "_handle_command", new=AsyncMock()) as handle:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(b"POST / HTTP/1.1\r\nHost: x\r\n\r\n" + frame)
+            await writer.drain()
+            assert await asyncio.wait_for(reader.read(), timeout=5) == b""
+            writer.close()
+        handle.assert_not_awaited()

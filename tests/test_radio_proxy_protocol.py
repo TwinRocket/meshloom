@@ -193,6 +193,54 @@ def test_frame_assembler_and_tx_marker():
     assert assembler.feed(client_frame[2:]) == [payload]
 
 
+def _client_frame(payload: bytes) -> bytes:
+    return bytes([0x3C]) + len(payload).to_bytes(2, "little") + payload
+
+
+def test_frame_assembler_keeps_split_and_consecutive_frames():
+    assembler = FrameAssembler()
+    wire = _client_frame(b"\x01abc") + _client_frame(b"") + _client_frame(b"<<<")
+    frames = []
+    for index in range(len(wire)):
+        frames.extend(assembler.feed(wire[index : index + 1]))
+    assert frames == [b"\x01abc", b"", b"<<<"]
+    assert not assembler.desynced
+
+
+def test_frame_assembler_accepts_the_largest_frame():
+    assembler = FrameAssembler()
+    payload = bytes(300)
+    assert assembler.feed(_client_frame(payload)) == [payload]
+    assert not assembler.desynced
+
+
+def test_frame_assembler_refuses_an_http_request_carrying_frames():
+    """The body of a request from a browser page must never reach the radio."""
+    frame = _client_frame(b"\x02\x00\x00")
+    request = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 6\r\n\r\n" + frame
+    assembler = FrameAssembler()
+    assert assembler.feed(request) == []
+    assert assembler.desynced
+    # Nothing later on the same connection gets through.
+    assert assembler.feed(frame) == []
+
+
+def test_frame_assembler_does_not_resync_mid_stream():
+    good = _client_frame(b"\x01")
+    assembler = FrameAssembler()
+    assert assembler.feed(good + b"garbage" + good) == [b"\x01"]
+    assert assembler.desynced
+    assert assembler.feed(good) == []
+
+
+def test_frame_assembler_refuses_an_oversized_size():
+    assembler = FrameAssembler()
+    assert (
+        assembler.feed(bytes([0x3C]) + (301).to_bytes(2, "little") + _client_frame(b"\x01")) == []
+    )
+    assert assembler.desynced
+
+
 def test_parse_send_commands():
     dest = bytes.fromhex("aabbccddeeff")
     txt = bytes([2, 0, 0]) + (111).to_bytes(4, "little") + dest + b"hello"

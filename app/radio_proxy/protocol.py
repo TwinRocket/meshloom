@@ -286,32 +286,44 @@ class AddContactCommand:
 
 
 class FrameAssembler:
-    """Accumulate client→proxy 0x3C frames from a TCP stream."""
+    """Accumulate client→proxy frames from a TCP stream: 0x3C, u16 LE size, payload.
+
+    Companion clients write nothing else from the first byte on. The stream is never
+    resynchronised: looking for the next 0x3C would let a request of another protocol
+    (HTTP from a browser, say) carry frames in its body. An HTTP method cannot start
+    with 0x3C (``<``), which is not a token character. Once ``desynced`` is set, the
+    caller handles the frames already returned and closes the connection.
+    """
 
     def __init__(self) -> None:
         self._buf = bytearray()
+        self.desynced = False
 
     def feed(self, data: bytes) -> list[bytes]:
-        self._buf.extend(data)
         frames: list[bytes] = []
-        while True:
-            start = self._buf.find(bytes([RX_MARKER]))
-            if start < 0:
-                self._buf.clear()
-                return frames
-            if start > 0:
-                del self._buf[:start]
+        if self.desynced:
+            return frames
+        self._buf.extend(data)
+        while self._buf:
+            if self._buf[0] != RX_MARKER:
+                self._desync()
+                break
             if len(self._buf) < 3:
-                return frames
+                break
             size = int.from_bytes(self._buf[1:3], "little")
             if size > MAX_FRAME_SIZE:
-                del self._buf[0]
-                continue
+                self._desync()
+                break
             total = 3 + size
             if len(self._buf) < total:
-                return frames
+                break
             frames.append(bytes(self._buf[3:total]))
             del self._buf[:total]
+        return frames
+
+    def _desync(self) -> None:
+        self.desynced = True
+        self._buf.clear()
 
 
 def parse_send_txt(payload: bytes) -> SendTxtCommand:

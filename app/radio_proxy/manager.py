@@ -412,6 +412,9 @@ class RadioProxyManager:
                 return
             for payload in assembler.feed(chunk):
                 await self._handle_command(session, payload)
+            if assembler.desynced:
+                logger.info("Radio proxy: closing a client that does not speak the frame format")
+                return
 
     async def _handle_command(self, session: ProxySession, payload: bytes) -> None:
         if not payload:
