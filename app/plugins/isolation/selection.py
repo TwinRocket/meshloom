@@ -2,9 +2,9 @@
 
 | Server | Backend |
 |---|---|
-| Linux, root, `meshloom-plugin` exists | `setuid` |
+| Linux, root holding what `root_can_switch_uid()` lists, `meshloom-plugin` exists | `setuid` |
 | Linux, not root but `CAP_SETUID` and `CAP_SETGID` effective (Docker with `MESHLOOM_RUN_AS_USER`), `meshloom-plugin` exists | `setuid` |
-| Linux, root, no such account | `bwrap` if its self-test passes, else `none` |
+| Linux, root, no such account or without those capabilities (`--cap-drop ALL`) | `bwrap` if its self-test passes, else `none` |
 | Linux, not root without those capabilities (deb/rpm, RPi image, source) | `bwrap` if its self-test passes, else `none` |
 | not Linux (macOS: development only) | `none` |
 

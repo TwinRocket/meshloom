@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import os
 import re
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -120,7 +121,9 @@ async def test_pending_migrations_on_a_populated_database_make_a_copy_first(db_p
     for path in (copy, key_copy_path(copy)):
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert not marker_path(db_path).exists()
-    leftovers = [name for name in _names(db_path.parent) if "copy-in-progress" in name]
+    leftovers = [
+        n for n in _names(db_path.parent) if "copy-in-progress" in n and not n.endswith(".lock")
+    ]
     assert leftovers == []
 
 
@@ -168,17 +171,25 @@ async def test_a_failed_copy_stops_the_start_and_migrates_nothing(db_path, monke
     assert _schema(db_path) == LATEST - 1
     assert list_copies(db_path) == []
     assert not marker_path(db_path).exists()
-    assert [name for name in _names(db_path.parent) if "copy-in-progress" in name] == []
+    assert [
+        name
+        for name in _names(db_path.parent)
+        if "copy-in-progress" in name and not name.endswith(".lock")
+    ] == []
 
 
 @pytest.mark.asyncio
-async def test_a_migration_that_fails_keeps_the_copy_and_the_next_start_reuses_it(
-    db_path, monkeypatch
-) -> None:
+async def test_a_start_interrupted_past_the_copy_reuses_it(db_path, monkeypatch) -> None:
     await _fully_migrated_then_one_behind(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(f"PRAGMA user_version = {LATEST - 2}")
+    conn.commit()
+    conn.close()
     real = migrations.run_migrations
 
     async def failing(conn) -> int:
+        await migrations.set_version(conn, LATEST - 1)
+        await conn.commit()
         raise RuntimeError("migration failed")
 
     monkeypatch.setattr(migrations, "run_migrations", failing)
@@ -199,6 +210,122 @@ async def test_a_migration_that_fails_keeps_the_copy_and_the_next_start_reuses_i
     assert [c.path.stat().st_mtime_ns for c in list_copies(db_path)] == [taken]
     assert not marker_path(db_path).exists()
     assert _schema(db_path) == LATEST
+
+
+@pytest.mark.asyncio
+async def test_a_migration_failing_at_its_first_step_copies_again_without_piling_up(
+    db_path, monkeypatch
+) -> None:
+    await _fully_migrated_then_one_behind(db_path)
+
+    async def failing(conn) -> int:
+        raise RuntimeError("migration failed")
+
+    monkeypatch.setattr(migrations, "run_migrations", failing)
+    for _ in range(3):
+        database = Database(str(db_path))
+        with pytest.raises(RuntimeError, match="migration failed"):
+            try:
+                await database.connect()
+            finally:
+                await database.disconnect()
+        assert len(list_copies(db_path)) == 1
+    assert _schema(list_copies(db_path)[0].path) == LATEST - 1
+
+
+def test_going_back_after_an_interrupted_migration_then_upgrading_copies_again(db_path) -> None:
+    """The marker survives a return: what was received since must get into a new copy."""
+    _make_db(db_path, 87)
+    first = prepare_for_migrations(str(db_path))
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA user_version = 100")  # Killed in the middle of the migrations.
+    conn.commit()
+    conn.close()
+    assert prepare_for_migrations(str(db_path)) is None  # A plain restart carries on.
+
+    shutil.copy2(first, db_path)  # Back to 4.18, the marker left behind.
+    for suffix in ("-wal", "-shm"):
+        Path(f"{db_path}{suffix}").unlink(missing_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO items (value) VALUES ('received after going back')")
+    conn.commit()
+    conn.close()
+
+    again = prepare_for_migrations(str(db_path))
+    assert again == first
+    assert "received after going back" in _rows(again)
+    assert marker_path(db_path).read_text() == again.name
+
+
+def test_an_interrupted_first_start_takes_no_copy(db_path) -> None:
+    assert prepare_for_migrations(str(db_path)) is None
+    assert marker_path(db_path).read_text() == "fresh"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY)")
+    conn.execute("PRAGMA user_version = 99")
+    conn.commit()
+    conn.close()
+    assert prepare_for_migrations(str(db_path)) is None
+    assert list_copies(db_path) == []
+
+
+def test_a_database_put_over_an_interrupted_first_start_is_copied(db_path) -> None:
+    assert prepare_for_migrations(str(db_path)) is None
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO messages DEFAULT VALUES")
+    conn.execute("PRAGMA user_version = 87")
+    conn.commit()
+    conn.close()
+    assert prepare_for_migrations(str(db_path)) is not None
+
+
+def test_reading_the_state_creates_and_deletes_no_side_file(db_path) -> None:
+    _make_db(db_path, LATEST)
+    names = _names(db_path.parent)
+
+    def no_unlink(self, missing_ok=False):
+        raise AssertionError(f"{self} removed: it may be another process's")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "unlink", no_unlink)
+        assert prepare_for_migrations(str(db_path)) is None
+    assert _names(db_path.parent) == names
+    # A -wal already there is read, and left alone.
+    writer = sqlite3.connect(db_path)
+    writer.execute("PRAGMA wal_autocheckpoint = 0")
+    writer.execute("INSERT INTO items (value) VALUES ('in the wal')")
+    writer.execute(f"PRAGMA user_version = {LATEST + 1}")
+    writer.commit()
+    wal = Path(f"{db_path}-wal").read_bytes()
+    with pytest.raises(SchemaTooNewError):
+        prepare_for_migrations(str(db_path))
+    assert Path(f"{db_path}-wal").read_bytes() == wal
+    writer.close()
+
+
+@pytest.mark.skipif(database_copy.fcntl is None, reason="no flock")
+def test_a_second_process_is_refused_and_leaves_the_temporary_alone(db_path) -> None:
+    _make_db(db_path, 87)
+    temporary = db_path.with_name("meshcore.db.copy-in-progress")
+    temporary.write_bytes(b"being written")
+    holder = os.open(db_path.with_name("meshcore.db.copy-in-progress.lock"), os.O_CREAT | os.O_RDWR)
+    try:
+        database_copy.fcntl.flock(holder, database_copy.fcntl.LOCK_EX)
+        with pytest.raises(CopyFailedError, match="Another Meshloom process"):
+            prepare_for_migrations(str(db_path))
+        assert temporary.read_bytes() == b"being written"
+    finally:
+        os.close(holder)
+    assert prepare_for_migrations(str(db_path)) is not None
+
+
+def test_a_partial_write_is_finished(tmp_path, monkeypatch) -> None:
+    real = os.write
+    monkeypatch.setattr(database_copy.os, "write", lambda fd, data: real(fd, bytes(data)[:1]))
+    path = tmp_path / "file"
+    database_copy._write_private(path, b"abcd")
+    assert path.read_bytes() == b"abcd"
 
 
 # ---------------------------------------------------------------- prepare_for_migrations
@@ -364,7 +491,15 @@ def test_the_addon_keeps_copies_out_of_home_assistant_backups() -> None:
     manifest = yaml.safe_load((ROOT / "meshloom" / "config.yaml").read_text(encoding="utf-8"))
     patterns = manifest["backup_exclude"]
     name = copy_name("meshcore.db", 87, "5.0.0")
-    for candidate in (name, key_copy_path(Path(name)).name):
+    for candidate in (
+        name,
+        key_copy_path(Path(name)).name,
+        "meshcore.db.copy-in-progress",
+        "meshcore.db.copy-in-progress-wal",
+        "meshcore.db.copy-in-progress.key",
+        "meshcore.db.copy-in-progress.lock",
+        "meshcore.db.migration-in-progress",
+    ):
         assert any(PurePath("data", candidate).match(pattern) for pattern in patterns)
     assert not any(PurePath("data", "meshcore.db").match(pattern) for pattern in patterns)
 

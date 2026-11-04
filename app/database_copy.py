@@ -27,23 +27,39 @@ copy is written, only once the disk check passed. A copy with the same source
 schema is superseded: the database still at that schema is the fresher of the two.
 
 A marker file (``<db>.migration-in-progress``, naming the copy) stays for the length
-of the migrations. A start that finds it continues an interrupted run: the database
-is partly migrated, the copy already taken is the good one, and none is taken.
+of the migrations. A start that finds it with the database past that copy's schema
+continues an interrupted run: the database is partly migrated, the copy already
+taken is the good one, and none is taken. At the copy's schema or below it, the copy
+is made again: nothing was migrated, or an older database was put back and used, and
+the live database is the fresher one. So a migration that fails at its first step
+copies at each start, under the same name, replacing the last copy. A first start on
+a new database leaves ``fresh`` in the marker: if it is interrupted there is nothing
+to protect, and the next start takes no copy.
+
+``<db>.copy-in-progress.lock`` keeps a second process off the temporary file (where
+``flock`` exists: not Windows). That second process is refused, not made to wait.
 
 Copies are ``0600``, and carry every secret of the database, unscrubbed. The full
 backup is built from database sections and never reads the data folder; the Home
 Assistant add-on excludes them through ``backup_exclude`` (``meshloom/config.yaml``).
 """
 
+import errno
 import logging
 import os
 import re
 import shutil
 import sqlite3
 import time
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +68,7 @@ MIB = 1024 * 1024
 MIN_HEADROOM_BYTES = 64 * MIB
 HEADROOM_DIVISOR = 4
 _BACKUP_STEP_PAGES = 16384
+_FRESH_MARKER = "fresh"
 DOCS_URL = "https://meshloom.app/en/docs/deep/install-paths/#going-back-to-an-older-version"
 
 
@@ -140,7 +157,9 @@ def _write_private(path: Path, data: bytes) -> None:
     """A new file holding ``data``, mode ``0600`` from its first byte."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        os.write(fd, data)
+        remaining = memoryview(data)
+        while remaining:
+            remaining = remaining[os.write(fd, remaining) :]
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -150,22 +169,75 @@ def _read_only_connection(db_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=30)
 
 
-def _read_state(db_path: Path) -> tuple[int, int, int]:
-    """Schema, number of schema objects and size in bytes, leaving the folder as found.
+def _state_connection(db_path: Path) -> sqlite3.Connection:
+    """A connection that creates nothing beside a database with no ``-wal``.
 
-    A read-only connection to a WAL database cannot remove the ``-wal`` and ``-shm``
-    it had to create, so they go here.
+    A read-only connection to a WAL database would create ``-wal`` and ``-shm`` and
+    leave them; removing them afterwards could take them from another process. With
+    no ``-wal`` the file alone is the whole database, so ``immutable`` reads it as is.
     """
-    side_files = [db_path.with_name(db_path.name + suffix) for suffix in ("-wal", "-shm")]
-    absent = [path for path in side_files if not path.exists()]
-    with closing(_read_only_connection(db_path)) as conn:
+    if db_path.with_name(f"{db_path.name}-wal").exists():
+        return _read_only_connection(db_path)
+    return sqlite3.connect(f"{db_path.resolve().as_uri()}?immutable=1", uri=True, timeout=30)
+
+
+def _read_state(db_path: Path) -> tuple[int, int, int]:
+    """Schema, number of schema objects and size in bytes."""
+    with closing(_state_connection(db_path)) as conn:
         schema = conn.execute("PRAGMA user_version").fetchone()[0]
         objects = conn.execute("SELECT count(*) FROM sqlite_master").fetchone()[0]
         size = conn.execute("PRAGMA page_count").fetchone()[0]
         size *= conn.execute("PRAGMA page_size").fetchone()[0]
-    for path in absent:
-        path.unlink(missing_ok=True)
     return schema, objects, size
+
+
+def _holds_messages(db_path: Path) -> bool:
+    """A first start cannot have reached the radio: messages mean a database put there."""
+    with closing(_state_connection(db_path)) as conn:
+        try:
+            return conn.execute("SELECT 1 FROM messages LIMIT 1").fetchone() is not None
+        except sqlite3.OperationalError:
+            return False
+
+
+def _mark_fresh(db_path: Path) -> None:
+    """Best effort: without it, an interrupted first start only makes a needless copy."""
+    marker = marker_path(db_path)
+    try:
+        marker.unlink(missing_ok=True)
+        _write_private(marker, _FRESH_MARKER.encode("utf-8"))
+    except OSError as exc:
+        logger.debug("The first-start marker could not be written: %s", exc)
+
+
+@contextmanager
+def _copy_lock(db_path: Path) -> Iterator[None]:
+    """Held while the temporary file is in use. Released by the kernel if killed."""
+    if fcntl is None:
+        yield
+        return
+    path = db_path.with_name(f"{_temporary_path(db_path).name}.lock")
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as exc:
+        raise CopyFailedError(
+            f"The database could not be copied before migrating it: {exc}. Nothing was "
+            f"migrated and Meshloom will not start. Fix the cause and start again. {DOCS_URL}"
+        ) from exc
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno not in (errno.EWOULDBLOCK, errno.EACCES):
+                logger.debug("No lock on the database copy: %s", exc)  # Such as NFS.
+            else:
+                raise CopyFailedError(
+                    "Another Meshloom process is copying this database. Nothing was migrated "
+                    f"and this one will not start. {DOCS_URL}"
+                ) from exc
+        yield
+    finally:
+        os.close(fd)
 
 
 def _run_backup(db_path: Path, temporary: Path, source_schema: int, total_bytes: int) -> None:
@@ -266,11 +338,10 @@ def prepare_for_migrations(db_path_text: str) -> Path | None:
         return None
     db_path = Path(db_path_text)
     if not db_path.is_file() or db_path.stat().st_size == 0:
+        _mark_fresh(db_path)
         return None
 
     from app.migrations import latest_known_version
-    from app.secret_store import KEY_FILENAME
-    from app.version_info import get_app_build_info
 
     latest = latest_known_version()
     source_schema, objects, total_bytes = _read_state(db_path)
@@ -281,24 +352,41 @@ def prepare_for_migrations(db_path_text: str) -> Path | None:
             f"knows (schema {latest}). Nothing was changed. Run the version that last used it, "
             f"or put back the copy made before the upgrade. {DOCS_URL}"
         )
-    if source_schema == latest or objects == 0:
+    if source_schema == latest:
+        return None
+    if objects == 0:
+        _mark_fresh(db_path)
         return None
 
     marker = marker_path(db_path)
     copies = list_copies(db_path)
     try:
-        interrupted_copy = marker.read_text(encoding="utf-8").strip()
+        marked = marker.read_text(encoding="utf-8").strip()
     except (OSError, UnicodeDecodeError):
-        interrupted_copy = ""
-    if any(copy.path.name == interrupted_copy for copy in copies):
+        marked = ""
+    if marked == _FRESH_MARKER and not _holds_messages(db_path):
+        logger.info("An earlier first start did not finish: carrying on, no copy needed")
+        return None
+    if any(c.path.name == marked and source_schema > c.source_schema for c in copies):
         logger.warning(
             "An earlier migration did not finish (schema %d now): carrying on, the copy made "
             "before it is %s",
             source_schema,
-            interrupted_copy,
+            marked,
         )
         return None
 
+    with _copy_lock(db_path):
+        return _copy_with_retention(db_path, source_schema, latest, total_bytes, copies)
+
+
+def _copy_with_retention(
+    db_path: Path, source_schema: int, latest: int, total_bytes: int, copies: list[DatabaseCopy]
+) -> Path:
+    from app.secret_store import KEY_FILENAME
+    from app.version_info import get_app_build_info
+
+    marker = marker_path(db_path)
     way_back = _way_back(copies)
     removable = [copy for copy in copies if copy != way_back]
     _check_disk_space(db_path, total_bytes, removable, way_back)
@@ -322,6 +410,7 @@ def prepare_for_migrations(db_path_text: str) -> Path | None:
     try:
         marker.unlink(missing_ok=True)
         _write_private(marker, copy.name.encode("utf-8"))
+        _fsync_path(marker.parent)
     except OSError as exc:
         raise CopyFailedError(
             f"The marker of the migration could not be written ({exc}). Nothing was migrated "

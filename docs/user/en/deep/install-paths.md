@@ -204,11 +204,11 @@ When an upgrade has to change the structure of your database, Meshloom first mak
 Meshloom refuses to start on a database made by a newer version, and leaves it untouched. To go back, put the copy back. Everything received or changed since the upgrade is lost.
 
 1. Stop Meshloom.
-2. In the data folder, put the copy in place of the database and remove the two files that go with the old one (`sudo` if the files are not yours):
+2. In the data folder, put the copy in place of the database and remove the files that go with the old one (`sudo` if the files are not yours):
 
    ```bash
    cp -p meshcore.db.schema87.before-5.0.0.db meshcore.db
-   rm -f meshcore.db-wal meshcore.db-shm
+   rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
 
    Going back to 5.0 or later, also put back the key if the copy has one: `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
@@ -216,6 +216,6 @@ Meshloom refuses to start on a database made by a newer version, and leaves it u
    - Docker: set the image to `ghcr.io/twinrocket/meshloom:4.18.2` in `docker-compose.yml` or `.env`, then `docker compose up -d`.
    - Linux package: download the package from the [releases page](https://github.com/TwinRocket/meshloom/releases), then `sudo apt install --allow-downgrades ./<file>.deb` or `sudo dnf downgrade ./<file>.rpm`.
    - Copy of the code: `git checkout 4.18.2`, then run `install_service.sh` again.
-   - Home Assistant: restore the add-on from the backup Home Assistant made before the update. That backup already holds the old database.
+   - Home Assistant: restore the add-on from the backup Home Assistant offers to make before an update, and skip step 2: that backup holds the old database. This backup is optional, and without it Home Assistant cannot reinstall an older add-on, so leave the option ticked when you update. The restore replaces the add-on's whole folder and deletes the copies, since backups leave them out.
 
 Your bots are back as they were on 4.18, and the `secrets.key` file left in the folder is simply not used. When you upgrade again, Meshloom makes a new copy and converts the bots again.

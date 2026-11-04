@@ -204,11 +204,11 @@ Quand une mise à niveau doit changer la structure de votre base, Meshloom en fa
 Meshloom refuse de démarrer sur une base faite par une version plus récente, et n’y touche pas. Pour revenir en arrière, remettez la copie. Tout ce qui a été reçu ou modifié depuis la mise à niveau est perdu.
 
 1. Arrêtez Meshloom.
-2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les deux fichiers qui accompagnent l’ancienne (avec `sudo` si les fichiers ne sont pas à vous) :
+2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les fichiers qui accompagnent l’ancienne (avec `sudo` si les fichiers ne sont pas à vous) :
 
    ```bash
    cp -p meshcore.db.schema87.before-5.0.0.db meshcore.db
-   rm -f meshcore.db-wal meshcore.db-shm
+   rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
 
    Pour revenir à une 5.0 ou plus récente, remettez aussi la clé si la copie en a une : `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
@@ -216,6 +216,6 @@ Meshloom refuse de démarrer sur une base faite par une version plus récente, e
    - Docker : indiquez l’image `ghcr.io/twinrocket/meshloom:4.18.2` dans `docker-compose.yml` ou `.env`, puis `docker compose up -d`.
    - Paquet Linux : téléchargez le paquet sur la [page des versions](https://github.com/TwinRocket/meshloom/releases), puis `sudo apt install --allow-downgrades ./<fichier>.deb` ou `sudo dnf downgrade ./<fichier>.rpm`.
    - Copie du code : `git checkout 4.18.2`, puis relancez `install_service.sh`.
-   - Home Assistant : restaurez l’add-on depuis la sauvegarde que Home Assistant a faite avant la mise à jour. Elle contient déjà l’ancienne base.
+   - Home Assistant : restaurez l’add-on depuis la sauvegarde que Home Assistant propose de faire avant une mise à jour, sans passer par l’étape 2 : elle contient l’ancienne base. Cette sauvegarde est facultative, et sans elle Home Assistant ne peut pas réinstaller un ancien add-on : laissez l’option cochée quand vous mettez à jour. La restauration remplace tout le dossier de l’add-on et supprime les copies, que les sauvegardes laissent de côté.
 
 Vos bots reviennent tels qu’ils étaient en 4.18, et le fichier `secrets.key` resté dans le dossier n’est simplement pas utilisé. À la prochaine mise à niveau, Meshloom refait une copie et reconvertit les bots.

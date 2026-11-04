@@ -59,6 +59,8 @@ backup_exclude:
   - share-cache
   - share-tmp
   - meshcore.db.schema*
+  - meshcore.db.copy-in-progress*
+  - meshcore.db.migration-in-progress
 
 options:
   log_level: INFO
