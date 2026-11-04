@@ -85,7 +85,7 @@ A serial port can only serve one program. If another MeshCore app, a serial cons
 
 ## Meshloom refuses to start after an upgrade
 
-The log says which of these it is. **Not enough free disk space to copy the database**: free the space it names, then start again. Your database has not changed. **This database is at schema N, newer than this version**: you are running an older version than the one that last used the database. Run that version again, or [put back the copy made before the upgrade](/en/docs/deep/install-paths/#going-back-to-an-older-version).
+The log says which of these it is. **Not enough free disk space to copy the database**: free the space it names, then start again. Your database has not changed. **This database is at schema N, newer than this version**: you are running an older version than the one that last used the database. Run that version again, or [put back the copy made before the upgrade](/en/docs/deep/install-paths/#going-back-to-an-older-version). **Meshloom could not start**, followed by a traceback: a step of the start failed, such as an upgrade of the database. The process stops and your service manager starts it again every few seconds to a minute, without copying the database each time. Report the log in an issue, or go back with the same copy.
 
 ## The start-up work loops
 

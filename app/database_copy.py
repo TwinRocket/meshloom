@@ -29,12 +29,15 @@ schema is superseded: the database still at that schema is the fresher of the tw
 A marker file (``<db>.migration-in-progress``, naming the copy) stays for the length
 of the migrations. A start that finds it with the database past that copy's schema
 continues an interrupted run: the database is partly migrated, the copy already
-taken is the good one, and none is taken. At the copy's schema or below it, the copy
-is made again: nothing was migrated, or an older database was put back and used, and
-the live database is the fresher one. So a migration that fails at its first step
-copies at each start, under the same name, replacing the last copy. A first start on
-a new database leaves ``fresh`` in the marker: if it is interrupted there is nothing
-to protect, and the next start takes no copy.
+taken is the good one, and none is taken. At the copy's schema, the marker's second
+line (the highest rowid of each table when the copy was made) tells the two other
+cases apart. Unchanged: the first migration failed, and a service manager is restarting
+us every few seconds, so a large database must not be rewritten each time: no copy,
+and the copy stays free of the tables ``SCHEMA_TABLES`` added since. Changed, or below
+that schema: an older database was put back and used, the live one is the fresher, and
+the copy is made again under the same name. Rows only updated do not count as a change.
+A first start on a new database leaves ``fresh`` in the marker: if it is interrupted
+there is nothing to protect, and the next start takes no copy.
 
 ``<db>.copy-in-progress.lock`` keeps a second process off the temporary file (where
 ``flock`` exists: not Windows). That second process is refused, not made to wait.
@@ -45,6 +48,7 @@ Assistant add-on excludes them through ``backup_exclude`` (``meshloom/config.yam
 """
 
 import errno
+import json
 import logging
 import os
 import re
@@ -198,6 +202,39 @@ def _holds_messages(db_path: Path) -> bool:
             return conn.execute("SELECT 1 FROM messages LIMIT 1").fetchone() is not None
         except sqlite3.OperationalError:
             return False
+
+
+def _highest_rowids(db_path: Path) -> dict[str, int | None]:
+    """Cheap (one index seek per table) and blind to updates: see the module doc."""
+    rowids: dict[str, int | None] = {}
+    with closing(_state_connection(db_path)) as conn:
+        names = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        for (name,) in names:
+            quoted = name.replace('"', '""')
+            try:
+                rowids[name] = conn.execute(f'SELECT max(rowid) FROM "{quoted}"').fetchone()[0]
+            except sqlite3.OperationalError:  # WITHOUT ROWID
+                rowids[name] = conn.execute(f'SELECT count(*) FROM "{quoted}"').fetchone()[0]
+    return rowids
+
+
+def _read_marker(marker: Path) -> tuple[str, dict[str, int | None]]:
+    """The name in the marker and the rowids stored with it; empty when unreadable."""
+    try:
+        name, _, rowids = marker.read_text(encoding="utf-8").partition("\n")
+        return name.strip(), json.loads(rowids) if rowids else {}
+    except (OSError, UnicodeDecodeError, ValueError):
+        return "", {}
+
+
+def _unchanged_since_copy(db_path: Path, rowids: dict[str, int | None]) -> bool:
+    """Tables created after the copy do not count: ``SCHEMA_TABLES`` adds them."""
+    if not rowids:
+        return False
+    current = _highest_rowids(db_path)
+    return all(current.get(name) == value for name, value in rowids.items())
 
 
 def _mark_fresh(db_path: Path) -> None:
@@ -360,10 +397,7 @@ def prepare_for_migrations(db_path_text: str) -> Path | None:
 
     marker = marker_path(db_path)
     copies = list_copies(db_path)
-    try:
-        marked = marker.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError):
-        marked = ""
+    marked, rowids = _read_marker(marker)
     if marked == _FRESH_MARKER and not _holds_messages(db_path):
         logger.info("An earlier first start did not finish: carrying on, no copy needed")
         return None
@@ -372,6 +406,14 @@ def prepare_for_migrations(db_path_text: str) -> Path | None:
             "An earlier migration did not finish (schema %d now): carrying on, the copy made "
             "before it is %s",
             source_schema,
+            marked,
+        )
+        return None
+    same_schema = any(c.path.name == marked and source_schema == c.source_schema for c in copies)
+    if same_schema and _unchanged_since_copy(db_path, rowids):
+        logger.warning(
+            "An earlier migration failed and the database has not changed since: keeping the "
+            "copy %s",
             marked,
         )
         return None
@@ -409,9 +451,10 @@ def _copy_with_retention(
         _remove_copy(way_back.path)
     try:
         marker.unlink(missing_ok=True)
-        _write_private(marker, copy.name.encode("utf-8"))
+        content = f"{copy.name}\n{json.dumps(_highest_rowids(db_path))}"
+        _write_private(marker, content.encode("utf-8"))
         _fsync_path(marker.parent)
-    except OSError as exc:
+    except (OSError, sqlite3.Error) as exc:
         raise CopyFailedError(
             f"The marker of the migration could not be written ({exc}). Nothing was migrated "
             f"and Meshloom will not start. Fix the cause and start again. {DOCS_URL}"

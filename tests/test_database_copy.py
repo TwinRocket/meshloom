@@ -201,7 +201,7 @@ async def test_a_start_interrupted_past_the_copy_reuses_it(db_path, monkeypatch)
             await database.disconnect()
     copies = list_copies(db_path)
     assert len(copies) == 1
-    assert marker_path(db_path).read_text() == copies[0].path.name
+    assert marker_path(db_path).read_text().split("\n")[0] == copies[0].path.name
     taken = copies[0].path.stat().st_mtime_ns
 
     monkeypatch.setattr(migrations, "run_migrations", real)
@@ -212,25 +212,65 @@ async def test_a_start_interrupted_past_the_copy_reuses_it(db_path, monkeypatch)
     assert _schema(db_path) == LATEST
 
 
+def _failing_first_migration(path: Path) -> None:
+    """A database whose one pending migration really fails, in another process too."""
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "UPDATE app_settings SET share_preview_policy = 'private', share_enabled = 0,"
+        " share_terms_version = 0"
+    )
+    conn.execute(
+        "CREATE TRIGGER boom BEFORE UPDATE ON app_settings"
+        " BEGIN SELECT RAISE(ABORT, 'migration boom'); END"
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.mark.asyncio
-async def test_a_migration_failing_at_its_first_step_copies_again_without_piling_up(
-    db_path, monkeypatch
+async def test_a_failed_migration_ends_the_process_and_the_next_one_does_not_recopy(
+    db_path,
 ) -> None:
+    """Exit non-zero with the cause, so a service manager restarts it; no rewrite each time."""
     await _fully_migrated_then_one_behind(db_path)
+    _failing_first_migration(db_path)
 
-    async def failing(conn) -> int:
-        raise RuntimeError("migration failed")
+    first = await asyncio.to_thread(_start_uvicorn, db_path)
+    assert first.returncode != 0
+    assert "migration boom" in first.stdout + first.stderr
+    copies = list_copies(db_path)
+    assert len(copies) == 1
+    taken = copies[0].path.stat().st_mtime_ns
 
-    monkeypatch.setattr(migrations, "run_migrations", failing)
-    for _ in range(3):
-        database = Database(str(db_path))
-        with pytest.raises(RuntimeError, match="migration failed"):
-            try:
-                await database.connect()
-            finally:
-                await database.disconnect()
-        assert len(list_copies(db_path)) == 1
-    assert _schema(list_copies(db_path)[0].path) == LATEST - 1
+    second = await asyncio.to_thread(_start_uvicorn, db_path)
+    assert second.returncode != 0
+    assert "has not changed since" in second.stdout + second.stderr
+    assert [c.path.stat().st_mtime_ns for c in list_copies(db_path)] == [taken]
+    assert _schema(db_path) == LATEST - 1
+
+
+def test_rows_received_after_a_failure_make_a_new_copy_and_tables_added_since_do_not(
+    db_path,
+) -> None:
+    _make_db(db_path, 87)
+    first = prepare_for_migrations(str(db_path))
+    taken = first.stat().st_mtime_ns
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE added_by_schema_tables (id INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO added_by_schema_tables DEFAULT VALUES")
+    conn.commit()
+    conn.close()
+    assert prepare_for_migrations(str(db_path)) is None
+    assert first.stat().st_mtime_ns == taken
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO items (value) VALUES ('received')")
+    conn.commit()
+    conn.close()
+    assert prepare_for_migrations(str(db_path)) == first
+    assert "received" in _rows(first)
+    assert len(list_copies(db_path)) == 1
 
 
 def test_going_back_after_an_interrupted_migration_then_upgrading_copies_again(db_path) -> None:
@@ -254,7 +294,7 @@ def test_going_back_after_an_interrupted_migration_then_upgrading_copies_again(d
     again = prepare_for_migrations(str(db_path))
     assert again == first
     assert "received after going back" in _rows(again)
-    assert marker_path(db_path).read_text() == again.name
+    assert marker_path(db_path).read_text().split("\n")[0] == again.name
 
 
 def test_an_interrupted_first_start_takes_no_copy(db_path) -> None:
@@ -466,6 +506,13 @@ def test_a_stale_temporary_is_replaced(db_path) -> None:
     copy = prepare_for_migrations(str(db_path))
     assert _rows(copy) == _rows(db_path)
     assert not db_path.with_name("meshcore.db.copy-in-progress").exists()
+
+
+def test_an_unreadable_second_line_in_the_marker_makes_a_copy(db_path) -> None:
+    _make_db(db_path, 87)
+    first = prepare_for_migrations(str(db_path))
+    marker_path(db_path).write_text(f"{first.name}\nnot json")
+    assert prepare_for_migrations(str(db_path)) == first
 
 
 def test_a_marker_naming_no_copy_is_ignored(db_path) -> None:

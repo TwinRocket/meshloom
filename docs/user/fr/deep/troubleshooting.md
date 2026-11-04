@@ -85,7 +85,7 @@ Un port série ne peut servir qu’un programme. Si une autre application MeshCo
 
 ## Meshloom refuse de démarrer après une mise à niveau
 
-Le journal dit lequel de ces cas vous concerne. **Not enough free disk space to copy the database** : libérez la place indiquée, puis redémarrez. Votre base n’a pas changé. **This database is at schema N, newer than this version** : vous lancez une version plus ancienne que celle qui a utilisé la base en dernier. Relancez cette version, ou [remettez la copie faite avant la mise à niveau](/docs/deep/install-paths/#revenir-à-une-version-plus-ancienne).
+Le journal dit lequel de ces cas vous concerne. **Not enough free disk space to copy the database** : libérez la place indiquée, puis redémarrez. Votre base n’a pas changé. **This database is at schema N, newer than this version** : vous lancez une version plus ancienne que celle qui a utilisé la base en dernier. Relancez cette version, ou [remettez la copie faite avant la mise à niveau](/docs/deep/install-paths/#revenir-à-une-version-plus-ancienne). **Meshloom could not start**, suivi d’une trace d’erreur : une étape du démarrage a échoué, par exemple la mise à niveau de la base. Le processus s’arrête et votre gestionnaire de services le relance toutes les quelques secondes à une minute, sans recopier la base à chaque fois. Signalez le journal dans un ticket, ou revenez en arrière avec la même copie.
 
 ## Le travail de démarrage boucle
 

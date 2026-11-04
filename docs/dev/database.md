@@ -41,7 +41,14 @@ source installs keep the umask they run with: `data/` belongs to whoever runs th
   above the highest migration stops the start (`SchemaTooNewError`), and pending
   migrations on a populated database make a copy first, or stop the start when it fails
   (`CopyFailedError`). Name, retention, marker file and reasons: the header of that
-  module. `app.main.lifespan` logs a `StartupRefused` as one line, without a traceback.
+  module. A failed start is logged by `_lifespan_logging_startup_failure` in
+  `app/main.py` (a `StartupRefused` as one line, without a traceback), which closes the
+  connection: the aiosqlite worker is not a daemon thread and would hold the process
+  alive after uvicorn gave up, so `Restart=` would never fire. Measured with the packaged
+  unit (systemd 257): a migration that always fails restarts every 8 s, without end
+  (`RestartSec=5s` never reaches the default start limit). Docker backs off up to 1 min.
+  Each cycle costs about 2.5 s of CPU and 300 kB written on a 900 MB database: only the
+  first one copies it.
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.

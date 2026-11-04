@@ -515,6 +515,18 @@ def _log_startup_failure(exc: Exception) -> None:
     logging.getLogger("uvicorn.error").addFilter(_not_a_startup_traceback)
 
 
+async def _close_after_failed_start() -> None:
+    """Without this the process never ends, and no service manager restarts it.
+
+    The aiosqlite worker is not a daemon thread: left open, it holds the interpreter
+    at exit, once uvicorn has given up.
+    """
+    try:
+        await db.disconnect()
+    except Exception as exc:
+        logger.warning("The database could not be closed after a failed start: %s", exc)
+
+
 @asynccontextmanager
 async def _lifespan_logging_startup_failure(app: FastAPI):
     """``lifespan``, with a readable log when the start fails."""
@@ -526,6 +538,7 @@ async def _lifespan_logging_startup_failure(app: FastAPI):
     except Exception as exc:
         if not started:
             _log_startup_failure(exc)
+            await _close_after_failed_start()
         raise
 
 
