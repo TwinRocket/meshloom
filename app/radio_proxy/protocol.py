@@ -285,15 +285,29 @@ class AddContactCommand:
     name: str
 
 
+class NotAFrameStart(ValueError):
+    """A connection's first bytes are not a client frame: it speaks something else."""
+
+
 class FrameAssembler:
-    """Accumulate client→proxy 0x3C frames from a TCP stream."""
+    """Accumulate client→proxy 0x3C frames from a TCP stream.
+
+    A connection must open with a frame: anything else raises ``NotAFrameStart``, and
+    the caller closes it. Skipping to the next 0x3C there would run frames carried inside
+    another protocol, such as the body of an HTTP request a web page sends to this port.
+    Once a first frame has arrived the client has shown what it speaks, and stray bytes
+    between frames are skipped to resynchronise.
+    """
 
     def __init__(self) -> None:
         self._buf = bytearray()
+        self._synced = False
 
     def feed(self, data: bytes) -> list[bytes]:
         self._buf.extend(data)
         frames: list[bytes] = []
+        if not self._synced:
+            self._check_first_frame()
         while True:
             start = self._buf.find(bytes([RX_MARKER]))
             if start < 0:
@@ -312,6 +326,13 @@ class FrameAssembler:
                 return frames
             frames.append(bytes(self._buf[3:total]))
             del self._buf[:total]
+            self._synced = True
+
+    def _check_first_frame(self) -> None:
+        if self._buf and self._buf[0] != RX_MARKER:
+            raise NotAFrameStart
+        if len(self._buf) >= 3 and int.from_bytes(self._buf[1:3], "little") > MAX_FRAME_SIZE:
+            raise NotAFrameStart
 
 
 def parse_send_txt(payload: bytes) -> SendTxtCommand:

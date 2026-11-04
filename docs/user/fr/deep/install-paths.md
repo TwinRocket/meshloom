@@ -166,6 +166,8 @@ Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une in
 
 `MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
 
+Avec le paquet Linux, les autres comptes de la machine ne peuvent pas lire `/var/lib/meshloom` : utilisez `sudo` pour le consulter ou le copier.
+
 À côté de la base, le fichier `secrets.key` contient la clé qui chiffre dans la base les secrets de vos canaux de notification et de vos intégrations (mots de passe, jetons, adresses webhook et Apprise). Meshloom le crée à son premier démarrage, lisible par son seul utilisateur (mode 0600), et ne l’affiche jamais. La base seule ne permet pas de déchiffrer ces secrets.
 
 **Déplacer une installation.** Arrêtez Meshloom, puis copiez `meshcore.db` **et** `secrets.key` (le plus simple : tout le dossier de données) au nouvel endroit. Sans `secrets.key`, Meshloom démarre quand même et tout le reste fonctionne, mais chaque canal de notification et chaque intégration qui a un secret enregistré est désactivé et marqué *ne peut pas être déchiffré* : remettez le fichier à côté de la base et redémarrez, ou saisissez ces secrets à nouveau. Meshloom crée alors un nouveau `secrets.key`. La clé ne peut pas être changée, et la perdre ne fait perdre que ces secrets.
