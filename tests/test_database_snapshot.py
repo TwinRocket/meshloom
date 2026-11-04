@@ -46,9 +46,7 @@ async def test_a_test_cannot_leak_changes_into_the_next_database():
             await conn.execute("CREATE TABLE leak_probe (id INTEGER)")
     async with patched_database() as second:
         async with second.readonly() as conn:
-            async with conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE name = 'leak_probe'"
-            ) as c:
+            async with conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'leak_probe'") as c:
                 assert await c.fetchone() is None
 
 
