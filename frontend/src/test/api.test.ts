@@ -953,4 +953,28 @@ describe('bulkDeleteContacts', () => {
     for (const body of bodies) expect(body.length).toBeLessThan(1024 * 1024);
     expect(bodies.flatMap((body) => JSON.parse(body).public_keys)).toEqual(keys);
   });
+
+  it('tells the caller what each batch deleted before a later one fails', async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response(JSON.stringify({ deleted: 5000 }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          : new Response(JSON.stringify({ detail: 'nope' }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            });
+      })
+    );
+    const keys = Array.from({ length: 5001 }, (_, i) => String(i));
+    const onBatch = vi.fn();
+    await expect(api.bulkDeleteContacts(keys, onBatch)).rejects.toBeInstanceOf(ApiError);
+    expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(onBatch).toHaveBeenCalledWith(keys.slice(0, 5000), 5000);
+  });
 });
