@@ -205,7 +205,7 @@ La radio redémarre et Meshloom se reconnecte tout seul. Il vous demande ensuite
 
 **Réglages → Proxy** peut faire passer Meshloom pour une radio MeshCore sur votre réseau, afin qu’une application mobile ou un autre Meshloom se connecte à travers lui. Il est désactivé par défaut. Une fois activé, il écoute sur le port 5001, sur toutes les adresses réseau, pour 8 clients au plus à la fois. Vous pouvez changer l’adresse, le port et le nombre de clients.
 
-Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Un second Meshloom doit utiliser une nouvelle base de données (ou adopter explicitement cette identité), et Meshloom refuse de brancher sa propre connexion radio sur son propre proxy. Quand c’est l’hôte qui fixe le port publié (l’add-on Home Assistant, par exemple), changez-le dans les réglages réseau de l’hôte.
+Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Une connexion qui ne commence pas comme celle d’un client MeshCore, par exemple une page web ou un scan de ports, est fermée. Un second Meshloom doit utiliser une nouvelle base de données (ou adopter explicitement cette identité), et Meshloom refuse de brancher sa propre connexion radio sur son propre proxy. Quand c’est l’hôte qui fixe le port publié (l’add-on Home Assistant, par exemple), changez-le dans les réglages réseau de l’hôte.
 
 ## La clé privée
 

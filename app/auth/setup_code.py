@@ -25,7 +25,11 @@ rewrite, ``app/middleware/proxy_headers.py``) is not a local address
 a documentation or reserved address counts as public),
 it carries forwarding headers (any of ``PROXY_HEADERS``,
 ``app/auth/providers/trusted_network.py``) from a peer that is not a trusted
-proxy (the client is unknown), or a public address is declared (``auth_settings.public_urls``).
+proxy (the client is unknown), a public address is declared (``auth_settings.public_urls``),
+or its ``Host`` is a name a public DNS zone could hold (``host_guard.name_cannot_be_rebound``
+fails, whatever ``host_guard_mode`` says): a page that re-pointed its own name at this
+instance (DNS rebinding) is same-origin and comes from a LAN browser, so only the name
+gives it away. An owner on a dotted name of their own uses the logged code.
 An exposed request always needs the code: on a fresh database with none
 stored, the first exposed ``GET /api/auth/session`` or ``POST /api/auth/setup``
 issues one and logs it (``ensure_exposure_code()``), and setup answers 403
@@ -109,17 +113,20 @@ def reset_first_run_state() -> None:
 
 
 async def request_exposed(scope: MutableMapping[str, Any]) -> bool:
-    """Whether a first-run request may come from outside the local network
-    (module docstring, "Exposed first run")."""
+    """Whether a first-run request may come from outside the local network, or
+    from a page that is not this instance's (module docstring, "Exposed first run")."""
     from starlette.datastructures import Headers
 
     from app.auth.providers import trusted_network
     from app.auth.ratelimit import client_is_public, is_trusted_proxy
-    from app.middleware import proxy_headers
+    from app.middleware import host_guard, proxy_headers
 
     if scope.get("auth_via", "lan") != "lan":
         return True
-    if trusted_network.carries_proxy_headers(Headers(scope=scope)) and not is_trusted_proxy(
+    headers = Headers(scope=scope)
+    if not host_guard.name_cannot_be_rebound(headers.get("host")):
+        return True
+    if trusted_network.carries_proxy_headers(headers) and not is_trusted_proxy(
         proxy_headers.peer_address(scope), proxy_headers.current()
     ):
         return True
@@ -142,10 +149,11 @@ async def ensure_exposure_code() -> None:
         await AuthSettingsRepository.set_setup_code_hash(stored)
         _exposure_code_hash = stored
     logger.warning(
-        "Meshloom was opened from outside the local network while no account exists. "
+        "Meshloom was opened from outside the local network, or under a name that is not "
+        "a local one, while no account exists. "
         "To create the administrator from there, enter the installation code %s "
         "(valid until the next restart; `meshloom-admin setup-code` prints a new one). "
-        "From the local network no code is needed.",
+        "From the local network, at this machine's address or local name, no code is needed.",
         code,
     )
 

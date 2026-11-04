@@ -166,6 +166,8 @@ The server serves `frontend/dist` if it exists, otherwise `frontend/prebuilt` (a
 
 `MESHCORE_DATABASE_PATH` moves it. An update never replaces your database: the structure is upgraded at startup, step by step.
 
+With the Linux package, other accounts on the machine cannot read `/var/lib/meshloom`: use `sudo` to look at it or copy it.
+
 Next to the database, the `secrets.key` file holds the key that encrypts the secrets of your notification channels and integrations in the database (passwords, tokens, webhook and Apprise addresses). Meshloom creates it at its first start, readable by its own user only (mode 0600), and never shows it. The database alone cannot decrypt those secrets.
 
 **Move an installation.** Stop Meshloom, then copy `meshcore.db` **and** `secrets.key` (the whole data folder is simplest) to the new place. Without `secrets.key`, Meshloom still starts and everything else works, but each notification channel and integration with a stored secret is switched off and marked *cannot be decrypted*: put the file back next to the database and restart, or type those secrets again. Meshloom then creates a new `secrets.key`. There is no way to change the key, and losing it loses only those secrets.
