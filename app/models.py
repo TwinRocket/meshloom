@@ -1814,7 +1814,7 @@ class AppSettings(BaseModel):
         description="When the composer shortens a link: auto (long links only), always, never",
     )
     share_preview_policy: Literal["always", "private", "never"] = Field(
-        default="private",
+        default="always",
         description=(
             "When a shared image or link preview is fetched automatically: always, "
             "private (conversations that are not public), never"
