@@ -75,6 +75,7 @@ from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
 from app.decoder import encrypt_group_text
+from app.background_tasks import drain_background_tasks
 from app.fanout.manager import SYSTEM_MESHLOOM_STATS_ID, fanout_manager
 from app.fanout.meshloom_stats import MeshloomStatsPublisher
 from app.packet_processor import process_raw_packet
@@ -273,7 +274,12 @@ def egress(monkeypatch):
 
 @pytest.fixture
 async def cleanup_community():
+    # fanout_manager is process-global: a Community transition spawned by an earlier test
+    # (a tracked background task) can still add the module after that test's cleanup ran.
+    await drain_background_tasks()
+    await fanout_manager.remove_config(SYSTEM_MESHLOOM_STATS_ID)
     yield
+    await drain_background_tasks()  # stop in-flight transitions before removing the module
     await fanout_manager.remove_config(SYSTEM_MESHLOOM_STATS_ID)
     await get_live_relay().shutdown()
     reset_community_live_for_tests()

@@ -161,7 +161,10 @@ async def test_concurrent_fills_never_exceed_the_cap(tmp_path):
         nonlocal peak
         while not stop.is_set():
             if cache.opened:
-                peak = max(peak, cache.measured(cache._open()))
+                # The accounted total (files + index + reserved log budget + shm): the
+                # guarantee. The raw log size is not, a reader pinning a snapshot (this
+                # watcher is one) blocks its truncation by design (share_cache docstring).
+                peak = max(peak, cache._used(cache._open()))
             await asyncio.sleep(0)
 
     try:
@@ -176,6 +179,9 @@ async def test_concurrent_fills_never_exceed_the_cap(tmp_path):
         stop.set()
         await watcher
         assert peak <= limit
+        # At rest (no reader left) the log truncates and the real size is under the cap too.
+        cache._wal_retry_at = 0.0
+        cache._truncate_wal()
         assert cache.measured(cache._open()) <= limit
         assert await cache.count() >= 1
     finally:

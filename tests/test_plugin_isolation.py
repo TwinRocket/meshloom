@@ -595,7 +595,14 @@ def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
         # The child and the grandchild, plus the sandbox's own init under bwrap. Each
         # pid is kept with its start time, so a pid the system hands out again after
         # the kill is not taken for a survivor.
-        tree = {pid: _identity(pid) for pid in _descendants(proc.pid)}
+        # A pid already gone by now (listed in /proc/<pid>/children, exited before its
+        # stat could be read) has no identity: kept, `_alive(pid, None)` would match
+        # whatever process the system hands that pid to later (seen as `{14306: None}`).
+        tree = {
+            pid: identity
+            for pid in _descendants(proc.pid)
+            if (identity := _identity(pid)) is not None
+        }
         assert len(tree) >= 2, tree
         # Through the backend: without CAP_KILL, setuid signals from a helper.
         backend.signal_group(proc.pid, signal.SIGKILL, wait=True)
@@ -603,7 +610,12 @@ def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
         deadline = time.monotonic() + 10
         while any(_alive(p, i) for p, i in tree.items()) and time.monotonic() < deadline:
             time.sleep(0.05)
-        survivors = {p: _stat(p) for p, i in tree.items() if _alive(p, i)}
+        # One /proc read per pid: alive and its stat for the report come from the same view.
+        survivors = {}
+        for p, i in tree.items():
+            fields = _stat(p)
+            if fields is not None and fields[0] != "Z" and fields[19] == i:
+                survivors[p] = fields
         assert not survivors, survivors
     finally:
         if proc.poll() is None:
