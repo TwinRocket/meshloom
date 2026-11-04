@@ -13,7 +13,7 @@ which raise no audit event; MSHL-212). It is the
 guard that holds where `RLIMIT_NPROC` does not: the kernel exempts root from
 that limit, so a child running as root (levels `none` and `bwrap` started by a
 root server) could otherwise rebuild `_posixsubprocess` from its spec, or start
-a thread on 3.11, past the audit hook (MSHL-323). Threads are refused too: the
+a thread (3.11 emitted no thread-start audit event), past the audit hook (MSHL-323). Threads are refused too: the
 runner never starts one (its event loop is single-threaded, its self-pipe an
 `os.pipe`) and `RLIMIT_NPROC` 0 already refuses them at every non-root level.
 Allowing `clone(CLONE_THREAD)` only would also be fragile: `clone3` carries its

@@ -22,7 +22,7 @@ nor, in the Home Assistant add-on, the supervisor network
 (``is_supervisor_network_address``), checked on every hop.
 
 Address classes are tested range by range. ``ipaddress.is_private`` and
-``is_global`` changed between Python 3.11 and 3.13 (IPv4-mapped IPv6,
+``is_global`` changed between Python releases (IPv4-mapped IPv6,
 100.64.0.0/10), so they are never used. See ``app/net/AGENTS.md``.
 """
 

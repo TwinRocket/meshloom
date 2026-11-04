@@ -214,7 +214,7 @@ def _apply_limits(params: dict[str, Any]) -> None:
         # No thread and no process, at every level: clone() fails with EAGAIN once
         # the uid's task count reaches the limit, and with 0 it always has. This is
         # what closes the paths the hook cannot see (a `_posixsubprocess` rebuilt
-        # from its spec, a thread on 3.11, native code). The runner itself needs
+        # from its spec, a thread where the runtime emits no audit event for it, native code). The runner itself needs
         # neither. Root ignores RLIMIT_NPROC: the seccomp filter below covers it
         # (docs/dev/plugins-security.md).
         wanted.append((resource.RLIMIT_NPROC, 0))
@@ -530,7 +530,7 @@ class _ImportGuard:
     Two seams. The `sys.meta_path` finder sees modules that are not in
     `sys.modules` yet (`from urllib import request` included); the
     `builtins.__import__` wrapper sees every `import` statement, so a module the
-    runtime loaded again after the purge (3.11 re-imports `threading`) is still
+    runtime loaded again after the purge (3.11 re-imported `threading`; kept as defence in depth) is still
     refused to plugin code. Plugin code is the first frame outside the import
     machinery whose file is under the plugin directory, or compiled at run time.
     """

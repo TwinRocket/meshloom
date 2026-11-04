@@ -443,7 +443,6 @@ print(json.dumps(out))
 
 
 @pytest.mark.skipif(not LINUX, reason="bubblewrap is Linux only")
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="os.unshare is 3.12+")
 def test_bwrap_box_has_its_own_filter_and_no_nested_user_namespace(tmp_path: Path) -> None:
     """A program with no runner (what a runner bypass leaves) still meets the bwrap
     filter (MSHL-413); without that filter, `--disable-userns` alone makes the

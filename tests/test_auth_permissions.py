@@ -384,8 +384,8 @@ class TestWebSocketDelivery:
         return sockets
 
     async def _drain(self, manager: WebSocketManager) -> None:
-        """Until every writer has sent its queue (Python 3.11 needs more loop
-        iterations per frame than 3.12+), then a few more for the last send."""
+        """Until every writer has sent its queue (a frame takes several loop
+        iterations), then a few more for the last send."""
         import asyncio
 
         for _ in range(1000):

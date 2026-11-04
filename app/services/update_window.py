@@ -79,7 +79,8 @@ def _local_wall_clock(day: datetime, hour: int, minute: int) -> datetime:
     """
     naive = datetime.combine(day.date(), time(hour, minute))
     # ``fold`` picks the offset in a gap or an overlap, and CPython versions disagree on
-    # which fold is the "pre-transition" one in a gap (3.11 vs 3.14): try both.
+    # which fold is the "pre-transition" one in a gap (changed between 3.11 and
+    # 3.14): try both, so the result does not depend on the version.
     first, second = naive.replace(fold=0).astimezone(), naive.replace(fold=1).astimezone()
     if first.replace(tzinfo=None) == naive == second.replace(tzinfo=None):
         return min(first, second)  # autumn overlap: the first occurrence

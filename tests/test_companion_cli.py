@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from contextlib import asynccontextmanager
 
 import pytest
@@ -299,15 +298,11 @@ async def test_refused_before_any_lock_was_created():
 
 
 async def test_wait_for_around_a_call(radio):
-    """Documented: on 3.11 wait_for runs the call in a new task and is refused."""
+    """wait_for no longer runs the call in a new task (3.12+), so it is accepted."""
     loop, firmware, manager = radio
     async with held(manager) as cli:
         assert (await cli.run("get wifi.status", timeout=1)).value == "disconnected"
-        if sys.version_info < (3, 12):
-            with pytest.raises(CliLockError):
-                await asyncio.wait_for(cli.get("wifi.status"), 1)
-        else:
-            assert (await asyncio.wait_for(cli.get("wifi.status"), 1)).value == "disconnected"
+        assert (await asyncio.wait_for(cli.get("wifi.status"), 1)).value == "disconnected"
 
 
 async def test_session_refuses_before_setup_completes(radio, monkeypatch):

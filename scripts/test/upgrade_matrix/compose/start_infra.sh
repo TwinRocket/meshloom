@@ -4,7 +4,7 @@ set -eu
 C=$(cd "$(dirname "$0")/.." && pwd)
 docker rm -f e2ec-gh e2ec-reg >/dev/null 2>&1 || true
 docker network inspect e2e-net >/dev/null 2>&1 || docker network create --subnet 172.31.250.0/24 e2e-net
-docker create --name e2ec-gh --network e2e-net --ip 172.31.250.20 python:3.12-slim \
+docker create --name e2ec-gh --network e2e-net --ip 172.31.250.20 python:3.13-slim \
     python3 -u /srv/gh_server.py /srv/gh /srv/tls/srv.crt /srv/tls/srv.key >/dev/null
 docker cp "$C/scripts/gh_server.py" e2ec-gh:/srv/gh_server.py
 docker cp "$C/tls" e2ec-gh:/srv/tls

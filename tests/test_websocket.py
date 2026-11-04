@@ -37,8 +37,8 @@ def mock_websocket():
 async def _flush(rounds: int = 20) -> None:
     """Let per-client writer tasks drain their queues.
 
-    Eviction -> close goes through asyncio.wait_for, which takes more loop
-    iterations on Python 3.11 than on 3.12+, so 5 yields were not always enough.
+    Eviction -> close goes through asyncio.wait_for, which needs several loop
+    iterations, so a few yields are not always enough.
     """
     for _ in range(rounds):
         await asyncio.sleep(0)

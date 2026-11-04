@@ -4,7 +4,7 @@ version = "4.18.2"
 description = "Meshloom - Web interface for MeshCore radio mesh networks"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.162.0",
     "uvicorn[standard]>=0.54.0",
@@ -55,7 +55,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]
@@ -74,13 +74,16 @@ ignore = [
     "SIM105", # contextlib.suppress - doesn't work well with async code
     "SIM108", # ternary operator (sometimes less readable)
     "SIM117", # nested with statements - can be clearer in tests
+    "UP040",  # PEP 695 `type` aliases: py313 target now flags them; not migrated yet
+    "UP046",  # PEP 695 generic classes: idem
+    "UP047",  # PEP 695 generic functions: idem
 ]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "meshloom_plugin"]
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.13"
 typeCheckingMode = "basic"
 include = ["app", "meshloom_plugin"]
 exclude = ["references", ".venv", "tests"]
