@@ -34,6 +34,10 @@ Three layers, all always on:
   asyncio's default exception handler already logs (logger ``asyncio``).
 - ``secret_scope()`` registers literal secrets for the duration of a call; every
   registered form (text, hex, repr escapes) is replaced wherever it appears.
+- A channel key in a request URL (a path segment or a query value, as in
+  ``DELETE /api/channels/<key>``) is replaced in every formatted line: uvicorn's
+  access log, the server-error lines and the ``GET /api/debug`` buffer. Hashtag and
+  private channels alike. A contact's 64-digit public key stays readable.
 
 The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, and
 ``aiosqlite`` prints every statement with its parameters (password and token
@@ -469,6 +473,10 @@ def _apply_line_rules(line: str, *, unanchored: bool) -> str:
     return line
 
 
+# 16 bytes in hex as a whole URL path segment or query value.
+_URL_CHANNEL_KEY_RE = re.compile(r"(?<=[/=])[0-9A-Fa-f]{32}(?![0-9A-Za-z])")
+
+
 def redact_text(message: str, *, unanchored: bool = False) -> str:
     """Return ``message`` with every secret-bearing part redacted.
 
@@ -476,14 +484,14 @@ def redact_text(message: str, *, unanchored: bool = False) -> str:
     start of the message or of a line. Unanchored (the formatter, on a formatted
     line that begins with the time/name/level prefix): the rules are searched
     anywhere in a line. Multi-line rules run on the whole text first, then the
-    single-line rules per line, then the literal scrub.
+    single-line rules per line, then the literal scrub and the URL channel keys.
     """
     text = _apply_multiline_rules(message, unanchored=unanchored)
     if any(prefix in text for prefix, _ in _LINE_RULES):
         text = "\n".join(
             _apply_line_rules(line, unanchored=unanchored) for line in text.split("\n")
         )
-    return _scrub_literals(text)
+    return _URL_CHANNEL_KEY_RE.sub(REDACTED, _scrub_literals(text))
 
 
 # --------------------------------------------------------------------------

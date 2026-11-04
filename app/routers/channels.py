@@ -279,7 +279,7 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
     requested_name = request.name
     key_hex, channel_name, is_hashtag = _derive_channel_identity(requested_name, request.key)
 
-    logger.info("Creating channel %s: %s (hashtag=%s)", key_hex, channel_name, is_hashtag)
+    logger.info("Creating channel %s (hashtag=%s)", channel_name, is_hashtag)
 
     # Store in database only - radio sync happens at send time.
     # Manual create always adopts (and un-rejects if the key was refused).
