@@ -121,10 +121,16 @@ migrate_dnf_source
 mark_kiosk_host() {
     [ -f /etc/xdg/autostart/meshloom-kiosk.desktop ] \
         || [ -f /usr/lib/meshloom/meshloom-kiosk-setup ] || return 0
-    [ -e /var/lib/meshloom/kiosk ] && return 0
+    if [ -e /var/lib/meshloom/kiosk ] && [ ! -L /var/lib/meshloom/kiosk ]; then
+        return 0
+    fi
     mkdir -p /var/lib/meshloom || return 0
-    : >/var/lib/meshloom/kiosk || return 0
-    chmod 0644 /var/lib/meshloom/kiosk || true
+    # The meshloom user owns this directory and could plant a link at this name:
+    # root never writes through it. Built in the root-owned directory, then renamed
+    # over whatever is there (a rename replaces a link, it does not follow it).
+    marker=$(mktemp /var/lib/meshloom-update/kiosk.XXXXXX) || return 0
+    chmod 0644 "$marker" || true
+    mv -fT "$marker" /var/lib/meshloom/kiosk || { rm -f "$marker"; return 0; }
     echo "==> Kiosk image detected: marked this host as a Meshloom kiosk."
 }
 mark_kiosk_host || true

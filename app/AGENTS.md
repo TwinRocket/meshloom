@@ -150,7 +150,9 @@ and the OpenAPI page (`/docs`), not a table here.
   chunked body; 413 `request_too_large` with `Connection: close`. `SELF_LIMITED_ROUTES`
   (backup inspect and restore, share uploads) read in chunks and refuse with their own
   code; `LARGER_ROUTES` holds JSON routes that need more (plugin source). A new route
-  taking a large body goes in one of the two.
+  taking a large body goes in one of the two. Capped routes also have a read deadline
+  (408 `request_timeout`) and, with no principal, share a budget for what they hold past
+  16 KiB (503 `server_busy`); self-limited ones have neither: the gate answers first.
 - `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
   gate and CORS) is the only interpreter of `X-Forwarded-For` and
   `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
