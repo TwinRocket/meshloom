@@ -397,7 +397,7 @@ async def sync_and_offload_channels(mc: MeshCore, max_channels: int | None = Non
         for idx in range(channel_limit):
             result = await mc.commands.get_channel(idx)
 
-            if result.type != EventType.CHANNEL_INFO:
+            if result.type != EventType.CHANNEL_INFO or not _reply_is_for_slot(result, idx):
                 all_slots_read = False
                 continue
 
@@ -483,7 +483,7 @@ async def clear_channel_from_radio_slots(channel_key: str) -> int:
                 if _radio_timed_out(result):
                     done = False
                     break
-                if result.type != EventType.CHANNEL_INFO:
+                if result.type != EventType.CHANNEL_INFO or not _reply_is_for_slot(result, idx):
                     done = False
                     continue
                 if _normalize_channel_secret(result.payload).hex().upper() != target:
@@ -499,6 +499,11 @@ async def clear_channel_from_radio_slots(channel_key: str) -> int:
     if done:
         await ChannelRepository.drop_slot_clears_pending({target})
     return cleared
+
+
+def _reply_is_for_slot(result: Any, idx: int) -> bool:
+    """False for the late reply of an earlier read that had timed out."""
+    return result.payload.get("channel_idx", idx) == idx
 
 
 def _radio_timed_out(result: Any) -> bool:
@@ -549,7 +554,7 @@ async def _resolve_channel_for_pending_message(
     except Exception as exc:
         logger.debug("Failed to fetch channel slot %s for pending message: %s", channel_idx, exc)
     else:
-        if result.type == EventType.CHANNEL_INFO:
+        if result.type == EventType.CHANNEL_INFO and _reply_is_for_slot(result, channel_idx):
             slot_key = _normalize_channel_secret(result.payload).hex().upper()
             if await ChannelRepository.is_slot_clear_pending(slot_key):
                 return None, None  # deleted by the user: never adopted again

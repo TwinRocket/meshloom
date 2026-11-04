@@ -353,9 +353,7 @@ class FanoutManager:
                     channel = await ChannelRepository.get_by_key(conversation_key)
                 except Exception:
                     logger.debug(
-                        "Fanout: failed to load channel %s for pending check",
-                        conversation_key,
-                        exc_info=True,
+                        "Fanout: failed to load a channel for pending check", exc_info=True
                     )
                     channel = None
                 if is_pending_channel(channel):

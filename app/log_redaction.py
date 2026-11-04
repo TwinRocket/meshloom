@@ -5,8 +5,9 @@ command bytes (``Sending raw data``, ``sending pkt``), the incoming ones
 (``Received data``), the dispatched event payloads and, on a parse failure, the
 raw frame at ERROR. A companion CLI frame can carry a Wi-Fi password (``set
 wifi.pwd`` out, the ``get wifi.pwd`` reply in) and the private key travels in
-the export (on every connect) and import frames, so those records are redacted
-here before any handler sees them.
+the export (on every connect) and import frames, and a channel secret travels in
+SET_CHANNEL and CHANNEL_INFO, so those records are redacted here before any handler
+sees them. They exist only when someone sets the log level to DEBUG.
 
 Three layers, all always on:
 
@@ -37,7 +38,10 @@ Three layers, all always on:
 - A channel key in a request URL (a path segment or a query value, as in
   ``DELETE /api/channels/<key>``) is replaced in every formatted line: uvicorn's
   access log, the server-error lines and the ``GET /api/debug`` buffer. Hashtag and
-  private channels alike. A contact's 64-digit public key stays readable.
+  private channels alike. A contact's 64-digit public key stays readable. Accepted
+  limits: any other 32-digit session, token or pairing id in a URL is masked too, so a
+  debug report may not say which one was meant; a percent-encoded or otherwise crafted
+  form of a key is not recognized, and only someone who knows the key can send one.
 
 The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, and
 ``aiosqlite`` prints every statement with its parameters (password and token
@@ -76,16 +80,18 @@ SECRET_OUT: frozenset[int] = frozenset(
     {
         0x42,  # CMD_RUN_CLI_COMMAND ("set wifi.pwd ...")
         0x18,  # CMD_IMPORT_PRIVATE_KEY
+        0x20,  # CMD_SET_CHANNEL (the channel secret)
     }
 )
 SECRET_IN: frozenset[int] = frozenset(
     {
         0x1D,  # RESP_CODE_CLI_REPLY ("get wifi.pwd" answer)
         0x0E,  # RESP_CODE_PRIVATE_KEY (export, on every connect)
+        0x12,  # RESP_CODE_CHANNEL_INFO (the channel secret)
     }
 )
 
-_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY")
+_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY", "EventType.CHANNEL_INFO")
 
 # --------------------------------------------------------------------------
 # Log-line forging (MSHL-432)
@@ -401,7 +407,7 @@ def _rule_received_hex(rest: str) -> str | None:
 
 
 def _rule_received_private_key(rest: str) -> str | None:
-    return REDACTED
+    return REDACTED  # also the channel info response: the whole frame is the secret's
 
 
 def _rule_unhandled(rest: str) -> str | None:
@@ -426,6 +432,7 @@ _LINE_RULES = (
     ("sending pkt : ", _rule_sending_pkt),
     ("Received data: ", _rule_received_hex),
     ("Received private key response: ", _rule_received_private_key),
+    ("received channel info response: ", _rule_received_private_key),
     ("Unhandled data received ", _rule_unhandled),
     ("Dispatching event: ", _rule_dispatch),
 )

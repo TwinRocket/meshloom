@@ -38,6 +38,7 @@ from app.log_redaction import (
 # Imported at module level: importing app.main runs setup_logging(), whose
 # dictConfig would drop caplog's handler if it happened inside a test.
 from app.main import log_server_errors, request_validation_error_handler
+from app.services.channel_slots import channel_slot_frame
 from tests.fixtures.meshcore_loopback import cli_reply, make_loopback
 
 SECRET = "S3cr3t-Pw!"
@@ -903,3 +904,30 @@ def test_the_server_error_line_does_not_carry_a_channel_key():
 )
 def test_other_url_values_stay_readable(text):
     assert redact_text(text, unanchored=True) == text
+
+
+# -- channel secrets in meshcore's DEBUG frames (MSHL-459) ------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["serial", "tcp"])
+async def test_a_channel_secret_stays_out_of_debug_logs(debug_logs, kind):
+    """SET_CHANNEL going out and CHANNEL_INFO coming back, through the real stack."""
+    secret = bytes(range(0xA0, 0xB0))
+    channel_info = b"\x12\x02" + b"#ops".ljust(32, b"\x00") + secret
+
+    def responder(frame: bytes) -> list[bytes]:
+        return [channel_info] if frame[0] == 0x1F else [b"\x00"]
+
+    loop = await make_loopback(kind, responder=responder)
+    try:
+        await loop.mc.commands.send(channel_slot_frame(2, "#ops", secret), [EventType.OK])
+        result = await loop.mc.commands.get_channel(2)
+        await loop.settle()
+    finally:
+        await loop.close()
+
+    assert result.payload["channel_secret"] == secret  # the app still reads it
+    output = debug_logs.text + "\n".join(get_recent_log_lines(1000))
+    for form in secret_forms(secret):
+        assert form not in output

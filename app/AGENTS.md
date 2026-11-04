@@ -1298,10 +1298,12 @@ run as root).
   `poweroff`, `shutdown`, `erase` and `start` are refused: reboot with
   `mc.commands.reboot()` plus `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
   use the remote CLI over the mesh.
-- **Never log a channel key.** A key in a request URL (uvicorn's access log, the
-  server-error lines, the `GET /api/debug` buffer) is replaced by the formatter
-  (`_URL_CHANNEL_KEY_RE`, `app/log_redaction.py`); app code does not pass one to a logger. Some
-  debug and audit lines still carry `key[:8]`, an identifier rather than the secret.
+- **Never log a channel key.** App code does not pass a whole key to a logger. A key in a
+  request URL (uvicorn's access log, the server-error lines, the `GET /api/debug` buffer) is
+  replaced by the formatter (`_URL_CHANNEL_KEY_RE`, `app/log_redaction.py`), and the SET_CHANNEL
+  and CHANNEL_INFO frames meshcore logs at DEBUG are redacted like the other secret frames.
+  A few debug and audit lines in `radio_sync.py` and `message_send.py` carry `key[:8]`: 4 bytes
+  of the secret, which identify a channel across logs.
 - **Never log a Wi-Fi password or a private key, at any level.**
   `app/log_redaction.py` enforces it for what meshcore logs: a filter at index 0
   of the `meshcore` logger (structural rules on the frame codes 0x42/0x18 out,

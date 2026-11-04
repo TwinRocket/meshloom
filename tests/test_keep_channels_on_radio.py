@@ -437,3 +437,114 @@ async def test_a_long_name_keeps_the_audit_quiet_and_survives_the_sync(test_db, 
         await sync_and_offload_channels(loop.mc)
     stored = await ChannelRepository.get_by_key(KEY_A)
     assert stored is not None and stored.name == name
+
+
+class _LateReplies(FakeNode):
+    """A read gets the reply of an earlier one that had timed out, then its own too late."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.silent: set[int] = set()
+        self.late: dict[int, int] = {}  # slot being read -> slot whose reply arrives instead
+
+    def _cmd_1f(self, body: bytes) -> list[bytes]:
+        idx = body[0]
+        if idx in self.silent:
+            return []
+        if idx in self.late:
+            return [super()._cmd_1f(bytes([self.late[idx]]))[0], super()._cmd_1f(body)[0]]
+        return super()._cmd_1f(body)
+
+
+@pytest.mark.asyncio
+async def test_a_late_reply_does_not_make_the_sync_clear_the_wrong_slot(test_db, client):
+    await ChannelRepository.upsert(key=KEY_A, name="gone")
+    assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200  # radio away
+
+    node = _LateReplies()
+    node.channels = {3: ("gone", bytes.fromhex(KEY_A)), 4: ("far", bytes.fromhex(KEY_B))}
+    node.silent = {3}
+    node.late = {4: 3}
+    async with connected_node(node, kind="serial") as (loop, _):
+        loop.mc.commands.default_timeout = 0.05
+        await sync_and_offload_channels(loop.mc)
+
+    assert node.channels[4] == ("far", bytes.fromhex(KEY_B))
+    assert await ChannelRepository.pending_slot_clear_keys() == {KEY_A}
+
+
+@pytest.mark.asyncio
+async def test_a_late_reply_does_not_make_the_sync_offload_the_wrong_slot(test_db):
+    node = _LateReplies()
+    node.channels = {3: ("near", bytes.fromhex(KEY_A)), 4: ("far", bytes.fromhex(KEY_B))}
+    node.silent = {3}
+    node.late = {4: 3}
+    async with connected_node(node, kind="serial") as (loop, _):
+        loop.mc.commands.default_timeout = 0.05
+        await sync_and_offload_channels(loop.mc)
+
+    assert node.channels[4] == ("far", bytes.fromhex(KEY_B))
+
+
+@pytest.mark.asyncio
+async def test_a_late_reply_does_not_make_a_delete_clear_the_wrong_slot(test_db, client):
+    await ChannelRepository.upsert(key=KEY_A, name="gone")
+    node = _LateReplies()
+    node.channels = {0: ("far", bytes.fromhex(KEY_B)), 1: ("gone", bytes.fromhex(KEY_A))}
+    node.late = {0: 1}
+    async with connected_node(node, kind="serial"):
+        assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+
+    assert node.channels[0] == ("far", bytes.fromhex(KEY_B))
+    assert node.channels[1] == ("", bytes(16))  # its own read still found it
+    # One read was not answered for its slot, so the scan does not count as complete.
+    assert await ChannelRepository.pending_slot_clear_keys() == {KEY_A}
+
+
+@pytest.mark.asyncio
+async def test_a_late_reply_does_not_file_a_queued_message_under_another_channel(test_db):
+    await ChannelRepository.upsert(key=KEY_A, name="near")
+    await ChannelRepository.upsert(key=KEY_B, name="far")
+    node = _LateReplies()
+    node.channels = {3: ("near", bytes.fromhex(KEY_A)), 4: ("far", bytes.fromhex(KEY_B))}
+    node.late = {4: 3}
+    async with connected_node(node, kind="serial") as (loop, _):
+        await _store_pending_channel_message(loop.mc, {"channel_idx": 4, "text": "bob: hi"})
+
+    assert await MessageRepository.get_all(conversation_key=KEY_A) == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_fanout_channel_lookup_does_not_log_the_key(test_db, caplog):
+    from app.fanout.manager import FanoutManager
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="app.fanout.manager"),
+        patch.object(ChannelRepository, "get_by_key", side_effect=RuntimeError("db")),
+    ):
+        await FanoutManager().broadcast_message({"type": "CHAN", "conversation_key": KEY_A})
+    assert KEY_A[:8] not in caplog.text
+    assert "pending check" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["ops", None])
+async def test_storing_a_channel_message_does_not_log_the_key(test_db, caplog, name):
+    from app.repository import RawPacketRepository
+    from app.services.messages import create_message_from_decrypted
+
+    packet_id, _ = await RawPacketRepository.create(b"test_packet_data", 1700000000)
+    with caplog.at_level(logging.INFO, logger="app.services.messages"):
+        stored = await create_message_from_decrypted(
+            packet_id=packet_id,
+            channel_key=KEY_A,
+            channel_name=name,
+            sender="bob",
+            message_text="hi",
+            timestamp=1700000000,
+            received_at=1700000000,
+            broadcast_fn=lambda *_a, **_k: None,
+        )
+    assert stored is not None
+    assert "Stored channel message" in caplog.text
+    assert KEY_A[:8] not in caplog.text
