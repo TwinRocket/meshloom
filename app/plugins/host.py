@@ -59,6 +59,7 @@ from typing import Any, Literal
 from app.auth.ws_events import WsEvent
 from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
 from app.plugins import bot_conversion, isolation, launch
+from app.plugins.child_process import ChildProcess
 from app.plugins.errors import HostMethodError
 from app.plugins.quotas import effective_send_limits, send_guard
 from app.secret_fields import scrub_error
@@ -102,8 +103,8 @@ _DROP_LOG_INTERVAL = 10.0
 # How long the host drains a child's stdout after killing it for a line over the
 # cap, before it closes the pipe itself (`PluginProcess._discard_stdout`).
 STDOUT_DRAIN_SECONDS = 5.0
-# How long the host waits for a dead child's pipes to close before it closes them
-# itself (`PluginProcess._wait_exit`; Python 3.11 only, gh-119710).
+# How long the host waits for a dead child's pipes to close before it kills what is
+# left of its group and closes them itself (`PluginProcess._wait_exit`).
 PIPE_CLOSE_SECONDS = 5.0
 # Requests a child may have pending at the host at once; past it: -32001.
 MAX_CHILD_REQUESTS = 32
@@ -406,7 +407,7 @@ class PluginProcess:
         self._log = log
         self._on_request = on_request
         self._on_notify = on_notify
-        self._proc: asyncio.subprocess.Process | None = None
+        self._proc: ChildProcess | None = None
         self.work_dir: Path | None = None
         self._ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future[Any]] = {}
@@ -438,9 +439,7 @@ class PluginProcess:
         self.work_dir = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
         argv, kwargs = backend.launch(self._plugin_dir, self.work_dir)
         try:
-            self._proc = await asyncio.create_subprocess_exec(
-                *argv, stderr=asyncio.subprocess.PIPE, **kwargs
-            )
+            self._proc = await ChildProcess.spawn(argv, **kwargs)
         finally:
             launch.close_passed_fds(kwargs)
         self.started_at = time.monotonic()
@@ -572,11 +571,9 @@ class PluginProcess:
     async def _discard_stdout(self) -> None:
         """Drop what a killed child still writes, then close the pipe ourselves.
 
-        On Python 3.11 `Process.wait()` returns only once every pipe is closed
-        (gh-119710, fixed in 3.12): a reader that stopped on a full buffer would
-        leave `_wait_exit` waiting for ever, the instance shown running with no
-        process. Bounded, since a process that kept the descriptor (a grandchild)
-        can hold it open as long as it lives.
+        A reader that stopped on a full buffer would leave `_wait_exit` waiting for
+        the pipe's end. Bounded, since a process that kept the descriptor (a
+        grandchild) can hold it open as long as it lives.
         """
         assert self._proc is not None and self._proc.stdout is not None
         try:
@@ -585,16 +582,7 @@ class PluginProcess:
                     while await self._proc.stdout.read(65536):
                         pass
         finally:
-            self._close_pipes(1)
-
-    def _close_pipes(self, *fds: int) -> None:
-        """Close the host's end of the child's pipes (asyncio has no public seam)."""
-        assert self._proc is not None
-        transport = self._proc._transport  # type: ignore[attr-defined]
-        for fd in fds:
-            pipe = transport.get_pipe_transport(fd)
-            if pipe is not None:
-                pipe.close()
+            self._proc.close_pipes(1)
 
     async def _read_stderr(self) -> None:
         assert self._proc is not None and self._proc.stderr is not None
@@ -607,23 +595,14 @@ class PluginProcess:
 
     async def _wait_exit(self) -> None:
         assert self._proc is not None
-        waiter = asyncio.ensure_future(self._proc.wait())
-        while not waiter.done():
-            await asyncio.wait({waiter}, timeout=0.5)
-            if waiter.done() or self._proc.returncode is None:
-                continue
-            # The child is gone but, on 3.11, `wait()` also waits for every pipe
-            # to close (gh-119710): a grandchild that kept one would hold it for
-            # ever. Bounded: kill the group, then close our ends.
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(asyncio.shield(waiter), PIPE_CLOSE_SECONDS)
-            if not waiter.done():
-                self._signal_group(signal.SIGKILL)
-                self._close_pipes(0, 1, 2)
-                waiter.cancel()
-                break
-        # Let the readers drain what the child wrote last (its runner_error line).
-        await asyncio.wait(self._readers[:2], timeout=3.0)
+        await self._proc.wait()
+        # Let the readers drain what the child wrote last (its runner_error line). A pipe
+        # still open after that is held by a grandchild, which would keep it for ever:
+        # kill the group, then close our ends.
+        _done, held = await asyncio.wait(self._readers[:2], timeout=PIPE_CLOSE_SECONDS)
+        if held:
+            self._signal_group(signal.SIGKILL)
+            self._proc.close_pipes()
         self._exited.set()
         for future in list(self._pending.values()):
             if not future.done():
@@ -714,6 +693,8 @@ class PluginProcess:
         for task in [*self._readers, *self._tasks]:
             task.cancel()
         await asyncio.gather(*self._readers, *self._tasks, return_exceptions=True)
+        if self._proc is not None:
+            self._proc.close_pipes()
         self._exited.set()
         for future in list(self._pending.values()):
             if not future.done():
