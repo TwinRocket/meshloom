@@ -20,6 +20,7 @@ import contextlib
 import subprocess
 import threading
 from asyncio.streams import FlowControlMixin
+from collections.abc import Callable
 from typing import Any
 
 
@@ -36,21 +37,25 @@ class ChildProcess:
         self.stderr: asyncio.StreamReader | None = None
 
     @classmethod
-    async def spawn(cls, argv: list[str], **kwargs: Any) -> "ChildProcess":
-        """Start `argv` with RPC pipes on stdin and stdout and a log pipe on stderr."""
+    async def spawn(
+        cls, argv: list[str], *, kill: Callable[[int], None], **kwargs: Any
+    ) -> "ChildProcess":
+        """Start `argv` with RPC pipes on stdin and stdout and a log pipe on stderr.
+
+        `kill(pid)` takes the child down if it cannot be plugged in: through the backend,
+        since a server without `CAP_KILL` cannot signal a child under another uid."""
         # Fails synchronously (`OSError`, `ValueError`) with no child left. On the loop's
         # thread, as asyncio's own unix transport does.
         popen = subprocess.Popen(argv, stderr=subprocess.PIPE, bufsize=0, **kwargs)
         child = cls(popen)
-        threading.Thread(
-            target=child._watch_exit, name=f"plugin-child-{popen.pid}", daemon=True
-        ).start()
         try:
+            threading.Thread(
+                target=child._watch_exit, name=f"plugin-child-{popen.pid}", daemon=True
+            ).start()
             await child._connect_pipes()
         except BaseException:
-            with contextlib.suppress(OSError):
-                popen.kill()
-            child.close_pipes()
+            kill(popen.pid)
+            child._close_all()
             raise
         return child
 
@@ -90,6 +95,15 @@ class ChildProcess:
     async def wait(self) -> int | None:
         await self._exited.wait()
         return self._popen.returncode
+
+    def _close_all(self) -> None:
+        """After a failed spawn: the transports, and the pipes no transport took."""
+        self.close_pipes()
+        pipes = {0: self._popen.stdin, 1: self._popen.stdout, 2: self._popen.stderr}
+        for fd, pipe in pipes.items():
+            if fd not in self._transports and pipe is not None:
+                with contextlib.suppress(OSError):
+                    pipe.close()
 
     def close_pipes(self, *fds: int) -> None:
         """Close the host's end of these pipes (0, 1, 2), all of them by default."""

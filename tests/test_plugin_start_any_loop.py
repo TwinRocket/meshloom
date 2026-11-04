@@ -18,12 +18,14 @@ from typing import Any
 
 import pytest
 
+import meshloom_plugin
 from app.plugins import host as host_module
-from app.plugins import installer
+from app.plugins import installer, launch
 from app.plugins.child_process import ChildProcess
 from app.plugins.host import Budgets, PluginManager
 from app.plugins.isolation import selection, setuid
 from app.plugins.isolation.base import IsolationBackend
+from app.plugins.isolation.none import NoneBackend
 from tests.conftest import patched_database
 from tests.plugin_isolation_support import available_backends, shared_tmp_dir
 
@@ -146,14 +148,73 @@ def test_a_bundled_plugin_starts_at_the_real_setuid_level(
     # /tmp by a root run would refuse the non-root run of the same CI job.
     monkeypatch.setattr(setuid, "lease_domains", lambda: [data_dir])
     backend = copy.copy(backend)
-    backend.prepare_data_dir(data_dir)
-    monkeypatch.setattr(selection, "_current", selection.Selection(backend))
-    with asyncio.Runner(loop_factory=new_loop) as runner:
-        runner.run(_install_and_run(data_dir / "plugins", plugin_id))
+    # `prepare_data_dir` sets the server's process-wide umask 077: it must not outlive the
+    # test, or the plugin uid cannot traverse the directories later tests create.
+    umask = os.umask(0o077)
+    try:
+        backend.prepare_data_dir(data_dir)
+        monkeypatch.setattr(selection, "_current", selection.Selection(backend))
+        with asyncio.Runner(loop_factory=new_loop) as runner:
+            runner.run(_install_and_run(data_dir / "plugins", plugin_id))
+    finally:
+        os.umask(umask)
 
 
 def test_every_bundled_plugin_is_covered() -> None:
     assert set(installer.list_bundled()) == set(GRANTS)
+
+
+@pytest.mark.parametrize("new_loop", _loops())
+def test_a_closed_input_pipe_ends_the_write_cleanly(
+    new_loop: Callable[[], asyncio.AbstractEventLoop], tmp_path: Path
+) -> None:
+    """uvloop raises RuntimeError on a closed transport: uncaught, it left each event of a
+    plugin that closed its input waiting for its budget instead of being dropped."""
+    plugin_dir = Path(meshloom_plugin.__file__).parent / "official" / "echo"
+
+    async def scenario() -> None:
+        process = host_module.PluginProcess(
+            plugin_dir, host_module.LogRing(1024, 128), None, backend=NoneBackend()
+        )
+        await process.start(lambda work: launch.runner_params(plugin_dir, work, "i", "none"))
+        try:
+            assert process._proc is not None
+            process._proc.close_pipes(0)
+            await asyncio.sleep(0.05)
+            with pytest.raises(host_module.ProcessEnded):
+                await process.notify("plugin.ping")
+        finally:
+            await process.close()
+
+    with asyncio.Runner(loop_factory=new_loop) as runner:
+        runner.run(scenario())
+
+
+@pytest.mark.parametrize("new_loop", _loops())
+def test_a_failed_spawn_leaves_no_child(
+    new_loop: Callable[[], asyncio.AbstractEventLoop], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Killed through the given callable, the only way under another uid."""
+
+    async def refused(_self: ChildProcess) -> None:
+        raise OSError("no pipe")
+
+    monkeypatch.setattr(ChildProcess, "_connect_pipes", refused)
+    killed: list[int] = []
+
+    async def scenario() -> None:
+        with pytest.raises(OSError, match="no pipe"):
+            await ChildProcess.spawn(
+                [sys.executable, "-I", "-S", "-c", "import time; time.sleep(30)"],
+                kill=lambda pid: (killed.append(pid), os.killpg(pid, 9)),
+                stdin=host_module.subprocess.PIPE,
+                stdout=host_module.subprocess.PIPE,
+                start_new_session=True,
+            )
+
+    with asyncio.Runner(loop_factory=new_loop) as runner:
+        runner.run(scenario())
+    assert len(killed) == 1
 
 
 @pytest.mark.parametrize("new_loop", _loops())
@@ -165,6 +226,7 @@ def test_the_exit_is_reported_while_a_grandchild_holds_the_pipes(
     async def scenario() -> None:
         child = await ChildProcess.spawn(
             [sys.executable, "-I", "-S", "-c", script],
+            kill=lambda pid: os.killpg(pid, 9),
             stdin=host_module.subprocess.PIPE,
             stdout=host_module.subprocess.PIPE,
             start_new_session=True,

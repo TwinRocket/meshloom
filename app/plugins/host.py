@@ -439,7 +439,11 @@ class PluginProcess:
         self.work_dir = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
         argv, kwargs = backend.launch(self._plugin_dir, self.work_dir)
         try:
-            self._proc = await ChildProcess.spawn(argv, **kwargs)
+            self._proc = await ChildProcess.spawn(
+                argv,
+                kill=lambda pid: backend.signal_group(pid, signal.SIGKILL),
+                **kwargs,
+            )
         finally:
             launch.close_passed_fds(kwargs)
         self.started_at = time.monotonic()
@@ -546,7 +550,9 @@ class PluginProcess:
             try:
                 self._proc.stdin.write(data)
                 await self._proc.stdin.drain()
-            except (BrokenPipeError, ConnectionResetError) as exc:
+            except (BrokenPipeError, ConnectionResetError, RuntimeError) as exc:
+                # RuntimeError: uvloop's answer once the transport is closed, which a
+                # plugin can cause by closing its end of the pipe.
                 raise ProcessEnded() from exc
 
     # Readers.
