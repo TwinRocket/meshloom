@@ -977,8 +977,11 @@ ones.
 
 ### One child
 
-Spawned with `asyncio.create_subprocess_exec(launch.runner_command(),
-**launch.popen_kwargs(work_dir))`: its own session, `close_fds`, the scrubbed
+Spawned with `subprocess.Popen(launch.runner_command(),
+**launch.popen_kwargs(work_dir))` through `app/plugins/child_process.py`, never
+`asyncio.create_subprocess_exec`: uvloop, uvicorn's loop in the image and the packages,
+refuses the `setuid` level's `user`, `group`, `extra_groups` and `umask`. The pipes are
+plugged into the running loop and a daemon thread per child reports its exit. The child has its own session, `close_fds`, the scrubbed
 environment, a fresh `mkdtemp` work directory as cwd (removed when the child
 ends), the parameters line on stdin. The code directory is
 `<data>/plugins/<plugin_id>/` (shared by the instances of a plugin; `<data>` is
