@@ -98,8 +98,8 @@ rotation steps are in `pkg/keys/README.md`.
      deploys it to GitHub Pages (`https://twinrocket.github.io/meshloom`), with
      `InRelease`/`Release.gpg`, `repomd.xml.asc`, `meshloom.gpg` and
      `meshloom.asc`. It fails closed on a missing key, a missing package, an
-     unsigned rpm or a pre-release headed for stable. Its `build` job holds the
-     key, its `deploy` job the Pages token.
+     unsigned package or one of another version in stable. Its `build` job holds
+     the key, its `deploy` job the Pages token.
    - `sign-manifest.yml`: attaches `SHA256SUMS(.asc)` (debs, rpms, zip,
      `install.sh`) and `OCI-DIGESTS(.asc)`
      (`ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<index digest>`). It fails
@@ -165,7 +165,11 @@ Nothing else moves: not `:latest`, not `:X.Y`, not the apt `stable` suite, not
 Community mirror, which rejects pre-releases), not the add-on, not the site
 (`release.yml` skips `docs-site.yml`, which also ignores a hand-published
 pre-release). A dispatch of `docker.yml` on an rc tag is just as safe: `:latest`
-depends on the ref being a strict `X.Y.Z` tag.
+depends on the ref being a strict `X.Y.Z` tag, and it refuses any tag `release.yml`
+would refuse (`-rc.0`, `-beta.1`).
+
+`publish` attaches exactly the assets above (`list_release_assets.sh`): anything
+else in its artifacts stops the release.
 
 `nfpm-armhf.yml` and `rpi-image.yml` refuse an rc. Their recipe comes from the
 default branch, not from the rc's commit. The rc's image comes from the
@@ -196,12 +200,23 @@ rpm/testing/$basearch/                testing
 - `testing` has no `binary-armhf` during an rc.
 - An rc in `stable` is refused three times: the resolver takes only a strict
   `X.Y.Z` not flagged pre-release (a tag `5.0.0` flagged pre-release is refused
-  too, it used to reach every stable user), `build_linux_repo.sh` reads each
-  `.deb`'s version and each `.rpm`'s name, and the two trees are scanned apart.
-- An incomplete or unflagged rc is skipped with a warning, unless the run asked
-  for it by name: a broken candidate must not stop a stable publication.
+  too, it used to reach every stable user), `check_linux_repo_packages.sh` requires
+  each `.deb` to be exactly `X.Y.Z-1` and each `.rpm` to have that release's name,
+  and the two trees are scanned apart.
+- Every package served is signed. `check_deb_signed.py` verifies a `.deb`'s origin
+  signature against `pkg/keys` (a `.deb` released since 4.18 carries one; dpkg and
+  apt never read it), and `check_rpm_signed.py` checks that an `.rpm` has a signature
+  header.
+- An rc that is incomplete, unflagged, unsigned, of the wrong version or too large
+  is left out with a warning, and `testing` serves stable, unless the run asked for
+  that rc by name: a broken candidate must not stop a stable publication
+  (`fetch_linux_repo_packages.sh`). Stable always fails closed.
 - A run that fails deploys nothing, and the live repository stays as it was.
 - To withdraw an rc: delete its GitHub release, then re-run the publication.
+- A rollback with `-f version=4.18.1` holds only until the next run that names no
+  stable release, and an rc is such a run: stable goes back to GitHub's `latest`.
+  Move `latest` to the rollback target as well (`gh release edit 4.18.1 --latest`),
+  or the next rc undoes it.
 - `Date:` in `dists/stable/Release` changes on every deployment, also for an rc.
   To check that stable did not move, compare the hash of
   `dists/stable/main/binary-*/Packages`.
@@ -215,9 +230,11 @@ testers get a 404 on `apt update`. Restore it with
 the armhf job of that release has finished. Dispatching on `preversion-5` itself
 is not an option: the `github-pages` environment allows `main` and tags only.
 
-The size of the site is the other limit: about 400 MiB for stable, the same again
-for an rc, against the 1 GB GitHub allows for Pages. `build_linux_repo.sh` warns
-above 900 MiB.
+The size of the site is the other limit: GitHub allows 1 GB for a Pages site, and
+measured on 4.18.2 and a 5.0 candidate it is 556 MiB without an rc, 716 MiB with one.
+Above 950 MiB of packages, which leaves 50 MiB for the metadata and the keys, the
+rc is left out before anything is built, under the rule above.
+`build_linux_repo.sh` warns above 900 MiB in any case.
 
 ## Who can read the key
 
@@ -230,14 +247,36 @@ No job that runs third-party code holds the key or a write token:
 | `publish-linux-repo.yml` | `deploy` (Pages token) | `build` |
 | `sign-manifest.yml` | | `sign-manifest` |
 
-Key-holding jobs run only the checked-out scripts, `check_rpm_signed.py` under
-`python3 -I`, and nFPM. nFPM (`install_nfpm.sh`) and the standalone Python
-(`build_nfpm_packages.sh`) are checked against a pinned sha256, and `setup-uv` has
-a pinned version: bump the digest with the version. The assembled tree reaches the
-signer as data, in a tarball: a compromised build dependency can end up in the
-package, but cannot read the key.
+Between importing the key and erasing it, these jobs run only the checked-out
+scripts, `python3 -I` on `check_rpm_signed.py`, `gpg` and nFPM. Every other step,
+the third-party actions included (`docker/login-action`, `attest-build-provenance`,
+`upload-artifact`, `upload-pages-artifact`), runs before the import or after the
+erasure. nFPM (`install_nfpm.sh`) and the standalone Python (`build_nfpm_packages.sh`)
+are checked against a pinned sha256, and `setup-uv` has a pinned version: bump the
+digest with the version. The assembled tree reaches the signer as data, one tarball
+unpacked outside the workspace: a compromised build dependency can end up in the
+package, but cannot read the key or replace what handles it. A branch cannot stand
+in for a release: these workflows check out `refs/tags/<version>`.
 
-They declare `environment: release-signing`, so the secret can live in an
-environment limited to release refs. A repository secret still works until it is
-moved. Until `preversion-5` merges, `main` runs its own `nfpm-armhf.yml`, which still
-builds the frontend next to the key.
+These jobs declare `environment: release-signing`. Before any job naming it,
+`release.yml` runs `signing-environment` (`check_signing_environment.py`, no key,
+no privilege) and stops unless that environment exists and is limited to selected
+refs: GitHub creates a missing environment by itself, with no protection at all.
+This also applies to a stable tag once this code is on `main`. It only covers
+`release.yml`: dispatching another of these workflows by hand before the setup below
+would create the environment unprotected.
+
+**Setup, by the owner, in this order, before the first rc:**
+
+1. Settings > Environments > New environment: `release-signing`.
+2. Deployment branches and tags > Selected branches and tags. Add the branch `main`
+   and the tag pattern `[0-9]*.[0-9]*.[0-9]*`.
+3. In that environment, add the secret `MESHLOOM_REPO_GPG_PRIVATE_KEY`: the same
+   value as the repository secret (GitHub does not show it, it comes from the offline
+   copy in `pkg/keys/README.md`).
+4. **Keep the repository secret.** The workflows on `main` have no `environment:` until
+   `preversion-5` merges: without it, a 4.18.x would be built with an empty key.
+5. Only once `preversion-5` is on `main`: delete the repository secret.
+
+Until then, `main` also runs its own `nfpm-armhf.yml`, which still builds the frontend
+next to the key.

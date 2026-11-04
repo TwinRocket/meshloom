@@ -130,8 +130,9 @@ cd / && find "$WORK" "$T" -type f -exec shred -u {} + && rm -rf "$WORK" "$T"
 
 
 Then, in GitHub (**by the owner only**), in the secrets of the environment
-`release-signing` if it exists, otherwise in the repository secrets
-(`docs/dev/releasing.md`, "Who can read the key"):
+`release-signing`, restricted first, and in the repository secrets as long as
+`preversion-5` is not on `main`. The exact order is in `docs/dev/releasing.md`,
+"Who can read the key":
 
 * `MESHLOOM_REPO_GPG_PRIVATE_KEY` = content of `meshloom-ci-subkey.asc`
   (no passphrase secret exists)

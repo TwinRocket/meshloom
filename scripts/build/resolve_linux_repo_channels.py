@@ -11,8 +11,9 @@ release started the run, so any run leaves the same repository:
            A tester therefore moves on to the final release once it is out.
 
 An rc that cannot be served is skipped, with a warning, unless it was asked for
-by name: a broken candidate must not stop a stable publication. Everything else
-fails closed, before anything is built.
+by name: a broken candidate must not stop a stable publication. What can only be
+seen in its packages (signature, version, size) gets the same treatment in
+fetch_linux_repo_packages.sh. Everything else fails closed, before anything is built.
 
 Input: one JSON object per line ({tag_name, draft, prerelease, assets: [names]}).
 Output, for $GITHUB_OUTPUT: stable=<tag> and testing=<tag>.

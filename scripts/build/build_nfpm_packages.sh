@@ -158,6 +158,12 @@ fi
 OPT="$STAGING/opt/meshloom"
 
 require_assembled_tree() {
+    # nFPM packs what this path leads to: the tree may come from another job, and a
+    # link here would pack whatever it points at.
+    if [ -L "$STAGING/opt" ] || [ -L "$OPT" ]; then
+        echo "$OPT must be a directory, not a symlink" >&2
+        exit 1
+    fi
     [ -x "$OPT/python/bin/python3" ] || {
         echo "No assembled tree under $STAGE_DIR" >&2
         exit 1

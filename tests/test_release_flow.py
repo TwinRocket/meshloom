@@ -8,13 +8,16 @@ throwaway repository and a bare `origin`; `gh` and `uv` are stubs on PATH.
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 import yaml
@@ -586,12 +589,19 @@ def test_release_version_job_classifies_the_tag(
         assert values == {"version": name, "prerelease": prerelease}
 
 
+@pytest.mark.parametrize("ref", ["refs/tags/5.0.0-rc.0", "refs/tags/5.0.0-beta.1", "refs/tags/foo"])
+def test_docker_refuses_any_other_tag(tmp_path: Path, ref: str) -> None:
+    script = _step(_job("docker", "matrix"), "Classify the ref")["run"]
+    code, values, output = _run_step(script, tmp_path, GITHUB_REF=ref)
+    assert code != 0, output
+    assert "stable_tag" not in values
+
+
 @pytest.mark.parametrize(
     ("ref", "stable"),
     [
         ("refs/tags/5.0.0", "true"),
         ("refs/tags/5.0.0-rc.1", "false"),
-        ("refs/tags/foo", "false"),
         ("refs/heads/main", "false"),
         ("refs/heads/5.0.0", "false"),
         ("refs/pull/1/merge", "false"),
@@ -969,14 +979,6 @@ def test_an_rc_cannot_require_armhf(tmp_path: Path) -> None:
     assert "armhf" in result.stderr
 
 
-def test_the_repo_workflow_downloads_no_armhf_for_an_rc() -> None:
-    script = _step(_job("publish-linux-repo", "build"), "Download release packages")["run"]
-    testing = script[script.index('"$TESTING"') :]
-    for pattern in ("*_amd64.deb", "*_arm64.deb", "*.x86_64.rpm", "*.aarch64.rpm"):
-        assert pattern in testing
-    assert '"*.deb"' not in testing and "armhf" not in testing.split("--dir")[1].split("\n\n")[0]
-
-
 def test_the_repo_workflow_signs_and_verifies_both_suites() -> None:
     build = _job("publish-linux-repo", "build")
     sign = _step(build, "Sign metadata and publish the public key")["run"]
@@ -1028,9 +1030,10 @@ def _repo_env(tmp_path: Path) -> dict[str, str]:
 def _build_repo(
     tmp_path: Path, stable: Path, testing: Path | None
 ) -> subprocess.CompletedProcess[str]:
-    args = ["--stable-dir", str(stable), "--output", str(tmp_path / "public")]
+    args = ["--stable-dir", str(stable), "--stable-version", "4.18.2"]
+    args += ["--output", str(tmp_path / "public")]
     if testing is not None:
-        args += ["--testing-dir", str(testing)]
+        args += ["--testing-dir", str(testing), "--testing-version", "5.0.0-rc.1"]
     return subprocess.run(
         ["bash", str(BUILD / "build_linux_repo.sh"), *args],
         env=_repo_env(tmp_path),
@@ -1127,7 +1130,7 @@ def test_an_rc_package_handed_to_the_stable_suite_is_refused(
 ) -> None:
     result = _build_repo(tmp_path, rc_packages, None)
     assert result.returncode != 0
-    assert "pre-release" in result.stdout + result.stderr
+    assert "expected 4.18.2-1" in result.stdout + result.stderr
 
 
 @needs_apt_tools
@@ -1137,7 +1140,7 @@ def test_an_rc_rpm_handed_to_the_stable_suite_is_refused(
     _fake_rpm_files(stable_packages, "5.0.0.rc.1")
     result = _build_repo(tmp_path, stable_packages, None)
     assert result.returncode != 0
-    assert "pre-release" in result.stdout + result.stderr
+    assert "not a package of release 4.18.2" in result.stdout + result.stderr
 
 
 def test_the_repo_script_refuses_an_empty_stable_directory(tmp_path: Path) -> None:
@@ -1433,3 +1436,544 @@ def test_stable_tags_still_run_the_whole_chain() -> None:
     assert "docs-site.yml" in _job("release", "docs-site")["uses"]
     assert "[0-9]+.[0-9]+.[0-9]+" in _on("release")["push"]["tags"]
     assert "[0-9]+.[0-9]+.[0-9]+" in _on("docker")["push"]["tags"]
+
+
+# Second round of review: what a job holding the key may trust.
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job", "artifact"),
+    [("release", "nfpm", "stage.tar.gz"), ("nfpm-armhf", "package", "stage-armhf.tar.gz")],
+)
+def test_the_signer_keeps_artifacts_out_of_its_workspace(
+    tmp_path: Path, workflow: str, job: str, artifact: str
+) -> None:
+    signer = _job(workflow, job)
+    downloads = [s for s in signer["steps"] if "download-artifact" in s.get("uses", "")]
+    assert downloads
+    for step in downloads:
+        assert step["with"]["path"].startswith("${{ runner.temp }}/")
+    assert any('--stage-dir "$RUNNER_TEMP/' in s.get("run", "") for s in signer["steps"])
+
+    unpack = _step(signer, "Unpack the tree")["run"]
+    runner_temp = tmp_path / "runner"
+    source = tmp_path / "tree"
+    source.mkdir()
+    (source / "file").write_text("x")
+    holder = runner_temp / "stage-artifact"
+    holder.mkdir(parents=True)
+    subprocess.run(["tar", "-C", str(source), "-czf", str(holder / artifact), "."], check=True)
+
+    code, _, output = _run_step(unpack, tmp_path, RUNNER_TEMP=str(runner_temp))
+    assert code == 0, output
+    assert (runner_temp / artifact.replace(".tar.gz", "") / "file").exists()
+
+    (holder / "extra").write_text("x")
+    code, _, output = _run_step(
+        unpack.replace("mkdir ", "mkdir -p "), tmp_path, RUNNER_TEMP=str(runner_temp)
+    )
+    assert code != 0
+    assert "nothing else" in output
+
+
+def test_every_key_holding_job_keeps_downloads_out_of_its_workspace() -> None:
+    for path in WORKFLOWS.glob("*.yml"):
+        for name, job in yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"].items():
+            if "uses" in job or not _uses_key(job):
+                continue
+            for step in job["steps"]:
+                if "download-artifact" in step.get("uses", ""):
+                    assert step["with"]["path"].startswith("${{ runner.temp }}/"), (path.stem, name)
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job"),
+    [
+        ("sign-manifest", "sign-manifest"),
+        ("publish-linux-repo", "build"),
+        ("release", "nfpm"),
+        ("nfpm-armhf", "package"),
+    ],
+)
+def test_no_action_runs_between_import_and_erasure_of_the_key(workflow: str, job: str) -> None:
+    steps = _job(workflow, job)["steps"]
+    names = [s.get("name") for s in steps]
+    start = names.index("Import signing key")
+    end = names.index("Erase the key")
+    assert steps[end]["if"] == "always()"
+    assert start < end
+    for step in steps[start + 1 : end]:
+        assert "uses" not in step, step
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job"),
+    [("sign-manifest", "sign-manifest"), ("nfpm-armhf", "frontend"), ("nfpm-armhf", "assemble")],
+)
+def test_a_branch_cannot_stand_in_for_the_release_tag(workflow: str, job: str) -> None:
+    refs = [
+        step["with"]["ref"]
+        for step in _job(workflow, job)["steps"]
+        if "checkout" in step.get("uses", "")
+        and "default_branch" not in step["with"].get("ref", "")
+        and step["with"].get("ref")
+    ]
+    assert refs
+    for ref in refs:
+        assert ref.startswith("refs/tags/${{ "), ref
+
+
+@pytest.mark.parametrize(("workflow", "job"), [("release", "publish"), ("release", "rpi-image")])
+def test_writing_jobs_do_not_keep_the_token_in_git(workflow: str, job: str) -> None:
+    checkout = next(s for s in _job(workflow, job)["steps"] if "checkout" in s.get("uses", ""))
+    assert checkout["with"]["persist-credentials"] is False
+
+
+def test_the_signing_environment_is_checked_before_a_job_names_it() -> None:
+    gate = _job("release", "signing-environment")
+    assert "environment" not in gate
+    assert not _uses_key(gate)
+    assert "signing-environment" in _job("release", "preflight")["needs"]
+    assert "check_signing_environment.py" in _job_text(gate)
+    # Every other job holding the key comes after preflight.
+    assert "preflight" in _job("release", "frontend")["needs"]
+
+
+class _SettingsApi(http.server.BaseHTTPRequestHandler):
+    routes: ClassVar[dict[str, tuple[int, object]]] = {}
+
+    def do_GET(self) -> None:
+        status, body = self.routes.get(self.path, (404, {}))
+        self.send_response(status)
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+ENV_PATH = "/repos/T/m/environments/release-signing"
+RESTRICTED = (200, {"deployment_branch_policy": {"custom_branch_policies": True}})
+
+
+def _check_environment(routes: dict[str, tuple[int, object]]) -> subprocess.CompletedProcess[str]:
+    _SettingsApi.routes = routes
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SettingsApi)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                str(BUILD / "check_signing_environment.py"),
+                "T/m",
+                "--api-url",
+                f"http://127.0.0.1:{server.server_port}",
+            ],
+            env={**os.environ, "MESHLOOM_API_RETRY_SECONDS": "0", "GH_TOKEN": ""},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        server.shutdown()
+
+
+def _policies(*names: str) -> tuple[int, object]:
+    return 200, {"branch_policies": [{"name": name} for name in names]}
+
+
+def test_a_restricted_signing_environment_passes() -> None:
+    result = _check_environment(
+        {
+            ENV_PATH: RESTRICTED,
+            f"{ENV_PATH}/deployment-branch-policies": _policies("main", "[0-9]*"),
+        }
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("routes", "message"),
+    [
+        ({}, "does not exist"),
+        # What GitHub creates by itself when a run names a missing environment.
+        ({ENV_PATH: (200, {"deployment_branch_policy": None})}, "not limited"),
+        ({ENV_PATH: RESTRICTED}, "no allowed"),
+        (
+            {
+                ENV_PATH: RESTRICTED,
+                f"{ENV_PATH}/deployment-branch-policies": _policies("main", "*"),
+            },
+            "every ref",
+        ),
+        ({ENV_PATH: (500, {})}, "could not read"),
+    ],
+)
+def test_an_unrestricted_signing_environment_stops_the_release(
+    routes: dict[str, tuple[int, object]], message: str
+) -> None:
+    result = _check_environment(routes)
+    assert result.returncode == 1
+    assert message in result.stderr
+
+
+def _assets_dir(tmp_path: Path, version: str, package_version: str) -> Path:
+    assets = tmp_path / "artifacts"
+    assets.mkdir()
+    for name in (
+        "install.sh",
+        f"meshloom_{package_version}-1_amd64.deb",
+        f"meshloom_{package_version}-1_arm64.deb",
+        f"meshloom-{package_version}-1.x86_64.rpm",
+        f"meshloom-{package_version}-1.aarch64.rpm",
+        f"meshloom-prebuilt-frontend-v{version}-abc1234.zip",
+    ):
+        (assets / name).write_text("x")
+    return assets
+
+
+def _list_assets(version: str, assets: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(BUILD / "list_release_assets.sh"), "--version", version, "--dir", str(assets)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("version", "package_version"), [("5.0.0", "5.0.0"), ("5.0.0-rc.1", "5.0.0~rc.1")]
+)
+def test_the_release_takes_the_expected_assets(
+    tmp_path: Path, version: str, package_version: str
+) -> None:
+    result = _list_assets(version, _assets_dir(tmp_path, version, package_version))
+    assert result.returncode == 0, result.stderr
+    assert len(result.stdout.splitlines()) == 6
+
+
+@pytest.mark.parametrize(
+    "stray",
+    [
+        "meshloom_6.6.6-1_amd64.deb",
+        "evil.deb",
+        "notes.txt",
+        "meshloom-prebuilt-frontend-v5.0.0-abc.zip",
+    ],
+)
+def test_the_release_refuses_any_other_asset(tmp_path: Path, stray: str) -> None:
+    assets = _assets_dir(tmp_path, "5.0.0-rc.1", "5.0.0~rc.1")
+    (assets / stray).write_text("x")
+    result = _list_assets("5.0.0-rc.1", assets)
+    assert result.returncode != 0
+    assert stray in result.stderr
+
+
+def test_the_release_refuses_a_nested_file_and_a_missing_package(tmp_path: Path) -> None:
+    assets = _assets_dir(tmp_path, "5.0.0", "5.0.0")
+    (assets / "sub").mkdir()
+    assert _list_assets("5.0.0", assets).returncode != 0
+    (assets / "sub").rmdir()
+    (assets / "meshloom_5.0.0-1_arm64.deb").unlink()
+    result = _list_assets("5.0.0", assets)
+    assert result.returncode != 0
+    assert "is missing" in result.stderr
+
+
+def test_the_release_refuses_a_symlink(tmp_path: Path) -> None:
+    assets = _assets_dir(tmp_path, "5.0.0", "5.0.0")
+    (assets / "install.sh").unlink()
+    (assets / "install.sh").symlink_to("/etc/passwd")
+    result = _list_assets("5.0.0", assets)
+    assert result.returncode != 0
+    assert "symlink" in result.stderr
+
+
+def test_the_publish_job_uses_the_asset_allowlist() -> None:
+    script = _step(_job("release", "publish"), "Create GitHub release")["run"]
+    assert "list_release_assets.sh" in script
+    assert "find artifacts" not in script
+
+
+# Origin signatures on a .deb.
+
+needs_gpgv = pytest.mark.skipif(
+    shutil.which("gpg") is None or shutil.which("gpgv") is None, reason="gpg or gpgv not installed"
+)
+
+
+def _ar_member(name: str, data: bytes) -> bytes:
+    header = f"{name:<16}{0:<12}{0:<6}{0:<6}{'100644':<8}{len(data):<10}`\n".encode()
+    return header + data + (b"\n" if len(data) % 2 else b"")
+
+
+def _deb_bytes(signature: bytes | None, tamper: bool = False) -> bytes:
+    parts = [("debian-binary", b"2.0\n"), ("control.tar.gz", b"control"), ("data.tar.gz", b"datax")]
+    body = b"!<arch>\n"
+    for name, data in parts:
+        body += _ar_member(name, data + (b"!" if tamper and name == "data.tar.gz" else b""))
+    if signature is not None:
+        body += _ar_member("_gpgorigin", signature)
+    return body
+
+
+@pytest.fixture
+def signing(tmp_path: Path) -> tuple[Path, bytes, bytes]:
+    """A throwaway keyring, a valid signature, and one from another key."""
+    keys = []
+    for name in ("good", "other"):
+        home = tmp_path / f"gpg-{name}"
+        home.mkdir(mode=0o700)
+        env = {**os.environ, "GNUPGHOME": str(home)}
+        subprocess.run(
+            [
+                "gpg",
+                "--batch",
+                "--passphrase",
+                "",
+                "--quick-gen-key",
+                f"{name} <t@example.invalid>",
+                "ed25519",
+                "sign",
+                "never",
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        signature = subprocess.run(
+            ["gpg", "--batch", "--armor", "--detach-sign"],
+            input=b"2.0\ncontroldatax",
+            env=env,
+            check=True,
+            capture_output=True,
+        ).stdout
+        keys.append((env, signature))
+    keyring = tmp_path / "keyring.gpg"
+    exported = subprocess.run(
+        ["gpg", "--batch", "--export"], env=keys[0][0], check=True, capture_output=True
+    ).stdout
+    keyring.write_bytes(exported)
+    return keyring, keys[0][1], keys[1][1]
+
+
+def _check_deb(keyring: Path, deb: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(BUILD / "check_deb_signed.py"),
+            "--keyring",
+            str(keyring),
+            str(deb),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@needs_gpgv
+def test_a_deb_signed_by_the_key_passes(tmp_path: Path, signing) -> None:
+    keyring, good, _ = signing
+    deb = tmp_path / "a.deb"
+    deb.write_bytes(_deb_bytes(good))
+    result = _check_deb(keyring, deb)
+    assert result.returncode == 0, result.stdout
+
+
+@needs_gpgv
+@pytest.mark.parametrize("case", ["unsigned", "other-key", "tampered", "not-a-deb"])
+def test_any_other_deb_is_refused(tmp_path: Path, signing, case: str) -> None:
+    keyring, good, other = signing
+    content = {
+        "unsigned": _deb_bytes(None),
+        "other-key": _deb_bytes(other),
+        "tampered": _deb_bytes(good, tamper=True),
+        "not-a-deb": b"nope",
+    }[case]
+    deb = tmp_path / "a.deb"
+    deb.write_bytes(content)
+    result = _check_deb(keyring, deb)
+    assert result.returncode == 1
+    assert "::error::" in result.stdout
+
+
+@needs_apt_tools
+def test_the_repo_refuses_a_stable_deb_of_another_version(
+    tmp_path: Path, stable_packages: Path
+) -> None:
+    _fake_deb(stable_packages, "4.18.3-1", "riscv64")
+    result = _build_repo(tmp_path, stable_packages, None)
+    assert result.returncode != 0
+    assert "expected 4.18.2-1" in result.stderr
+
+
+@needs_apt_tools
+def test_the_repo_refuses_armhf_in_an_rc(
+    tmp_path: Path, stable_packages: Path, rc_packages: Path
+) -> None:
+    _fake_deb(rc_packages, "5.0.0~rc.1-1", "armhf")
+    result = _build_repo(tmp_path, stable_packages, rc_packages)
+    assert result.returncode != 0
+    assert "does not serve this architecture" in result.stderr
+
+
+# Stable does not depend on the quality of a candidate.
+
+
+@pytest.fixture
+def fetcher(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """The real script, with `gh` and the package check replaced."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copy2(BUILD / "fetch_linux_repo_packages.sh", scripts)
+    check = scripts / "check_linux_repo_packages.sh"
+    check.write_text(
+        '#!/bin/sh\ncase "$4" in "$BAD_VERSION") echo "::error::bad package"; exit 1 ;; esac\n'
+    )
+    check.chmod(0o755)
+    stub_dir = tmp_path / "gh-bin"
+    stub_dir.mkdir()
+    gh = stub_dir / "gh"
+    gh.write_text(
+        "#!/bin/bash\n"
+        '[ "$3" != "$NO_DOWNLOAD" ] || exit 1\n'
+        'while [ $# -gt 0 ]; do if [ "$1" = --dir ]; then dir="$2"; fi; shift; done\n'
+        'touch "$dir/meshloom_amd64.deb" "$dir/meshloom_arm64.deb" '
+        '"$dir/meshloom_armhf.deb" "$dir/m.x86_64.rpm" "$dir/m.aarch64.rpm"\n'
+    )
+    gh.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
+        "GITHUB_REPOSITORY": "T/m",
+        "BAD_VERSION": "none",
+        "NO_DOWNLOAD": "none",
+    }
+    return tmp_path, env
+
+
+def _fetch(
+    root: Path, env: dict[str, str], *, testing: str, requested: str, limit: str = "950"
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "bash",
+            str(root / "scripts" / "fetch_linux_repo_packages.sh"),
+            "--stable",
+            "4.18.2",
+            "--testing",
+            testing,
+            "--requested",
+            requested,
+            "--incoming",
+            str(root / "incoming"),
+            "--keyring",
+            "k",
+            "--size-limit-mb",
+            limit,
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_a_good_rc_is_fetched(fetcher) -> None:
+    root, env = fetcher
+    result = _fetch(root, env, testing="5.0.0-rc.1", requested="5.0.0-rc.1")
+    assert result.returncode == 0, result.stderr
+    assert (root / "incoming" / "testing").is_dir()
+
+
+@pytest.mark.parametrize(
+    "broken", [{"BAD_VERSION": "5.0.0-rc.1"}, {"NO_DOWNLOAD": "5.0.0-rc.1"}, {"LIMIT": "0"}]
+)
+def test_a_broken_rc_stops_only_its_own_publication(fetcher, broken: dict[str, str]) -> None:
+    root, env = fetcher
+    # A real site has megabytes: `du` must be above a limit of 0.
+    (root / "incoming" / "stable").mkdir(parents=True)
+    (root / "incoming" / "stable" / "padding").write_bytes(b"x" * 2_000_000)
+    limit = broken.get("LIMIT", "950")
+    env = {**env, **{k: v for k, v in broken.items() if k != "LIMIT"}}
+
+    own = _fetch(root, env, testing="5.0.0-rc.1", requested="5.0.0-rc.1", limit=limit)
+    assert own.returncode == 1
+    assert "cannot be served" in own.stderr
+
+    other = _fetch(root, env, testing="5.0.0-rc.1", requested="4.18.2", limit=limit)
+    assert other.returncode == 0, other.stderr
+    assert "::warning::" in other.stdout
+    assert not (root / "incoming" / "testing").exists()
+    assert (root / "incoming" / "stable").is_dir()
+
+
+@pytest.mark.parametrize("broken", [{"BAD_VERSION": "4.18.2"}, {"NO_DOWNLOAD": "4.18.2"}])
+def test_broken_stable_packages_always_stop_the_run(fetcher, broken: dict[str, str]) -> None:
+    root, env = fetcher
+    result = _fetch(root, {**env, **broken}, testing="5.0.0-rc.1", requested="5.0.0-rc.1")
+    assert result.returncode != 0
+    assert not (root / "incoming" / "testing").exists()
+
+
+def test_the_build_step_follows_what_was_fetched() -> None:
+    build = _step(_job("publish-linux-repo", "build"), "Build apt and rpm trees")["run"]
+    assert "if [ -d incoming/testing ]" in build
+    assert '--testing-version "$TESTING"' in build
+    assert '--stable-version "$STABLE"' in build
+
+
+def test_an_rc_fetches_no_armhf() -> None:
+    script = (BUILD / "fetch_linux_repo_packages.sh").read_text(encoding="utf-8")
+    testing = script[script.index('gh release download "$TESTING"') :].split("|| refuse_rc")[0]
+    for pattern in ("*_amd64.deb", "*_arm64.deb", "*.x86_64.rpm", "*.aarch64.rpm"):
+        assert pattern in testing
+    assert '"*.deb"' not in testing
+    assert "armhf" not in testing
+
+
+def test_a_symlinked_tree_is_not_packed(tmp_path: Path) -> None:
+    secret = tmp_path / "elsewhere"
+    (secret / "python" / "bin").mkdir(parents=True)
+    (secret / "python" / "bin" / "python3").write_text("#!/bin/sh\n")
+    (secret / "python" / "bin" / "python3").chmod(0o755)
+    stage = tmp_path / "stage"
+    (stage / "opt").mkdir(parents=True)
+    (stage / "opt" / "meshloom").symlink_to(secret)
+    stub_dir = tmp_path / "nfpm-bin"
+    stub_dir.mkdir()
+    nfpm = stub_dir / "nfpm"
+    nfpm.write_text("#!/bin/sh\nexit 0\n")
+    nfpm.chmod(0o755)
+    result = subprocess.run(
+        [
+            "bash",
+            str(BUILD / "build_nfpm_packages.sh"),
+            "--version",
+            "5.0.0",
+            "--arch",
+            "amd64",
+            "--stage-dir",
+            str(stage),
+            "--package-only",
+            "--output-dir",
+            str(tmp_path / "dist"),
+        ],
+        env={**os.environ, "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "not a symlink" in result.stderr
+
+
+def test_the_identity_lock_does_not_outlive_its_event_loop() -> None:
+    """Guards tests/conftest.py: a lock contended on one test's loop broke the next."""
+    from app.services import instance_identity
+
+    assert instance_identity._locks == {}

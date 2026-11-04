@@ -10,7 +10,7 @@ name: Publish Linux apt/dnf repo
 #                                       stable (no armhf), otherwise stable
 #
 # Fails closed: no signing key, a missing package (amd64, arm64 and, when
-# asked, armhf), an unsigned .rpm or a pre-release headed for stable stops the run
+# asked, armhf), an unsigned package or one of another version in stable stops the run
 # instead of publishing a repository that clients cannot verify. Nothing is deployed
 # then, so the live repository stays as it was.
 #
@@ -75,13 +75,6 @@ jobs:
       - name: Install repo tools
         run: sudo apt-get update && sudo apt-get install -y apt-utils dpkg-dev createrepo-c gnupg jq
 
-      # No key, no repository: this runs before any package is touched.
-      - name: Import signing key
-        id: key
-        uses: ./.github/actions/import-signing-key
-        with:
-          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
-
       - name: Resolve what each suite serves
         id: rel
         env:
@@ -107,55 +100,40 @@ jobs:
           cat "$RUNNER_TEMP/channels"
           cat "$RUNNER_TEMP/channels" >> "$GITHUB_OUTPUT"
 
-      # No error swallowing here: an empty or partial download used to publish an empty or
-      # stale repository and report success.
+      # Stable fails closed. An rc other than the one this run publishes is left out
+      # with a warning: it must not stop a stable publication.
       - name: Download release packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STABLE: ${{ steps.rel.outputs.stable }}
           TESTING: ${{ steps.rel.outputs.testing }}
+          INPUT_VERSION: ${{ inputs.version }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
           REQUIRE_ARMHF: ${{ inputs.require_armhf }}
         run: |
-          mkdir -p incoming/stable
-          gh release download "$STABLE" --repo "$GITHUB_REPOSITORY" --dir incoming/stable \
-            --pattern "*.deb" --pattern "*.rpm"
-          ls -la incoming/stable
-          need() { compgen -G "incoming/stable/$1" >/dev/null || { echo "::error::release $STABLE has no package matching $1"; exit 1; }; }
-          need '*_amd64.deb'
-          need '*_arm64.deb'
-          need '*.x86_64.rpm'
-          need '*.aarch64.rpm'
-          if [ "$REQUIRE_ARMHF" = "true" ]; then need '*_armhf.deb'; fi
-          if [ "$TESTING" != "$STABLE" ]; then
-            # Named one by one: an rc serves no other architecture, even if someone
-            # attached another package to it.
-            mkdir -p incoming/testing
-            gh release download "$TESTING" --repo "$GITHUB_REPOSITORY" --dir incoming/testing \
-              --pattern "*_amd64.deb" --pattern "*_arm64.deb" \
-              --pattern "*.x86_64.rpm" --pattern "*.aarch64.rpm"
-            ls -la incoming/testing
-          fi
-
-      # Packages are signed by nFPM at build time (pkg/nfpm). Refuse anything
-      # else, so dnf with gpgcheck=1 can install every file we serve.
-      - name: Assert .rpm packages are signed
-        run: |
-          if ! python3 -I scripts/build/check_rpm_signed.py incoming/*/*.rpm; then
-            echo "::error::unsigned .rpm in release $STABLE or $TESTING: dnf with gpgcheck=1 could not install it. Publish a release built with signing enabled."
-            exit 1
-          fi
-        env:
-          STABLE: ${{ steps.rel.outputs.stable }}
-          TESTING: ${{ steps.rel.outputs.testing }}
+          REQUESTED="${INPUT_VERSION:-${EVENT_TAG:-}}"
+          ARGS=(--stable "$STABLE" --testing "$TESTING" --requested "${REQUESTED#v}" \
+            --incoming incoming --keyring pkg/keys/meshloom-archive-keyring.gpg)
+          if [ "$REQUIRE_ARMHF" = "true" ]; then ARGS+=(--require-armhf); fi
+          scripts/build/fetch_linux_repo_packages.sh "${ARGS[@]}"
 
       - name: Build apt and rpm trees
         env:
           STABLE: ${{ steps.rel.outputs.stable }}
           TESTING: ${{ steps.rel.outputs.testing }}
         run: |
-          ARGS=(--stable-dir incoming/stable --output public)
-          if [ "$TESTING" != "$STABLE" ]; then ARGS+=(--testing-dir incoming/testing); fi
+          ARGS=(--stable-dir incoming/stable --stable-version "$STABLE" --output public)
+          if [ -d incoming/testing ]; then
+            ARGS+=(--testing-dir incoming/testing --testing-version "$TESTING")
+          fi
           scripts/build/build_linux_repo.sh "${ARGS[@]}"
+
+      # Last thing before signing. No key, no repository: nothing was deployed yet.
+      - name: Import signing key
+        id: key
+        uses: ./.github/actions/import-signing-key
+        with:
+          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
 
       - name: Sign metadata and publish the public key
         env:
@@ -176,6 +154,14 @@ jobs:
           # The key clients download is the one committed in git.
           cp pkg/keys/meshloom-archive-keyring.gpg public/meshloom.gpg
           cp pkg/keys/meshloom.asc public/meshloom.asc
+
+      # Nothing after this step needs the key, and the actions below do not get to see it.
+      - name: Erase the key
+        if: always()
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          KEY_FILE: ${{ steps.key.outputs.key-file }}
+        run: rm -rf -- "${GNUPGHOME:-/nonexistent}" "${KEY_FILE:-/nonexistent}"
 
       # Verify like a client would, with the published key and nothing else.
       - name: Verify published signatures

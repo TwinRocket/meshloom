@@ -73,14 +73,8 @@ jobs:
       # the packages of that release ship.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.version }}
+          ref: refs/tags/${{ inputs.version }}
           persist-credentials: false
-
-      - name: Import signing key
-        id: key
-        uses: ./.github/actions/import-signing-key
-        with:
-          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
 
       - name: Download release assets
         run: |
@@ -152,6 +146,13 @@ jobs:
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
+      # Only now: the registry login and the image inspection have no use for the key.
+      - name: Import signing key
+        id: key
+        uses: ./.github/actions/import-signing-key
+        with:
+          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
+
       - name: Write and sign SHA256SUMS
         env:
           GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
@@ -170,6 +171,14 @@ jobs:
             gpgv --keyring "$PWD/pkg/keys/meshloom-archive-keyring.gpg" "$f.asc" "$f"
             cat "$f"
           done
+
+      # Nothing after this step needs the key, and the actions below do not get to see it.
+      - name: Erase the key
+        if: always()
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          KEY_FILE: ${{ steps.key.outputs.key-file }}
+        run: rm -rf -- "${GNUPGHOME:-/nonexistent}" "${KEY_FILE:-/nonexistent}"
 
       - name: Attest provenance of the release assets
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

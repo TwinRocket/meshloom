@@ -139,12 +139,17 @@ overload). The figures and how to read them: `docs/dev/plugins-security.md`,
 | `check_version_consistency.sh` | Fails unless the four version sources (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag of `meshloom/Dockerfile`) equal the tag (Release `preflight`, `publish.sh`, `tag_release.sh`). For `X.Y.Z-rc.N`, the add-on's two must instead stay on one stable version. `uv.lock` is updated by `publish.sh` but not checked. |
 | `install_nfpm.sh` | Installs the pinned nFPM after checking its sha256. Release jobs run it next to the signing key. |
 | `resolve_linux_repo_channels.py` | Decides which release the apt/dnf `stable` and `testing` suites serve, from the published releases. Fails closed. |
-| `build_linux_repo.sh` | Builds both suites' apt and dnf trees, unsigned, from downloaded packages. Refuses a pre-release in `stable`. |
+| `fetch_linux_repo_packages.sh` | Downloads and checks what each suite serves. Stable fails closed; an rc that cannot be served only stops its own publication. |
+| `check_linux_repo_packages.sh` | Fails unless a directory holds the signed packages of exactly one release. |
+| `build_linux_repo.sh` | Builds both suites' apt and dnf trees, unsigned, from downloaded packages. Refuses a package of another version in a suite. |
+| `list_release_assets.sh` | Lists a GitHub release's assets, and fails if a directory holds anything else. |
+| `check_signing_environment.py` | Fails unless the `release-signing` environment exists and is limited to selected refs. |
 | `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |
 | `package_release_artifact.sh` | Builds the prebuilt-frontend release zip (called by `release.yml`). |
 | `create_github_release.sh` | Creates the GitHub release with changelog notes (called by `release.yml`). Never creates a tag: fails unless `X.Y.Z` exists on origin and points at the built commit. |
 | `build_nfpm_packages.sh` | Builds Meshloom `.deb` and `.rpm` packages with nFPM. |
 | `check_rpm_signed.py` | Fails unless each `.rpm` carries a signature header. |
+| `check_deb_signed.py` | Fails unless each `.deb`'s origin signature verifies against a keyring. |
 | `neutralize_project_version.py` | Pins the project's own version in the dependency manifests so the Docker dependency layer stays cached across releases. |
 | `build_rpi_image.sh` / `build_rpi_kiosk_image.sh` | Raspberry Pi Lite image (built by `release.yml`) / Desktop kiosk image (manual). |
 | `collect_licenses.sh` | Gathers third-party license attributions into `LICENSES.md`. |

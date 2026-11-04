@@ -24,7 +24,8 @@ name: Release
 # Key exposure: every job that runs third-party code (npm, uv, build backends) has
 # no key and no write token. `nfpm-stage` assembles the tree, `nfpm` signs it and
 # runs nothing but the pinned nFPM. Key-holding jobs use the `release-signing`
-# environment, so moving the secret there limits it to release refs.
+# environment; `signing-environment` refuses to go on unless that environment is
+# limited to release refs.
 #
 # A tag X.Y.Z-rc.N (scripts/build/publish.sh X.Y.Z-rc.N) goes through the same jobs
 # and ends as a signed pre-release: a GitHub pre-release that is never `latest`, the
@@ -83,12 +84,31 @@ jobs:
     permissions:
       contents: read
 
+  # Before any job names the environment: GitHub would create a missing one with no
+  # protection. No key here, and the token can read nothing private.
+  signing-environment:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the signing environment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -I scripts/build/check_signing_environment.py "$GITHUB_REPOSITORY"
+
   # Fail before building anything: the version sources must equal the tag (an rc
   # leaves the add-on on its stable version), and the signing trust anchor must be
   # real and match the CI secret. A release without a key would otherwise ship
   # packages nobody can verify.
   preflight:
-    needs: [version, quality]
+    needs: [version, quality, signing-environment]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release-signing
@@ -192,13 +212,13 @@ jobs:
           scripts/build/build_nfpm_packages.sh \
             --version "${{ needs.version.outputs.version }}" \
             --arch "${{ matrix.arch }}" \
-            --stage-dir stage \
+            --stage-dir "$RUNNER_TEMP/stage" \
             --stage-only \
             --skip-frontend
 
       # A tarball: an artifact would lose the symlinks and the file modes.
       - name: Pack the tree
-        run: tar -C stage -czf stage.tar.gz .
+        run: tar -C "$RUNNER_TEMP/stage" -czf stage.tar.gz .
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -230,14 +250,19 @@ jobs:
         with:
           persist-credentials: false
 
+      # Outside the workspace, like everything from that job: extracted over the
+      # checkout, its files would replace the scripts and the action that get the key.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: nfpm-stage-${{ matrix.arch }}
+          path: ${{ runner.temp }}/stage-artifact
 
       - name: Unpack the tree
         run: |
-          mkdir stage
-          tar -xpzf stage.tar.gz -C stage
+          [ "$(ls -A "$RUNNER_TEMP/stage-artifact")" = "stage.tar.gz" ] \
+            || { echo "::error::the stage artifact must hold stage.tar.gz and nothing else"; exit 1; }
+          mkdir "$RUNNER_TEMP/stage"
+          tar -xpzf "$RUNNER_TEMP/stage-artifact/stage.tar.gz" -C "$RUNNER_TEMP/stage"
 
       - name: Install nFPM
         run: |
@@ -259,12 +284,20 @@ jobs:
           scripts/build/build_nfpm_packages.sh \
             --version "${{ needs.version.outputs.version }}" \
             --arch "${{ matrix.arch }}" \
-            --stage-dir stage \
+            --stage-dir "$RUNNER_TEMP/stage" \
             --package-only \
             --output-dir dist
 
       - name: Assert the rpm is signed
         run: python3 -I scripts/build/check_rpm_signed.py dist/*.rpm
+
+      # Nothing after this step needs the key, and the actions below do not get to see it.
+      - name: Erase the key
+        if: always()
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          KEY_FILE: ${{ steps.key.outputs.key-file }}
+        run: rm -rf -- "${GNUPGHOME:-/nonexistent}" "${KEY_FILE:-/nonexistent}"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -283,6 +316,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -306,10 +340,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Exactly the expected files: the artifacts come from jobs running npm and uv.
+          scripts/build/list_release_assets.sh \
+            --version "${{ needs.version.outputs.version }}" --dir artifacts > "$RUNNER_TEMP/assets"
           ASSET_ARGS=()
           while IFS= read -r file; do
             ASSET_ARGS+=(--asset "$file")
-          done < <(find artifacts -type f | sort)
+          done < "$RUNNER_TEMP/assets"
           scripts/build/create_github_release.sh \
             --version "${{ needs.version.outputs.version }}" \
             "${ASSET_ARGS[@]}"
@@ -391,6 +428,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

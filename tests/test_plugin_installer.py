@@ -861,6 +861,8 @@ async def test_store_offline_and_unknown_sources(api, manager, net, monkeypatch)
         raise AssertionError("resolved while offline")
 
     monkeypatch.setattr(installer, "_resolvers", {"custom": resolve})
+    # App startup in an earlier test (app/main.py) leaves its own gate set.
+    monkeypatch.setattr(installer, "_download_gate", installer._downloads_refused)
     response = await install(api)
     assert (response.status_code, code_of(response)) == (409, "store_offline")
     store = await install(api, kind="store")

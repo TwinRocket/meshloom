@@ -50,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version.outputs.version }}
+          ref: refs/tags/${{ needs.version.outputs.version }}
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -93,7 +93,7 @@ jobs:
       - name: Check out tagged sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version.outputs.version }}
+          ref: refs/tags/${{ needs.version.outputs.version }}
           path: tag-src
           persist-credentials: false
 
@@ -182,14 +182,19 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
+      # Outside the workspace, like everything from that job: extracted over the
+      # checkout, its files would replace the scripts and the action that get the key.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: nfpm-stage-armhf
+          path: ${{ runner.temp }}/stage-artifact
 
       - name: Unpack the tree
         run: |
-          mkdir stage-armhf
-          tar -xpzf stage-armhf.tar.gz -C stage-armhf
+          [ "$(ls -A "$RUNNER_TEMP/stage-artifact")" = "stage-armhf.tar.gz" ] \
+            || { echo "::error::the stage artifact must hold stage-armhf.tar.gz and nothing else"; exit 1; }
+          mkdir "$RUNNER_TEMP/stage-armhf"
+          tar -xpzf "$RUNNER_TEMP/stage-artifact/stage-armhf.tar.gz" -C "$RUNNER_TEMP/stage-armhf"
 
       - name: Install nFPM
         run: scripts/build/install_nfpm.sh
@@ -209,9 +214,17 @@ jobs:
           scripts/build/build_nfpm_packages.sh \
             --version "${{ needs.version.outputs.version }}" \
             --arch armhf \
-            --stage-dir stage-armhf \
+            --stage-dir "$RUNNER_TEMP/stage-armhf" \
             --package-only \
             --output-dir dist
+
+      # Nothing after this step needs the key, and the actions below do not get to see it.
+      - name: Erase the key
+        if: always()
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          KEY_FILE: ${{ steps.key.outputs.key-file }}
+        run: rm -rf -- "${GNUPGHOME:-/nonexistent}" "${KEY_FILE:-/nonexistent}"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

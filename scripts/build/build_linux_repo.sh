@@ -10,13 +10,18 @@
 # Without --testing-dir, testing serves the stable packages: its apt suite shares
 # pool/main, the rpm files are copied (a dnf repository lists files of its own).
 #
-# Fails closed on an empty stable directory and on a pre-release package in stable.
+# Fails closed unless each directory holds exactly the release it is given for
+# (check_linux_repo_packages.sh), so a pre-release can never land in stable.
 #
-# Usage: scripts/build/build_linux_repo.sh --stable-dir DIR [--testing-dir DIR] --output DIR
+# Usage: scripts/build/build_linux_repo.sh --stable-dir DIR --stable-version X.Y.Z
+#   [--testing-dir DIR --testing-version X.Y.Z-rc.N] --output DIR
 set -euo pipefail
 
-# GitHub Pages refuses or throttles sites near 1 GB.
+# GitHub Pages: published sites may be no larger than 1 GB. An rc over the limit is
+# left out earlier (fetch_linux_repo_packages.sh); this watches stable alone.
 SIZE_WARNING_MB=900
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 die() {
     echo "::error::$*" >&2
@@ -24,12 +29,16 @@ die() {
 }
 
 STABLE_DIR=""
+STABLE_VERSION=""
 TESTING_DIR=""
+TESTING_VERSION=""
 OUTPUT=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --stable-dir) STABLE_DIR="${2:-}"; shift 2 ;;
+        --stable-version) STABLE_VERSION="${2:-}"; shift 2 ;;
         --testing-dir) TESTING_DIR="${2:-}"; shift 2 ;;
+        --testing-version) TESTING_VERSION="${2:-}"; shift 2 ;;
         --output) OUTPUT="${2:-}"; shift 2 ;;
         *) die "Unknown argument: $1" ;;
     esac
@@ -42,25 +51,14 @@ fi
 
 shopt -s nullglob
 
+[[ $STABLE_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "--stable-version must be X.Y.Z, not '$STABLE_VERSION'"
+"$SCRIPT_DIR/check_linux_repo_packages.sh" --dir "$STABLE_DIR" --version "$STABLE_VERSION"
+if [ -n "$TESTING_DIR" ]; then
+    "$SCRIPT_DIR/check_linux_repo_packages.sh" --dir "$TESTING_DIR" --version "$TESTING_VERSION"
+fi
+
 stable_debs=("$STABLE_DIR"/*.deb)
 stable_rpms=("$STABLE_DIR"/*.rpm)
-[ "${#stable_debs[@]}" -gt 0 ] || die "no .deb in $STABLE_DIR"
-[ "${#stable_rpms[@]}" -gt 0 ] || die "no .rpm in $STABLE_DIR"
-
-# The last line of defence: whatever chose these packages, stable users never
-# get a pre-release. Read from the package for a .deb. A .rpm can only be judged
-# by its name here (no rpm tool is needed anywhere else in this job): nFPM writes
-# meshloom-X.Y.Z-1.<arch>.rpm for a stable version.
-for deb in "${stable_debs[@]}"; do
-    version="$(dpkg-deb -f "$deb" Version)"
-    case "$version" in
-        *~*) die "$(basename "$deb") is a pre-release ($version): refusing to serve it from stable" ;;
-    esac
-done
-for rpm in "${stable_rpms[@]}"; do
-    [[ "$(basename "$rpm")" =~ ^meshloom-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+\.[a-z0-9_]+\.rpm$ ]] \
-        || die "$(basename "$rpm") looks like a pre-release: refusing to serve it from stable"
-done
 
 rpm_arch_dir() {
     case "$1" in
@@ -81,8 +79,6 @@ TESTING_RPMS=("${stable_rpms[@]}")
 if [ -n "$TESTING_DIR" ]; then
     testing_debs=("$TESTING_DIR"/*.deb)
     TESTING_RPMS=("$TESTING_DIR"/*.rpm)
-    [ "${#testing_debs[@]}" -gt 0 ] || die "no .deb in $TESTING_DIR"
-    [ "${#TESTING_RPMS[@]}" -gt 0 ] || die "no .rpm in $TESTING_DIR"
     TESTING_POOL=pool/testing
     mkdir -p "$OUTPUT/apt/pool/testing"
     cp "${testing_debs[@]}" "$OUTPUT/apt/pool/testing/"
