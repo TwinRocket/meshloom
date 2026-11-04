@@ -74,8 +74,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
-from app.decoder import encrypt_group_text
 from app.background_tasks import drain_background_tasks
+from app.decoder import encrypt_group_text
 from app.fanout.manager import SYSTEM_MESHLOOM_STATS_ID, fanout_manager
 from app.fanout.meshloom_stats import MeshloomStatsPublisher
 from app.packet_processor import process_raw_packet
