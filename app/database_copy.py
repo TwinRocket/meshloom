@@ -30,14 +30,19 @@ A marker file (``<db>.migration-in-progress``, naming the copy) stays for the le
 of the migrations. A start that finds it with the database past that copy's schema
 continues an interrupted run: the database is partly migrated, the copy already
 taken is the good one, and none is taken. At the copy's schema, the marker's second
-line (the highest rowid of each table when the copy was made) tells the two other
-cases apart. Unchanged: the first migration failed, and a service manager is restarting
-us every few seconds, so a large database must not be rewritten each time: no copy,
-and the copy stays free of the tables ``SCHEMA_TABLES`` added since. Changed, or below
-that schema: an older database was put back and used, the live one is the fresher, and
-the copy is made again under the same name. Rows only updated do not count as a change.
+line, read from the copy itself, tells the two other cases apart: a hash of each table
+up to ``FINGERPRINT_MAX_ROWS`` rows (settings, contacts, channels, accounts, fanouts), the
+highest rowid of the larger ones (a hash of everything takes tens of seconds on a Pi).
+Unchanged: the first migration failed, and a service manager is restarting us every few
+seconds, so a large database must not be rewritten each time: no copy, and the copy
+stays free of the tables ``SCHEMA_TABLES`` added since. Changed, or anything wrong with
+the check, or below that schema: an older database was put back and used, the live one
+is the fresher, and the copy is made again under the same name. A row only updated in a
+large table does not count as a change.
+
 A first start on a new database leaves ``fresh`` in the marker: if it is interrupted
-there is nothing to protect, and the next start takes no copy.
+there is nothing to protect, and the next start takes no copy, as long as the tables of
+``USER_DATA_TABLES`` read empty. Anything else is a real database put there.
 
 ``<db>.copy-in-progress.lock`` keeps a second process off the temporary file (where
 ``flock`` exists: not Windows). That second process is refused, not made to wait.
@@ -48,6 +53,7 @@ Assistant add-on excludes them through ``backup_exclude`` (``meshloom/config.yam
 """
 
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -73,6 +79,8 @@ MIN_HEADROOM_BYTES = 64 * MIB
 HEADROOM_DIVISOR = 4
 _BACKUP_STEP_PAGES = 16384
 _FRESH_MARKER = "fresh"
+FINGERPRINT_MAX_ROWS = 20_000
+USER_DATA_TABLES = ("messages", "raw_packets", "contacts", "fanout_configs", "users", "plugins")
 DOCS_URL = "https://meshloom.app/en/docs/deep/install-paths/#going-back-to-an-older-version"
 
 
@@ -195,46 +203,63 @@ def _read_state(db_path: Path) -> tuple[int, int, int]:
     return schema, objects, size
 
 
-def _holds_messages(db_path: Path) -> bool:
-    """A first start cannot have reached the radio: messages mean a database put there."""
-    with closing(_state_connection(db_path)) as conn:
-        try:
-            return conn.execute("SELECT 1 FROM messages LIMIT 1").fetchone() is not None
-        except sqlite3.OperationalError:
-            return False
+def _is_interrupted_first_start(db_path: Path) -> bool:
+    """Every table that holds what a person would miss reads empty. Any error: no."""
+    try:
+        with closing(_state_connection(db_path)) as conn:
+            return not any(
+                conn.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone()
+                for table in USER_DATA_TABLES
+            )
+    except sqlite3.Error:
+        return False
 
 
-def _highest_rowids(db_path: Path) -> dict[str, int | None]:
-    """Cheap (one index seek per table) and blind to updates: see the module doc."""
-    rowids: dict[str, int | None] = {}
+def _table_fingerprint(conn: sqlite3.Connection, quoted: str) -> str:
+    rows = conn.execute(
+        f'SELECT count(*) FROM (SELECT 1 FROM "{quoted}" LIMIT {FINGERPRINT_MAX_ROWS + 1})'
+    ).fetchone()[0]
+    if rows > FINGERPRINT_MAX_ROWS:
+        highest = conn.execute(f'SELECT max(rowid) FROM "{quoted}"').fetchone()[0]
+        return f"rowid:{highest}"
+    digest = hashlib.sha256()
+    for row in conn.execute(f'SELECT * FROM "{quoted}"'):
+        digest.update(repr(tuple(row)).encode("utf-8", "surrogatepass"))
+    return f"rows:{rows}:{digest.hexdigest()}"
+
+
+def _fingerprint(db_path: Path) -> dict[str, str]:
+    """What the module doc calls the marker's second line, per table."""
     with closing(_state_connection(db_path)) as conn:
         names = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
-        for (name,) in names:
-            quoted = name.replace('"', '""')
-            try:
-                rowids[name] = conn.execute(f'SELECT max(rowid) FROM "{quoted}"').fetchone()[0]
-            except sqlite3.OperationalError:  # WITHOUT ROWID
-                rowids[name] = conn.execute(f'SELECT count(*) FROM "{quoted}"').fetchone()[0]
-    return rowids
+        return {name: _table_fingerprint(conn, name.replace('"', '""')) for (name,) in names}
 
 
-def _read_marker(marker: Path) -> tuple[str, dict[str, int | None]]:
-    """The name in the marker and the rowids stored with it; empty when unreadable."""
+def _read_marker(marker: Path) -> tuple[str, dict[str, str]]:
+    """The name in the marker and the fingerprint stored with it; empty when unusable."""
     try:
-        name, _, rowids = marker.read_text(encoding="utf-8").partition("\n")
-        return name.strip(), json.loads(rowids) if rowids else {}
+        name, _, stored = marker.read_text(encoding="utf-8").partition("\n")
+        fingerprint = json.loads(stored) if stored else {}
     except (OSError, UnicodeDecodeError, ValueError):
         return "", {}
+    return name.strip(), fingerprint if isinstance(fingerprint, dict) else {}
 
 
-def _unchanged_since_copy(db_path: Path, rowids: dict[str, int | None]) -> bool:
-    """Tables created after the copy do not count: ``SCHEMA_TABLES`` adds them."""
-    if not rowids:
+def _unchanged_since_copy(db_path: Path, fingerprint: dict[str, str]) -> bool:
+    """Tables created after the copy do not count: ``SCHEMA_TABLES`` adds them.
+
+    Any failure says "changed": a needless copy costs little, a stale one costs data.
+    """
+    if not fingerprint:
         return False
-    current = _highest_rowids(db_path)
-    return all(current.get(name) == value for name, value in rowids.items())
+    try:
+        current = _fingerprint(db_path)
+        return all(current.get(name) == value for name, value in fingerprint.items())
+    except Exception as exc:
+        logger.warning("Could not compare the database with its copy, copying it: %s", exc)
+        return False
 
 
 def _mark_fresh(db_path: Path) -> None:
@@ -397,8 +422,8 @@ def prepare_for_migrations(db_path_text: str) -> Path | None:
 
     marker = marker_path(db_path)
     copies = list_copies(db_path)
-    marked, rowids = _read_marker(marker)
-    if marked == _FRESH_MARKER and not _holds_messages(db_path):
+    marked, fingerprint = _read_marker(marker)
+    if marked == _FRESH_MARKER and _is_interrupted_first_start(db_path):
         logger.info("An earlier first start did not finish: carrying on, no copy needed")
         return None
     if any(c.path.name == marked and source_schema > c.source_schema for c in copies):
@@ -410,10 +435,10 @@ def prepare_for_migrations(db_path_text: str) -> Path | None:
         )
         return None
     same_schema = any(c.path.name == marked and source_schema == c.source_schema for c in copies)
-    if same_schema and _unchanged_since_copy(db_path, rowids):
+    if same_schema and _unchanged_since_copy(db_path, fingerprint):
         logger.warning(
-            "An earlier migration failed and the database has not changed since: keeping the "
-            "copy %s",
+            "An earlier migration failed. Same small tables and same last row in the large "
+            "ones as the copy %s: keeping it",
             marked,
         )
         return None
@@ -451,7 +476,7 @@ def _copy_with_retention(
         _remove_copy(way_back.path)
     try:
         marker.unlink(missing_ok=True)
-        content = f"{copy.name}\n{json.dumps(_highest_rowids(db_path))}"
+        content = f"{copy.name}\n{json.dumps(_fingerprint(copy))}"
         _write_private(marker, content.encode("utf-8"))
         _fsync_path(marker.parent)
     except (OSError, sqlite3.Error) as exc:

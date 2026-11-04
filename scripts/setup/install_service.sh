@@ -238,6 +238,9 @@ generate_service_file() {
     echo "[Unit]"
     echo "Description=Meshloom"
     echo "After=network.target bluetooth.target"
+    # A start that keeps failing stops here: see pkg/nfpm/meshloom.service.
+    echo "StartLimitIntervalSec=1h"
+    echo "StartLimitBurst=20"
     echo ""
     echo "[Service]"
     echo "Type=simple"

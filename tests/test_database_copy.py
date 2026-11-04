@@ -5,10 +5,13 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import stat
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path, PurePath
 
 import pytest
@@ -244,7 +247,7 @@ async def test_a_failed_migration_ends_the_process_and_the_next_one_does_not_rec
 
     second = await asyncio.to_thread(_start_uvicorn, db_path)
     assert second.returncode != 0
-    assert "has not changed since" in second.stdout + second.stderr
+    assert "keeping it" in second.stdout + second.stderr
     assert [c.path.stat().st_mtime_ns for c in list_copies(db_path)] == [taken]
     assert _schema(db_path) == LATEST - 1
 
@@ -301,7 +304,8 @@ def test_an_interrupted_first_start_takes_no_copy(db_path) -> None:
     assert prepare_for_migrations(str(db_path)) is None
     assert marker_path(db_path).read_text() == "fresh"
     conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY)")
+    for table in database_copy.USER_DATA_TABLES:
+        conn.execute(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
     conn.execute("PRAGMA user_version = 99")
     conn.commit()
     conn.close()
@@ -309,11 +313,25 @@ def test_an_interrupted_first_start_takes_no_copy(db_path) -> None:
     assert list_copies(db_path) == []
 
 
-def test_a_database_put_over_an_interrupted_first_start_is_copied(db_path) -> None:
+@pytest.mark.parametrize("holding_data", database_copy.USER_DATA_TABLES)
+def test_a_database_put_over_an_interrupted_first_start_is_copied(db_path, holding_data) -> None:
     assert prepare_for_migrations(str(db_path)) is None
     conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY)")
-    conn.execute("INSERT INTO messages DEFAULT VALUES")
+    for table in database_copy.USER_DATA_TABLES:
+        conn.execute(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
+    conn.execute(f"INSERT INTO {holding_data} DEFAULT VALUES")
+    conn.execute("PRAGMA user_version = 87")
+    conn.commit()
+    conn.close()
+    assert prepare_for_migrations(str(db_path)) is not None
+
+
+def test_a_418_database_with_contacts_and_no_message_is_copied(db_path) -> None:
+    """No ``users`` table in 4.18: a table that cannot be read is not an empty one."""
+    assert prepare_for_migrations(str(db_path)) is None
+    conn = sqlite3.connect(db_path)
+    for table in ("messages", "raw_packets", "contacts", "fanout_configs"):
+        conn.execute(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
     conn.execute("PRAGMA user_version = 87")
     conn.commit()
     conn.close()
@@ -508,11 +526,76 @@ def test_a_stale_temporary_is_replaced(db_path) -> None:
     assert not db_path.with_name("meshcore.db.copy-in-progress").exists()
 
 
-def test_an_unreadable_second_line_in_the_marker_makes_a_copy(db_path) -> None:
+@pytest.mark.parametrize(
+    "change",
+    [
+        "UPDATE items SET value = 'renamed' WHERE id = 1",
+        "DELETE FROM items WHERE id = 3; INSERT INTO items (id, value) VALUES (3, 'other')",
+    ],
+)
+def test_updates_with_no_new_row_make_a_new_copy(db_path, change) -> None:
     _make_db(db_path, 87)
     first = prepare_for_migrations(str(db_path))
-    marker_path(db_path).write_text(f"{first.name}\nnot json")
+    conn = sqlite3.connect(db_path)
+    conn.executescript(change)
+    conn.close()
     assert prepare_for_migrations(str(db_path)) == first
+    assert _rows(first) == _rows(db_path)
+
+
+def test_a_large_table_is_compared_by_its_last_row(db_path, monkeypatch) -> None:
+    monkeypatch.setattr(database_copy, "FINGERPRINT_MAX_ROWS", 2)
+    _make_db(db_path, 87)
+    first = prepare_for_migrations(str(db_path))
+    taken = first.stat().st_mtime_ns
+    assert prepare_for_migrations(str(db_path)) is None
+    assert first.stat().st_mtime_ns == taken
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO items (value) VALUES ('new')")
+    conn.commit()
+    conn.close()
+    assert prepare_for_migrations(str(db_path)) == first
+
+
+@pytest.mark.parametrize("line", ["not json", "[1, 2]", "3", '"text"', "null"])
+def test_an_unusable_second_line_in_the_marker_makes_a_copy(db_path, line) -> None:
+    _make_db(db_path, 87)
+    first = prepare_for_migrations(str(db_path))
+    marker_path(db_path).write_text(f"{first.name}\n{line}")
+    assert prepare_for_migrations(str(db_path)) == first
+
+
+def test_any_failure_of_the_comparison_makes_a_copy(db_path, monkeypatch) -> None:
+    _make_db(db_path, 87)
+    first = prepare_for_migrations(str(db_path))
+
+    def broken(_path):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(database_copy, "_fingerprint", broken)
+        assert database_copy._unchanged_since_copy(db_path, {"items": "x"}) is False
+    assert first.exists()
+
+
+def test_the_fingerprint_is_the_copys_not_the_live_databases(db_path, monkeypatch) -> None:
+    """A row written just after the copy must make the next start copy again."""
+    _make_db(db_path, 87)
+    real = database_copy._make_copy
+
+    def copy_then_write(*args, **kwargs):
+        made = real(*args, **kwargs)
+        conn = sqlite3.connect(db_path)
+        conn.execute("INSERT INTO items (value) VALUES ('just after')")
+        conn.commit()
+        conn.close()
+        return made
+
+    monkeypatch.setattr(database_copy, "_make_copy", copy_then_write)
+    first = prepare_for_migrations(str(db_path))
+    monkeypatch.setattr(database_copy, "_make_copy", real)
+    assert prepare_for_migrations(str(db_path)) == first
+    assert "just after" in _rows(first)
 
 
 def test_a_marker_naming_no_copy_is_ignored(db_path) -> None:
@@ -582,6 +665,96 @@ def test_a_failed_start_logs_the_cause_in_full(tmp_path) -> None:
     assert "[truncated:" not in output
 
 
+STUCK_STARTS = {
+    "blocked_thread": """
+    import threading
+    asyncio.ensure_future(asyncio.to_thread(threading.Event().wait))
+    await asyncio.sleep(0.2)
+    raise RuntimeError("late boom")
+""",
+    "busy_connection": """
+    from app.database import db
+    asyncio.ensure_future(db.conn.execute(
+        "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c"
+    ))
+    await asyncio.sleep(0.2)
+    raise RuntimeError("late boom")
+""",
+    "cancelled": """
+    raise asyncio.CancelledError()
+""",
+}
+
+
+@pytest.mark.parametrize("case", sorted(STUCK_STARTS))
+def test_a_start_that_fails_and_stays_stuck_still_ends(tmp_path, case) -> None:
+    script = f"""
+import asyncio
+import uvicorn
+import app.main as main
+import app.plugins.lifecycle as lifecycle
+
+main._FAILED_START_EXIT_SECONDS = 3.0
+main._FAILED_START_CLOSE_SECONDS = 1.0
+
+
+async def boom(*args, **kwargs):{STUCK_STARTS[case]}
+
+lifecycle.start = boom
+uvicorn.run(main.app, port=0)
+"""
+    env = {**os.environ, "MESHCORE_DATABASE_PATH": str(tmp_path / "meshcore.db")}
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 3, result.stderr[-500:]
+
+
+def test_a_normal_shutdown_does_not_arm_the_forced_exit(tmp_path) -> None:
+    script = """
+import uvicorn
+import app.main as main
+
+main._FAILED_START_EXIT_SECONDS = 0.1
+real = main._arm_failed_start_exit
+main._arm_failed_start_exit = lambda: print("ARMED", flush=True) or real()
+uvicorn.run(main.app, port=0)
+"""
+    env = {
+        **os.environ,
+        "MESHCORE_DATABASE_PATH": str(tmp_path / "meshcore.db"),
+        "MESHCORE_DISABLE_PLUGINS": "true",
+    }
+    process = subprocess.Popen(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    assert process.stdout is not None
+    guard = threading.Timer(60, process.kill)
+    guard.start()
+    try:
+        for line in process.stdout:
+            if "Radio connection monitor started" in line:
+                break
+        time.sleep(1)  # Past the yield of the lifespan.
+        process.send_signal(signal.SIGTERM)
+    finally:
+        guard.cancel()
+    output, _ = process.communicate(timeout=60)
+    # uvicorn raises the signal it caught again once it has shut down.
+    assert process.returncode in (0, -signal.SIGTERM)
+    assert "ARMED" not in output
+
+
 def test_a_newer_schema_logs_one_clear_line_and_no_traceback(tmp_path) -> None:
     path = tmp_path / "meshcore.db"
     _make_db(path, LATEST + 1)
@@ -603,8 +776,6 @@ def test_the_docker_image_never_syncs_and_works_for_any_uid() -> None:
 
 
 def test_prepare_runs_off_the_event_loop_thread(db_path, monkeypatch) -> None:
-    import threading
-
     _make_db(db_path, LATEST)
     seen: list[int] = []
     real = database_copy.prepare_for_migrations

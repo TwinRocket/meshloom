@@ -39,6 +39,8 @@ if sys.platform == "win32":
     del _loop, _is_proactor
 
 import asyncio
+import os
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -496,11 +498,16 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
     await _shutdown_step("background tasks", drain_background_tasks)
 
 
+UVICORN_STARTUP_FAILURE = 3
+_FAILED_START_EXIT_SECONDS = 15.0
+_FAILED_START_CLOSE_SECONDS = 5.0
+
+
 def _not_a_startup_traceback(record: logging.LogRecord) -> bool:
     return "Traceback (most recent call last)" not in record.getMessage()[:64]
 
 
-def _log_startup_failure(exc: Exception) -> None:
+def _log_startup_failure(exc: BaseException) -> None:
     """Say why the start failed, in full.
 
     Starlette hands uvicorn the whole traceback as one message, and logging gives
@@ -515,16 +522,28 @@ def _log_startup_failure(exc: Exception) -> None:
     logging.getLogger("uvicorn.error").addFilter(_not_a_startup_traceback)
 
 
-async def _close_after_failed_start() -> None:
-    """Without this the process never ends, and no service manager restarts it.
+def _exit_after_failed_start() -> None:
+    logger.critical("The process did not end after the failed start: forcing it")
+    os._exit(UVICORN_STARTUP_FAILURE)
 
-    The aiosqlite worker is not a daemon thread: left open, it holds the interpreter
-    at exit, once uvicorn has given up.
+
+def _arm_failed_start_exit() -> None:
+    """A process stuck after a failed start is never restarted by a service manager.
+
+    A blocked ``to_thread``, or a connection busy on a query, holds the interpreter at
+    exit whatever is closed below.
     """
+    timer = threading.Timer(_FAILED_START_EXIT_SECONDS, _exit_after_failed_start)
+    timer.daemon = True
+    timer.start()
+
+
+async def _close_after_failed_start() -> None:
+    """The aiosqlite worker is not a daemon thread: left open, it holds the interpreter."""
     try:
-        await db.disconnect()
-    except Exception as exc:
-        logger.warning("The database could not be closed after a failed start: %s", exc)
+        await asyncio.wait_for(db.disconnect(), _FAILED_START_CLOSE_SECONDS)
+    except BaseException as exc:
+        logger.warning("The database could not be closed after a failed start: %r", exc)
 
 
 @asynccontextmanager
@@ -535,8 +554,9 @@ async def _lifespan_logging_startup_failure(app: FastAPI):
         async with lifespan(app):
             started = True
             yield
-    except Exception as exc:
+    except BaseException as exc:
         if not started:
+            _arm_failed_start_exit()
             _log_startup_failure(exc)
             await _close_after_failed_start()
         raise
