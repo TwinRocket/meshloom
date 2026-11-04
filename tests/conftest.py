@@ -171,6 +171,17 @@ async def push_owner(test_db):
 
 
 @pytest.fixture(autouse=True)
+def _keep_the_plugin_pause_state(monkeypatch):
+    """A test running the app's lifespan loads the pause: without a database it fails
+    closed, and that must not stay on this worker for the next test."""
+    from app.plugins import host
+    from app.plugins import pause as pause_module
+
+    monkeypatch.setattr(pause_module, "_state", pause_module.PauseState())
+    monkeypatch.setattr(host.plugin_manager, "paused", False)
+
+
+@pytest.fixture(autouse=True)
 async def _reset_hashtag_catalogue():
     """Cancel ingest-triggered catalogue work so tasks do not leak between tests."""
     from app.services.hashtag_catalogue import reset_for_tests

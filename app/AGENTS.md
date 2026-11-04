@@ -1298,6 +1298,9 @@ run as root).
   `poweroff`, `shutdown`, `erase` and `start` are refused: reboot with
   `mc.commands.reboot()` plus `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
   use the remote CLI over the mesh.
+- **No message text at INFO or above**, and no private channel's name on the message lines:
+  they use `channel_log_label()` (`app/data/meshcore_channels.py`), because logs end up in bug
+  reports. A few DEBUG lines keep the first 50 characters; `docs/user/*/deep/security.md` says so.
 - **Never log a channel key.** App code does not pass a whole key to a logger. A key in a
   request URL (uvicorn's access log, the server-error lines, the `GET /api/debug` buffer) is
   replaced by the formatter (`_URL_CHANNEL_KEY_RE`, `app/log_redaction.py`), and the SET_CHANNEL

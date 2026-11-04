@@ -12,6 +12,8 @@ from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 
+from app.channel_constants import is_public_channel_key
+
 _REPO_SNAPSHOT = (
     Path(__file__).resolve().parents[2]
     / "frontend"
@@ -90,6 +92,18 @@ def channel_key_is_name_derived(name: str, key_hex: str) -> bool:
         sha256(text.encode()).digest()[:16],
         sha256(f"#{text}".encode()).digest()[:16],
     )
+
+
+def channel_log_label(name: str | None, key_hex: str) -> str:
+    """The channel's name for a log line, only when the name is not private.
+
+    Those lines end up in bug reports. Public and name-derived channels keep their name.
+    """
+    if not name:
+        return "an unnamed channel"
+    if is_public_channel_key(key_hex) or channel_key_is_name_derived(name, key_hex):
+        return name
+    return "a private channel"
 
 
 def channel_key_hash_byte(key: bytes) -> str:

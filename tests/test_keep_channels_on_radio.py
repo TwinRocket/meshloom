@@ -548,3 +548,17 @@ async def test_storing_a_channel_message_does_not_log_the_key(test_db, caplog, n
     assert stored is not None
     assert "Stored channel message" in caplog.text
     assert KEY_A[:8] not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_late_reply_gives_no_false_alert_in_the_hourly_audit(test_db):
+    await ChannelRepository.upsert(key=KEY_A, name="near")
+    await ChannelRepository.upsert(key=KEY_B, name="far")
+    node = _LateReplies()
+    node.channels = {3: ("near", bytes.fromhex(KEY_A)), 4: ("far", bytes.fromhex(KEY_B))}
+    node.late = {4: 3}
+    async with connected_node(node, kind="serial") as (loop, _):
+        radio_manager.note_channel_slot_loaded(KEY_A, 3)
+        radio_manager.note_channel_slot_loaded(KEY_B, 4)
+        assert await audit_channel_send_cache(loop.mc) is True
+    assert radio_manager.get_cached_channel_slot(KEY_B) == 4
