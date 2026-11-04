@@ -79,6 +79,16 @@ def _make_mc(name="TestNode"):
     return mc
 
 
+def _slot_writes(mc) -> list[bytes]:
+    """The SET_CHANNEL frames a send wrote through ``mc.commands.send``."""
+    return [c.args[0] for c in mc.commands.send.await_args_list if c.args[0][:1] == b"\x20"]
+
+
+def _sends_without_slot_writes(mc) -> list:
+    """What ``mc.commands.send`` carried besides the SET_CHANNEL frames."""
+    return [c for c in mc.commands.send.await_args_list if c.args[0][:1] != b"\x20"]
+
+
 async def _insert_contact(public_key, name="Alice", **overrides):
     """Insert a contact into the test database."""
     data = {
@@ -683,7 +693,7 @@ class TestOutgoingChannelBroadcast:
 
         # Apply the region, then restore the empty baseline via explicit unscoped mode.
         assert mc.commands.set_flood_scope.await_args_list == [call("#Region")]
-        assert mc.commands.send.await_args_list == [
+        assert _sends_without_slot_writes(mc) == [
             call(FORCE_UNSCOPED_FRAME, [EventType.OK, EventType.ERROR])
         ]
 
@@ -708,7 +718,7 @@ class TestOutgoingChannelBroadcast:
             await send_channel_message(request)
 
         # Explicit unscoped uses firmware mode 1, then restores the global baseline.
-        assert mc.commands.send.await_args_list == [
+        assert _sends_without_slot_writes(mc) == [
             call(FORCE_UNSCOPED_FRAME, [EventType.OK, EventType.ERROR])
         ]
         assert mc.commands.set_flood_scope.await_args_list == [call("#Baseline")]
@@ -735,7 +745,7 @@ class TestOutgoingChannelBroadcast:
             await send_channel_message(request)
 
         # Force unscoped via mode 1, then restore the global region baseline.
-        assert mc.commands.send.await_args_list == [
+        assert _sends_without_slot_writes(mc) == [
             call(FORCE_UNSCOPED_FRAME, [EventType.OK, EventType.ERROR])
         ]
         assert mc.commands.set_flood_scope.await_args_list == [call("#Baseline")]
@@ -762,7 +772,7 @@ class TestOutgoingChannelBroadcast:
 
         assert exc_info.value.status_code == 422
         assert "regional override" in exc_info.value.detail.lower()
-        mc.commands.set_channel.assert_not_awaited()
+        assert _slot_writes(mc) == []
         mc.commands.send_chan_msg.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -785,7 +795,7 @@ class TestOutgoingChannelBroadcast:
                 SendChannelMessageRequest(channel_key=chan_key, text="second send")
             )
 
-        assert mc.commands.set_channel.await_count == 1
+        assert len(_slot_writes(mc)) == 1
         assert mc.commands.send_chan_msg.await_count == 2
         assert [call.kwargs["chan"] for call in mc.commands.send_chan_msg.await_args_list] == [0, 0]
 
@@ -819,11 +829,7 @@ class TestOutgoingChannelBroadcast:
                 SendChannelMessageRequest(channel_key=chan_key_c, text="to charlie")
             )
 
-        assert [call.kwargs["channel_idx"] for call in mc.commands.set_channel.await_args_list] == [
-            0,
-            1,
-            1,
-        ]
+        assert [frame[1] for frame in _slot_writes(mc)] == [0, 1, 1]
         assert [call.kwargs["chan"] for call in mc.commands.send_chan_msg.await_args_list] == [
             0,
             1,
@@ -854,7 +860,7 @@ class TestOutgoingChannelBroadcast:
                 SendChannelMessageRequest(channel_key=chan_key, text="second send")
             )
 
-        assert mc.commands.set_channel.await_count == 2
+        assert len(_slot_writes(mc)) == 2
         assert mc.commands.send_chan_msg.await_count == 2
         assert radio_manager.get_cached_channel_slot(chan_key) is None
 
@@ -882,7 +888,7 @@ class TestOutgoingChannelBroadcast:
                 SendChannelMessageRequest(channel_key=chan_key, text="second send")
             )
 
-        assert mc.commands.set_channel.await_count == 2
+        assert len(_slot_writes(mc)) == 2
         assert radio_manager.get_cached_channel_slot(chan_key) is None
 
     @pytest.mark.asyncio
@@ -1886,14 +1892,14 @@ class TestRadioExceptionMidSend:
 
     @pytest.mark.asyncio
     async def test_channel_send_set_channel_exception_no_orphan(self, test_db):
-        """When mc.commands.set_channel() raises, send is not attempted and no message stored."""
+        """When the slot write raises, send is not attempted and no message stored."""
         from app.repository import ChannelRepository
 
         mc = _make_mc(name="TestNode")
         chan_key = "cd" * 16
         await ChannelRepository.upsert(key=chan_key, name="#broken")
 
-        mc.commands.set_channel = AsyncMock(side_effect=TimeoutError("Radio not responding"))
+        mc.commands.send = AsyncMock(side_effect=TimeoutError("Radio not responding"))
 
         with (
             patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
@@ -1929,7 +1935,7 @@ class TestRadioExceptionMidSend:
         radio_manager._connection_info = "Serial: /dev/ttyUSB0"
         radio_manager.note_channel_slot_loaded(chan_key_a, 0)
 
-        mc.commands.set_channel = AsyncMock(side_effect=TimeoutError("Radio not responding"))
+        mc.commands.send = AsyncMock(side_effect=TimeoutError("Radio not responding"))
 
         with (
             patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
@@ -1957,7 +1963,7 @@ class TestRadioExceptionMidSend:
         radio_manager._connection_info = "Serial: /dev/ttyUSB0"
         radio_manager.note_channel_slot_loaded(chan_key_a, 0)
 
-        mc.commands.set_channel = AsyncMock(
+        mc.commands.send = AsyncMock(
             return_value=MagicMock(type=EventType.ERROR, payload="radio busy")
         )
 
@@ -1979,7 +1985,7 @@ class TestRadioExceptionMidSend:
 class TestConcurrentChannelSends:
     """Test that concurrent channel sends are serialized by the radio operation lock.
 
-    The send_channel_message endpoint uses set_channel (slot 0) then send_chan_msg.
+    The send_channel_message endpoint writes slot 0 then calls send_chan_msg.
     Concurrent sends must be serialized so two messages don't clobber the same
     temporary radio slot.
     """
@@ -2013,8 +2019,8 @@ class TestConcurrentChannelSends:
         assert results[0].conversation_key == chan_key_a.upper()
         assert results[1].conversation_key == chan_key_b.upper()
 
-        # set_channel should have been called twice (once per send, serialized)
-        assert mc.commands.set_channel.await_count == 2
+        # The slot should have been written twice (once per send, serialized)
+        assert len(_slot_writes(mc)) == 2
 
         # send_chan_msg should have been called twice
         assert mc.commands.send_chan_msg.await_count == 2

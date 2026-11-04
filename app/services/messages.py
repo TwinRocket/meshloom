@@ -26,11 +26,6 @@ def truncate_for_log(text: str, max_chars: int = LOG_MESSAGE_PREVIEW_LEN) -> str
     return f"{normalized[:max_chars].rstrip()}..."
 
 
-def _format_channel_log_target(channel_name: str | None, channel_key: str) -> str:
-    """Return a human-friendly channel label for logs."""
-    return channel_name or channel_key
-
-
 def format_contact_log_target(contact_name: str | None, public_key: str) -> str:
     """Return a human-friendly DM target label for logs."""
     return contact_name or public_key[:12]
@@ -390,11 +385,10 @@ async def create_message_from_decrypted(
         return None
 
     logger.info(
-        'Stored channel message "%s" for %r (msg ID %d in chan ID %s)',
+        'Stored channel message "%s" for %r (msg ID %d)',
         truncate_for_log(text),
-        _format_channel_log_target(channel_name, channel_key_normalized),
+        channel_name or "unnamed channel",
         msg_id,
-        channel_key_normalized,
     )
     await RawPacketRepository.mark_decrypted(packet_id, msg_id)
 

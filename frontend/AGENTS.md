@@ -821,7 +821,7 @@ A non-encryptable target shows no selector, one line (`chat.fileTab.mode.clear.<
 word "private"; a null target (no conversation) shows neither. An upload is reused on retry only for the same
 mode and conversation. Send = upload once, then `sendPayload(suggested text + caption)`, so the reply
 prefix and the normal send path apply; the uploaded result is kept if the send fails, so a retry does not
-upload again. The caption is judged with `utils/fileCaption.ts` against the composer's strict limit minus the
+upload again. The caption is judged with `utils/fileCaption.ts` against the composer's limit minus the
 reply prefix, estimated before the upload (link on `status.host`) and checked again with the real link; over
 budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Tests:
 `composerFileTab.test.tsx`, `imageDownscale.test.ts`, `fileCaption.test.ts`. User docs: MSHL-248 (T25).

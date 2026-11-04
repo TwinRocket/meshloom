@@ -632,7 +632,7 @@ class TestMessagesEndpoint:
         mock_mc = MagicMock()
         mock_mc.self_info = {"name": "TestNode"}
         ok_result = MagicMock(type=EventType.MSG_SENT, payload={})
-        mock_mc.commands.set_channel = AsyncMock(return_value=ok_result)
+        mock_mc.commands.send = AsyncMock(return_value=ok_result)
         mock_mc.commands.send_chan_msg = AsyncMock(return_value=ok_result)
 
         radio_manager._meshcore = mock_mc
@@ -715,7 +715,7 @@ class TestMessagesEndpoint:
         mock_mc.commands.send_chan_msg = AsyncMock(
             return_value=MagicMock(type=MagicMock(name="OK"), payload={})
         )
-        mock_mc.commands.set_channel = AsyncMock(
+        mock_mc.commands.send = AsyncMock(
             return_value=MagicMock(type=MagicMock(name="OK"), payload={})
         )
 
@@ -768,9 +768,7 @@ class TestMessagesEndpoint:
         mock_mc = MagicMock()
         mock_mc.self_info = {"name": "TestNode"}
         mock_mc.commands = MagicMock()
-        mock_mc.commands.set_channel = AsyncMock(
-            return_value=MagicMock(type=EventType.OK, payload={})
-        )
+        mock_mc.commands.send = AsyncMock(return_value=MagicMock(type=EventType.OK, payload={}))
         mock_mc.commands.send_chan_msg = AsyncMock(
             return_value=MagicMock(type=EventType.MSG_SENT, payload={})
         )
@@ -782,10 +780,10 @@ class TestMessagesEndpoint:
         assert response.status_code == 200
         assert response.json() == {"status": "ok", "message_id": msg_id}
 
-        set_kwargs = mock_mc.commands.set_channel.await_args.kwargs
-        assert set_kwargs["channel_idx"] == 0
-        assert set_kwargs["channel_name"] == "#resend"
-        assert set_kwargs["channel_secret"] == bytes.fromhex(chan_key)
+        frame = mock_mc.commands.send.await_args.args[0]
+        assert frame[:2] == b"\x20\x00"
+        assert frame[2:34].rstrip(b"\x00") == b"#resend"
+        assert frame[34:] == bytes.fromhex(chan_key)
 
         send_kwargs = mock_mc.commands.send_chan_msg.await_args.kwargs
         assert send_kwargs["chan"] == 0
@@ -815,9 +813,7 @@ class TestMessagesEndpoint:
         mock_mc = MagicMock()
         mock_mc.self_info = {"name": "TestNode", "public_key": "ab" * 32}
         mock_mc.commands = MagicMock()
-        mock_mc.commands.set_channel = AsyncMock(
-            return_value=MagicMock(type=EventType.OK, payload={})
-        )
+        mock_mc.commands.send = AsyncMock(return_value=MagicMock(type=EventType.OK, payload={}))
         mock_mc.commands.send_chan_msg = AsyncMock(
             return_value=MagicMock(type=EventType.MSG_SENT, payload={})
         )
@@ -855,7 +851,7 @@ class TestMessagesEndpoint:
         mock_mc = MagicMock()
         mock_mc.self_info = {"name": "TestNode"}
         mock_mc.commands = MagicMock()
-        mock_mc.commands.set_channel = AsyncMock()
+        mock_mc.commands.send = AsyncMock()
         mock_mc.commands.send_chan_msg = AsyncMock()
 
         with _patch_require_connected(mock_mc):
@@ -863,7 +859,7 @@ class TestMessagesEndpoint:
 
         assert response.status_code == 400
         assert response.json()["detail"]["code"] == "resend_window_expired"
-        assert mock_mc.commands.set_channel.await_count == 0
+        assert mock_mc.commands.send.await_count == 0
         assert mock_mc.commands.send_chan_msg.await_count == 0
 
     @pytest.mark.asyncio
@@ -885,7 +881,7 @@ class TestMessagesEndpoint:
         mock_mc = MagicMock()
         mock_mc.self_info = {"name": "TestNode"}
         mock_mc.commands = MagicMock()
-        mock_mc.commands.set_channel = AsyncMock()
+        mock_mc.commands.send = AsyncMock()
         mock_mc.commands.send_chan_msg = AsyncMock()
 
         with _patch_require_connected(mock_mc):
@@ -905,7 +901,7 @@ class TestMessagesEndpoint:
         mock_mc = MagicMock()
         mock_mc.self_info = {"name": "TestNode"}
         mock_mc.commands = MagicMock()
-        mock_mc.commands.set_channel = AsyncMock()
+        mock_mc.commands.send = AsyncMock()
         mock_mc.commands.send_chan_msg = AsyncMock()
 
         with _patch_require_connected(mock_mc):
@@ -913,7 +909,7 @@ class TestMessagesEndpoint:
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
-        assert mock_mc.commands.set_channel.await_count == 0
+        assert mock_mc.commands.send.await_count == 0
         assert mock_mc.commands.send_chan_msg.await_count == 0
 
     @pytest.mark.asyncio

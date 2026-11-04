@@ -26,6 +26,7 @@ from app.models import (
     RadioNodeSettings,
     RadioSettings,
 )
+from app.services.channel_slots import utf8_prefix, write_channel_slot
 from app.services.companion_cli import CompanionCli, read_cli_node_prefs
 
 logger = logging.getLogger(__name__)
@@ -217,19 +218,7 @@ async def read_radio_node_settings(mc, cli: CompanionCli | None) -> RadioSnapsho
 # -- Write back ----------------------------------------------------------------
 
 _CUSTOM_VAR_NAME_RE = re.compile(r"^[a-z0-9_]{1,32}$")
-CHANNEL_NAME_MAX_BYTES = 31  # 32-byte field, NUL kept by the firmware
 FLOOD_SCOPE_NAME_MAX_BYTES = 31
-
-
-def utf8_prefix(text: str, max_bytes: int) -> bytes:
-    """At most ``max_bytes`` of UTF-8, cut on a character boundary."""
-    out = bytearray()
-    for char in text:
-        encoded = char.encode("utf-8")
-        if len(out) + len(encoded) > max_bytes:
-            break
-        out += encoded
-    return bytes(out)
 
 
 def _custom_var_valid(name: str, value: str) -> bool:
@@ -546,13 +535,7 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
         except ValueError:
             warnings.append("channel_key_invalid")
             continue
-        frame = (
-            b"\x20"
-            + bytes([slot])
-            + utf8_prefix(channel.name, CHANNEL_NAME_MAX_BYTES).ljust(32, b"\x00")
-            + secret
-        )
-        result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
+        result = await write_channel_slot(mc, slot, channel.name, secret)
         if _rejected(result):
             warnings.append("channel_rejected")
             continue

@@ -286,6 +286,51 @@ class ChannelRepository:
                 pass
 
     @staticmethod
+    async def delete_with_slot_clear_pending(key: str) -> bool:
+        """Delete a channel and, in the same transaction, record that its radio slots
+        still have to be emptied. False when there was no such channel: nothing recorded.
+        """
+        normalized = normalize_channel_key(key)
+        async with db.tx() as conn:
+            async with conn.execute("DELETE FROM channels WHERE key = ?", (normalized,)) as cursor:
+                if cursor.rowcount <= 0:
+                    return False
+            async with conn.execute(
+                "INSERT OR IGNORE INTO channel_slot_clears_pending (key) VALUES (?)",
+                (normalized,),
+            ):
+                pass
+        return True
+
+    @staticmethod
+    async def is_slot_clear_pending(key: str) -> bool:
+        """True for a deleted channel still awaiting its clear, not one added back since."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT 1 FROM channel_slot_clears_pending AS p WHERE p.key = ?"
+                " AND NOT EXISTS (SELECT 1 FROM channels AS c WHERE c.key = p.key)",
+                (normalize_channel_key(key),),
+            ) as cursor:
+                return await cursor.fetchone() is not None
+
+    @staticmethod
+    async def pending_slot_clear_keys() -> set[str]:
+        """Keys of the deleted channels the next connect sync must not adopt."""
+        async with db.readonly() as conn:
+            async with conn.execute("SELECT key FROM channel_slot_clears_pending") as cursor:
+                return {row["key"] for row in await cursor.fetchall()}
+
+    @staticmethod
+    async def drop_slot_clears_pending(keys: set[str]) -> None:
+        if not keys:
+            return
+        async with db.tx() as conn:
+            await conn.executemany(
+                "DELETE FROM channel_slot_clears_pending WHERE key = ?",
+                [(key,) for key in keys],
+            )
+
+    @staticmethod
     async def update_last_read_at(key: str, timestamp: int | None = None) -> bool:
         """Update the last_read_at timestamp for a channel.
 
