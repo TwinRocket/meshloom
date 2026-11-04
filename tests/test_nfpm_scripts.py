@@ -111,6 +111,15 @@ def test_service_keeps_the_state_directory_from_other_accounts() -> None:
     )
 
 
+def test_postinstall_never_writes_the_kiosk_marker_through_a_link() -> None:
+    assert ": >/var/lib/meshloom/kiosk" not in POSTINST
+    assert "chmod 0644 /var/lib/meshloom/kiosk" not in POSTINST
+    assert POSTINST.index("mkdir -p /var/lib/meshloom-update") < POSTINST.index(
+        "mktemp /var/lib/meshloom-update/kiosk."
+    )
+    assert 'mv -fT "$marker" /var/lib/meshloom/kiosk' in POSTINST
+
+
 def test_postinstall_closes_the_state_directory_of_an_existing_install() -> None:
     chmod_at = POSTINST.index('chmod 0750 "$state_dir"')
     # After the kiosk marker, which may create the directory, and before any restart.
