@@ -210,7 +210,7 @@ export interface StoreRepositories {
   repositories: StoreRepository[];
 }
 
-/** `GET /api/store/status`: what the activation card says. Makes no request. */
+/** `GET /api/store/status`: whether the Store is on and what it may reach. Makes no request. */
 export interface StoreStatus {
   enabled: boolean;
   /** Every host a Store request may reach (the server's own allowlist). */

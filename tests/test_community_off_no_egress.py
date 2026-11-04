@@ -81,6 +81,7 @@ from app.fanout.meshloom_stats import MeshloomStatsPublisher
 from app.packet_processor import process_raw_packet
 from app.plugins import store_egress
 from app.plugins.store_egress import STORE_HOSTS, STORE_INDEX_HOST, StoreOffline, store_fetch
+from app.repository import AppSettingsRepository
 from app.services import community_status_clear, meshloom_community
 from app.services.community_live import (
     get_live_relay,
@@ -497,6 +498,9 @@ class TestCommunityOffNoEgress:
         # The state an opt-out leaves behind: off, IATA still stored.
         await update_community(enabled=False, iata="CDG")
         assert (await get_community_effective()).enabled is False
+        # The Store is its own egress class, on by default: adding a repository, which
+        # this sweep does, would reach GitHub (tests/test_store_egress.py).
+        await AppSettingsRepository.update(store_online=False)
 
         async with _RealAsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -1740,6 +1744,8 @@ class TestWaitingForPosition:
         assert "origin_id" in payload and "client_version" in payload
         status = await meshloom_community.community_status()
         assert (status.enabled, status.state) == (True, "waiting_for_position")
+        # The Store is its own egress class: see the sweep above.
+        await AppSettingsRepository.update(store_online=False)
 
         mark = len(egress.events)
         async with _RealAsyncClient(
@@ -2712,7 +2718,6 @@ class TestStoreEgressIsSeparate:
         self, test_db, egress, cleanup_community, store_dns
     ):
         from app.net.egress_guard import EgressBlocked
-        from app.repository import AppSettingsRepository
         from tests.share_fakes import _Stream
 
         record = egress.handle
@@ -2726,7 +2731,8 @@ class TestStoreEgressIsSeparate:
         await update_community(enabled=False, iata="CDG")
         url = f"https://{STORE_INDEX_HOST}/v1/index.json"
 
-        # Off (the default): refused before any lookup, nothing recorded.
+        # Off: refused before any lookup, nothing recorded.
+        await AppSettingsRepository.update(store_online=False)
         with pytest.raises(StoreOffline):
             await store_fetch("GET", url, max_response_bytes=4096)
         assert egress.hosts() == [] and store_dns.lookups == []

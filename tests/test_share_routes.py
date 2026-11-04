@@ -81,7 +81,7 @@ class TestStatus:
             "banned": False,
             "unreachable": False,
             "shorten_mode": "auto",
-            "preview_policy": "private",
+            "preview_policy": "always",
             "terms_version": share.SHARE_TERMS_VERSION,
             "terms_accepted_version": 0,
             "terms_accepted_at": None,
