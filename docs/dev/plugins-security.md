@@ -720,10 +720,10 @@ the host stopped reading stdout, and 3.11's `Process.wait()` returns only once
 every pipe is closed (gh-119710, fixed in 3.12). The host now drains, then
 closes the pipe after such a kill (`PluginProcess._discard_stdout`, bounded by
 `STDOUT_DRAIN_SECONDS`, the close in a `finally`), and the code is `rpc_framing`.
-The same 3.11 behaviour could still hang on a pipe a surviving grandchild
-holds (only bypass 2 can start one): once the child is reaped, `_wait_exit`
-waits `PIPE_CLOSE_SECONDS`, then kills the group and closes the host's ends
-of every pipe. The corpus also found bypass 4 above, now closed.
+A surviving grandchild can still hold a pipe (only bypass 2 can start one): once
+the child is reaped (`ChildProcess.wait()`, which never waits for the pipes),
+`_wait_exit` waits `PIPE_CLOSE_SECONDS` for the readers, then kills the group and
+closes the host's ends of every pipe. The corpus also found bypass 4 above, now closed.
 
 ## Measurements
 

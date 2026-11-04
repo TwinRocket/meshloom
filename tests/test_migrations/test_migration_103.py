@@ -38,8 +38,9 @@ async def test_fresh_database_has_the_tables_and_the_bumped_version(tmp_path):
     try:
         async with database.readonly() as conn:
             assert await get_version(conn) == LATEST_SCHEMA_VERSION >= 103
+            # On since migration 143 (MSHL-456).
             async with conn.execute("SELECT store_online FROM app_settings WHERE id = 1") as cur:
-                assert tuple(await cur.fetchone()) == (0,)
+                assert tuple(await cur.fetchone()) == (1,)
     finally:
         await database.disconnect()
 

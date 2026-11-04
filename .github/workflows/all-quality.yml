@@ -181,7 +181,7 @@ jobs:
         run: |
           pip install --no-cache-dir -q "uv==0.6.17"
           uv sync --frozen --dev --python "$(command -v python)"
-          PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py
+          PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py tests/test_plugin_start_any_loop.py
 
       # setpriv as docker-entrypoint.sh calls it: uid 10001 keeps exactly
       # CAP_SETUID and CAP_SETGID ambient, enough for the setuid level.
@@ -197,7 +197,7 @@ jobs:
             --inh-caps=-all,+setgid,+setuid --ambient-caps=+setgid,+setuid -- \
             env HOME=/tmp/caps-home PYTHONPATH=. .venv/bin/python -m pytest -p no:cacheprovider -o addopts= -v \
             tests/test_plugin_isolation.py tests/test_plugin_runner.py tests/test_plugin_seccomp.py \
-            tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py
+            tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py tests/test_plugin_start_any_loop.py
 
   frontend-checks:
     name: Frontend

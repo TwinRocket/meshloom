@@ -187,7 +187,7 @@ class AppSettingsUpdate(BaseModel):
     store_online: bool | None = Field(
         default=None,
         description=(
-            "Consent to the Store egress (off by default). True starts the background refresh "
+            "Switch of the Store egress (on by default). True starts the background refresh "
             "and allows the Store requests; false stops both at once"
         ),
     )

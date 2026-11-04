@@ -164,6 +164,7 @@ def test_invalid_repositories(text):
 
 
 async def test_nothing_is_fetched_while_the_store_is_off(api, net):
+    await AppSettingsRepository.update(store_online=False)
     assert (await api.get("/api/store/repositories")).json()["store_online"] is False
     response = await api.post("/api/store/repositories", json={"repository": REPO})
     assert response.status_code == 409
@@ -591,7 +592,20 @@ async def test_concurrent_refreshes_run_one_tick(api, net, online, tmp_path, mon
     assert len(calls) == 1
 
 
+async def test_refresh_contacts_nobody_under_the_host_lock(api, net, online, tmp_path, monkeypatch):
+    from app.routers import plugins as plugins_router
+
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    net.requests.clear()
+    monkeypatch.setattr(plugins_router.plugin_manager, "disabled_source", lambda: "env")
+    response = await api.post("/api/store/refresh")
+    assert response.json() == {"ran": False, "last_refresh_at": None}
+    assert net.requests == []
+
+
 async def test_refresh_does_nothing_while_the_store_is_off(api, net, tmp_path):
+    await AppSettingsRepository.update(store_online=False)
     response = await api.post("/api/store/refresh")
     assert response.json() == {"ran": False, "last_refresh_at": None}
     assert net.requests == []

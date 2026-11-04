@@ -655,11 +655,10 @@ routes are; a member gets a notice and no request).
   decided with the signed Store in M2b). The only link on the plugin page is the issue tracker
   built from the **validated** `owner/name` (`issuesUrl`); `src/test/pluginsStore.test.tsx` holds a
   hostile README (`<script>`, inline HTML, `javascript:` links, images) and a hostile changelog.
-- **Store tab.** `GET /store/status` drives `StoreActivationCard` (hosts, what is sent, what is
-  missed, taken from the server: never hard-code a host) while `enabled` is false; the card's button is
-  `PATCH /settings {store_online: true}`. Online, the `store-online` bar holds the **Store online**
-  switch (`role="switch"`, admins only) that sends `PATCH /settings {store_online: false}` and brings
-  the card back (the help text sits beside it). **Refresh** is `POST /store/refresh` (10 minute
+- **Store tab.** The Store is on by default, with no activation step. `GET /store/status` drives the
+  `store-online` bar: the **Store online** switch (`role="switch"`, admins only) sends
+  `PATCH /settings {store_online}` both ways (the help text sits beside it). What leaves is
+  in the user docs, not on screen. **Refresh**, disabled while off, is `POST /store/refresh` (10 minute
   gap on the server, a 10 s hold in the button). `CustomRepositoriesPanel` lists the repositories
   (`custom` and `not reviewed, not signed` badges, `compatible`, last check, last error); **Details**
   opens `PluginPage` (README from `GET /store/repositories/{o}/{n}/readme?lang=`, permissions,
