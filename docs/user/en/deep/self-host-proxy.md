@@ -94,5 +94,5 @@ Open `https://meshloom.example.org` and sign in. The sign-in page must not warn 
 
 ## Keep it safe
 
-- **Do not publish port 8000 or the radio proxy port.** Once the proxy fronts Meshloom, port 8000 should not be reachable any other way. The radio proxy (**Settings → Proxy**, port 5051 by default) listens on `0.0.0.0` and has no sign-in: never forward it, never put it behind the proxy ([Security](/en/docs/deep/security/#radio-proxy)).
+- **Do not publish port 8000 or the radio proxy port.** Once the proxy fronts Meshloom, port 8000 should not be reachable any other way. The radio proxy (**Settings → Proxy**, port 5001 by default) listens on `0.0.0.0` and has no sign-in: never forward it, never put it behind the proxy ([Security](/en/docs/deep/security/#radio-proxy)).
 - **Repeated failed sign-ins.** Meshloom's [built-in ban](/en/docs/deep/access/#sign-in-delays) is on by default and counts each visitor on their own once the proxy is listed in Trusted proxies. For a block at the firewall, or at the proxy's own log, see [fail2ban](/en/docs/deep/fail2ban/#behind-a-reverse-proxy-on-the-same-machine).

@@ -150,4 +150,4 @@ With a proxy on your own machine, or with Meshloom on the open Internet, [fail2b
 - The page is served in HTTPS by the forwarder, and the sign-in page does not warn about plain HTTP.
 - The public name is in **Public addresses**; the forwarder's own address, and nothing wider, is in **Trusted proxies**.
 - **Login-free on the local network** is off, or **Trusted networks** holds only local devices reached by IP address.
-- Port 8000 and the radio proxy port (5051) are not forwarded on your router. The radio proxy has no authentication: see [Security](/en/docs/deep/security/).
+- Port 8000 and the radio proxy port (5001 by default) are not forwarded on your router. The radio proxy has no authentication: see [Security](/en/docs/deep/security/).

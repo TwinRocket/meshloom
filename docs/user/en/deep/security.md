@@ -57,7 +57,7 @@ The key never appears in the settings API, the support snapshot, the logs or any
 
 ## Radio proxy
 
-**Settings > Proxy** can make Meshloom behave like a radio on the network, so a phone app or a second Meshloom can use your radio through it. It is off by default. The protocol it speaks has no authentication, and accounts do not cover it: it listens on every interface (port 5051 by default), and anyone who can reach that port can use your radio, send as your node included. This is a decision, not an oversight: the apps that speak the protocol cannot sign in. Enable it only on a network you trust and never forward the port to the Internet.
+**Settings > Proxy** can make Meshloom behave like a radio on the network, so a phone app or a second Meshloom can use your radio through it. It is off by default. The protocol it speaks has no authentication, and accounts do not cover it: it listens on every interface (port 5001 by default), and anyone who can reach that port can use your radio, send as your node included. This is a decision, not an oversight: the apps that speak the protocol cannot sign in. Enable it only on a network you trust and never forward the port to the Internet.
 
 ## Wi-Fi password
 

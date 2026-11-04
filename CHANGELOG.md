@@ -6,6 +6,14 @@ The server now enforces the radio's message size limit for every way of sending.
 
 Release 5.0.0 changes your database in ways an older version cannot undo. **Before upgrading, download a full copy of the database** (**Settings → Database → Download meshcore.db**) and keep it: there is no way back to 4.18 without it. A backup file made on 5.0.0 is not fully understood by 4.18 either (see below). The download is scrubbed: no account password or two-factor secret, no extension secret, no sign-in session, and the sharing and Store consents are reset. Restoring it on 5.0.0 keeps the accounts but nobody can sign in with a password until you run `meshloom-admin`, and extensions ask for their secrets again. For a complete restore, also keep a full backup (**Settings → Database → Backup & Restore**), which carries the accounts and the extensions (secrets still excluded).
 
+### Pre-release notes (release candidates of 5.0.0)
+
+*These notes go away at the final 5.0.0.* A release candidate is for people who accept to test: keep a copy of your database first and read [Upgrading from 4.18](docs/user/en/upgrade-4-18.md).
+
+- **What to try.** Create the administrator account (with the installation code from the log when you come from 4.x), sign in with a passkey or two-factor authentication, turn on [Meshloom Remote](docs/user/en/deep/remote.md) and allow a phone, share a node or an image ([Sharing](docs/user/en/deep/share.md)), review a converted bot or install an extension ([Extensions](docs/user/en/deep/plugins.md)), set up a notification channel and Web Push, and restore a full backup.
+- **Known limits.** There is no 32-bit (armhf) package in the release candidates, so a Raspberry Pi on 32-bit Raspberry Pi OS cannot test them. The Home Assistant add-on is not covered either. Meshloom Remote has a monthly quota per instance ([Limits](docs/user/en/deep/remote.md#limits)). There is no way back to 4.18 in place.
+- **How to report.** Open an issue on [GitHub](https://github.com/TwinRocket/meshloom/issues) with the bug report form: the version shown in **Settings → Updates**, how you installed it, what you did and what happened. Never paste a password, token or installation code; a security problem goes through [SECURITY.md](SECURITY.md), not a public issue.
+
 ### Breaking
 
 - **Python 3.13 is the minimum version.** The Docker image and the Home Assistant add-on run 3.14, the deb and rpm packages and the Raspberry Pi image bundle 3.13, so only a source install (`install_service.sh`) can be affected: `uv` downloads a suitable Python when the system one is older.
@@ -222,6 +230,14 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 #### Avant de mettre à jour
 
 La version 5.0.0 modifie votre base de données d’une façon qu’une version plus ancienne ne sait pas défaire. **Avant de mettre à jour, téléchargez une copie complète de la base** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la : sans elle, il n’y a pas de retour possible vers la 4.18. Une sauvegarde faite en 5.0.0 n’est pas non plus comprise en entier par la 4.18 (voir plus bas). Le téléchargement est épuré : ni mot de passe ni secret à deux facteurs de compte, ni secret d’extension, ni session ouverte, et les consentements de partage et du Store sont remis à zéro. Le restaurer en 5.0.0 conserve les comptes mais personne ne peut se connecter par mot de passe tant que vous n’avez pas lancé `meshloom-admin`, et les extensions redemandent leurs secrets. Pour une restauration complète, gardez aussi une sauvegarde complète (**Réglages → Base de données → Sauvegarde et restauration**), qui porte les comptes et les extensions (secrets toujours exclus).
+
+#### Notes de pré-version (versions candidates de la 5.0.0)
+
+*Ces notes disparaissent à la 5.0.0 finale.* Une version candidate s’adresse à celles et ceux qui acceptent de tester : gardez d’abord une copie de votre base et lisez [Passer de la 4.18 à la 5.0](docs/user/fr/upgrade-4-18.md).
+
+- **À essayer.** Créer le compte administrateur (avec le code d’installation du journal quand vous venez de la 4.x), se connecter avec une clé d’accès (passkey) ou la double authentification, activer [Meshloom Remote](docs/user/fr/deep/remote.md) et autoriser un téléphone, partager un nœud ou une image ([Partage](docs/user/fr/deep/share.md)), examiner un bot converti ou installer une extension ([Extensions](docs/user/fr/deep/plugins.md)), configurer un canal de notification et le Web Push, et restaurer une sauvegarde complète.
+- **Limites connues.** Il n’y a pas de paquet 32 bits (armhf) dans les versions candidates : un Raspberry Pi sous Raspberry Pi OS 32 bits ne peut pas les tester. L’add-on Home Assistant n’est pas couvert non plus. Meshloom Remote a un quota mensuel par instance ([Limites](docs/user/fr/deep/remote.md#limites)). Il n’y a pas de retour en place à la 4.18.
+- **Comment signaler.** Ouvrez un ticket sur [GitHub](https://github.com/TwinRocket/meshloom/issues) avec le formulaire de bug : la version affichée dans **Réglages → Mises à jour**, comment vous l’avez installée, ce que vous avez fait et ce qui s’est passé. Ne collez jamais de mot de passe, de jeton ni de code d’installation ; un problème de sécurité passe par [SECURITY.md](SECURITY.md), pas par un ticket public.
 
 #### Ruptures
 

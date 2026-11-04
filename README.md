@@ -8,7 +8,7 @@ Web interface for a MeshCore companion radio: messages, contacts, and mesh obser
 
 Fork of [Jack Kingsman’s MeshCore web client](https://github.com/jkingsman/Remote-Terminal-for-MeshCore), via [Ian Langworth](https://github.com/statico/remoteterm-meshcore). Original copyright remains in [LICENSE.md](LICENSE.md).
 
-**Trusted network only.** From 5.0 every page and API route needs a signed-in account (four roles: administrator, member, viewer, kiosk; optional two-factor authentication and passkeys; Home Assistant signs its users in itself), but accounts are keys, not walls: an administrator can make the machine run code through extensions, and the optional radio proxy on port 5051 has no login. Put Meshloom behind HTTPS beyond a network you know, never expose it directly to the Internet, and set `MESHCORE_DISABLE_PLUGINS=true` to lock extensions. Up to 4.18 there were no accounts and an optional shared Basic login; 5.0 removes HTTP Basic auth, and the first administrator is created with the installation code shown in the log. Details and recovery (`meshloom-admin`): [Accounts and access](docs/user/en/deep/access.md).
+**Trusted network only.** From 5.0 every page and API route needs a signed-in account (four roles: administrator, member, viewer, kiosk; optional two-factor authentication and passkeys; Home Assistant signs its users in itself), but accounts are keys, not walls: an administrator can make the machine run code through extensions, and the optional radio proxy on port 5001 by default has no login. Put Meshloom behind HTTPS beyond a network you know, never expose it directly to the Internet, and set `MESHCORE_DISABLE_PLUGINS=true` to lock extensions. Up to 4.18 there were no accounts and an optional shared Basic login; 5.0 removes HTTP Basic auth, and the first administrator is created with the installation code shown in the log. Details and recovery (`meshloom-admin`): [Accounts and access](docs/user/en/deep/access.md).
 
 Meshloom takes over radio contacts and channels. A poor fit if you swap radios and expect the device to keep its own favorites independently of the app.
 
@@ -47,7 +47,7 @@ which works from any install and needs no add-on.
 
 ## Update
 
-On a package or installer-managed Docker install, **Settings → Updates** can install the new, signed Meshloom release (optional automatic updates). That upgrades Meshloom only.
+On a package or installer-managed Docker install, **Settings → Updates** can install the new, signed Meshloom release (optional automatic updates). That upgrades Meshloom only. **Coming from 4.18?** The 5.0 upgrade changes the database and cannot be undone in place: read [Upgrading from 4.18](docs/user/en/upgrade-4-18.md) first.
 
 Otherwise update by hand, or re-run the installer so it can install the apply helper if it is missing:
 

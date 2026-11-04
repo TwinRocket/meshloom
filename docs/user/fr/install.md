@@ -80,7 +80,7 @@ sudo dnf upgrade --refresh meshloom            # Fedora
 sudo docker compose pull && sudo docker compose up -d   # Docker sans l’assistant
 ```
 
-Vos données restent où elles étaient : `/var/lib/meshloom` pour le paquet, le dossier `data` à côté de `docker-compose.yml` pour Docker. Les changements de base de données s’appliquent automatiquement au démarrage.
+Vos données restent où elles étaient : `/var/lib/meshloom` pour le paquet, le dossier `data` à côté de `docker-compose.yml` pour Docker. Les changements de base de données s’appliquent automatiquement au démarrage. **Vous venez de la 4.18 ?** La mise à jour vers la 5.0 ne s’annule pas en place : lisez d’abord [Passer de la 4.18 à la 5.0](/docs/upgrade-4-18/).
 
 ## Sur Home Assistant
 

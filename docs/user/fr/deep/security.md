@@ -57,7 +57,7 @@ La clé n’apparaît jamais dans l’API des réglages, l’instantané de supp
 
 ## Proxy radio
 
-**Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et les comptes ne le couvrent pas : il écoute sur toutes les interfaces (port 5051 par défaut), et quiconque atteint ce port peut utiliser votre radio, y compris envoyer au nom de votre nœud. C’est une décision, pas un oubli : les applications qui parlent ce protocole ne savent pas se connecter. Ne l’activez que sur un réseau de confiance et ne redirigez jamais ce port vers Internet.
+**Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et les comptes ne le couvrent pas : il écoute sur toutes les interfaces (port 5001 par défaut), et quiconque atteint ce port peut utiliser votre radio, y compris envoyer au nom de votre nœud. C’est une décision, pas un oubli : les applications qui parlent ce protocole ne savent pas se connecter. Ne l’activez que sur un réseau de confiance et ne redirigez jamais ce port vers Internet.
 
 ## Mot de passe Wi-Fi
 
