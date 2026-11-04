@@ -85,15 +85,14 @@ notifications (migration 111, `app/notifications/AGENTS.md`);
 the import and, from the dispatcher ticket, by the rules API; outside `AppSettings` for now;
 shape in `app/notifications/AGENTS.md`);
 `share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
-(migration 102; `GET /api/settings` also returns the computed `share_effective`, true only while
+(migration 102; migration 144 moves the previews to the default `always` where sharing is off and the terms were never accepted; `GET /api/settings` also returns the computed `share_effective`, true only while
 `share_enabled` and the accepted terms are current, never stored); `share_terms_version`, `share_terms_accepted_at` (migration 116): the version of the share
 terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS_VERSION` in
 `services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`
 from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `remote_instance_seed` (migration 138): the Meshloom Remote identity
-seed, same rules (the rest of the Remote state is in `remote_state`); `store_online`: the Store egress consent, off by default,
-migration 103, in `AppSettings` since MSHL-194 (`app/plugins/store_egress.py`), excluded from backups and reset to 0 in a
-database copy; `plugins_paused`, `plugins_paused_at`, `plugins_paused_by`: the global plugin
+seed, same rules (the rest of the Remote state is in `remote_state`); `store_online`: the Store egress switch, migration 103, on by default since migration 143
+(every existing row set to 1), in `AppSettings` since MSHL-194 (`app/plugins/store_egress.py`), exported, kept in a database copy, and a restore applies only an off; `plugins_paused`, `plugins_paused_at`, `plugins_paused_by`: the global plugin
 pause, its Unix time and the user name of who set it (migration 120, `app/plugins/pause.py`,
 written only by `PUT /api/plugins/pause`, outside `AppSettings`, excluded from backups).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
@@ -674,7 +673,7 @@ order in `app/AGENTS.md`, "## Backups"):
   previous-transport snapshot, the password and TOTP secrets of `users` and
   `auth_settings.setup_code_hash` and `auth_settings.device_cookie_key` are set to NULL, `sessions`,
   `recovery_codes`, `pairing_codes`, `plugin_secrets` and the three `remote_*` tables are
-  emptied, the consents `share_enabled` and `store_online` and the share terms acceptance (`share_terms_version`, `share_terms_accepted_at`) are set to 0, and a one-row
+  emptied, the consent `share_enabled` and the share terms acceptance (`share_terms_version`, `share_terms_accepted_at`) are set to 0, and a one-row
   `meshloom_backup_snapshot` marker table is added: a database
   that starts with it is a restored snapshot, so startup runs the restore hooks
   and drops it (`docs/dev/backup.md`). A fresh database never has it.

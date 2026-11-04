@@ -221,13 +221,14 @@ These hold for every section; a restore function must keep them:
      256-bit secrets, which give nothing without the token itself.
 
    The sharing consent (`app_settings.share_enabled`, with its recorded terms acceptance
-   `share_terms_version` and `share_terms_accepted_at`) and the Store consent
-   (`app_settings.store_online`) are not seeds but follow the
-   same rule: they are left out of the JSON export (`BackupExport` serializes
-   `settings` without those four columns, `_CONSENT_FIELDS` in `app/models.py`),
+   `share_terms_version` and `share_terms_accepted_at`) is not a seed but follows the
+   same rule: it is left out of the JSON export (`BackupExport` serializes
+   `settings` without those three columns, `_CONSENT_FIELDS` in `app/models.py`),
    never restored, and set to 0 in the SQLite snapshot
    copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
-   sharing or Store egress.
+   sharing egress. The Store switch (`app_settings.store_online`) is an ordinary setting:
+   on by default, exported and kept in the copy, so a choice to turn it off is not lost. A JSON
+   restore applies only an off: every default export says on, which must not undo a later off.
 
    The seeds are regenerated after a restore, through the hook below.
 5. **Secrets in `data` are plain JSON.** Unlike `identity`, `wifi` and

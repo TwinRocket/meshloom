@@ -370,7 +370,6 @@ SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
     "share_enabled",
     "share_terms_version",
     "share_terms_accepted_at",
-    "store_online",
 )
 
 # Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets,

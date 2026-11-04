@@ -101,6 +101,7 @@ _HISTORY = "history or cache (the database download covers history)"
 # The v1 settings: exported in ``settings`` and written back by ``restore_json``
 # (one list, so a column marked included here is never dropped on restore).
 V1_SETTING_COLUMNS: tuple[str, ...] = (
+    "store_online",
     "max_radio_contacts",
     "auto_decrypt_dm_on_advert",
     "advert_interval",
@@ -221,10 +222,6 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "community_attestations": (
         "excluded",
         "Community attestations of the instance keys: the restore rotates those keys",
-    ),
-    "app_settings.store_online": (
-        "excluded",
-        "Store consent: a copy restored elsewhere would enable an egress nobody clicked",
     ),
     **{
         f"app_settings.{column}": (
@@ -606,6 +603,10 @@ async def _restore_settings(settings: AppSettings, warnings: list[str]) -> None:
     later field (``ui_preferences``...) keeps the current value."""
     present = settings.model_fields_set
     updates = {name: getattr(settings, name) for name in _RESTORED_SETTINGS if name in present}
+    # Every export of a default install says on: a file may turn the Store off, never on,
+    # or an old backup would undo a choice made since.
+    if updates.get("store_online") is True:
+        del updates["store_online"]
     if "notification_destinations" in updates:
         updates["notification_destinations"] = await _restorable_destinations(
             updates["notification_destinations"], warnings

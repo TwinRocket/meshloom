@@ -3,12 +3,14 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  AUTO_SHORTEN_MIN_BYTES,
   findLongUrls,
   isOpenPayload,
   isShareLink,
   isShortenable,
   rewriteUrls,
   shortFormBytes,
+  shortenedByteLength,
 } from '../utils/share';
 
 const LONG = 'https://example.org/some/very/long/path/to/an/article?id=123456789&ref=newsletter';
@@ -16,6 +18,19 @@ const LONG = 'https://example.org/some/very/long/path/to/an/article?id=123456789
 describe('share utils', () => {
   it('measures a short link as scheme, host, slash and a 7-character id', () => {
     expect(shortFormBytes('meshl.ink')).toBe(25);
+  });
+
+  it('applies the auto threshold on top of the short form', () => {
+    const at = `https://a.io/${'a'.repeat(13)}`;
+    const over = `${at}a`;
+    expect(at).toHaveLength(AUTO_SHORTEN_MIN_BYTES);
+    expect(findLongUrls(`${at} ${over}`, undefined, AUTO_SHORTEN_MIN_BYTES)).toEqual([over]);
+    expect(findLongUrls(`${at} ${over}`)).toEqual([at, over]);
+  });
+
+  it('counts the bytes of the text once its URLs are short links', () => {
+    expect(shortenedByteLength(`a ${LONG} b ${LONG}`, [LONG])).toBe(2 + 25 + 3 + 25);
+    expect(shortenedByteLength(`é ${LONG}`, [])).toBe(3 + LONG.length);
   });
 
   it('finds long URLs once, in order, and skips short ones', () => {

@@ -256,7 +256,7 @@ async def test_secrets_never_leave_in_a_backup(test_db, tmp_path):
 
     await _create()
     async with test_db.tx() as conn:
-        await conn.execute("UPDATE app_settings SET store_online = 1")
+        await conn.execute("UPDATE app_settings SET store_online = 0")
 
     # The full backup builds on export_json(include_secrets=True).
     for include_secrets in (False, True):
@@ -270,10 +270,7 @@ async def test_secrets_never_leave_in_a_backup(test_db, tmp_path):
             assert tuple(await cursor.fetchone()) == (0,)
         async with conn.execute("SELECT COUNT(*) FROM plugins") as cursor:
             assert tuple(await cursor.fetchone()) == (1,)
+        # The copy keeps a choice to turn the Store off.
         async with conn.execute("SELECT store_online FROM app_settings") as cursor:
             assert tuple(await cursor.fetchone()) == (0,)
     assert TOKEN.encode() not in path.read_bytes()
-    # The live database keeps the consent.
-    async with test_db.readonly() as conn:
-        async with conn.execute("SELECT store_online FROM app_settings") as cursor:
-            assert tuple(await cursor.fetchone()) == (1,)
