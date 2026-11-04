@@ -24,6 +24,10 @@ on:
       - ".github/workflows/nfpm.yml"
       - ".github/workflows/nfpm-armhf.yml"
 
+concurrency:
+  group: nfpm-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
