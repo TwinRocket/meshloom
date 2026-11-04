@@ -3,17 +3,23 @@ send-slot policy (one scratch slot) and the delete that empties a kept slot."""
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from unittest.mock import patch
+
 import pytest
 
 from app import radio_workarounds
 from app.radio import radio_manager
 from app.radio_sync import (
+    _store_pending_channel_message,
     audit_channel_send_cache,
     clear_channel_from_radio_slots,
     sync_and_offload_channels,
 )
-from app.repository import ChannelRepository
+from app.repository import ChannelRepository, MessageRepository
 from app.repository.settings import AppSettingsRepository
+from app.routers.channels import delete_channel
 from tests.fixtures.fake_node import FakeNode, connected_node
 
 KEY_A = "A1" * 16
@@ -224,6 +230,7 @@ async def test_deleted_while_disconnected_the_next_sync_clears_it_without_adopti
     await ChannelRepository.upsert(key=KEY_A, name="ops")
     # No radio connected: the delete cannot reach the slot.
     assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+    assert await ChannelRepository.pending_slot_clear_keys() == {KEY_A}
 
     node = FakeNode()
     node.channels = {1: ("ops", bytes.fromhex(KEY_A)), 2: ("far", bytes.fromhex(KEY_B))}
@@ -235,6 +242,7 @@ async def test_deleted_while_disconnected_the_next_sync_clears_it_without_adopti
     assert await ChannelRepository.get_by_key(KEY_B) is not None
     assert result["synced"] == 1
     assert radio_manager.get_cached_channel_slot(KEY_A) is None
+    assert await ChannelRepository.pending_slot_clear_keys() == set()
 
 
 @pytest.mark.asyncio
@@ -275,3 +283,157 @@ async def test_a_channel_added_back_before_the_sync_is_not_cleared(test_db, clie
 
     assert result["synced"] == 1
     assert await ChannelRepository.get_by_key(KEY_A) is not None
+    assert await ChannelRepository.pending_slot_clear_keys() == set()
+
+
+class _RefusingSlotWrites(FakeNode):
+    refuse = True
+
+    def _cmd_20(self, body: bytes) -> list[bytes]:
+        if self.refuse:
+            return [b"\x01\x02"]
+        return super()._cmd_20(body)
+
+
+@pytest.mark.asyncio
+async def test_a_queued_message_does_not_bring_back_a_channel_pending_a_clear(test_db, client):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200  # radio away
+
+    node = _RefusingSlotWrites()
+    node.channels = {1: ("ops", bytes.fromhex(KEY_A))}
+    async with connected_node(node, kind="serial") as (loop, _):
+        await sync_and_offload_channels(loop.mc)  # the clear is refused
+        await _store_pending_channel_message(loop.mc, {"channel_idx": 1, "text": "bob: hi"})
+
+        assert await ChannelRepository.get_by_key(KEY_A) is None
+        assert await ChannelRepository.pending_slot_clear_keys() == {KEY_A}
+        assert await MessageRepository.get_all(conversation_key=KEY_A) == []
+
+        node.refuse = False
+        await sync_and_offload_channels(loop.mc)
+    assert await ChannelRepository.get_by_key(KEY_A) is None
+    assert node.channels[1] == ("", bytes(16))
+
+
+@pytest.mark.asyncio
+async def test_a_queued_message_on_an_added_back_channel_is_still_stored(test_db, client):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+
+    node = FakeNode()
+    node.channels = {1: ("ops", bytes.fromhex(KEY_A))}
+    async with connected_node(node, kind="serial") as (loop, _):
+        await _store_pending_channel_message(loop.mc, {"channel_idx": 1, "text": "bob: hi"})
+    assert len(await MessageRepository.get_all(conversation_key=KEY_A)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_silent_radio_stops_the_slot_scan_at_the_first_timeout(test_db, client):
+    class _Silent(FakeNode):
+        reads = 0
+
+        def _cmd_1f(self, body: bytes) -> list[bytes]:
+            self.reads += 1
+            return []
+
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    node = _Silent()
+    async with connected_node(node, kind="serial") as (loop, _):
+        loop.mc.commands.default_timeout = 0.05
+        assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+    assert node.reads == 1
+    assert await ChannelRepository.pending_slot_clear_keys() == {KEY_A}
+
+
+@pytest.mark.asyncio
+async def test_the_pending_clear_is_written_before_the_radio_is_touched(test_db):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    seen: dict = {}
+
+    async def cancelled(_key: str) -> int:
+        seen["pending"] = await ChannelRepository.pending_slot_clear_keys()
+        seen["row"] = await ChannelRepository.get_by_key(KEY_A)
+        raise asyncio.CancelledError
+
+    with (
+        patch("app.radio_sync.clear_channel_from_radio_slots", cancelled),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await delete_channel(KEY_A)
+
+    assert seen == {"pending": {KEY_A}, "row": None}
+    assert await ChannelRepository.pending_slot_clear_keys() == {KEY_A}
+
+
+@pytest.mark.asyncio
+async def test_a_completed_clear_leaves_nothing_pending(test_db, client):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    node = FakeNode()
+    node.channels = {1: ("ops", bytes.fromhex(KEY_A))}
+    async with connected_node(node, kind="serial"):
+        assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+    assert node.channels[1] == ("", bytes(16))
+    assert await ChannelRepository.pending_slot_clear_keys() == set()
+
+
+@pytest.mark.asyncio
+async def test_the_ui_hears_of_the_delete_before_the_radio_is_touched(test_db):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    events: list[str] = []
+
+    async def clear(_key: str) -> int:
+        events.append("radio")
+        return 0
+
+    with (
+        patch("app.radio_sync.clear_channel_from_radio_slots", clear),
+        patch("app.routers.channels.broadcast_event", lambda *_a, **_k: events.append("ws")),
+    ):
+        await delete_channel(KEY_A)
+    assert events == ["ws", "radio"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["nothex", "AB", "G" * 32, "A" * 34])
+async def test_deleting_a_malformed_key_is_refused_and_stores_nothing(test_db, client, key):
+    response = await client.delete(f"/api/channels/{key}")
+    assert response.status_code == 400
+    assert await ChannelRepository.pending_slot_clear_keys() == set()
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_unknown_key_stores_nothing(test_db, client):
+    assert (await client.delete(f"/api/channels/{KEY_C}")).status_code == 200
+    assert await ChannelRepository.pending_slot_clear_keys() == set()
+
+
+@pytest.mark.asyncio
+async def test_a_delete_does_not_log_the_channel_key(test_db, client, caplog):
+    await ChannelRepository.upsert(key=KEY_A, name="ops")
+    with caplog.at_level(logging.DEBUG):
+        assert (await client.delete(f"/api/channels/{KEY_A}")).status_code == 200
+    # The test client's own request line (logger httpx) is not the app's.
+    app_lines = [r.getMessage() for r in caplog.records if r.name.startswith("app")]
+    assert app_lines and not any(KEY_A[:8] in line for line in app_lines)
+
+
+class _TruncatingNode(_SendingNode):
+    """Keeps at most 31 bytes of a name, as the firmware does."""
+
+    def _cmd_20(self, body: bytes) -> list[bytes]:
+        return super()._cmd_20(body[:32] + b"\x00" + body[33:])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["a" * 32, "é" * 16, "é" * 15 + "ab"])
+async def test_a_long_name_keeps_the_audit_quiet_and_survives_the_sync(test_db, client, name):
+    await ChannelRepository.upsert(key=KEY_A, name=name)
+    node = _TruncatingNode()
+    async with connected_node(node, kind="serial") as (loop, _):
+        await _send_once(client)
+        assert await audit_channel_send_cache(loop.mc) is True
+        await sync_and_offload_channels(loop.mc)
+    stored = await ChannelRepository.get_by_key(KEY_A)
+    assert stored is not None and stored.name == name

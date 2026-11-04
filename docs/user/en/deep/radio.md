@@ -41,6 +41,8 @@ Two exceptions to this reuse:
 - With a **network (TCP) radio**, every channel send rewrites the channel into the radio, because another program may be using the same radio.
 - **Rewrite the channel before every send**, in **Settings → Radio → Advanced**, does the same on every connection type. Use it if the slots seem unstable or if another app changes them. Each channel send then takes a little longer.
 
+Deleting a channel in Meshloom also empties its slot on the radio, at once or at the next connection if the radio is away. Otherwise that connection would bring the channel back.
+
 ### Keep channels on the radio
 
 **Keep channels on the radio**, in **Settings → Radio → Messaging**, is off by default. Turn it on if you also use the radio without Meshloom (the official MeshCore app, another client) or if you want the channels of a restore to stay on the radio. It applies at the next connection:
@@ -49,7 +51,6 @@ Two exceptions to this reuse:
 - Sending to a channel that is already on the radio uses its slot as it is.
 - Meshloom keeps one slot for itself, the last one, to send to channels that are not on the radio. It never overwrites the other slots. A radio with 8 slots keeps 7 channels; the settings page shows the number for your radio.
 - With a network (TCP) radio, or with **Rewrite the channel before every send**, every channel send goes through that last slot.
-- Deleting a channel in Meshloom also empties its slot on the radio, otherwise the next connection would bring it back.
 - The **Radio test** (in the sidebar) borrows the last slot too.
 
 Which channels are kept is up to you: add or remove them on the radio with another MeshCore app, or restore a backup (see [Back up your radio](/en/docs/backup/)).

@@ -286,14 +286,32 @@ class ChannelRepository:
                 pass
 
     @staticmethod
-    async def mark_slot_clear_pending(key: str) -> None:
-        """Remember a deleted channel whose radio slot could not be emptied."""
+    async def delete_with_slot_clear_pending(key: str) -> bool:
+        """Delete a channel and, in the same transaction, record that its radio slots
+        still have to be emptied. False when there was no such channel: nothing recorded.
+        """
+        normalized = normalize_channel_key(key)
         async with db.tx() as conn:
+            async with conn.execute("DELETE FROM channels WHERE key = ?", (normalized,)) as cursor:
+                if cursor.rowcount <= 0:
+                    return False
             async with conn.execute(
                 "INSERT OR IGNORE INTO channel_slot_clears_pending (key) VALUES (?)",
-                (normalize_channel_key(key),),
+                (normalized,),
             ):
                 pass
+        return True
+
+    @staticmethod
+    async def is_slot_clear_pending(key: str) -> bool:
+        """True for a deleted channel still awaiting its clear, not one added back since."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT 1 FROM channel_slot_clears_pending AS p WHERE p.key = ?"
+                " AND NOT EXISTS (SELECT 1 FROM channels AS c WHERE c.key = p.key)",
+                (normalize_channel_key(key),),
+            ) as cursor:
+                return await cursor.fetchone() is not None
 
     @staticmethod
     async def pending_slot_clear_keys() -> set[str]:

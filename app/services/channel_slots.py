@@ -29,6 +29,11 @@ def utf8_prefix(text: str, max_bytes: int) -> bytes:
     return bytes(out)
 
 
+def name_as_kept_by_radio(name: str) -> str:
+    """What a radio slot reads back for a channel written under ``name``."""
+    return utf8_prefix(name, CHANNEL_NAME_MAX_BYTES).decode("utf-8")
+
+
 def channel_slot_frame(slot: int, name: str, secret: bytes) -> bytes:
     """The SET_CHANNEL frame loading ``name`` and ``secret`` into ``slot``."""
     if len(secret) != CHANNEL_SECRET_BYTES:

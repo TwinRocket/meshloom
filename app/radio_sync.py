@@ -16,7 +16,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from meshcore import EventType, MeshCore
 
@@ -35,6 +35,7 @@ from app.repository import (
     RepeaterTelemetryRepository,
 )
 from app.repository.contact_telemetry import ContactTelemetryRepository
+from app.services.channel_slots import name_as_kept_by_radio
 from app.services.contact_reconciliation import (
     promote_prefix_contacts_for_contact,
     reconcile_contact_messages,
@@ -208,6 +209,11 @@ async def upsert_channel_from_radio_slot(payload: dict, *, on_radio: bool) -> st
     if is_test_channel_name(name) or is_test_channel_key(key_hex):
         logger.info("Skipping radio sync of the built-in mesh test channel")
         return None
+
+    # The radio keeps a shortened name: never let it replace the whole one.
+    existing = await ChannelRepository.get_by_key(key_hex)
+    if existing is not None and name_as_kept_by_radio(existing.name) == name:
+        name = existing.name
 
     await adopt_channel_record(
         key=key_hex,
@@ -457,14 +463,14 @@ async def clear_channel_from_radio_slots(channel_key: str) -> int:
 
     A channel a send loaded stays on its slot until the next connect, in offload mode
     too, and that connect would adopt it again. The slots are read rather than taken
-    from the send cache, which is empty without slot reuse (TCP). When the radio is
-    away or a slot could not be read or emptied, the key is remembered and the next
-    connect sync empties that slot without adopting it.
+    from the send cache, which is empty without slot reuse (TCP). The caller recorded
+    a pending clear with the delete: it is dropped only once every slot was read and
+    emptied, otherwise the next connect sync empties the slot without adopting it. A
+    radio that stops answering ends the scan at once: it holds the radio lock.
     """
     target = channel_key.upper()
     radio_manager.invalidate_cached_channel_slot(target)
     if not radio_manager.is_connected:
-        await ChannelRepository.mark_slot_clear_pending(target)
         return 0
     cleared = 0
     done = True
@@ -474,6 +480,9 @@ async def clear_channel_from_radio_slots(channel_key: str) -> int:
         ) as mc:
             for idx in range(get_radio_channel_limit()):
                 result = await mc.commands.get_channel(idx)
+                if _radio_timed_out(result):
+                    done = False
+                    break
                 if result.type != EventType.CHANNEL_INFO:
                     done = False
                     continue
@@ -485,11 +494,21 @@ async def clear_channel_from_radio_slots(channel_key: str) -> int:
                 else:
                     done = False
     except Exception as e:
-        logger.warning("Could not clear deleted channel %s from the radio: %s", target[:8], e)
+        logger.warning("Could not clear a deleted channel from the radio: %s", e)
         done = False
-    if not done:
-        await ChannelRepository.mark_slot_clear_pending(target)
+    if done:
+        await ChannelRepository.drop_slot_clears_pending({target})
     return cleared
+
+
+def _radio_timed_out(result: Any) -> bool:
+    """True for the ERROR event meshcore makes up when the radio did not answer."""
+    payload = result.payload
+    return (
+        result.type == EventType.ERROR
+        and isinstance(payload, dict)
+        and payload.get("reason") == "no_event_received"
+    )
 
 
 async def _empty_channel_slot(mc: MeshCore, idx: int) -> bool:
@@ -531,6 +550,9 @@ async def _resolve_channel_for_pending_message(
         logger.debug("Failed to fetch channel slot %s for pending message: %s", channel_idx, exc)
     else:
         if result.type == EventType.CHANNEL_INFO:
+            slot_key = _normalize_channel_secret(result.payload).hex().upper()
+            if await ChannelRepository.is_slot_clear_pending(slot_key):
+                return None, None  # deleted by the user: never adopted again
             key_hex = await upsert_channel_from_radio_slot(result.payload, on_radio=False)
             if key_hex is not None:
                 radio_manager.remember_pending_message_channel_slot(key_hex, channel_idx)
@@ -540,7 +562,7 @@ async def _resolve_channel_for_pending_message(
     cached_key = current_slot_map.get(channel_idx)
     if cached_key is None:
         cached_key = radio_manager.get_pending_message_channel_key(channel_idx)
-    if cached_key is None:
+    if cached_key is None or await ChannelRepository.is_slot_clear_pending(cached_key):
         return None, None
 
     channel = await ChannelRepository.get_by_key(cached_key)
@@ -778,7 +800,11 @@ async def audit_channel_send_cache(mc: MeshCore) -> bool:
         expected_channel = await ChannelRepository.get_by_key(channel_key)
         expected_name = expected_channel.name if expected_channel is not None else None
 
-        if observed_key != channel_key or expected_name is None or observed_name != expected_name:
+        if (
+            observed_key != channel_key
+            or expected_name is None
+            or observed_name != name_as_kept_by_radio(expected_name)
+        ):
             mismatches.append(
                 f"slot {slot}: expected {expected_name or '(missing db row)'} "
                 f"{channel_key[:8]}, got {observed_name or '(empty)'} {observed_key[:8]}"

@@ -1225,9 +1225,12 @@ run as root).
   `temp_channel_slot()`, which answers the scratch slot in keep mode. Deleting a
   channel (`DELETE /api/channels/{key}`) forgets its cached slot and empties the slots
   holding it in both modes (`radio_sync.clear_channel_from_radio_slots()`), or the next
-  connect would adopt it again. A slot out of reach (radio away, read or clear failed)
-  leaves the key in `channel_slot_clears_pending` (migration 145): the next connect sync
-  empties it without adopting it, unless the channel was added back. The setting is in the v1 backup settings. Tests:
+  connect would adopt it again. The delete writes the key to `channel_slot_clears_pending`
+  (migration 145) in the same transaction and drops it once the slots are empty; the scan
+  stops at the first radio timeout. A key still there is never adopted by the drain of
+  queued messages, and the next connect sync empties its slot without adopting it, unless
+  the channel was added back. A slot keeps 31 bytes of a name (`name_as_kept_by_radio`): the
+  hourly audit compares through it and the sync never shortens the stored name. The setting is in the v1 backup settings. Tests:
   `tests/test_keep_channels_on_radio.py`.
 - Path hash modes `0`/`1`/`2` mean 1-, 2- and 3-byte hop IDs. `path_len` in the
   API is always a hop count.
