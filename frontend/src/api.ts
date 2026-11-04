@@ -513,6 +513,8 @@ export function uploadShareFile(
   });
 }
 
+const BULK_DELETE_BATCH = 5000;
+
 export const api = {
   // Auth (public routes: they answer before anyone is signed in)
   getAuthSession: () => fetchJson<AuthSessionInfo>('/auth/session', { cache: 'no-store' }),
@@ -884,12 +886,19 @@ export const api = {
     fetchJson<{ status: string }>(`/contacts/${publicKey}`, {
       method: 'DELETE',
     }),
-  bulkDeleteContacts: (publicKeys: string[]) =>
-    fetchJson<{ deleted: number }>('/contacts/bulk-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ public_keys: publicKeys }),
-    }),
+  // In batches: the server caps a request at 1 MiB, about 15,000 keys.
+  bulkDeleteContacts: async (publicKeys: string[]) => {
+    let deleted = 0;
+    for (let start = 0; start < publicKeys.length; start += BULK_DELETE_BATCH) {
+      const result = await fetchJson<{ deleted: number }>('/contacts/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public_keys: publicKeys.slice(start, start + BULK_DELETE_BATCH) }),
+      });
+      deleted += result.deleted;
+    }
+    return { deleted };
+  },
   createContact: (publicKey: string, name?: string, tryHistorical?: boolean, type?: number) =>
     fetchJson<Contact>('/contacts', {
       method: 'POST',
