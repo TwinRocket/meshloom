@@ -928,3 +928,29 @@ describe('fetchJson (via api methods)', () => {
     });
   });
 });
+
+describe('bulkDeleteContacts', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends a long list in batches under the server body limit and adds up the result', async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(init.body as string);
+        const { public_keys } = JSON.parse(init.body as string);
+        return new Response(JSON.stringify({ deleted: public_keys.length }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      })
+    );
+    const keys = Array.from({ length: 16000 }, (_, i) => i.toString(16).padStart(64, '0'));
+    await expect(api.bulkDeleteContacts(keys)).resolves.toEqual({ deleted: 16000 });
+    expect(bodies.length).toBeGreaterThan(1);
+    for (const body of bodies) expect(body.length).toBeLessThan(1024 * 1024);
+    expect(bodies.flatMap((body) => JSON.parse(body).public_keys)).toEqual(keys);
+  });
+});

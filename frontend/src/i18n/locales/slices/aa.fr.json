@@ -2,6 +2,8 @@
   "errors": {
     "relay_login_challenge": "Trop de connexions échouées via Meshloom Remote depuis ce réseau. Ouverture de la page de vérification…",
     "auth_rate_limited": "Trop de tentatives. Réessayez dans {{retry_after}} secondes.",
+    "request_timeout": "Cette requête a mis trop de temps à arriver. Réessayez.",
+    "server_busy": "Meshloom est occupé. Réessayez dans un instant.",
     "request_too_large": "Cette requête est trop volumineuse pour Meshloom.",
     "auth_host_rejected": "Requête refusée : cette adresse n'est pas une de celles auxquelles cette instance répond.",
     "auth_last_admin": "C'est le dernier administrateur : gardez-en au moins un.",
