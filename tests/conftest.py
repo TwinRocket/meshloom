@@ -283,6 +283,16 @@ def _reset_community_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _reset_instance_identity_locks():
+    """A contended asyncio.Lock binds to its event loop, and each test has its own."""
+    from app.services import instance_identity
+
+    instance_identity._locks.clear()
+    yield
+    instance_identity._locks.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_share_client():
     """Every test starts with a closed share breaker, full read buckets, no ban."""
     from app.services.share import reset_share_client_for_tests

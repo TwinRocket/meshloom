@@ -222,11 +222,11 @@ def test_the_apt_repository_lists_what_it_holds() -> None:
     One of them missing armhf is a repository that offers itself to a machine it
     cannot serve, which is the failure this whole change is about.
     """
-    workflow = (
-        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "publish-linux-repo.yml"
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_linux_repo.sh"
     ).read_text(encoding="utf-8")
-    assert 'Architectures="amd64 arm64"' not in workflow
-    assert "dpkg-deb -f" in workflow
+    assert 'Architectures="amd64 arm64"' not in script
+    assert "dpkg-deb -f" in script
 
 
 def _build_script_error(args: list[str]) -> str:
@@ -408,7 +408,7 @@ def test_a_release_asks_the_site_to_rebuild() -> None:
 
     release = (workflows / "release.yml").read_text(encoding="utf-8")
     job = release.split("\n  docs-site:\n", 1)[1].split("\n\n", 1)[0]
-    assert "needs: [publish]" in job
+    assert "needs: [version, publish]" in job
     assert "uses: ./.github/workflows/docs-site.yml" in job
     assert "DOCS_SITE_DEPLOY_HOOK: ${{ secrets.DOCS_SITE_DEPLOY_HOOK }}" in job
 

@@ -15,9 +15,29 @@ release_trim() {
     printf '%s' "$1" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
+# A release candidate: a signed pre-release that never reaches a stable user.
+# npm and PEP 440 read it as a pre-release of X.Y.Z, nFPM packs it as X.Y.Z~rc.N.
+release_is_rc() {
+    [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]]
+}
+
 release_validate_version() {
     local version="$1"
-    [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || release_die "Version must be in format X.Y.Z"
+    [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || release_is_rc "$version" \
+        || release_die "Version must be in format X.Y.Z or X.Y.Z-rc.N"
+}
+
+# X.Y.Z comes from main only. An rc comes from main or from the integration branch
+# of the next version; it pushes that branch, and never touches main from there.
+release_check_branch() {
+    local version="$1" branch="$2"
+    if release_is_rc "$version"; then
+        case "$branch" in
+            main | preversion-5) return 0 ;;
+        esac
+        release_die "Release candidates are cut from main or preversion-5; you are on '$branch'."
+    fi
+    [ "$branch" = "main" ] || release_die "Releases are cut from main; you are on '$branch'."
 }
 
 release_resolve_full_hash() {

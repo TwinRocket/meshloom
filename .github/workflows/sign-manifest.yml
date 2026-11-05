@@ -7,6 +7,8 @@ name: Sign release manifest
 #   OCI-DIGESTS (+ .asc)   one line pinning the multi-arch image by index digest:
 #                          ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<64 hex>
 #
+# X.Y.Z-rc.N gets the same two files, for the packages it has (no armhf).
+#
 # Clients verify the .asc files against the keyring committed in pkg/keys, never
 # against a key fetched from the network.
 #
@@ -52,6 +54,7 @@ jobs:
   sign-manifest:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    environment: release-signing
     permissions:
       contents: write        # upload SHA256SUMS(.asc) to the release
       actions: read          # look at the docker.yml run for this tag
@@ -64,19 +67,14 @@ jobs:
     steps:
       - name: Validate version
         run: |
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be X.Y.Z"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]] || { echo "::error::version must be X.Y.Z or X.Y.Z-rc.N"; exit 1; }
 
       # The keyring and the scripts come from the release tag, i.e. exactly what
       # the packages of that release ship.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.version }}
-
-      - name: Import signing key
-        id: key
-        uses: ./.github/actions/import-signing-key
-        with:
-          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
+          ref: refs/tags/${{ inputs.version }}
+          persist-credentials: false
 
       - name: Download release assets
         run: |
@@ -148,6 +146,13 @@ jobs:
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
+      # Only now: the registry login and the image inspection have no use for the key.
+      - name: Import signing key
+        id: key
+        uses: ./.github/actions/import-signing-key
+        with:
+          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
+
       - name: Write and sign SHA256SUMS
         env:
           GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
@@ -166,6 +171,14 @@ jobs:
             gpgv --keyring "$PWD/pkg/keys/meshloom-archive-keyring.gpg" "$f.asc" "$f"
             cat "$f"
           done
+
+      # Nothing after this step needs the key, and the actions below do not get to see it.
+      - name: Erase the key
+        if: always()
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          KEY_FILE: ${{ steps.key.outputs.key-file }}
+        run: rm -rf -- "${GNUPGHOME:-/nonexistent}" "${KEY_FILE:-/nonexistent}"
 
       - name: Attest provenance of the release assets
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

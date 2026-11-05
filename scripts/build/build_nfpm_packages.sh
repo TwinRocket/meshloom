@@ -11,6 +11,8 @@ PKGDIR="$REPO_ROOT/pkg/nfpm"
 
 PYVER="${MESHLOOM_STANDALONE_PYVER:-3.13.13}"
 PYDATE="${MESHLOOM_STANDALONE_PYDATE:-20260408}"
+# Overriding the interpreter above means bringing its digest too.
+PYSHA256="${MESHLOOM_STANDALONE_PYSHA256:-}"
 
 VERSION=""
 ARCH=""
@@ -24,7 +26,7 @@ SKIP_DEPS=0
 
 usage() {
     cat <<'EOF'
-Usage: scripts/build/build_nfpm_packages.sh --version X.Y.Z --arch amd64|arm64|armhf [options]
+Usage: scripts/build/build_nfpm_packages.sh --version X.Y.Z[-rc.N] --arch amd64|arm64|armhf [options]
 
 Options:
   --output-dir DIR     Destination for .deb/.rpm (default: dist/)
@@ -35,6 +37,10 @@ Options:
   --skip-deps          Finish staging over an existing --deps-only tree
   --package-only       Pack an already assembled --stage-dir
   --help
+
+Interpreter:
+  MESHLOOM_STANDALONE_PYVER, MESHLOOM_STANDALONE_PYDATE  another standalone Python;
+  MESHLOOM_STANDALONE_PYSHA256                           required with them: its sha256.
 
 Signing (packing step only):
   MESHLOOM_SIGN_KEY_FILE   armored secret (sub)key; when set, .deb and .rpm are signed.
@@ -49,6 +55,9 @@ binary to run there. So the tree is assembled under emulation and packed after.
 
 --deps-only / --skip-deps split that assembly so a Docker layer can cache the
 compiled deps without being invalidated by app/ or a version bump.
+
+Release jobs split --stage-only from --package-only for another reason: assembling
+runs third-party build code (uv sync), so it never shares a job with the signing key.
 EOF
 }
 
@@ -94,6 +103,23 @@ fi
 
 PY_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PYDATE}/cpython-${PYVER}+${PYDATE}-${PY_TRIPLE}-install_only_stripped.tar.gz"
 
+# The interpreter ships in the package, so it is pinned like a dependency in
+# uv.lock. Digests: the release assets on astral-sh/python-build-standalone.
+if [ -z "$PYSHA256" ]; then
+    case "${PYVER}+${PYDATE}-${PY_TRIPLE}" in
+        3.13.13+20260408-x86_64-unknown-linux-gnu)
+            PYSHA256=a1dbc39f9c7b7d4ff3074fa18de66714c4e4400643bd657894a65803b0362a92 ;;
+        3.13.13+20260408-aarch64-unknown-linux-gnu)
+            PYSHA256=f06466ac56cdc185d61190ea89f9c4e84ff4fc03ac08793151970a1fea86410b ;;
+        3.13.13+20260408-armv7-unknown-linux-gnueabihf)
+            PYSHA256=6c4ec00f3afdcc33741db5a366f1d794adb95a8425f502c3d6c6f02ddbbdc0d4 ;;
+        *)
+            echo "No pinned sha256 for Python ${PYVER}+${PYDATE} (${PY_TRIPLE}): set MESHLOOM_STANDALONE_PYSHA256." >&2
+            exit 1
+            ;;
+    esac
+fi
+
 # Each half needs its own tool and not the other's. Demanding both would ask for
 # nFPM inside the emulated container, where no armv7 build of it exists.
 NEED_NFPM=1
@@ -132,6 +158,12 @@ fi
 OPT="$STAGING/opt/meshloom"
 
 require_assembled_tree() {
+    # nFPM packs what this path leads to: the tree may come from another job, and a
+    # link here would pack whatever it points at.
+    if [ -L "$STAGING/opt" ] || [ -L "$OPT" ]; then
+        echo "$OPT must be a directory, not a symlink" >&2
+        exit 1
+    fi
     [ -x "$OPT/python/bin/python3" ] || {
         echo "No assembled tree under $STAGE_DIR" >&2
         exit 1
@@ -143,6 +175,7 @@ download_standalone_python() {
     mkdir -p "$OPT"
     PY_TGZ="$(mktemp)"
     curl -fL "$PY_URL" -o "$PY_TGZ"
+    echo "${PYSHA256}  ${PY_TGZ}" | sha256sum -c -
     tar -xzf "$PY_TGZ" -C "$OPT"
     rm -f "$PY_TGZ"
     # tarball extracts a "python/" directory
