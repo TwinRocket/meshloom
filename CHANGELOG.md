@@ -172,17 +172,14 @@ Release 5.0.0 changes your database in ways an older version cannot undo. **Mesh
 
 ### Fixed
 
-<<<<<<< HEAD
 - **The Docker image starts without internet access (MSHL-460).** `uv run` no longer installs the development dependencies at the first start of a container, which needed the network and stopped the start without it. `docker run --user` and compose `user:` also start now (extensions then run at the *hooks only* level).
 - **Root without capabilities no longer announces the `setuid` isolation level (MSHL-460).** With `--cap-drop ALL`, extensions never started while the level said `setuid`. The level now falls back to what can really run, and the log says why.
 - **A database downloaded and put back no longer locks the account in two-factor authentication (MSHL-460).** The download kept the two-factor state without its secret, so after `meshloom-admin reset-password` the sign-in asked for a code nobody could give.
 - **A failed start logs its cause and ends the process (MSHL-460).** The cause, at the end of a traceback that the log's line cap cut, was missing from the logs. And a start that failed once the database was open, such as a failed migration, left a process running with no web server, so neither `Restart=on-failure` nor Docker's restart policy started it again: it now exits with an error, at the latest 15 s after the failure. The packaged service and the one `install_service.sh` writes stop trying after 20 starts in an hour (`sudo systemctl reset-failed meshloom` allows new tries; a package upgrade does it).
-=======
 - **A channel named with a `#` keeps its own key when you send.** A private channel whose name starts with `#` now always sends under its own secret key.
 - **A deleted channel stays deleted.** Deleting a channel now also empties its slot on the radio, at once or at the next connection if the radio is away, so it no longer comes back. It no longer causes a false "radio inconsistency" error either.
 - **Logs no longer carry the text of your messages at the default level.** Stored and sent messages are logged without their text, and without the name of a private channel. These logs often end up in bug reports.
 - **The composer accepts a message of exactly the limit.** It refused the last byte that the server accepts, for typed text and for photo captions.
->>>>>>> origin/preversion-5
 - **A channel whose mute has ended counts its unread messages again.** The unread counts skipped a muted channel without looking at the end of a timed mute, so a channel muted for an hour stayed out of the unread badges until you unmuted it by hand. They now use the same rule as the rest of Meshloom: muted until the end time. Indefinite mutes are unchanged. `GET /api/messages` also takes `muted=all|exclude|only`, `membership=all|adopted|pending` and a repeatable `conversation_keys` (1 to 50 keys of 32 or 64 hex characters, any case) for scripts and the Feed to come; direct messages and the rows of a deleted channel are never dropped by `exclude` or `adopted`.
 - **Notification limits hold under a flood.** The pending and stored dedup keys are now bounded and trimmed, the global cap is checked and charged in one step, and the grouped summaries count against the 600-an-hour cap.
 - **Apprise links point to the current documentation.** The "Apprise URL formats" links in Settings → Notifications and Settings → Fanout, and in the push documentation, went to the archived Apprise wiki. They now open the Apprise URL syntax page on appriseit.com.

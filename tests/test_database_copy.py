@@ -215,19 +215,40 @@ async def test_a_start_interrupted_past_the_copy_reuses_it(db_path, monkeypatch)
     assert _schema(db_path) == LATEST
 
 
-def _failing_first_migration(path: Path) -> None:
-    """A database whose one pending migration really fails, in another process too."""
-    conn = sqlite3.connect(path)
-    conn.execute(
-        "UPDATE app_settings SET share_preview_policy = 'private', share_enabled = 0,"
-        " share_terms_version = 0"
+FAILING_MIGRATION = f"""
+import importlib
+import pkgutil
+
+import uvicorn
+
+import app.migrations
+
+
+async def boom(conn):
+    raise RuntimeError("migration boom")
+
+
+for module in pkgutil.iter_modules(app.migrations.__path__):
+    if module.name.startswith("_{LATEST:03d}_"):
+        importlib.import_module(f"app.migrations.{{module.name}}").migrate = boom
+uvicorn.run("app.main:app", port=0)
+"""
+
+
+def _start_with_failing_migration(database_path: Path) -> subprocess.CompletedProcess[str]:
+    env = {
+        **os.environ,
+        "MESHCORE_DATABASE_PATH": str(database_path),
+        "MESHCORE_DISABLE_PLUGINS": "true",
+    }
+    return subprocess.run(
+        [sys.executable, "-c", FAILING_MIGRATION],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-    conn.execute(
-        "CREATE TRIGGER boom BEFORE UPDATE ON app_settings"
-        " BEGIN SELECT RAISE(ABORT, 'migration boom'); END"
-    )
-    conn.commit()
-    conn.close()
 
 
 @pytest.mark.asyncio
@@ -236,16 +257,15 @@ async def test_a_failed_migration_ends_the_process_and_the_next_one_does_not_rec
 ) -> None:
     """Exit non-zero with the cause, so a service manager restarts it; no rewrite each time."""
     await _fully_migrated_then_one_behind(db_path)
-    _failing_first_migration(db_path)
 
-    first = await asyncio.to_thread(_start_uvicorn, db_path)
+    first = await asyncio.to_thread(_start_with_failing_migration, db_path)
     assert first.returncode != 0
     assert "migration boom" in first.stdout + first.stderr
     copies = list_copies(db_path)
     assert len(copies) == 1
     taken = copies[0].path.stat().st_mtime_ns
 
-    second = await asyncio.to_thread(_start_uvicorn, db_path)
+    second = await asyncio.to_thread(_start_with_failing_migration, db_path)
     assert second.returncode != 0
     assert "keeping it" in second.stdout + second.stderr
     assert [c.path.stat().st_mtime_ns for c in list_copies(db_path)] == [taken]
