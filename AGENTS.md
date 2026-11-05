@@ -288,9 +288,11 @@ MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
 - Clients trust only the public key committed in `pkg/keys` (fingerprint
   `D852F2F0892ABF379F52D110FB3EB7BBC43935C8`) or embedded in `install.sh`, never
   a key fetched at install time. CI holds only the signing subkey.
-- `install.sh` embeds the public key, its fingerprint, the compose helper and
-  the apt pin. After changing any of them, run
-  `scripts/setup/sync_installer_embeds.py`; the tests run it with `--check`.
+- `install.sh` embeds the public key, its fingerprint, the compose helper, the
+  apt pin and, compressed, `scripts/setup/helpers/prerelease.sh`. After changing
+  any of them, run `scripts/setup/sync_installer_embeds.py`; the tests run it
+  with `--check`. Keep `install.sh` under 126 000 bytes: `bash -c "$(curl ...)"`
+  passes it as one argument, and Linux caps that at 128 KiB.
 - A doc change in `docs/user/` reaches meshloom.app only with the next release.
 - **Updater: the root side never reads anything the app writes.** The app only
   writes a trigger file; the root helper upgrades only from the signed source and
