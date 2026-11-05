@@ -1,6 +1,6 @@
 ---
 title: Passer de la 4.18 à la 5.0
-description: Ce qui change quand Meshloom 4.x devient 5.0, la copie de votre base faite avant la migration, pourquoi il n’y a pas de retour en place, et comment revenir en arrière depuis la copie.
+description: Ce qui change quand Meshloom 4.x devient 5.0, la copie de votre base faite avant la migration, pourquoi il n’y a pas de retour en place, et comment revenir en arrière depuis cette copie.
 level: start
 order: 2.8
 ---
@@ -10,13 +10,13 @@ Meshloom 5.0 change la structure de votre base de données à son premier démar
 ## Avant de mettre à jour
 
 1. **Désactivez les mises à jour automatiques** dans **Réglages → Mises à jour** jusqu’à ce que vous soyez prêt, pour que la mise à jour ait lieu au moment que vous choisissez.
-2. **Téléchargez une copie de la base en 4.18, avant la mise à jour** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la ailleurs que sur cette machine. C’est votre propre filet de sécurité, en plus de la copie automatique ci-dessous. Une copie téléchargée en 5.0 est déjà migrée et expurgée : elle ne peut pas vous ramener en arrière. Gardez aussi avec elle le fichier `secrets.key` du dossier de données (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour)).
+2. **Téléchargez une copie de la base en 4.18, avant la mise à jour** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la ailleurs que sur cette machine. C’est votre propre filet de sécurité, en plus de la copie automatique ci-dessous. Une copie téléchargée en 5.0 est déjà migrée et expurgée : elle ne peut pas vous ramener en arrière.
 3. **Faites une sauvegarde complète** (**Réglages → Base de données → Sauvegarde et restauration**, voir [Sauvegarder votre radio](/docs/backup/)). Une sauvegarde faite en 5.0 a un format plus récent que la 4.18 ne lit pas entièrement : servez-vous-en pour restaurer en 5.0 ou après, jamais en 4.18.
 4. **Notez vos bots Python** si vous en avez : ils deviennent des extensions (ci-dessous).
 
 ## La copie faite automatiquement
 
-Au premier démarrage de la 5.0 sur une base 4.18, Meshloom fait une copie de la base **avant** de rien changer, dans le dossier de données, à côté de la base (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour) pour son emplacement). La copie est une copie de toute la base : elle contient vos messages, contacts et réglages tels que la 4.18 les a laissés. Pour utiliser la copie, il vous faut le `secrets.key` du dossier de données d’avant la mise à jour : il reste où il est, ne le supprimez pas. Gardez la copie tant que vous n’êtes pas sûr de rester en 5.0 ; Meshloom ne s’en sert plus.
+Quand la 5.0 doit changer la structure de votre base, elle en fait d’abord une copie à côté, nommée d’après la structure qu’elle contient et la version qui l’a faite : `meshcore.db.schema87.before-5.0.0.db` (le schéma 87 est celui de toute 4.18). Elle se trouve dans le dossier de données : `/var/lib/meshloom/` pour le paquet Linux, `./data` pour Docker, `data/` pour une copie du code, `/config` pour le module Home Assistant. Une base 4.18 n’a pas de `secrets.key`, donc aucun fichier de clé n’est copié. La copie occupe autant de place que la base, et Meshloom ne met pas à jour s’il n’y en a pas assez : le journal dit combien il en faut. Seul vous la lisez (elle contient tout ce que contient la base). Gardez-la tant que vous n’êtes pas sûr de rester en 5.0. Le détail est dans [Autres chemins d’installation](/docs/deep/install-paths/#la-copie-faite-avant-une-mise-à-niveau).
 
 ## Ce qui change
 
@@ -29,13 +29,10 @@ Au premier démarrage de la 5.0 sur une base 4.18, Meshloom fait une copie de la
 
 ## Revenir à la 4.18
 
-Il n’y a pas de retour en place : la 4.18 ne lit pas ce que la 5.0 a écrit : les bots convertis en 5.0 n’apparaîtraient pas comme des bots, et les canaux de notification ajoutés en 5.0 ne seraient pas vus.
+Il n’y a pas de retour en place : la 4.18 ne lit pas ce que la 5.0 a écrit. Les bots convertis en 5.0 n’apparaîtraient pas comme des bots, et les canaux de notification ajoutés en 5.0 ne seraient pas vus. Pour revenir, vous remettez la copie, et tout ce qui a été reçu ou modifié depuis la mise à jour est perdu.
 
-Pour revenir en arrière, depuis la copie :
+En bref : arrêtez Meshloom, réinstallez la 4.18, remplacez `meshcore.db` par la copie dans le dossier de données et supprimez `meshcore.db-wal`, `meshcore.db-shm` et `meshcore.db.migration-in-progress`, puis démarrez Meshloom. Choisissez la copie par son numéro de schéma (`schema87` pour la 4.18), pas par la version de son nom. Les commandes exactes pour chaque type d’installation sont dans [Revenir à une version plus ancienne](/docs/deep/install-paths/#revenir-à-une-version-plus-ancienne).
 
-1. Arrêtez Meshloom.
-2. Réinstallez la 4.18. Avec un paquet Linux, installez cette version du paquet ; avec Docker, remettez l’image 4.18 dans le fichier Compose. L’assistant de mise à jour ne passe jamais seul à une version plus ancienne.
-3. Dans le dossier de données, remplacez `meshcore.db` par la copie de la base faite avant la migration (ou celle que vous avez téléchargée en 4.18 avant la mise à jour, jamais une téléchargée en 5.0), avec le `secrets.key` d’avant la mise à jour.
-4. Démarrez Meshloom.
+Sur Home Assistant, restaurez la sauvegarde que Home Assistant propose de faire avant une mise à jour (laissez cette option cochée quand vous mettez à jour) : la restauration ramène l’ancienne base.
 
-Tout ce que vous avez fait en 5.0 après la mise à jour (messages entendus, réglages, comptes) disparaît avec : la copie date du moment de la mise à jour.
+Une copie téléchargée en 4.18 avant la mise à jour convient aussi, si la copie automatique a disparu : remettez-la à la place de `meshcore.db` de la même façon. Une copie téléchargée en 5.0 ne convient pas.

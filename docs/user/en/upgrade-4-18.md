@@ -1,6 +1,6 @@
 ---
 title: Upgrading from 4.18
-description: What changes when Meshloom 4.x becomes 5.0, the copy of your database made before the migration, why there is no way back in place, and how to go back from the copy.
+description: What changes when Meshloom 4.x becomes 5.0, the copy of your database made before the migration, why there is no way back in place, and how to go back from that copy.
 level: start
 order: 2.8
 ---
@@ -10,13 +10,13 @@ Meshloom 5.0 changes the structure of your database when it first starts. An old
 ## Before you upgrade
 
 1. **Turn off automatic updates** in **Settings → Updates** until you are ready, so the upgrade happens when you choose.
-2. **Download a copy of the database on 4.18, before the upgrade** (**Settings → Database → Download meshcore.db**) and keep it somewhere that is not this machine. It is your own safeguard, on top of the automatic copy below. A copy downloaded on 5.0 is already migrated and scrubbed: it cannot take you back. Also keep the `secrets.key` file of the data folder with it (see [Other install paths](/en/docs/deep/install-paths/#database-and-updates)).
+2. **Download a copy of the database on 4.18, before the upgrade** (**Settings → Database → Download meshcore.db**) and keep it somewhere that is not this machine. It is your own safeguard, on top of the automatic copy below. A copy downloaded on 5.0 is already migrated and scrubbed: it cannot take you back.
 3. **Make a full backup** (**Settings → Database → Backup & Restore**, see [Back up your radio](/en/docs/backup/)). A backup made on 5.0 is a newer format that 4.18 does not fully read: use it to restore on 5.0 or later, never on 4.18.
 4. **Note your Python bots** if you use any: they become extensions (below).
 
 ## The copy made automatically
 
-The first time 5.0 starts on a 4.18 database, Meshloom makes a copy of the database **before** it changes anything, in the data folder next to the database (see [Other install paths](/en/docs/deep/install-paths/#database-and-updates) for where that is). The copy is a copy of the whole database: it holds your messages, contacts and settings as 4.18 left them. To use the copy you need the `secrets.key` of the data folder from before the upgrade: it stays where it is, so do not delete it. Keep the copy until you are sure you stay on 5.0; Meshloom does not use it again.
+When 5.0 has to change the structure of your database, it first makes a copy next to it, named after the structure it holds and the version that made it: `meshcore.db.schema87.before-5.0.0.db` (schema 87 is what every 4.18 uses). It sits in the data folder: `/var/lib/meshloom/` for the Linux package, `./data` for Docker, `data/` for a copy of the code, `/config` for the Home Assistant add-on. A 4.18 database has no `secrets.key`, so no key file is copied. The copy takes as much room as the database, and Meshloom does not upgrade if there is not enough: the log says how much it needs. Only you read it (it holds everything the database holds). Keep it until you are sure you stay on 5.0. Details are in [Other install paths](/en/docs/deep/install-paths/#the-copy-made-before-an-upgrade).
 
 ## What changes
 
@@ -29,13 +29,10 @@ The first time 5.0 starts on a 4.18 database, Meshloom makes a copy of the datab
 
 ## Going back to 4.18
 
-There is no in-place return: 4.18 does not read what 5.0 wrote: the bots converted in 5.0 would not appear as bots, and the notification channels added in 5.0 would not be seen.
+There is no in-place return: 4.18 does not read what 5.0 wrote. The bots converted in 5.0 would not appear as bots, and the notification channels added in 5.0 would not be seen. To go back you put the copy back, and everything received or changed since the upgrade is lost.
 
-To go back, from the copy:
+In short: stop Meshloom, install 4.18 again, put the copy in place of `meshcore.db` in the data folder and remove `meshcore.db-wal`, `meshcore.db-shm` and `meshcore.db.migration-in-progress`, then start Meshloom. Choose the copy by its schema number (`schema87` for 4.18), not by the version in its name. The exact commands for each kind of install are in [Going back to an older version](/en/docs/deep/install-paths/#going-back-to-an-older-version).
 
-1. Stop Meshloom.
-2. Install 4.18 again. With a Linux package, install that version of the package; with Docker, put the 4.18 image back in the Compose file. The update helper never moves to an older version by itself.
-3. In the data folder, put the copy of the database made before the migration (or the one you downloaded on 4.18 before the upgrade, never one downloaded on 5.0) in place of `meshcore.db`, with the `secrets.key` from before the upgrade.
-4. Start Meshloom.
+On Home Assistant, restore the backup that Home Assistant offers to make before an update (keep that option ticked when you update): the restore brings back the old database.
 
-Everything you did on 5.0 after the upgrade (messages heard, settings, accounts) is lost with it: the copy dates from the moment of the upgrade.
+A copy that you downloaded on 4.18 before the upgrade works too, if the automatic copy is gone: put it in place of `meshcore.db` the same way. A copy downloaded on 5.0 does not.
