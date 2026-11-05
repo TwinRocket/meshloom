@@ -333,8 +333,11 @@ jobs:
           name: nfpm-arm64
           path: artifacts
 
+      # An rc's installer names that rc (get.meshloom.app/next serves it).
       - name: Stage install.sh
-        run: cp scripts/setup/install.sh artifacts/install.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: scripts/build/stage_install_sh.sh --version "$VERSION" --output artifacts/install.sh
 
       - name: Create GitHub release
         env:

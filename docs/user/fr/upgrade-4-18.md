@@ -29,9 +29,12 @@ Quand la 5.0 doit changer la structure de votre base, elle en fait d’abord une
 
 ## Revenir à la 4.18
 
-Il n’y a pas de retour en place : la 4.18 ne lit pas ce que la 5.0 a écrit. Les bots convertis en 5.0 n’apparaîtraient pas comme des bots, et les canaux de notification ajoutés en 5.0 ne seraient pas vus. Pour revenir, vous remettez la copie, et tout ce qui a été reçu ou modifié depuis la mise à jour est perdu.
+Il n’y a pas de retour en place : la 4.18 ne lit pas ce que la 5.0 a écrit. Les bots convertis en 5.0 n’apparaîtraient pas comme des bots, et les canaux de notification ajoutés en 5.0 ne seraient pas vus. Ce qui a été reçu ou modifié depuis la mise à jour ne fait pas partie de ce que vous retrouvez. Il y a deux possibilités :
 
-En bref : arrêtez Meshloom, réinstallez la 4.18, remplacez `meshcore.db` par la copie dans le dossier de données et supprimez `meshcore.db-wal`, `meshcore.db-shm` et `meshcore.db.migration-in-progress`, puis démarrez Meshloom. Choisissez la copie par son numéro de schéma (`schema87` pour la 4.18), pas par la version de son nom. Les commandes exactes pour chaque type d’installation sont dans [Revenir à une version plus ancienne](/docs/deep/install-paths/#revenir-à-une-version-plus-ancienne).
+- **Une nouvelle instance.** Laissez celle-ci telle quelle et repartez d’une nouvelle installation.
+- **Une installation neuve de la 4.18 avec votre copie des données.** Sur une autre machine, ou sur celle-ci après avoir supprimé Meshloom et déplacé son dossier de données : installez la 4.18, arrêtez-la, remplacez `meshcore.db` par votre copie dans son dossier de données et supprimez `meshcore.db-wal`, `meshcore.db-shm` et `meshcore.db.migration-in-progress`, puis démarrez-la. Choisissez la copie par son numéro de schéma (`schema87` pour la 4.18), pas par la version de son nom. Les commandes pour la copie sont dans [Revenir à une version plus ancienne](/docs/deep/install-paths/#revenir-à-une-version-plus-ancienne), qui dit aussi ce qu’il faut faire ensuite sur une machine passée par `get.meshloom.app/next`.
+
+Ne lancez jamais le script d’installation de la 4.18 sur une machine en 5.0 ou en pré-version. Il ne les connaît pas, et peut démarrer la 4.18 sur une base qu’elle ne sait pas lire.
 
 Sur Home Assistant, restaurez la sauvegarde que Home Assistant propose de faire avant une mise à jour (laissez cette option cochée quand vous mettez à jour) : la restauration ramène l’ancienne base.
 

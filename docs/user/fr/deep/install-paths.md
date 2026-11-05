@@ -213,9 +213,11 @@ Meshloom refuse de démarrer sur une base faite par une version plus récente, e
 
    Pour revenir à une 5.0 ou plus récente, remettez aussi la clé si la copie en a une : `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Installez l’ancienne version, puis démarrez-la :
-   - Docker : indiquez l’image `ghcr.io/twinrocket/meshloom:4.18.2` dans `docker-compose.yml` ou `.env`, puis `docker compose up -d`.
+   - Docker : dans `.env`, indiquez `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@<empreinte>`, avec l’empreinte du fichier `OCI-DIGESTS` de cette version (elle commence par `sha256:`), puis `docker compose up -d`. Sans l’empreinte, **Réglages > Mises à jour** ne peut pas mettre à jour cette installation.
    - Paquet Linux : téléchargez le paquet sur la [page des versions](https://github.com/TwinRocket/meshloom/releases), puis `sudo apt install --allow-downgrades ./<fichier>.deb` ou `sudo dnf downgrade ./<fichier>.rpm`.
    - Copie du code : `git checkout 4.18.2`, puis relancez `install_service.sh`.
    - Home Assistant : restaurez l’add-on depuis la sauvegarde que Home Assistant propose de faire avant une mise à jour, sans passer par l’étape 2 : elle contient l’ancienne base. Cette sauvegarde est facultative, et sans elle Home Assistant ne peut pas réinstaller un ancien add-on : laissez l’option cochée quand vous mettez à jour. La restauration remplace tout le dossier de l’add-on et supprime les copies, que les sauvegardes laissent de côté.
+
+**Si cette machine est passée par `get.meshloom.app/next` :** avec un paquet Linux, une fois la 4.18 relancée avec la copie en place, lancez tout de suite la commande d’installation habituelle, avant tout `apt upgrade` ou `dnf upgrade`. La machine est encore sur la source de paquets des pré-versions, et une mise à niveau installerait une pré-version et migrerait à nouveau votre base. Tant que la 4.18 est la version stable, cette commande garde la 4.18 et remet la source sur stable ; une fois la 5.0 finale, elle installe la 5.0. Avec Docker, l’épinglage ci-dessus suffit.
 
 Vos bots reviennent tels qu’ils étaient en 4.18, et le fichier `secrets.key` resté dans le dossier n’est simplement pas utilisé. À la prochaine mise à niveau, Meshloom refait une copie et reconvertit les bots.

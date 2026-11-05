@@ -29,9 +29,12 @@ When 5.0 has to change the structure of your database, it first makes a copy nex
 
 ## Going back to 4.18
 
-There is no in-place return: 4.18 does not read what 5.0 wrote. The bots converted in 5.0 would not appear as bots, and the notification channels added in 5.0 would not be seen. To go back you put the copy back, and everything received or changed since the upgrade is lost.
+There is no in-place return: 4.18 does not read what 5.0 wrote. The bots converted in 5.0 would not appear as bots, and the notification channels added in 5.0 would not be seen. Everything received or changed since the upgrade stays out of what you go back to. There are two ways:
 
-In short: stop Meshloom, install 4.18 again, put the copy in place of `meshcore.db` in the data folder and remove `meshcore.db-wal`, `meshcore.db-shm` and `meshcore.db.migration-in-progress`, then start Meshloom. Choose the copy by its schema number (`schema87` for 4.18), not by the version in its name. The exact commands for each kind of install are in [Going back to an older version](/en/docs/deep/install-paths/#going-back-to-an-older-version).
+- **A new instance.** Leave this one as it is and start again from a new install.
+- **A fresh 4.18 install with your copy of the data.** On another machine, or on this one after removing Meshloom and moving its data folder away: install 4.18, stop it, put your copy in place of `meshcore.db` in its data folder and remove `meshcore.db-wal`, `meshcore.db-shm` and `meshcore.db.migration-in-progress`, then start it. Choose the copy by its schema number (`schema87` for 4.18), not by the version in its name. The commands for the copy are in [Going back to an older version](/en/docs/deep/install-paths/#going-back-to-an-older-version), which also says what a machine that went through `get.meshloom.app/next` needs afterwards.
+
+Never run the 4.18 install script on a machine running 5.0 or a pre-release. It does not know them, and can start 4.18 on a database it cannot read.
 
 On Home Assistant, restore the backup that Home Assistant offers to make before an update (keep that option ticked when you update): the restore brings back the old database.
 
