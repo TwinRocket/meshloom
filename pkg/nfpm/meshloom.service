@@ -3,6 +3,13 @@ Description=Meshloom
 Documentation=https://github.com/TwinRocket/meshloom
 After=network-online.target bluetooth.target
 Wants=network-online.target
+# A start that keeps failing (a migration that fails, for one) stops here: each try can
+# write what the migrations write. Far above what a crash now and then adds up to. Clear
+# it with `systemctl reset-failed meshloom`. Not RestartSteps=: its counter never resets
+# while the service keeps restarting, so months of rare crashes would end at its longest
+# delay, and systemd before 254 (Debian 12) ignores it.
+StartLimitIntervalSec=1h
+StartLimitBurst=20
 
 [Service]
 Type=simple

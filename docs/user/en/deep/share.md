@@ -1,6 +1,6 @@
 ---
 title: Short links and photos
-description: Shorten web addresses and share photos, public or encrypted, through the Meshloom sharing service: consent, what leaves your machine, the limits of encryption, bans and quotas.
+description: "Shorten web addresses and share photos, public or encrypted, through the Meshloom sharing service: consent, what leaves your machine, the limits of encryption, bans and quotas."
 level: deep
 order: 23
 ---

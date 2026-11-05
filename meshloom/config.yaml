@@ -53,10 +53,14 @@ map:
 
 # The shared images cache (<addon_config>/share-cache, up to 200 MiB) is
 # rebuilt on demand, and share-tmp only holds uploads in progress: keep both out
-# of Home Assistant backups.
+# of Home Assistant backups. So are the database copies made before a migration
+# (a second full database each, with its secrets).
 backup_exclude:
   - share-cache
   - share-tmp
+  - meshcore.db.schema*
+  - meshcore.db.copy-in-progress*
+  - meshcore.db.migration-in-progress
 
 options:
   log_level: INFO

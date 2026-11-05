@@ -2163,6 +2163,8 @@ write_meshloom_env() {
 start_meshloom_unit() {
     as_root systemctl daemon-reload
     as_root systemctl enable meshloom
+    # The unit may be at its start limit (StartLimitBurst).
+    as_root systemctl reset-failed meshloom 2>/dev/null || true
     as_root systemctl restart meshloom
 }
 

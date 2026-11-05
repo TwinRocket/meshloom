@@ -23,8 +23,8 @@ values `bwrap`, `setuid`, `none` (`policy.ISOLATION_LEVELS`), in `/api/health`
 
 | Server | Level | Fallback |
 |---|---|---|
-| Linux, root, account `meshloom-plugin` exists (Docker image, add-on) | `setuid` | — |
-| Linux, root, no such account | `bwrap` if its self-test passes | `none` |
+| Linux, root with `CAP_CHOWN`, `CAP_DAC_OVERRIDE`, `CAP_FOWNER`, `CAP_KILL`, `CAP_SETUID` and `CAP_SETGID`, account `meshloom-plugin` exists (Docker image, add-on) | `setuid` | — |
+| Linux, root, no such account or without those capabilities (`--cap-drop ALL`) | `bwrap` if its self-test passes | `none` |
 | Linux, not root, holds `CAP_SETUID` and `CAP_SETGID` and the account exists (Docker with `MESHLOOM_RUN_AS_USER`) | `setuid` | — |
 | Linux, not root (deb/rpm, RPi image, source) | `bwrap` if its self-test passes | `none` |
 | not Linux (macOS, development) | `none` | — |
@@ -264,7 +264,7 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
   closes it in the kernel instead of the network: the runner's seccomp filter
   refuses `socket` and `socketpair` (and `socketcall` on i386) at every level,
   so no IPv4 or IPv6 socket (all of `127.0.0.0/8` and `::1`, the app's own
-  port, the proxy's 5051), no raw or netlink socket and no Unix socket
+  port, the proxy's port, 5001 by default or 5051 in the add-on), no raw or netlink socket and no Unix socket
   (abstract ones have no permission check) can be opened, by plugin code or by
   anything the child could load. The child never needs one: its RPC runs on
   pipes, its event loop wakes through an `os.pipe`, and `http.fetch` is made by
@@ -500,7 +500,7 @@ covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_la
   a macvlan whose parent is in another namespace (Docker's macvlan driver: no
   `lower_` entry), or whose `/sys` cannot be read is not recognised and fails closed (the
   router stays refused). This keeps
-  plugins away from the radio proxy (5051, `0.0.0.0`, no authentication) and the
+  plugins away from the radio proxy (5001 by default, 5051 in the add-on, `0.0.0.0`, no authentication) and the
   app's own port.
 - Home Assistant add-on only (MSHL-350): the whole supervisor network
   (`172.30.32.0/23`, and `fd0c:ac1e:2100::/48` when the Supervisor turns IPv6
@@ -554,7 +554,7 @@ Residual risks, accepted:
   "Attention scan"). That source is not always the admin's (a converted bot, a
   restored backup, pasted code), so one click lowers the friction of granting a
   plain-HTTP device. Mitigations: admin only, one device per click (no "add all"),
-  the source line shown, a warning on ports 8123, 5051 and 8000, the machine's own
+  the source line shown, a warning on ports 8123, 5001, 5051 and 8000, the machine's own
   names and IPs dropped (no lookup), credentials never echoed. No network scan
   exists: nothing is resolved or contacted to build the list.
 
@@ -627,7 +627,7 @@ What runs, and where:
   a small interpreter for every ABI, the bytes handed to bwrap, and a probe
   process that installs the filter and checks `fork`, `execv`, `posix_spawn`,
   `subprocess`, a thread start, `unshare` and `setns` (3.12+), a connection to
-  `127.0.0.1:5051`, IPv6, Unix and `socketpair` sockets and `pidfd_open` are
+  `127.0.0.1:5051` (the add-on's proxy port), IPv6, Unix and `socketpair` sockets and `pidfd_open` are
   refused, and that a non-root process ends with no capability.
   `tests/test_plugin_isolation.py` checks the bwrap flags, the pipe, `probe()`'s
   fallbacks, and that a program with no runner in the box meets the box's own
@@ -675,7 +675,7 @@ docker-entrypoint.sh calls it), where `none` and `setuid` are.
 | `rlimit_raise` | runner | `resource.setrlimit`, module rebuilt from its spec | `PermissionError` |
 | `putenv` | runner | change the environment | `PermissionError` |
 | `namespaces` | runner (Linux) | `os.unshare(CLONE_NEWUSER)`, `os.setns` (no audit event) | `EPERM` from the seccomp filter (`os.unshare` and `os.setns` exist since 3.12) |
-| `loopback_egress` | runner (Linux) | a rebuilt `_socket`: connect to `127.0.0.1:5051` and `[::1]:5051` (the radio proxy), an abstract Unix socket, a `socketpair` (no audit event) | the hook (the `_socket` import, `socket.__new__`) or `EPERM` from the seccomp filter, `setuid` included (MSHL-415); the `socketpair` event reaches the filter where `_socket` is built in (python-build-standalone, the deb/rpm interpreter), `test_plugin_seccomp.py` pins it everywhere |
+| `loopback_egress` | runner (Linux) | a rebuilt `_socket`: connect to `127.0.0.1:5051` and `[::1]:5051` (the add-on's radio proxy port), an abstract Unix socket, a `socketpair` (no audit event) | the hook (the `_socket` import, `socket.__new__`) or `EPERM` from the seccomp filter, `setuid` included (MSHL-415); the `socketpair` event reaches the filter where `_socket` is built in (python-build-standalone, the deb/rpm interpreter), `test_plugin_seccomp.py` pins it everywhere |
 | `pidfd_signal` | runner (Linux) | `os.pidfd_open(<server>)` then `signal.pidfd_send_signal(fd, 0)` (no audit event; `signal` rebuilt from its spec) | `EPERM` from the seccomp filter on `pidfd_open`, every level (MSHL-417) |
 | `environ` | runner | read `os.environ` (parent passed a secret) | only `LANG`, `PYTHONHASHSEED` |
 | `inherited_fds` | runner | look for a descriptor the parent passed | none past 0, 1, 2 |

@@ -150,4 +150,4 @@ Avec un proxy sur votre propre machine, ou Meshloom exposé sur Internet, [fail2
 - La page est servie en HTTPS par celui qui transmet, et la page de connexion n’avertit pas d’un HTTP simple.
 - Le nom public est dans **Adresses publiques** ; l’adresse propre de celui qui transmet, et rien de plus large, est dans **Proxies de confiance**.
 - **Accès sans connexion sur le réseau local** est désactivé, ou **Réseaux de confiance** ne contient que des appareils locaux joints par adresse IP.
-- Le port 8000 et le port du proxy radio (5051) ne sont pas redirigés sur votre box. Le proxy radio n’a pas d’authentification : voir [Sécurité](/docs/deep/security/).
+- Le port 8000 et le port du proxy radio (5001 par défaut) ne sont pas redirigés sur votre box. Le proxy radio n’a pas d’authentification : voir [Sécurité](/docs/deep/security/).

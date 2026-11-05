@@ -208,7 +208,8 @@ These hold for every section; a restore function must keep them:
      the full backup excludes (`SNAPSHOT_SCRUBBED_COLUMNS`: the BLE PIN and the
      previous-transport snapshot that holds it) and the local accounts
      secrets (`SNAPSHOT_SCRUBBED_AUTH_COLUMNS`: `users.password_hash`,
-     `users.totp_secret`, `auth_settings.setup_code_hash`,
+     `users.totp_secret`, `users.totp_enabled_at`, `users.totp_last_counter`,
+     `auth_settings.setup_code_hash`,
      `auth_settings.device_cookie_key`, so a restored copy makes a new
      known-device key and forgets every browser; the `sessions`
      and `recovery_codes` tables, the plugin config secrets in

@@ -83,6 +83,10 @@ Another app is probably changing the channel slots on the radio under Meshloom. 
 
 A serial port can only serve one program. If another MeshCore app, a serial console or a second Meshloom holds it, connection attempts keep failing. After three identical "Serial Connection started" lines, Meshloom writes one `WARNING` about possible contention and stops repeating the line. Close the other program.
 
+## Meshloom refuses to start after an upgrade
+
+The log says which of these it is. **Not enough free disk space to copy the database**: free the space it names, then start again. Your database has not changed. **This database is at schema N, newer than this version**: you are running an older version than the one that last used the database. Run that version again, or [put back the copy made before the upgrade](/en/docs/deep/install-paths/#going-back-to-an-older-version). **Meshloom could not start**, followed by a traceback: a step of the start failed, such as an upgrade of the database. The process stops, without copying the database again at each try. A Linux package tries again every few seconds, 20 times in an hour, then stops: `sudo systemctl reset-failed meshloom` allows new tries once the cause is fixed, and a package upgrade does it for you. Docker keeps trying, closer together at first, then once a minute. The Home Assistant add-on does not restart by itself unless you turned on **Watchdog** on its page, and even then it gives up after a few tries. Report the log in an issue, or go back with the same copy.
+
 ## The start-up work loops
 
 If the radio is unreachable for a moment, Meshloom retries its start-up work every five seconds. This is intentional. If the work exceeds five minutes twice in a row, Meshloom reports "Radio startup appears stuck": reboot the radio and restart the server. After three failures in a row, the log suggests the usual causes: another program holds the port, the radio runs repeater firmware instead of companion firmware, or it needs to be unplugged and plugged back in.

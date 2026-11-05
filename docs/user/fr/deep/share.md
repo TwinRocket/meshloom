@@ -1,6 +1,6 @@
 ---
 title: Liens courts et photos
-description: Raccourcir des adresses web et partager des photos, publiques ou chiffrées, avec le service de partage Meshloom : consentement, ce qui sort de votre machine, limites du chiffrement, bannissement et quotas.
+description: "Raccourcir des adresses web et partager des photos, publiques ou chiffrées, avec le service de partage Meshloom : consentement, ce qui sort de votre machine, limites du chiffrement, bannissement et quotas."
 level: deep
 order: 23
 ---

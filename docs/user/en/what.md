@@ -1,6 +1,6 @@
 ---
 title: What it is
-description: MeshCore, the radio, Meshloom: what each one does, without the jargon.
+description: "MeshCore, the radio, Meshloom: what each one does, without the jargon."
 level: start
 order: 1
 ---

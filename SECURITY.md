@@ -137,7 +137,7 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   Serve Meshloom over HTTPS beyond a network you know. Passkeys are offered only
   where the browser allows them (HTTPS on a declared name, or `localhost`).
 - **The radio proxy has no authentication, by owner decision.** When turned on
-  in **Settings > Proxy**, it listens on every interface (port 5051 by default,
+  in **Settings > Proxy**, it listens on every interface (port 5001 by default,
   `0.0.0.0`), accounts do not cover it, and anyone who can reach the port can
   use the radio and send as the node. The apps that speak the protocol cannot
   sign in. Do not forward the port; keep it on a network you know. A connection

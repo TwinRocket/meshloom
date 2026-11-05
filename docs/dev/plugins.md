@@ -298,7 +298,7 @@ and short, each also with `.local`), `meshloom`, `meshloom.local`, `localhost*`,
 `host.containers.internal`, `supervisor`, and `meshloom.app` names. A URL that runs to
 the end of an f-string (or t-string) part followed by a placeholder (`f"http://nas{n}"`)
 or to a byte-budget cut is skipped. `service_port` is true for 8123 (Home Assistant),
-5051 (a radio proxy) and 8000 (a Meshloom app). Own cap: `MAX_LAN_SUGGESTIONS`
+5001 or 5051 (a radio proxy) and 8000 (a Meshloom app). Own cap: `MAX_LAN_SUGGESTIONS`
 (`HTTP_MAX_LAN_HOSTS`, 10) with its own `lan_truncated`, so LAN and public literals
 never crowd each other out; the byte and URL budgets are shared, and a budget cut sets
 both flags. They are **suggestions only**: not in `to_json()` (nothing prefilled from

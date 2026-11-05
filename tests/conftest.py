@@ -21,6 +21,14 @@ from app.database import Database  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _no_forced_exit_after_a_failed_start():
+    """A lifespan failing in-process must not end the test run 15 s later."""
+    import app.main
+
+    app.main._arm_failed_start_exit = lambda: None
+
+
+@pytest.fixture(scope="session", autouse=True)
 def cleanup_test_db_dir():
     """Clean up temporary pytest DB directory after the test session."""
     yield
