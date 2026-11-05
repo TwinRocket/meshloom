@@ -29,7 +29,9 @@ Relancez la même commande. **Réglages > Mises à jour** ne propose pas les pr�
 
 ## Quand la version finale sort
 
-**Réglages > Mises à jour** la propose. Avec le paquet `apt` ou `dnf`, relancez ensuite la commande d’installation habituelle, pour que la machine quitte la source de paquets des pré-versions :
+**Réglages > Mises à jour** la propose. Docker suit ensuite les versions stables, sans rien d’autre à faire.
+
+Avec le paquet `apt` ou `dnf`, la machine reste sur la source de paquets des pré-versions après la mise à jour : quand une pré-version suivante sortira, `apt upgrade` ou `dnf upgrade` l’installerait. Lancez une fois la commande d’installation habituelle pour revenir à la source stable :
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -40,6 +42,6 @@ Relancez la même commande. **Réglages > Mises à jour** ne propose pas les pr�
 Deux possibilités :
 
 - Utilisez une nouvelle instance, et gardez celle-ci telle quelle.
-- Restaurez votre propre copie des données sur une installation 4.18 : les étapes sont dans [Revenir à la 4.18](/docs/upgrade-4-18/#revenir-à-la-418).
+- Restaurez votre propre copie des données sur une installation neuve de la 4.18 : les étapes sont dans [Revenir à la 4.18](/docs/upgrade-4-18/#revenir-à-la-418).
 
-N’utilisez pas le script d’installation de la 4.18 sur une machine en pré-version. Il ne connaît pas les pré-versions, et peut démarrer la 4.18 sur une base qu’elle ne sait pas lire. Les versions suivantes de l’installateur refusent et ne changent rien.
+Ne lancez jamais le script d’installation de la 4.18 sur une machine en pré-version. Il ne connaît pas les pré-versions, et peut démarrer la 4.18 sur une base qu’elle ne sait pas lire. Les versions suivantes de l’installateur refusent et ne changent rien.

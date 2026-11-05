@@ -200,8 +200,11 @@ nothing when that suite serves a stable version.
 - Every installer from this version on refuses, before writing anything, to go below an
   installed rc. The 4.18 installers do not: under Docker they pin 4.18 over the migrated
   database. `docs/user/{en,fr}/prerelease.md` says not to run them there.
-- There is no return command: testers restore their own copy on a 4.18 install or use a
-  new instance (`docs/user/{en,fr}/upgrade-4-18.md`).
+- After the final, an apt or dnf machine stays on `testing`, which serves that final until
+  a later rc is published: the regular installer puts the source back on `stable`. Docker
+  only follows `releases/latest` from then on.
+- There is no return command: testers restore their own copy on a fresh 4.18 install or
+  use a new instance (`docs/user/{en,fr}/upgrade-4-18.md`).
 - `install.sh` must stay under Linux's limit for one argument (128 KiB, `MAX_ARG_STRLEN`):
   `bash -c "$(curl ...)"` passes the whole file as one, and above it the command does not
   start, with `Argument list too long`. `tests/test_install_prerelease.py` holds it under

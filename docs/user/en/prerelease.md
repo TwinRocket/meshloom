@@ -29,7 +29,9 @@ Run the same command again. **Settings > Updates** does not offer pre-releases, 
 
 ## When the final release is out
 
-**Settings > Updates** offers it. With the `apt` or `dnf` package, run the regular install command afterwards, so the machine leaves the pre-release package source:
+**Settings > Updates** offers it. Docker then follows stable releases, with nothing more to do.
+
+With the `apt` or `dnf` package, the machine stays on the pre-release package source after the update: when a later pre-release comes out, `apt upgrade` or `dnf upgrade` would install it. Run the regular install command once to go back to the stable source:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -40,6 +42,6 @@ Run the same command again. **Settings > Updates** does not offer pre-releases, 
 Two ways:
 
 - Use a new instance, and keep this one as it is.
-- Restore your own copy of the data on a 4.18 install: the steps are in [Going back to 4.18](/en/docs/upgrade-4-18/#going-back-to-418).
+- Restore your own copy of the data on a fresh 4.18 install: the steps are in [Going back to 4.18](/en/docs/upgrade-4-18/#going-back-to-418).
 
-Do not use the install script of 4.18 on a machine running a pre-release. It does not know pre-releases, and can start 4.18 on a database it cannot read. Later versions of the installer refuse and change nothing.
+Never run the 4.18 install script on a machine running a pre-release. It does not know pre-releases, and can start 4.18 on a database it cannot read. Later versions of the installer refuse and change nothing.
