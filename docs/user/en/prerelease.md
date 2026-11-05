@@ -34,7 +34,7 @@ Run the same command again. **Settings > Updates** only looks at stable releases
 - **Docker:** the update pins that final release, and from then on the machine follows stable releases.
 - **`apt` or `dnf` package:** the machine stays on the pre-release package source. An update, from **Settings > Updates** or with `apt upgrade` or `dnf upgrade`, installs what that source serves. If a later pre-release is already out, you get that one, even though the page offered the final release.
 
-So with a package, run the usual install command once the final is out. It goes back to the stable source, and installs the final release if the machine is still on a pre-release:
+So with a package, run the usual install command once the final is out. It goes back to the stable source. With `apt` it also installs the final release if the machine is still on a pre-release; with `dnf`, run `sudo dnf upgrade meshloom` afterwards:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"

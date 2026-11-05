@@ -100,8 +100,8 @@ t() {
         fr:prerelease_armhf) echo "Les pré-versions n'ont pas de paquet 32 bits : rien n'a été modifié ici. Docker peut les faire tourner : $1" ;;
         en:prerelease_no_package) echo "Pre-releases come as apt or dnf packages, or with Docker, so nothing was changed here: $1" ;;
         fr:prerelease_no_package) echo "Les pré-versions existent en paquets apt ou dnf, ou avec Docker : rien n'a été modifié ici. $1" ;;
-        en:prerelease_pull_failed) echo "Could not download the pre-release image. This stack keeps its previous version. Try again shortly." ;;
-        fr:prerelease_pull_failed) echo "Impossible de télécharger l'image de la pré-version. Cette installation garde sa version précédente. Réessayez un peu plus tard." ;;
+        en:prerelease_pull_failed) echo "Could not download the pre-release image, so it was not started. Try again shortly." ;;
+        fr:prerelease_pull_failed) echo "Impossible de télécharger l'image de la pré-version : elle n'a pas été démarrée. Réessayez un peu plus tard." ;;
         en:prerelease_image_failed) echo "Could not verify the signed image of the pre-release. Nothing was changed." ;;
         fr:prerelease_image_failed) echo "Impossible de vérifier l'image signée de la pré-version. Rien n'a été modifié." ;;
         en:title) echo "Meshloom installation" ;;

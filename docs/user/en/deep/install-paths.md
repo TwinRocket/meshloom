@@ -213,7 +213,7 @@ Meshloom refuses to start on a database made by a newer version, and leaves it u
 
    Going back to 5.0 or later, also put back the key if the copy has one: `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Install the older version, then start it:
-   - Docker: in `.env`, set `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@sha256:<digest>`, with the digest from the `OCI-DIGESTS` file of that release, then `docker compose up -d`. Without the digest, **Settings > Updates** cannot update this stack.
+   - Docker: in `.env`, set `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@<digest>`, with the digest from the `OCI-DIGESTS` file of that release (it starts with `sha256:`), then `docker compose up -d`. Without the digest, **Settings > Updates** cannot update this stack.
    - Linux package: download the package from the [releases page](https://github.com/TwinRocket/meshloom/releases), then `sudo apt install --allow-downgrades ./<file>.deb` or `sudo dnf downgrade ./<file>.rpm`.
    - Copy of the code: `git checkout 4.18.2`, then run `install_service.sh` again.
    - Home Assistant: restore the add-on from the backup Home Assistant offers to make before an update, and skip step 2: that backup holds the old database. This backup is optional, and without it Home Assistant cannot reinstall an older add-on, so leave the option ticked when you update. The restore replaces the add-on's whole folder and deletes the copies, since backups leave them out.
