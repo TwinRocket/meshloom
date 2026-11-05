@@ -718,6 +718,35 @@ def test_compose_update_refuses_downgrade(compose_host, signers) -> None:
     assert _docker_calls(log) == []
 
 
+@pytest.mark.parametrize("mode", [[], ["--bootstrap"]])
+def test_compose_update_never_goes_from_an_rc_to_an_older_release(
+    compose_host, signers, mode: list[str]
+) -> None:
+    root, log, env, files, compose_dir = compose_host
+    pin = f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:5.0.0-rc.1@{OLD_DIGEST}\n"
+    (compose_dir / ".env").write_text(pin)
+    _publish(files, signers["release"], "4.18.0")
+    result = _run(COMPOSE_UPDATE, env, *mode)
+    assert result.returncode == 1
+    assert "refusing downgrade from 5.0.0-rc.1 to 4.18.0" in result.stderr
+    assert (compose_dir / ".env").read_text() == pin
+    assert _docker_calls(log) == []
+
+
+def test_compose_update_goes_from_an_rc_to_its_final_release(compose_host, signers) -> None:
+    root, log, env, files, compose_dir = compose_host
+    (compose_dir / ".env").write_text(
+        f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:5.0.0-rc.1@{OLD_DIGEST}\n"
+    )
+    _publish(files, signers["release"], "5.0.0")
+    result = _run(COMPOSE_UPDATE, env)
+    assert result.returncode == 0, result.stderr
+    assert f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:5.0.0@{DIGEST}" in (
+        (compose_dir / ".env").read_text().splitlines()
+    )
+    assert _status(compose_dir / "update-status/status.json")["version"] == "5.0.0"
+
+
 def test_compose_update_cooldown(compose_host, signers) -> None:
     root, log, env, files, compose_dir = compose_host
     _publish(files, signers["release"], "4.18.0")

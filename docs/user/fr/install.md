@@ -61,6 +61,10 @@ Pour vérifier un service :
 sudo systemctl status meshloom
 ```
 
+## Pré-version
+
+Pour essayer la prochaine version avant qu’elle soit finale, voir [Essayer la pré-version](/docs/prerelease/). Une machine qui n’en demande pas n’en reçoit jamais.
+
 ## Mettre à jour
 
 Ouvrez **Réglages > Mises à jour**. La page indique votre type d’installation (paquet Linux, Docker Compose, add-on Home Assistant…) et propose **Vérifier maintenant**. Quand une nouvelle version existe et que votre installation sait se mettre à jour seule, **Installer maintenant** l’installe. Les **mises à jour automatiques** restent éteintes tant que vous ne les activez pas, et vous pouvez les limiter à certains jours et certaines heures (elles suivent l’horloge du serveur, pas celle de votre navigateur). Cela ne met à jour que Meshloom et ne lance jamais un `apt upgrade` complet du système.

@@ -189,6 +189,11 @@ class TestSemVerAndCache:
         assert is_newer_release("1.3.0", "1.2.9") is True
         assert is_newer_release("v2.0.0", "1.9.9") is True
 
+    def test_a_machine_on_an_rc_is_offered_only_what_is_newer(self):
+        assert is_newer_release("4.18.2", "5.0.0-rc.1") is False
+        assert is_newer_release("5.0.0-rc.1", "5.0.0-rc.1") is False
+        assert is_newer_release("5.0.0", "5.0.0-rc.1") is True
+
     @pytest.mark.asyncio
     async def test_refresh_stores_null_version_payload(self):
         null_payload = {

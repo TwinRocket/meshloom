@@ -7,6 +7,10 @@
 # Run from a checkout:
 #   bash scripts/setup/install.sh
 #
+# Pre-releases: `get.meshloom.app/next` serves this same file from the latest release
+# candidate, with the line INSTALLER_PRERELEASE below set to its version
+# (scripts/build/stage_install_sh.sh).
+#
 # Answers are normalised (CR/whitespace) because some terminals send "2\r".
 
 set -euo pipefail
@@ -36,6 +40,17 @@ GIT_URL="https://github.com/${REPO}.git"
 PAGES_BASE="https://twinrocket.github.io/meshloom"
 GHCR_IMAGE="ghcr.io/twinrocket/meshloom"
 API_RELEASES="https://api.github.com/repos/${REPO}/releases/latest"
+
+# The one line a release candidate's copy of this file changes. Keep it exact.
+INSTALLER_PRERELEASE=""
+APT_SUITE="stable"
+RPM_PREFIX=""
+if [ -n "$INSTALLER_PRERELEASE" ]; then
+    APT_SUITE="testing"
+    RPM_PREFIX="testing/"
+fi
+PRERELEASE_DIGEST=""
+NEXT_URL="https://get.meshloom.app/next"
 
 ML_LANG="en"
 OS_FAMILY=""
@@ -71,6 +86,22 @@ t() {
     local key="$1"
     shift || true
     case "${ML_LANG}:${key}" in
+        en:prerelease_copy_first) echo "Copy your data first. Going back means restoring your copy on a 4.18 install: $1" ;;
+        fr:prerelease_copy_first) echo "Copiez d'abord vos données. Revenir en arrière, c'est restaurer votre copie sur une installation 4.18 : $1" ;;
+        en:prerelease_rerun) echo "For a newer pre-release, run this command again." ;;
+        fr:prerelease_rerun) echo "Pour une pré-version plus récente, relancez cette commande." ;;
+        en:prerelease_docs) echo "About pre-releases" ;;
+        fr:prerelease_docs) echo "À propos des pré-versions" ;;
+        en:prerelease_above) echo "This machine runs the pre-release $1, newer than $2. Nothing was changed. See how to go back: $3" ;;
+        fr:prerelease_above) echo "Cette machine fait tourner la pré-version $1, plus récente que la $2. Rien n'a été modifié. Pour revenir en arrière : $3" ;;
+        en:prerelease_older) echo "This machine runs $1, newer than the pre-release $2. Nothing was changed." ;;
+        fr:prerelease_older) echo "Cette machine fait tourner la $1, plus récente que la pré-version $2. Rien n'a été modifié." ;;
+        en:prerelease_armhf) echo "Pre-releases have no 32-bit package, so nothing was changed here. Docker can run them: $1" ;;
+        fr:prerelease_armhf) echo "Les pré-versions n'ont pas de paquet 32 bits : rien n'a été modifié ici. Docker peut les faire tourner : $1" ;;
+        en:prerelease_no_package) echo "Pre-releases come as apt or dnf packages, or with Docker, so nothing was changed here: $1" ;;
+        fr:prerelease_no_package) echo "Les pré-versions existent en paquets apt ou dnf, ou avec Docker : rien n'a été modifié ici. $1" ;;
+        en:prerelease_image_failed) echo "Could not verify the signed image of the pre-release. Nothing was changed." ;;
+        fr:prerelease_image_failed) echo "Impossible de vérifier l'image signée de la pré-version. Rien n'a été modifié." ;;
         en:title) echo "Meshloom installation" ;;
         fr:title) echo "Installation Meshloom" ;;
         en:tagline) echo "Web interface for MeshCore mesh radio networks" ;;
@@ -573,10 +604,33 @@ normalize_version() {
     v="${v#v}"
     v="${v#V}"
     v="${v%%+*}"
+    # A release candidate stays one: packages spell it 5.0.0~rc.1(-1), the tag 5.0.0-rc.1.
+    v="${v/\~rc./-rc.}"
     case "$v" in
+        *-rc.*)
+            local rc="${v#*-rc.}"
+            v="${v%%-rc.*}-rc.${rc%%-*}"
+            ;;
         *-*) v="${v%%-*}" ;;
     esac
     printf '%s' "$v"
+}
+
+# True when A > B (X.Y.Z or X.Y.Z-rc.N). An rc sorts before its final release.
+version_gt() {
+    local a="${1%%-rc.*}" b="${2%%-rc.*}" i ar=9999999 br=9999999
+    local -a pa pb
+    IFS=. read -r -a pa <<<"$a"
+    IFS=. read -r -a pb <<<"$b"
+    for i in 0 1 2; do
+        if [ "${pa[$i]:-0}" -ne "${pb[$i]:-0}" ]; then
+            [ "${pa[$i]:-0}" -gt "${pb[$i]:-0}" ]
+            return
+        fi
+    done
+    case "$1" in *-rc.*) ar="${1##*-rc.}" ;; esac
+    case "$2" in *-rc.*) br="${2##*-rc.}" ;; esac
+    [ "$ar" -gt "$br" ]
 }
 
 is_installer_lang() {
@@ -784,6 +838,10 @@ detect_installed_version() {
 detect_target_version() {
     local v="" tag=""
     TARGET_VERSION=""
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        TARGET_VERSION="$INSTALLER_PRERELEASE"
+        return 0
+    fi
     if [ "$INSTALL_MODE" = "service" ] && [ -n "$IN_CHECKOUT" ]; then
         if [ "$PKG_MGR" != "apt" ] && [ "$PKG_MGR" != "dnf" ]; then
             if v="$(read_project_version "$IN_CHECKOUT")"; then
@@ -1268,6 +1326,7 @@ confirm_question() {
 confirm_install() {
     local step_label
     resolve_upgrade_kind
+    refuse_going_below_a_prerelease
     if [ -n "$UPGRADE_KIND" ]; then
         step_label="$(t step_upgrade)"
     else
@@ -1291,6 +1350,10 @@ confirm_install() {
     if [ -n "$UPGRADE_KIND" ]; then
         ui_wrap 2 70 "$(t upgrade_keeps_data)"
         printf '\n'
+        if [ -n "$INSTALLER_PRERELEASE" ]; then
+            ui_wrap 2 70 "$(t prerelease_copy_first "$(prerelease_docs_url)")"
+            printf '\n'
+        fi
     fi
     if ! is_root; then
         ui_wrap 2 70 "$(t sudo_note)"
@@ -1488,7 +1551,7 @@ add_signed_repo() {
         as_root install -D -m 0644 "$tmp" /etc/apt/preferences.d/meshloom.pref
         rm -f "$tmp"
         as_root mkdir -p /etc/apt/sources.list.d
-        echo "deb [signed-by=${KEYRING_PATH}] ${PAGES_BASE}/apt stable main" |
+        echo "deb [signed-by=${KEYRING_PATH}] ${PAGES_BASE}/apt ${APT_SUITE} main" |
             as_root tee /etc/apt/sources.list.d/meshloom.list >/dev/null
         as_root chmod 0644 /etc/apt/sources.list.d/meshloom.list
     else
@@ -1496,7 +1559,7 @@ add_signed_repo() {
         as_root tee /etc/yum.repos.d/meshloom.repo >/dev/null <<EOF
 [meshloom]
 name=Meshloom
-baseurl=${PAGES_BASE}/rpm/\$basearch
+baseurl=${PAGES_BASE}/rpm/${RPM_PREFIX}\$basearch
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
@@ -1658,13 +1721,16 @@ on_exit() {
     fi
 }
 
-# version_gt A B: true when A > B (both already match VERSION_RE).
+# version_gt A B: true when A > B. B is a release (VERSION_RE); A is a release or the
+# X.Y.Z-rc.N a pre-release's installer pinned. An rc sorts before its final release.
 version_gt() {
-    a1=${1%%.*}; rest=${1#*.}; a2=${rest%%.*}; a3=${rest#*.}
+    a=${1%%-rc.*}
+    a1=${a%%.*}; rest=${a#*.}; a2=${rest%%.*}; a3=${rest#*.}
     b1=${2%%.*}; rest=${2#*.}; b2=${rest%%.*}; b3=${rest#*.}
     [ "$a1" -ne "$b1" ] && { [ "$a1" -gt "$b1" ]; return; }
     [ "$a2" -ne "$b2" ] && { [ "$a2" -gt "$b2" ]; return; }
-    [ "$a3" -gt "$b3" ]
+    [ "$a3" -ne "$b3" ] && { [ "$a3" -gt "$b3" ]; return; }
+    return 1
 }
 
 # Latest release tag from the releases/latest redirect. The Location header
@@ -1704,7 +1770,7 @@ signed_digest() {
 current_version() {
     [ -f "$ENV_FILE" ] || return 0
     sed -n 's/^MESHLOOM_IMAGE=//p' "$ENV_FILE" | head -n 1 |
-        sed -n "s|^ghcr\.io/twinrocket/meshloom:\([0-9]*\.[0-9]*\.[0-9]*\)@sha256:[0-9a-f]\{64\}\$|\1|p"
+        sed -n "s|^ghcr\.io/twinrocket/meshloom:\([0-9]*\.[0-9]*\.[0-9]*\(-rc\.[1-9][0-9]*\)\{0,1\}\)@sha256:[0-9a-f]\{64\}\$|\1|p"
 }
 
 write_env() {
@@ -1958,7 +2024,10 @@ install_compose_update_helper() {
     # Up to 4.17 the root helper read its target back from this file.
     as_root rm -f "${dir}/data/update-job.json"
     as_root systemctl daemon-reload || true
-    if ! run_soft as_root env MESHLOOM_COMPOSE_DIR="$dir" /usr/lib/meshloom/compose-update --bootstrap; then
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        # The helper's bootstrap pins the latest stable release, which is not the target here.
+        pin_prerelease_image "$dir"
+    elif ! run_soft as_root env MESHLOOM_COMPOSE_DIR="$dir" /usr/lib/meshloom/compose-update --bootstrap; then
         ui_err "$(t compose_pin_failed)"
         tail -n 20 "$INSTALL_LOG" >&2 || true
         printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
@@ -2183,6 +2252,10 @@ print_done_native() {
 install_native_service() {
     ensure_cmd curl "curl"
     confirm_install
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        install_prerelease_package
+        return
+    fi
     # The architecture check is what keeps a 32-bit Raspberry Pi out of a
     # repository built for amd64 and arm64. Without it the installer added the
     # repository, apt found no candidate, and the source install below, which
@@ -2286,13 +2359,17 @@ write_docker_compose() {
 # Stacks without the root helper (Docker Desktop, rootless Docker) follow
 # :latest, so the manual "pull && up -d" recipe keeps upgrading them.
 write_unmanaged_env() {
-    local dir="$1"
+    local dir="$1" image="${GHCR_IMAGE}:latest"
+    # No moving tag for a pre-release: its version, pinned by its signed digest.
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        image="${GHCR_IMAGE}:${INSTALLER_PRERELEASE}@${PRERELEASE_DIGEST}"
+    fi
     if [ -f "${dir}/.env" ]; then
         grep -v '^MESHLOOM_IMAGE=' "${dir}/.env" >"${dir}/.env.new" || true
     else
         : >"${dir}/.env.new"
     fi
-    { echo "MESHLOOM_IMAGE=${GHCR_IMAGE}:latest"; cat "${dir}/.env.new"; } >"${dir}/.env"
+    { echo "MESHLOOM_IMAGE=${image}"; cat "${dir}/.env.new"; } >"${dir}/.env"
     rm -f "${dir}/.env.new"
 }
 
@@ -2536,6 +2613,9 @@ install_docker_stack() {
         fi
     fi
     confirm_install
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        resolve_prerelease_digest
+    fi
     mkdir -p "$INSTALL_DIR"
     if [ "$managed" = 0 ] && [ "$OS_FAMILY" = "linux" ] && [ "$DOCKER_KIND" = "linux-rootful" ] &&
         ! compose_dir_is_safe "$INSTALL_DIR"; then
@@ -2594,7 +2674,9 @@ install_docker_stack() {
         ui_ok "  $(t done)"
     fi
     printf '  %s\n    %s\n' "$(t open_at)" "http://127.0.0.1:8000"
-    if [ "$managed" = 1 ]; then
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        print_prerelease_notes
+    elif [ "$managed" = 1 ]; then
         ui_dim "  $(t update_docker_managed)"
     else
         ui_dim "  $(t update_docker): $(priv "$dc pull") && $(priv "$dc up -d")"
@@ -2610,6 +2692,117 @@ show_browser_only() {
     printf '\n  http://<ip>:8000\n'
 }
 
+# ── pre-releases ─────────────────────────────────────────────────────────
+#
+# What only an rc's copy of this file runs, except the refusal, which every copy runs.
+
+prerelease_docs_url() {
+    printf '%s/docs/%s' "$NEXT_URL" "$ML_LANG"
+}
+
+# An older version must not start on a database an rc migrated: stop before writing anything.
+# A stable above stable (a moved `latest`) is left alone, as it always was.
+refuse_going_below_a_prerelease() {
+    [ -n "$INSTALLED_VERSION" ] && [ -n "$TARGET_VERSION" ] || return 0
+    version_gt "$INSTALLED_VERSION" "$TARGET_VERSION" || return 0
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        ui_err "$(t prerelease_older "$INSTALLED_VERSION" "$TARGET_VERSION")"
+        exit 1
+    fi
+    case "$INSTALLED_VERSION" in
+        *-rc.*)
+            ui_err "$(t prerelease_above "$INSTALLED_VERSION" "$TARGET_VERSION" "$(prerelease_docs_url)")"
+            exit 1
+            ;;
+    esac
+}
+
+# Can this machine run a pre-release? Nothing is written yet.
+prepare_prerelease() {
+    if [ "$INSTALL_MODE" != "service" ]; then
+        return 0
+    fi
+    if [ "$(host_arch)" = "armhf" ]; then
+        ui_err "$(t prerelease_armhf "$(prerelease_docs_url)")"
+        exit 1
+    fi
+    if [ "$(host_arch)" = "unknown" ] || { [ "$PKG_MGR" != "apt" ] && [ "$PKG_MGR" != "dnf" ]; }; then
+        ui_err "$(t prerelease_no_package "$(prerelease_docs_url)")"
+        exit 1
+    fi
+}
+
+# Digest of the rc's image index, from the release's signed OCI-DIGESTS.
+signed_image_digest() {
+    local tag="$1" dir base="https://github.com/${REPO}/releases/download/${1}" line
+    dir="$(mktemp -d /tmp/meshloom-digest.XXXXXX)"
+    if ! run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/OCI-DIGESTS" -o "${dir}/OCI-DIGESTS" ||
+        ! run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/OCI-DIGESTS.asc" -o "${dir}/OCI-DIGESTS.asc" ||
+        ! run_soft gpgv --keyring "${RELEASE_KEY_DIR}/meshloom.gpg" "${dir}/OCI-DIGESTS.asc" "${dir}/OCI-DIGESTS"; then
+        rm -rf "$dir"
+        return 1
+    fi
+    line="$(grep -xE "ghcr\.io/twinrocket/meshloom:${tag//./\\.} sha256:[0-9a-f]{64}" "${dir}/OCI-DIGESTS" || true)"
+    rm -rf "$dir"
+    [ -n "$line" ] || return 1
+    printf '%s' "${line##* }"
+}
+
+resolve_prerelease_digest() {
+    ensure_log
+    ensure_cmd curl "curl"
+    ensure_gpgv
+    prepare_release_key
+    if ! PRERELEASE_DIGEST="$(signed_image_digest "$INSTALLER_PRERELEASE")"; then
+        ui_err "$(t prerelease_image_failed)"
+        exit 1
+    fi
+}
+
+# Same file as the helper writes, which accepts this pin afterwards. The old status file
+# speaks of the version this stack is leaving.
+pin_prerelease_image() {
+    local dir="$1" tmp
+    tmp="$(mktemp)"
+    {
+        echo "# Managed by meshloom-compose-update. MESHLOOM_IMAGE is pinned by digest."
+        echo "MESHLOOM_IMAGE=${GHCR_IMAGE}:${INSTALLER_PRERELEASE}@${PRERELEASE_DIGEST}"
+        as_root grep -v -e '^MESHLOOM_IMAGE=' -e '^# Managed by meshloom-compose-update' "${dir}/.env" 2>/dev/null || true
+    } >"$tmp"
+    as_root install -m 0644 "$tmp" "${dir}/.env"
+    rm -f "$tmp"
+    as_root rm -f "${dir}/update-status/status.json"
+}
+
+print_prerelease_notes() {
+    ui_dim "  $(t prerelease_rerun)"
+    ui_dim "  $(t prerelease_docs): $(prerelease_docs_url)"
+}
+
+# From the signed `testing` suite and nothing else. No fallback to a release asset or a
+# source install, which would quietly be something else.
+install_prerelease_package() {
+    phase "$(t using_repo)"
+    add_signed_repo
+    if [ "$PKG_MGR" = "apt" ]; then
+        run_quiet as_root apt-get update
+        run_quiet as_root apt-get install -y meshloom
+    elif rpm -q meshloom >/dev/null 2>&1; then
+        # dnf install does nothing on an installed package (dnf5).
+        run_quiet as_root dnf -y --refresh upgrade meshloom
+    else
+        run_quiet as_root dnf -y --refresh install meshloom
+    fi
+    REPO_HAS_ARCH=1
+    write_meshloom_env /etc/meshloom/meshloom.env
+    start_meshloom_unit
+    persist_installer_state
+    ensure_update_helper
+    phase_ok
+    print_done_native
+    print_prerelease_notes
+}
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 refuse_unsupported_hardware
@@ -2623,6 +2816,10 @@ choose_install_mode
 if [ "$INSTALL_MODE" = "browser" ]; then
     show_browser_only
     exit 0
+fi
+
+if [ -n "$INSTALLER_PRERELEASE" ]; then
+    prepare_prerelease
 fi
 
 if [ "$INSTALL_MODE" = "service" ]; then

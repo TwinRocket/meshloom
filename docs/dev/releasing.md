@@ -177,7 +177,35 @@ default branch, not from the rc's commit. The rc's image comes from the
 
 Versions order correctly everywhere: `4.18.2-1 < 5.0.0~rc.1-1 < 5.0.0~rc.2-1 <
 5.0.0-1` for dpkg and rpm, and PEP 440 reads `5.0.0-rc.1` as a pre-release of
-`5.0.0`. A tester following `testing` moves to the final release by itself.
+`5.0.0`.
+
+### How a tester gets an rc
+
+`get.meshloom.app/next` redirects to the `install.sh` of the rc that the `testing`
+suite serves (the `meshloom-website` Worker reads
+`apt/dists/testing/main/binary-amd64/Packages`), and answers with a script that changes
+nothing when that suite serves a stable version.
+
+- The rc's `install.sh` is `scripts/setup/install.sh` with one line changed, which names
+  the rc (`scripts/build/stage_install_sh.sh`). A stable release attaches the file byte
+  for byte.
+- Packages: it moves the apt or dnf source to `testing` and installs from there, with no
+  fallback. armhf is refused: `testing` has no `binary-armhf`. Docker: it pins the rc by
+  the digest in its signed `OCI-DIGESTS`, without the helper's `--bootstrap`, which pins
+  the latest stable release.
+- Updates: there is no channel. The updater only reads `releases/latest`, so an rc machine
+  is offered nothing until a newer stable exists, then that release. A tester gets a newer
+  rc by running `/next` again. `compose-update` accepts an rc pin, refuses to go from it
+  to an older release, and `apply-update` only ever upgrades.
+- Every installer from this version on refuses, before writing anything, to go below an
+  installed rc. The 4.18 installers do not: under Docker they pin 4.18 over the migrated
+  database. `docs/user/{en,fr}/prerelease.md` says not to run them there.
+- There is no return command: testers restore their own copy on a 4.18 install or use a
+  new instance (`docs/user/{en,fr}/upgrade-4-18.md`).
+- `install.sh` must stay under Linux's limit for one argument (128 KiB, `MAX_ARG_STRLEN`):
+  `bash -c "$(curl ...)"` passes the whole file as one, and above it the command does not
+  start, with `Argument list too long`. `tests/test_install_prerelease.py` holds it under
+  126 000 bytes.
 
 ### The repository's suites
 

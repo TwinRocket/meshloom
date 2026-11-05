@@ -272,7 +272,8 @@ MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
   `docs/dev/releasing.md`; the key procedure is in `pkg/keys/README.md`.
 - A release candidate is `scripts/build/publish.sh X.Y.Z-rc.N`, on `main` or
   `preversion-5`: a signed GitHub pre-release, `:X.Y.Z-rc.N`, and the apt/dnf
-  `testing` suite. It must reach no stable user: no `:latest`, no `:X.Y`, no
+  `testing` suite. Testers install it through `get.meshloom.app/next`
+  (`docs/dev/releasing.md`). It must reach no stable user: no `:latest`, no `:X.Y`, no
   `stable` suite, no add-on bump, no site rebuild, no armhf. Keep that true, and
   covered by `tests/test_release_flow.py`.
 - No job that runs third-party code (npm, `uv sync`, a Docker build) may hold the
@@ -285,6 +286,8 @@ MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
 - `install.sh` embeds the public key, its fingerprint, the compose helper and
   the apt pin. After changing any of them, run
   `scripts/setup/sync_installer_embeds.py`; the tests run it with `--check`.
+  Keep `install.sh` under 126 000 bytes: `bash -c "$(curl ...)"` passes it as one
+  argument, and Linux caps that at 128 KiB.
 - A doc change in `docs/user/` reaches meshloom.app only with the next release.
 - **Updater: the root side never reads anything the app writes.** The app only
   writes a trigger file; the root helper upgrades only from the signed source and
