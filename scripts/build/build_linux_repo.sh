@@ -10,6 +10,10 @@
 # Without --testing-dir, testing serves the stable packages: its apt suite shares
 # pool/main, the rpm files are copied (a dnf repository lists files of its own).
 #
+# It also writes channels/testing.txt, the small file that says what testing serves.
+# publish-linux-repo.yml signs it; the updater and get.meshloom.app/next read it
+# (docs/dev/releasing.md, "The channel file").
+#
 # Fails closed unless each directory holds exactly the release it is given for
 # (check_linux_repo_packages.sh), so a pre-release can never land in stable.
 #
@@ -125,6 +129,21 @@ for f in apt/dists/stable/Release apt/dists/testing/Release \
     rpm/testing/x86_64/repodata/repomd.xml rpm/testing/aarch64/repodata/repomd.xml; do
     [ -f "$OUTPUT/$f" ] || die "$f was not generated"
 done
+
+# What testing really serves: an rc left out earlier (no --testing-dir) means stable.
+# issued_at only ever grows, so a client can refuse an older copy of this file.
+CHANNEL_VERSION="$STABLE_VERSION"
+if [ -n "$TESTING_DIR" ]; then
+    CHANNEL_VERSION="$TESTING_VERSION"
+fi
+mkdir -p "$OUTPUT/channels"
+{
+    echo "schema=1"
+    echo "channel=testing"
+    echo "version=$CHANNEL_VERSION"
+    echo "stable=$STABLE_VERSION"
+    echo "issued_at=$(date +%s)"
+} > "$OUTPUT/channels/testing.txt"
 
 SIZE_MB="$(du -sm "$OUTPUT" | awk '{print $1}')"
 echo "Repository size: ${SIZE_MB} MiB"

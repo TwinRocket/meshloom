@@ -17,7 +17,8 @@ name: Publish Linux apt/dnf repo
 # Published next to the metadata: InRelease + Release.gpg (apt), repomd.xml.asc
 # (dnf), meshloom.gpg (binary) and meshloom.asc (armored), both copied from
 # pkg/keys so clients get the key committed in git, not whatever the secret
-# exports.
+# exports. channels/testing.txt(.asc) says what testing serves: see
+# docs/dev/releasing.md, "The channel file".
 #
 # The key and the Pages token are in separate jobs: `build` signs, `deploy` deploys.
 # A version of this file without the testing suite (main, until preversion-5 merges)
@@ -151,6 +152,7 @@ jobs:
               sign --detach-sign -a -o "${dir}/repodata/repomd.xml.asc" "${dir}/repodata/repomd.xml"
             done
           done
+          sign --detach-sign -a -o public/channels/testing.txt.asc public/channels/testing.txt
           # The key clients download is the one committed in git.
           cp pkg/keys/meshloom-archive-keyring.gpg public/meshloom.gpg
           cp pkg/keys/meshloom.asc public/meshloom.asc
@@ -178,6 +180,7 @@ jobs:
               gpgv --keyring "$K" "${dir}/repodata/repomd.xml.asc" "${dir}/repodata/repomd.xml"
             done
           done
+          gpgv --keyring "$K" public/channels/testing.txt.asc public/channels/testing.txt
 
       - name: Write index
         run: |

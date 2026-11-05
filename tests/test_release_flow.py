@@ -1088,6 +1088,30 @@ def test_the_stable_suite_is_untouched_by_an_rc(
     assert not list((public / "apt/pool/main").glob("*rc*"))
 
 
+def _channel_file(public: Path) -> list[str]:
+    return (public / "channels" / "testing.txt").read_text().splitlines()
+
+
+@needs_apt_tools
+def test_the_channel_file_names_what_testing_serves(
+    tmp_path: Path, stable_packages: Path, rc_packages: Path
+) -> None:
+    assert _build_repo(tmp_path, stable_packages, rc_packages).returncode == 0
+    lines = _channel_file(tmp_path / "public")
+    assert lines[:4] == ["schema=1", "channel=testing", "version=5.0.0-rc.1", "stable=4.18.2"]
+    assert re.fullmatch(r"issued_at=[0-9]+", lines[4])
+    assert len(lines) == 5
+
+
+@needs_apt_tools
+def test_the_channel_file_names_stable_when_the_rc_is_left_out(
+    tmp_path: Path, stable_packages: Path
+) -> None:
+    assert _build_repo(tmp_path, stable_packages, None).returncode == 0
+    lines = _channel_file(tmp_path / "public")
+    assert lines[2:4] == ["version=4.18.2", "stable=4.18.2"]
+
+
 @needs_apt_tools
 def test_the_testing_suite_serves_the_rc_without_armhf(
     tmp_path: Path, stable_packages: Path, rc_packages: Path
