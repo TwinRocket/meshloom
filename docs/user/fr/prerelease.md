@@ -25,13 +25,16 @@ Il fonctionne avec les paquets `apt` et `dnf` sur les machines 64 bits, et avec 
 
 ## Passer à une pré-version plus récente
 
-Relancez la même commande. **Réglages > Mises à jour** ne propose pas les pré-versions, et ne propose jamais de revenir à la 4.18.
+Relancez la même commande. **Réglages > Mises à jour** ne regarde que les versions stables : la page n’annonce pas une pré-version plus récente, et ne propose jamais de revenir à la 4.18.
 
 ## Quand la version finale sort
 
-**Réglages > Mises à jour** la propose. Docker suit ensuite les versions stables, sans rien d’autre à faire.
+**Réglages > Mises à jour** la propose, et la machine reste sur la pré-version tant que vous n’acceptez pas.
 
-Avec le paquet `apt` ou `dnf`, la machine reste sur la source de paquets des pré-versions après la mise à jour : quand une pré-version suivante sortira, `apt upgrade` ou `dnf upgrade` l’installerait. Lancez une fois la commande d’installation habituelle pour revenir à la source stable :
+- **Docker :** la mise à jour épingle cette version finale, et la machine suit ensuite les versions stables.
+- **Paquet `apt` ou `dnf` :** la machine reste sur la source de paquets des pré-versions. Une mise à jour, depuis **Réglages > Mises à jour** ou avec `apt upgrade` ou `dnf upgrade`, installe ce que cette source sert. Si une pré-version suivante est déjà sortie, c’est elle que vous obtenez, même si la page proposait la version finale.
+
+Avec un paquet, lancez donc la commande d’installation habituelle une fois la version finale sortie. Elle revient à la source stable, et installe la version finale si la machine est encore sur une pré-version :
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"

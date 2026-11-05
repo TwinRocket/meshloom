@@ -166,6 +166,23 @@ def test_an_rc_attaches_the_file_with_only_its_version_line_changed(tmp_path: Pa
     subprocess.run(["bash", "-n", str(tmp_path / "install.sh")], check=True)
 
 
+def test_stage_leaves_no_partial_file_when_it_fails(tmp_path: Path) -> None:
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "sed").write_text("#!/bin/sh\necho partial\nexit 1\n")
+    (stubs / "sed").chmod(0o755)
+    output = tmp_path / "install.sh"
+    result = subprocess.run(
+        ["bash", str(STAGE), "--version", "5.0.0-rc.1", "--output", str(output)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"},
+    )
+    assert result.returncode != 0
+    assert list(tmp_path.glob("install.sh*")) == []
+
+
 @pytest.mark.parametrize(
     "version", ["", "latest", "5.0.0-rc.0", "5.0.0-beta.1", "5.0", "5.0.0-rc.1;x"]
 )
@@ -220,12 +237,10 @@ def test_docker_without_the_helper_pins_the_rc_by_digest(tmp_path: Path) -> None
     )
 
 
-def test_docker_with_the_helper_pins_the_rc_and_forgets_the_old_status(tmp_path: Path) -> None:
+def test_docker_with_the_helper_pins_the_rc(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text(
         "# Managed by meshloom-compose-update. x\nMESHLOOM_IMAGE=a\nB=1\n"
     )
-    (tmp_path / "update-status").mkdir()
-    (tmp_path / "update-status" / "status.json").write_text("{}")
     _ok(
         ("pin_prerelease_image",),
         f"""
@@ -238,6 +253,52 @@ def test_docker_with_the_helper_pins_the_rc_and_forgets_the_old_status(tmp_path:
         "# Managed by meshloom-compose-update. MESHLOOM_IMAGE is pinned by digest.\n"
         f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:5.0.0-rc.1@{DIGEST}\nB=1\n"
     )
+
+
+def _pull(tmp_path: Path, pull_exit: int, managed: int = 1):
+    (tmp_path / ".env").write_text("MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@old\nB=1\n")
+    (tmp_path / "update-status").mkdir()
+    (tmp_path / "update-status" / "status.json").write_text("{}")
+    return _bash(
+        (
+            "save_env_before_prerelease",
+            "pin_prerelease_image",
+            "pull_prerelease_or_put_back",
+        ),
+        f"""
+        on_rc
+        PRERELEASE_DIGEST={DIGEST}
+        INSTALL_LOG=/dev/null
+        run_soft() {{ "$@"; }}
+        enable_compose_update_helper() {{ echo ENABLED; }}
+        fake_dc() {{ return {pull_exit}; }}
+        cd "{tmp_path}"
+        save_env_before_prerelease .
+        pin_prerelease_image .
+        pull_prerelease_or_put_back fake_dc {managed}
+        """,
+    )
+
+
+def test_a_failed_pull_puts_the_old_pin_and_the_status_back(tmp_path: Path) -> None:
+    result = _pull(tmp_path, 1)
+    assert result.returncode == 1
+    assert "prerelease_pull_failed" in result.stderr
+    assert (
+        (tmp_path / ".env")
+        .read_text()
+        .startswith("MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@old\n")
+    )
+    assert not (tmp_path / ".env.before-prerelease").exists()
+    assert (tmp_path / "update-status" / "status.json").exists()
+    assert "ENABLED" in result.stdout
+
+
+def test_a_pull_that_works_keeps_the_pin_and_forgets_the_old_status(tmp_path: Path) -> None:
+    result = _pull(tmp_path, 0)
+    assert result.returncode == 0, result.stderr
+    assert f"5.0.0-rc.1@{DIGEST}" in (tmp_path / ".env").read_text()
+    assert not (tmp_path / ".env.before-prerelease").exists()
     assert not (tmp_path / "update-status" / "status.json").exists()
 
 
@@ -387,6 +448,8 @@ def test_version_gt(a: str, b: str, greater: bool) -> None:
         ("5.0.0-rc.1", "5.0.0", "5.0.0-rc.1", "prerelease_older"),
         ("5.0.0-rc.2", "5.0.0-rc.1", "5.0.0-rc.2", ""),
         ("5.0.0-rc.1", "4.18.2", "5.0.0-rc.1", ""),
+        ("", "edge", "4.18.2", ""),
+        ("", "5.0.0-rc.1", "edge", ""),
     ],
 )
 def test_the_installer_stops_before_going_below_an_rc(
@@ -403,6 +466,7 @@ def test_the_installer_stops_before_going_below_an_rc(
     )
     assert (result.returncode != 0) is bool(message), result.stderr
     assert message in result.stderr
+    assert "integer expression" not in result.stderr
 
 
 def test_the_refusal_comes_before_any_write() -> None:

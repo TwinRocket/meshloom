@@ -25,13 +25,16 @@ It works with the `apt` and `dnf` packages on 64-bit machines, and with Docker. 
 
 ## Get a newer pre-release
 
-Run the same command again. **Settings > Updates** does not offer pre-releases, and never offers to go back to 4.18.
+Run the same command again. **Settings > Updates** only looks at stable releases: it does not announce a newer pre-release, and never offers to go back to 4.18.
 
 ## When the final release is out
 
-**Settings > Updates** offers it. Docker then follows stable releases, with nothing more to do.
+**Settings > Updates** offers it, and the machine stays on the pre-release until you accept.
 
-With the `apt` or `dnf` package, the machine stays on the pre-release package source after the update: when a later pre-release comes out, `apt upgrade` or `dnf upgrade` would install it. Run the regular install command once to go back to the stable source:
+- **Docker:** the update pins that final release, and from then on the machine follows stable releases.
+- **`apt` or `dnf` package:** the machine stays on the pre-release package source. An update, from **Settings > Updates** or with `apt upgrade` or `dnf upgrade`, installs what that source serves. If a later pre-release is already out, you get that one, even though the page offered the final release.
+
+So with a package, run the usual install command once the final is out. It goes back to the stable source, and installs the final release if the machine is still on a pre-release:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"

@@ -733,6 +733,17 @@ def test_compose_update_never_goes_from_an_rc_to_an_older_release(
     assert _docker_calls(log) == []
 
 
+def test_compose_update_compares_the_whole_version_of_an_rc(compose_host, signers) -> None:
+    root, log, env, files, compose_dir = compose_host
+    pin = f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:5.0.1-rc.1@{OLD_DIGEST}\n"
+    (compose_dir / ".env").write_text(pin)
+    _publish(files, signers["release"], "5.0.0")
+    result = _run(COMPOSE_UPDATE, env)
+    assert result.returncode == 1
+    assert "refusing downgrade from 5.0.1-rc.1 to 5.0.0" in result.stderr
+    assert (compose_dir / ".env").read_text() == pin
+
+
 def test_compose_update_goes_from_an_rc_to_its_final_release(compose_host, signers) -> None:
     root, log, env, files, compose_dir = compose_host
     (compose_dir / ".env").write_text(

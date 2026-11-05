@@ -213,9 +213,11 @@ Meshloom refuses to start on a database made by a newer version, and leaves it u
 
    Going back to 5.0 or later, also put back the key if the copy has one: `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Install the older version, then start it:
-   - Docker: set the image to `ghcr.io/twinrocket/meshloom:4.18.2` in `docker-compose.yml` or `.env`, then `docker compose up -d`.
+   - Docker: in `.env`, set `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@sha256:<digest>`, with the digest from the `OCI-DIGESTS` file of that release, then `docker compose up -d`. Without the digest, **Settings > Updates** cannot update this stack.
    - Linux package: download the package from the [releases page](https://github.com/TwinRocket/meshloom/releases), then `sudo apt install --allow-downgrades ./<file>.deb` or `sudo dnf downgrade ./<file>.rpm`.
    - Copy of the code: `git checkout 4.18.2`, then run `install_service.sh` again.
    - Home Assistant: restore the add-on from the backup Home Assistant offers to make before an update, and skip step 2: that backup holds the old database. This backup is optional, and without it Home Assistant cannot reinstall an older add-on, so leave the option ticked when you update. The restore replaces the add-on's whole folder and deletes the copies, since backups leave them out.
+
+**If this machine went through `get.meshloom.app/next`:** with a Linux package, once 4.18 runs again with the copy in place, run the usual install command right away, before any `apt upgrade` or `dnf upgrade`. The machine is still on the pre-release package source, and an upgrade would install a pre-release and migrate your database again. While 4.18 is the stable version, that command keeps 4.18 and moves the source back to stable; once 5.0 is final, it installs 5.0. With Docker, the pin above is enough.
 
 Your bots are back as they were on 4.18, and the `secrets.key` file left in the folder is simply not used. When you upgrade again, Meshloom makes a new copy and converts the bots again.

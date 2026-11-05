@@ -100,6 +100,8 @@ t() {
         fr:prerelease_armhf) echo "Les pré-versions n'ont pas de paquet 32 bits : rien n'a été modifié ici. Docker peut les faire tourner : $1" ;;
         en:prerelease_no_package) echo "Pre-releases come as apt or dnf packages, or with Docker, so nothing was changed here: $1" ;;
         fr:prerelease_no_package) echo "Les pré-versions existent en paquets apt ou dnf, ou avec Docker : rien n'a été modifié ici. $1" ;;
+        en:prerelease_pull_failed) echo "Could not download the pre-release image. This stack keeps its previous version. Try again shortly." ;;
+        fr:prerelease_pull_failed) echo "Impossible de télécharger l'image de la pré-version. Cette installation garde sa version précédente. Réessayez un peu plus tard." ;;
         en:prerelease_image_failed) echo "Could not verify the signed image of the pre-release. Nothing was changed." ;;
         fr:prerelease_image_failed) echo "Impossible de vérifier l'image signée de la pré-version. Rien n'a été modifié." ;;
         en:title) echo "Meshloom installation" ;;
@@ -2631,6 +2633,9 @@ install_docker_stack() {
             "${INSTALL_DIR}/docker-compose.yml.bak-$(date +%Y%m%d-%H%M%S)"
         ui_dim "  $(t compose_backup)"
     fi
+    if [ -n "$INSTALLER_PRERELEASE" ]; then
+        save_env_before_prerelease "$INSTALL_DIR"
+    fi
     if [ "$managed" = 1 ]; then
         phase "$(t compose_secure)"
         install_compose_update_helper "$INSTALL_DIR"
@@ -2658,7 +2663,11 @@ install_docker_stack() {
         phase "$(t working)"
         (
             cd "$INSTALL_DIR"
-            run_quiet as_root $dc pull
+            if [ -n "$INSTALLER_PRERELEASE" ]; then
+                pull_prerelease_or_put_back "$dc" "$managed"
+            else
+                run_quiet as_root $dc pull
+            fi
             run_quiet as_root $dc up -d
         )
         phase_ok
@@ -2703,7 +2712,9 @@ prerelease_docs_url() {
 # An older version must not start on a database an rc migrated: stop before writing anything.
 # A stable above stable (a moved `latest`) is left alone, as it always was.
 refuse_going_below_a_prerelease() {
-    [ -n "$INSTALLED_VERSION" ] && [ -n "$TARGET_VERSION" ] || return 0
+    # Only versions can be compared: an `edge` image or a source install's tag is left alone.
+    [[ "$INSTALLED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || return 0
+    [[ "$TARGET_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || return 0
     version_gt "$INSTALLED_VERSION" "$TARGET_VERSION" || return 0
     if [ -n "$INSTALLER_PRERELEASE" ]; then
         ui_err "$(t prerelease_older "$INSTALLED_VERSION" "$TARGET_VERSION")"
@@ -2759,8 +2770,7 @@ resolve_prerelease_digest() {
     fi
 }
 
-# Same file as the helper writes, which accepts this pin afterwards. The old status file
-# speaks of the version this stack is leaving.
+# Same file as the helper writes, which accepts this pin afterwards.
 pin_prerelease_image() {
     local dir="$1" tmp
     tmp="$(mktemp)"
@@ -2771,7 +2781,32 @@ pin_prerelease_image() {
     } >"$tmp"
     as_root install -m 0644 "$tmp" "${dir}/.env"
     rm -f "$tmp"
-    as_root rm -f "${dir}/update-status/status.json"
+}
+
+save_env_before_prerelease() {
+    if [ -f "$1/.env" ]; then
+        as_root cp -p "$1/.env" "$1/.env.before-prerelease"
+    fi
+}
+
+# Run from the stack's folder. A failed pull leaves the old version running: its pin goes back,
+# or the helper would refuse to go from a pin on the rc to the version that really runs. A
+# failed `up` keeps the rc's pin: the rc may have started, and running the command again repairs.
+pull_prerelease_or_put_back() {
+    local dc="$1" managed="$2"
+    if run_soft as_root $dc pull; then
+        as_root rm -f .env.before-prerelease update-status/status.json
+        return 0
+    fi
+    if [ -f .env.before-prerelease ]; then
+        as_root mv -f .env.before-prerelease .env
+    fi
+    if [ "$managed" = 1 ]; then
+        run_soft enable_compose_update_helper || true
+    fi
+    ui_err "$(t prerelease_pull_failed)"
+    printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+    exit 1
 }
 
 print_prerelease_notes() {

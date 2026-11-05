@@ -36,5 +36,7 @@ fi
 printf '%s\n' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.[1-9][0-9]*$' ||
     die "'$VERSION' is not X.Y.Z or X.Y.Z-rc.N"
 [ "$(grep -cx "$LINE" "$SOURCE")" = 1 ] || die "expected exactly one '$LINE' line in $SOURCE"
-sed "s/^${LINE}\$/INSTALLER_PRERELEASE=\"${VERSION}\"/" "$SOURCE" >"$OUTPUT"
-grep -qx "INSTALLER_PRERELEASE=\"${VERSION}\"" "$OUTPUT" || die "could not stamp the version"
+trap 'rm -f "$OUTPUT.tmp"' EXIT
+sed "s/^${LINE}\$/INSTALLER_PRERELEASE=\"${VERSION}\"/" "$SOURCE" >"$OUTPUT.tmp"
+grep -qx "INSTALLER_PRERELEASE=\"${VERSION}\"" "$OUTPUT.tmp" || die "could not stamp the version"
+mv "$OUTPUT.tmp" "$OUTPUT"

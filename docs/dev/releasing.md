@@ -201,8 +201,12 @@ nothing when that suite serves a stable version.
   installed rc. The 4.18 installers do not: under Docker they pin 4.18 over the migrated
   database. `docs/user/{en,fr}/prerelease.md` says not to run them there.
 - After the final, an apt or dnf machine stays on `testing`, which serves that final until
-  a later rc is published: the regular installer puts the source back on `stable`. Docker
-  only follows `releases/latest` from then on.
+  a later rc is published: the updater then announces the stable release and installs that
+  rc. The regular installer puts the source back on `stable`. Docker keeps its rc pin until
+  the helper applies the release, then follows `releases/latest`.
+- Known limits. With no answer from `releases/latest`, the regular installer has no target
+  to compare, so it does not refuse. A stale `installer.conf` can refuse a fresh stack after
+  an rc above stable. A failed `up` keeps the rc's pin; running `/next` again repairs it.
 - There is no return command: testers restore their own copy on a fresh 4.18 install or
   use a new instance (`docs/user/{en,fr}/upgrade-4-18.md`).
 - `install.sh` must stay under Linux's limit for one argument (128 KiB, `MAX_ARG_STRLEN`):
