@@ -23,8 +23,8 @@ values `bwrap`, `setuid`, `none` (`policy.ISOLATION_LEVELS`), in `/api/health`
 
 | Server | Level | Fallback |
 |---|---|---|
-| Linux, root, account `meshloom-plugin` exists (Docker image, add-on) | `setuid` | — |
-| Linux, root, no such account | `bwrap` if its self-test passes | `none` |
+| Linux, root with `CAP_CHOWN`, `CAP_DAC_OVERRIDE`, `CAP_FOWNER`, `CAP_KILL`, `CAP_SETUID` and `CAP_SETGID`, account `meshloom-plugin` exists (Docker image, add-on) | `setuid` | — |
+| Linux, root, no such account or without those capabilities (`--cap-drop ALL`) | `bwrap` if its self-test passes | `none` |
 | Linux, not root, holds `CAP_SETUID` and `CAP_SETGID` and the account exists (Docker with `MESHLOOM_RUN_AS_USER`) | `setuid` | — |
 | Linux, not root (deb/rpm, RPi image, source) | `bwrap` if its self-test passes | `none` |
 | not Linux (macOS, development) | `none` | — |

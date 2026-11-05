@@ -2,9 +2,9 @@
 
 | Server | Backend |
 |---|---|
-| Linux, root, `meshloom-plugin` exists | `setuid` |
+| Linux, root holding what `root_can_switch_uid()` lists, `meshloom-plugin` exists | `setuid` |
 | Linux, not root but `CAP_SETUID` and `CAP_SETGID` effective (Docker with `MESHLOOM_RUN_AS_USER`), `meshloom-plugin` exists | `setuid` |
-| Linux, root, no such account | `bwrap` if its self-test passes, else `none` |
+| Linux, root, no such account or without those capabilities (`--cap-drop ALL`) | `bwrap` if its self-test passes, else `none` |
 | Linux, not root without those capabilities (deb/rpm, RPi image, source) | `bwrap` if its self-test passes, else `none` |
 | not Linux (macOS: development only) | `none` |
 
@@ -54,6 +54,10 @@ def _account(getpwnam: Callable[[str], pwd.struct_passwd]) -> tuple[int, int] | 
     return entry.pw_uid, entry.pw_gid
 
 
+CAP_CHOWN = 0
+CAP_DAC_OVERRIDE = 1
+CAP_FOWNER = 3
+CAP_KILL = 5
 CAP_SETGID = 6
 CAP_SETUID = 7
 
@@ -76,6 +80,14 @@ def can_switch_uid(caps: int) -> bool:
     return all(caps >> bit & 1 for bit in (CAP_SETUID, CAP_SETGID))
 
 
+def root_can_switch_uid(caps: int) -> bool:
+    """What `SetuidBackend` uses when the server runs as root: it chowns the work
+    directory, removes what the child left and signals it itself, with no helper.
+    Root without them (`--cap-drop ALL`) would announce a level it cannot run."""
+    needed = (CAP_CHOWN, CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_KILL, CAP_SETGID, CAP_SETUID)
+    return all(caps >> bit & 1 for bit in needed)
+
+
 def detect(
     *,
     platform: str = sys.platform,
@@ -93,9 +105,15 @@ def detect(
     fallbacks: list[str] = []
     if geteuid() == 0:
         account = _account(getpwnam)
-        if account is not None:
+        if account is None:
+            fallbacks.append(f"running as root but the account {ACCOUNT} does not exist")
+        elif root_can_switch_uid(capabilities()):
             return Selection(SetuidBackend(*account))
-        fallbacks.append(f"running as root but the account {ACCOUNT} does not exist")
+        else:
+            fallbacks.append(
+                "running as root without the capabilities to run plugins under other uids "
+                "(CAP_CHOWN, CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_KILL, CAP_SETGID, CAP_SETUID)"
+            )
     elif can_switch_uid(capabilities()):
         account = _account(getpwnam)
         if account is not None and account[0] != geteuid():

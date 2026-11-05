@@ -39,6 +39,8 @@ if sys.platform == "win32":
     del _loop, _is_proactor
 
 import asyncio
+import os
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -57,6 +59,7 @@ from app.config import settings as server_settings
 from app.config import setup_logging
 from app.cors import AllowedOriginsCORSMiddleware
 from app.database import db
+from app.database_copy import StartupRefused
 from app.frontend_static import (
     register_first_available_frontend_static_routes,
     register_frontend_missing_fallback,
@@ -495,13 +498,77 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
     await _shutdown_step("background tasks", drain_background_tasks)
 
 
+UVICORN_STARTUP_FAILURE = 3
+_FAILED_START_EXIT_SECONDS = 15.0
+_FAILED_START_CLOSE_SECONDS = 5.0
+
+
+def _not_a_startup_traceback(record: logging.LogRecord) -> bool:
+    return "Traceback (most recent call last)" not in record.getMessage()[:64]
+
+
+def _log_startup_failure(exc: BaseException) -> None:
+    """Say why the start failed, in full.
+
+    Starlette hands uvicorn the whole traceback as one message, and logging gives
+    a message one line, capped at ``MAX_LINE_BYTES`` (``app/log_redaction.py``): the
+    cause, at its end, is cut. So it is logged here, and uvicorn's line, which then
+    only repeats it, is dropped.
+    """
+    if isinstance(exc, StartupRefused):
+        logger.critical("%s", exc)
+    else:
+        logger.critical("Meshloom could not start", exc_info=exc)
+    logging.getLogger("uvicorn.error").addFilter(_not_a_startup_traceback)
+
+
+def _exit_after_failed_start() -> None:
+    logger.critical("The process did not end after the failed start: forcing it")
+    os._exit(UVICORN_STARTUP_FAILURE)
+
+
+def _arm_failed_start_exit() -> None:
+    """A process stuck after a failed start is never restarted by a service manager.
+
+    A blocked ``to_thread``, or a connection busy on a query, holds the interpreter at
+    exit whatever is closed below.
+    """
+    timer = threading.Timer(_FAILED_START_EXIT_SECONDS, _exit_after_failed_start)
+    timer.daemon = True
+    timer.start()
+
+
+async def _close_after_failed_start() -> None:
+    """The aiosqlite worker is not a daemon thread: left open, it holds the interpreter."""
+    try:
+        await asyncio.wait_for(db.disconnect(), _FAILED_START_CLOSE_SECONDS)
+    except BaseException as exc:
+        logger.warning("The database could not be closed after a failed start: %r", exc)
+
+
+@asynccontextmanager
+async def _lifespan_logging_startup_failure(app: FastAPI):
+    """``lifespan``, with a readable log when the start fails."""
+    started = False
+    try:
+        async with lifespan(app):
+            started = True
+            yield
+    except BaseException as exc:
+        if not started:
+            _arm_failed_start_exit()
+            _log_startup_failure(exc)
+            await _close_after_failed_start()
+        raise
+
+
 app = FastAPI(
     title="Meshloom API",
     description=API_DESCRIPTION,
     version=get_app_build_info().version,
     openapi_tags=API_TAGS_METADATA,
     docs_url=None,
-    lifespan=lifespan,
+    lifespan=_lifespan_logging_startup_failure,
     # Default deny: an /api route that declares no permission is admin-only
     # (app/auth/permissions.py).
     dependencies=[Depends(enforce_declaration)],

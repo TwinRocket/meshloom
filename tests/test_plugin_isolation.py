@@ -54,6 +54,10 @@ def _getpwnam(entry: pwd.struct_passwd | None):
 # --- selection (cadrage §4.3) ----------------------------------------------------
 
 
+# `CapEff` of root in a default Docker container.
+DOCKER_ROOT_CAPS = 0xA80425FB
+
+
 @pytest.mark.parametrize(
     (
         "environment",
@@ -76,7 +80,19 @@ def _getpwnam(entry: pwd.struct_passwd | None):
             None,
             "setuid",
             0,
+            DOCKER_ROOT_CAPS,
+        ),
+        ("root, --cap-drop ALL", "linux", 0, _pw(999, 999), None, None, "none", 2, 0),
+        (
+            "root, only CAP_SETUID and CAP_SETGID",
+            "linux",
             0,
+            _pw(999, 999),
+            "/usr/bin/bwrap",
+            None,
+            "bwrap",
+            1,
+            0xC0,
         ),
         ("root, account missing", "linux", 0, None, "/usr/bin/bwrap", None, "bwrap", 1, 0),
         ("root, account missing, no bwrap", "linux", 0, None, None, None, "none", 2, 0),
