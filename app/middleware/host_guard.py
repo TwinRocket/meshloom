@@ -11,7 +11,7 @@ which names an instance answers to:
 - the Remote hostname (``set_remote_hostname()``, called by the Remote client
   once it is linked).
 
-Two users, two strictnesses:
+Two users, two strictnesses, plus the first run:
 
 - **Trusted-network auto-login** (``app/auth/providers/trusted_network.py``)
   calls ``host_allowed`` directly and always refuses a rejected host, whatever
@@ -31,6 +31,11 @@ relay tagged (``scope["state"]["via"] == "relay"``, set by our own code, never
 by a client). It runs inside ``TrustedProxyHeadersMiddleware`` (the ingress
 check needs the TCP peer it records), inside ``https_required`` (which reuses
 ``exempt``, ``public_urls`` and the refusal headers) and outside the auth gate.
+
+- **First run** (``app/auth/setup_code.request_exposed``) asks
+  ``name_cannot_be_rebound`` whatever the mode: a name that fails it needs the
+  installation code. It adds single-label names to the strict rule, because a Docker
+  container's own host name is not the name its LAN users type.
 
 The list of observed names is what the access settings screen reads
 (``rejected_hosts`` in ``GET /api/auth/settings``): newest first, at most
@@ -192,6 +197,17 @@ def host_allowed(raw_host: str | None, public_urls: Iterable[str] = ()) -> bool:
     return (
         host in _machine_names() or host in _public_hosts(public_urls) or host in _remote_hostnames
     )
+
+
+def name_cannot_be_rebound(raw_host: str | None) -> bool:
+    """Whether a page on a public DNS name could never have sent this ``Host``.
+
+    ``host_allowed`` plus single-label names (``mypi``): no public DNS name has one
+    label. A dotted name of the owner's own (split DNS, a reverse proxy) fails, like
+    an attacker's: nothing here can tell them apart.
+    """
+    host = request_host(raw_host or "")
+    return bool(host) and ("." not in host or host_allowed(raw_host))
 
 
 def set_remote_hostname(hostname: str | None) -> None:

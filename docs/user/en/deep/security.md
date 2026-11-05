@@ -71,7 +71,7 @@ In the database, those secrets are encrypted (AES-256-GCM) with the `secrets.key
 
 ## Support snapshot
 
-**Settings > About > Open debug support snapshot** (`/api/debug`) is meant to be pasted into a bug report. Outside the logs it holds versions, settings and counters, never the private key; the keys of contacts and channels appear only as one-way fingerprints. The logs never contain the private key or a Wi-Fi password, at any log level, `DEBUG` included. The logs can contain channel names and channel keys at any level; at `DEBUG` they can also contain repeater and room login passwords and the Bluetooth PIN. Stop copying at the line `STOP COPYING HERE` to leave the logs out.
+**Settings > About > Open debug support snapshot** (`/api/debug`) is meant to be pasted into a bug report. Outside the logs it holds versions, settings and counters, never the private key; the keys of contacts and channels appear only as one-way fingerprints. The logs never contain the private key or a Wi-Fi password, at any log level, `DEBUG` included. The logs can contain channel names and the first digits of a channel key at any level, but never a private channel's whole key or, below `DEBUG`, the text of a message; at `DEBUG` they can also contain the start of message texts, repeater and room login passwords and the Bluetooth PIN. Stop copying at the line `STOP COPYING HERE` to leave the logs out.
 
 ## What leaves your machine
 

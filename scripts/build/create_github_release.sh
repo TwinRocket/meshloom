@@ -7,13 +7,17 @@ source "$SCRIPT_DIR/release_common.sh"
 
 usage() {
     cat <<'EOF'
-Usage: scripts/build/create_github_release.sh --version X.Y.Z --asset PATH [options]
+Usage: scripts/build/create_github_release.sh --version X.Y.Z|X.Y.Z-rc.N --asset PATH [options]
 
 Creates a draft GitHub release (invisible to Stats / Meshloom clients),
 uploads each asset one at a time with logs and retries, then publishes.
 
-Never creates or pushes a tag: the X.Y.Z tag must already exist on origin
+Never creates or pushes a tag: the tag must already exist on origin
 (scripts/build/publish.sh) and point at the checked-out commit.
+
+An X.Y.Z-rc.N release is flagged as a pre-release and never as the latest release,
+at creation and at every later edit: the updater, the installer and the site follow
+GitHub's latest release.
 
 Options:
   --version VERSION         Release version / tag (required)
@@ -127,6 +131,11 @@ release_validate_version "$VERSION"
 REPO_ROOT="$(release_repo_root)"
 TITLE="${TITLE:-$VERSION}"
 
+CHANNEL_FLAGS=()
+if release_is_rc "$VERSION"; then
+    CHANNEL_FLAGS=(--prerelease --latest=false)
+fi
+
 for asset in "${ASSETS[@]}"; do
     [ -f "$asset" ] || release_die "Asset not found: $asset"
 done
@@ -163,7 +172,7 @@ if gh release view "$VERSION" >/dev/null 2>&1; then
     echo "[create_github_release] Reusing existing GitHub release ${VERSION}." >&2
 else
     echo "[create_github_release] Creating draft GitHub release ${VERSION} (no assets yet)..." >&2
-    gh release create "$VERSION" --draft --title "$TITLE" --notes-file "$NOTES_FILE" --verify-tag
+    gh release create "$VERSION" --draft ${CHANNEL_FLAGS[@]+"${CHANNEL_FLAGS[@]}"} --title "$TITLE" --notes-file "$NOTES_FILE" --verify-tag
     release_wait_visible
 fi
 
@@ -173,8 +182,8 @@ done
 
 if [ "$(gh release view "$VERSION" --json isDraft --jq '.isDraft')" = "true" ]; then
     echo "[create_github_release] All assets uploaded. Publishing ${VERSION}..." >&2
-    gh release edit "$VERSION" --draft=false --title "$TITLE" --notes-file "$NOTES_FILE"
+    gh release edit "$VERSION" --draft=false ${CHANNEL_FLAGS[@]+"${CHANNEL_FLAGS[@]}"} --title "$TITLE" --notes-file "$NOTES_FILE"
 else
     echo "[create_github_release] ${VERSION} is already published; refreshing notes." >&2
-    gh release edit "$VERSION" --title "$TITLE" --notes-file "$NOTES_FILE"
+    gh release edit "$VERSION" ${CHANNEL_FLAGS[@]+"${CHANNEL_FLAGS[@]}"} --title "$TITLE" --notes-file "$NOTES_FILE"
 fi

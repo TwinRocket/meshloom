@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from meshcore import EventType
 
 from app.background_tasks import spawn
+from app.data.meshcore_channels import channel_log_label
 from app.loop_lock import LoopBoundLock
 from app.message_limits import ensure_channel_text_fits, ensure_direct_text_fits
 from app.models import ResendChannelMessageResponse
@@ -22,6 +23,7 @@ from app.repository import (
     MessageRepository,
 )
 from app.services import dm_ack_tracker
+from app.services.channel_slots import write_channel_slot
 from app.services.flood_scope import set_radio_flood_scope
 from app.services.messages import (
     BroadcastFn,
@@ -289,11 +291,7 @@ async def send_channel_message_with_effective_scope(
                 ),
             )
             try:
-                set_result = await mc.commands.set_channel(
-                    channel_idx=channel_slot,
-                    channel_name=channel.name,
-                    channel_secret=key_bytes,
-                )
+                set_result = await write_channel_slot(mc, channel_slot, channel.name, key_bytes)
             except Exception:
                 if evicted_channel_key is not None:
                     radio_manager.invalidate_cached_channel_slot(evicted_channel_key)
@@ -881,7 +879,9 @@ async def send_channel_message_to_channel(
             our_public_key = (mc.self_info.get("public_key") or None) if mc.self_info else None
             ensure_channel_text_fits(text, radio_name)
             text_with_sender = f"{radio_name}: {text}" if radio_name else text
-            logger.info("Sending channel message to %s: %s", channel.name, text[:50])
+            logger.info(
+                "Sending channel message to %s", channel_log_label(channel.name, channel.key)
+            )
 
             sent_at = int(now_fn())
             sender_timestamp = await allocate_outgoing_sender_timestamp(

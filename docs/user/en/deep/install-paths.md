@@ -166,6 +166,8 @@ The server serves `frontend/dist` if it exists, otherwise `frontend/prebuilt` (a
 
 `MESHCORE_DATABASE_PATH` moves it. An update never replaces your database: the structure is upgraded at startup, step by step.
 
+With the Linux package, other accounts on the machine cannot read `/var/lib/meshloom`: use `sudo` to look at it or copy it.
+
 Next to the database, the `secrets.key` file holds the key that encrypts the secrets of your notification channels and integrations in the database (passwords, tokens, webhook and Apprise addresses). Meshloom creates it at its first start, readable by its own user only (mode 0600), and never shows it. The database alone cannot decrypt those secrets.
 
 **Move an installation.** Stop Meshloom, then copy `meshcore.db` **and** `secrets.key` (the whole data folder is simplest) to the new place. Without `secrets.key`, Meshloom still starts and everything else works, but each notification channel and integration with a stored secret is switched off and marked *cannot be decrypted*: put the file back next to the database and restart, or type those secrets again. Meshloom then creates a new `secrets.key`. There is no way to change the key, and losing it loses only those secrets.
@@ -187,3 +189,33 @@ sudo docker compose pull && sudo docker compose up -d
 The first line is for Debian, Ubuntu and Raspberry Pi OS, the second for Fedora and similar systems, the third for Docker.
 
 Started by hand without `--host`, Meshloom answers only on the machine itself, at `http://127.0.0.1:8000`. The page at `/docs` documents the programming interface (API). It is not this website.
+
+### The copy made before an upgrade
+
+When an upgrade has to change the structure of your database, Meshloom first makes a copy of it, in the same folder, under a name that says which structure it holds and which version made it: for example `meshcore.db.schema87.before-5.0.0.db` (schema 87 is what every 4.18 uses). When a `secrets.key` file exists, it is copied too, as `meshcore.db.schema144.before-5.1.0.secrets.key`. A new installation, or a start with nothing to upgrade, makes no copy.
+
+- **Size.** The copy is as large as the database, and takes up to a few minutes on a Raspberry Pi with a large database (the log shows its progress). Meshloom asks for the size of the database plus a quarter of it, 64 MB at least, free in that folder.
+- **If the copy fails.** Meshloom does not upgrade and does not start, and the log says why and how much space it needs. Your database is left as it was. Free some space and start again. An upgrade cannot be undone, so Meshloom prefers a start that waits to an upgrade with no way back.
+- **How many.** Two at most: the oldest, your way back to the version you started from, and the latest. Delete them yourself when you no longer need to go back.
+- **Private.** Each file can be read by Meshloom's user only (mode 0600). A copy holds everything the database holds, with its secrets. The full backup does not include it, and Home Assistant backups leave it out. If you back up the data folder yourself, leave out `meshcore.db.schema*` to save space, or protect it like the database.
+
+### Going back to an older version
+
+Meshloom refuses to start on a database made by a newer version, and leaves it untouched. To go back, put the copy back. Everything received or changed since the upgrade is lost.
+
+1. Stop Meshloom.
+2. In the data folder, put the copy in place of the database and remove the files that go with the old one (`sudo` if the files are not yours):
+
+   ```bash
+   cp -p meshcore.db.schema87.before-5.0.0.db meshcore.db
+   rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
+   ```
+
+   Going back to 5.0 or later, also put back the key if the copy has one: `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
+3. Install the older version, then start it:
+   - Docker: set the image to `ghcr.io/twinrocket/meshloom:4.18.2` in `docker-compose.yml` or `.env`, then `docker compose up -d`.
+   - Linux package: download the package from the [releases page](https://github.com/TwinRocket/meshloom/releases), then `sudo apt install --allow-downgrades ./<file>.deb` or `sudo dnf downgrade ./<file>.rpm`.
+   - Copy of the code: `git checkout 4.18.2`, then run `install_service.sh` again.
+   - Home Assistant: restore the add-on from the backup Home Assistant offers to make before an update, and skip step 2: that backup holds the old database. This backup is optional, and without it Home Assistant cannot reinstall an older add-on, so leave the option ticked when you update. The restore replaces the add-on's whole folder and deletes the copies, since backups leave them out.
+
+Your bots are back as they were on 4.18, and the `secrets.key` file left in the folder is simply not used. When you upgrade again, Meshloom makes a new copy and converts the bots again.

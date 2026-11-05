@@ -63,7 +63,7 @@ server {
 }
 ```
 
-Sans les lignes `Upgrade` et `Connection`, le WebSocket reçoit un 404 et rien n’arrive en direct. `client_max_body_size 64m;` compte : nginx refuse par défaut les corps de requête de plus de 1 Mo (413), alors que la restauration ou l’inspection d’une sauvegarde accepte jusqu’à 64 Mio et les partages de photos jusqu’à 10 Mio. Caddy et Traefik n’imposent aucune limite de taille de requête tant que vous n’en ajoutez pas.
+Sans les lignes `Upgrade` et `Connection`, le WebSocket reçoit un 404 et rien n’arrive en direct. `client_max_body_size 64m;` compte : nginx refuse par défaut les corps de requête de plus de 1 Mo (413), alors que la restauration ou l’inspection d’une sauvegarde accepte jusqu’à 64 Mio et les partages de photos jusqu’à 10 Mio. Meshloom refuse lui-même toute autre requête de plus de 1 Mio (8 Mio pour le code source d’une extension), avec un 413. Une telle requête doit aussi finir d’arriver en 30 secondes (environ deux minutes pour le code source d’une extension), sinon elle reçoit un 408 ; les sauvegardes et les partages de photos n’ont pas de limite de temps. La connexion reste possible si quelqu’un inonde Meshloom de grosses requêtes anonymes : celles-ci reçoivent un 503. Caddy et Traefik n’imposent aucune limite de taille de requête tant que vous n’en ajoutez pas.
 
 ## Traefik (v3)
 

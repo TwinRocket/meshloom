@@ -24,8 +24,34 @@ migration runs on top of it. The final shape is "base schema + all migrations", 
 a migration must tolerate columns that `SCHEMA_TABLES` already created. Never read
 `SCHEMA_TABLES` alone as the current schema: it is not complete.
 
+## File modes
+
+SQLite creates the database with the process umask and gives `-wal` and `-shm` the
+database's mode. On a package install, `meshloom.service` sets `StateDirectoryMode=0750`
+and `UMask=0027`; `pkg/nfpm/postinstall.sh` closes the directory of an existing install (root
+does not walk it: the `meshloom` user could plant links there), and
+`app/services/data_permissions.py` removes the other-account bits from the database, its
+companions and `<db>.*` copies at startup, as `meshloom`, before the first connection (MSHL-461).
+At the plugin `setuid` level the model is `app/plugins/isolation/permissions.py`. Docker and
+source installs keep the umask they run with: `data/` belongs to whoever runs them.
+
 ## Migrations
 
+- Before opening the database, `Database.connect` calls `app/database_copy.py`: a schema
+  above the highest migration stops the start (`SchemaTooNewError`), and pending
+  migrations on a populated database make a copy first, or stop the start when it fails
+  (`CopyFailedError`). Name, retention, marker file and reasons: the header of that
+  module. A failed start is logged by `_lifespan_logging_startup_failure` in
+  `app/main.py` (a `StartupRefused` as one line, without a traceback), which closes the
+  connection: the aiosqlite worker is not a daemon thread and would hold the process
+  alive after uvicorn gave up, so `Restart=` would never fire. A timer ends the process
+  with code 3 after 15 s if something else still holds it (a blocked `to_thread`, a
+  connection busy on a query). A migration that always fails restarts every 8 s under the
+  packaged unit (systemd 257) until `StartLimitBurst=20` in an hour stops it, and Docker
+  backs off up to 1 min, without end. Only the first try copies the database. Each try
+  then costs about 2.5 s of CPU and what the migrations write before failing: 300 kB for
+  a light failure on a 900 MB database, up to what the whole migration set adds (81 MB
+  on a 600 MB one).
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
@@ -483,6 +509,17 @@ The last Community attestation of each instance key (migration 142, MSHL-445,
 `fetched_at`. Kept so a restart does not ask Community again. Cleared when Community is
 turned off. `CommunityAttestationRepository` (`community_attestations.py`). Excluded from
 backups, emptied in a database copy and by every restore.
+
+### `channel_slot_clears_pending`
+
+Keys of deleted channels whose radio slots are not known to be empty yet (migration 145,
+MSHL-459). PK `key`. Written in the transaction that deletes the channel and dropped once the
+slots are emptied. Otherwise (radio away or silent, a slot not read or cleared, an interruption)
+the next connect sync (`radio_sync.sync_and_offload_channels`) empties such a slot without
+adopting the channel, unless the channel was added back since, and drops the row once every
+slot was read. The drain of queued messages does not adopt such a key either.
+`ChannelRepository` (`channels.py`). Holds channel keys: excluded from backups, emptied in a
+database copy.
 
 ### `plugins`
 

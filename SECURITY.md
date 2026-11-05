@@ -95,9 +95,11 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   administrator turns on **Client addresses identify clients** (Users & Access).
 - **The first account goes to whoever reaches a new instance from the local
   network.** While no account exists, a new Meshloom creates its administrator
-  without a code for a local-network visitor. From a public address, through an
-  unlisted proxy, or once a public address is declared, it asks for the
-  installation code it logs (so does a Meshloom that already held data). Behind
+  without a code for a local-network visitor on the machine's IP address or a
+  local name. From a public address, through an unlisted proxy, under a domain
+  name (a web page can point its own name at a LAN address), or once a public
+  address is declared, it asks for the installation code it logs (so does a
+  Meshloom that already held data). Behind
   Docker's userland proxy every client looks local, and so does a visitor
   arriving through a local tunnel that adds no forwarding header (`ssh -R`,
   `socat`, HAProxy in TCP mode, seen as 127.0.0.1): declare a public address
@@ -138,7 +140,9 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   in **Settings > Proxy**, it listens on every interface (port 5001 by default,
   `0.0.0.0`), accounts do not cover it, and anyone who can reach the port can
   use the radio and send as the node. The apps that speak the protocol cannot
-  sign in. Do not forward the port; keep it on a network you know.
+  sign in. Do not forward the port; keep it on a network you know. A connection
+  must open with a protocol frame or it is closed, so a web page cannot drive the
+  radio through a browser request; anything that speaks the protocol still can.
 - **Home Assistant and its add-ons trust each other.** Under ingress, Meshloom
   accepts the user the Supervisor names (only from the Supervisor's address,
   never from a published port), and the add-on shares the host's D-Bus with

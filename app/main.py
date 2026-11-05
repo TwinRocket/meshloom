@@ -39,6 +39,8 @@ if sys.platform == "win32":
     del _loop, _is_proactor
 
 import asyncio
+import os
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -57,11 +59,13 @@ from app.config import settings as server_settings
 from app.config import setup_logging
 from app.cors import AllowedOriginsCORSMiddleware
 from app.database import db
+from app.database_copy import StartupRefused
 from app.frontend_static import (
     register_first_available_frontend_static_routes,
     register_frontend_missing_fallback,
 )
 from app.middleware import proxy_headers
+from app.middleware.body_limit import BodyLimitMiddleware
 from app.middleware.host_guard import HostGuardMiddleware
 from app.middleware.https_required import HttpsRequiredMiddleware
 from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
@@ -108,6 +112,7 @@ from app.routers import (
     ws,
 )
 from app.secret_store import SecretStoreUnavailable
+from app.services.data_permissions import tighten_database_files
 from app.services.hardening import set_not_dumpable
 from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
@@ -194,6 +199,8 @@ async def lifespan(app: FastAPI):
     db_path = Path(server_settings.database_path)
     file_existed = db_path.is_file() and db_path.stat().st_size > 0
 
+    # Before the first connection: SQLite gives -wal and -shm the database's mode.
+    tighten_database_files(db_path)
     await db.connect()
     logger.info("Database connected")
 
@@ -491,13 +498,77 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
     await _shutdown_step("background tasks", drain_background_tasks)
 
 
+UVICORN_STARTUP_FAILURE = 3
+_FAILED_START_EXIT_SECONDS = 15.0
+_FAILED_START_CLOSE_SECONDS = 5.0
+
+
+def _not_a_startup_traceback(record: logging.LogRecord) -> bool:
+    return "Traceback (most recent call last)" not in record.getMessage()[:64]
+
+
+def _log_startup_failure(exc: BaseException) -> None:
+    """Say why the start failed, in full.
+
+    Starlette hands uvicorn the whole traceback as one message, and logging gives
+    a message one line, capped at ``MAX_LINE_BYTES`` (``app/log_redaction.py``): the
+    cause, at its end, is cut. So it is logged here, and uvicorn's line, which then
+    only repeats it, is dropped.
+    """
+    if isinstance(exc, StartupRefused):
+        logger.critical("%s", exc)
+    else:
+        logger.critical("Meshloom could not start", exc_info=exc)
+    logging.getLogger("uvicorn.error").addFilter(_not_a_startup_traceback)
+
+
+def _exit_after_failed_start() -> None:
+    logger.critical("The process did not end after the failed start: forcing it")
+    os._exit(UVICORN_STARTUP_FAILURE)
+
+
+def _arm_failed_start_exit() -> None:
+    """A process stuck after a failed start is never restarted by a service manager.
+
+    A blocked ``to_thread``, or a connection busy on a query, holds the interpreter at
+    exit whatever is closed below.
+    """
+    timer = threading.Timer(_FAILED_START_EXIT_SECONDS, _exit_after_failed_start)
+    timer.daemon = True
+    timer.start()
+
+
+async def _close_after_failed_start() -> None:
+    """The aiosqlite worker is not a daemon thread: left open, it holds the interpreter."""
+    try:
+        await asyncio.wait_for(db.disconnect(), _FAILED_START_CLOSE_SECONDS)
+    except BaseException as exc:
+        logger.warning("The database could not be closed after a failed start: %r", exc)
+
+
+@asynccontextmanager
+async def _lifespan_logging_startup_failure(app: FastAPI):
+    """``lifespan``, with a readable log when the start fails."""
+    started = False
+    try:
+        async with lifespan(app):
+            started = True
+            yield
+    except BaseException as exc:
+        if not started:
+            _arm_failed_start_exit()
+            _log_startup_failure(exc)
+            await _close_after_failed_start()
+        raise
+
+
 app = FastAPI(
     title="Meshloom API",
     description=API_DESCRIPTION,
     version=get_app_build_info().version,
     openapi_tags=API_TAGS_METADATA,
     docs_url=None,
-    lifespan=lifespan,
+    lifespan=_lifespan_logging_startup_failure,
     # Default deny: an /api route that declares no permission is admin-only
     # (app/auth/permissions.py).
     dependencies=[Depends(enforce_declaration)],
@@ -506,6 +577,8 @@ app = FastAPI(
 register_api_docs_routes(app)
 # Innermost: every route needs a principal except the public ones (app/auth/middleware.py).
 app.add_middleware(AuthMiddleware)
+# Outside the gate: a public route (login, setup) would read its body too.
+app.add_middleware(BodyLimitMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 # Same-origin by default; Settings lists the other sites allowed (app/cors.py).
 app.add_middleware(AllowedOriginsCORSMiddleware)

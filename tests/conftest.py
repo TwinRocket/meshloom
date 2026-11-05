@@ -21,6 +21,14 @@ from app.database import Database  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _no_forced_exit_after_a_failed_start():
+    """A lifespan failing in-process must not end the test run 15 s later."""
+    import app.main
+
+    app.main._arm_failed_start_exit = lambda: None
+
+
+@pytest.fixture(scope="session", autouse=True)
 def cleanup_test_db_dir():
     """Clean up temporary pytest DB directory after the test session."""
     yield
@@ -171,6 +179,17 @@ async def push_owner(test_db):
 
 
 @pytest.fixture(autouse=True)
+def _keep_the_plugin_pause_state(monkeypatch):
+    """A test running the app's lifespan loads the pause: without a database it fails
+    closed, and that must not stay on this worker for the next test."""
+    from app.plugins import host
+    from app.plugins import pause as pause_module
+
+    monkeypatch.setattr(pause_module, "_state", pause_module.PauseState())
+    monkeypatch.setattr(host.plugin_manager, "paused", False)
+
+
+@pytest.fixture(autouse=True)
 async def _reset_hashtag_catalogue():
     """Cancel ingest-triggered catalogue work so tasks do not leak between tests."""
     from app.services.hashtag_catalogue import reset_for_tests
@@ -269,6 +288,16 @@ def _reset_community_breaker():
     reset_stats_client_for_tests()
     yield
     reset_stats_client_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _reset_instance_identity_locks():
+    """A contended asyncio.Lock binds to its event loop, and each test has its own."""
+    from app.services import instance_identity
+
+    instance_identity._locks.clear()
+    yield
+    instance_identity._locks.clear()
 
 
 @pytest.fixture(autouse=True)

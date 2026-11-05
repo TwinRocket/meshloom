@@ -7,6 +7,7 @@ from pathlib import Path
 import aiosqlite
 
 from app.config import settings
+from app.database_copy import migrations_finished, prepare_for_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -632,6 +633,10 @@ class Database:
     async def _connect_unlocked(self) -> None:
         logger.info("Connecting to database at %s", self.db_path)
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Before anything can write: SCHEMA_TABLES below already adds tables.
+        await asyncio.to_thread(prepare_for_migrations, self.db_path)
+
         self._connection = await aiosqlite.connect(self.db_path)
         self._connection.row_factory = aiosqlite.Row
 
@@ -659,6 +664,7 @@ class Database:
         from app.migrations import run_migrations
 
         await run_migrations(self._connection)
+        migrations_finished(self.db_path)
 
         # Secrets left plain (migration 129 ran without a key, or a row written by an
         # older build): encrypted as soon as a key is available. Never blocks startup.

@@ -1,4 +1,5 @@
 import logging
+import re
 from hashlib import sha256
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
@@ -35,6 +36,8 @@ from app.services.test_channel import is_test_channel_key, is_test_channel_name
 from app.websocket import broadcast_event, broadcast_success
 
 logger = logging.getLogger(__name__)
+_CHANNEL_KEY_RE = re.compile(r"[0-9A-Fa-f]{32}")
+
 router = APIRouter(prefix="/channels", tags=["channels"])
 
 
@@ -157,7 +160,8 @@ def _normalize_bulk_hashtag_name(name: str) -> str | None:
     normalized = hashtag_room_name(name)
     if not normalized.strip():
         return None
-    # The on-radio name field holds 32 UTF-8 bytes including the leading '#'.
+    # Limit of the on-radio name field, leading '#' included. The firmware keeps 31 bytes of
+    # it; the key comes from the whole name, so a 32-byte channel still works.
     if len(f"#{normalized}".encode()) > 32:
         return None
     return f"#{normalized}"
@@ -275,7 +279,7 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
     requested_name = request.name
     key_hex, channel_name, is_hashtag = _derive_channel_identity(requested_name, request.key)
 
-    logger.info("Creating channel %s: %s (hashtag=%s)", key_hex, channel_name, is_hashtag)
+    logger.info("Creating channel %s (hashtag=%s)", channel_name, is_hashtag)
 
     # Store in database only - radio sync happens at send time.
     # Manual create always adopts (and un-rejects if the key was refused).
@@ -526,22 +530,28 @@ async def refuse_channel(key: str) -> dict:
 async def delete_channel(key: str) -> dict:
     """Delete a channel from the database by key.
 
-    Channels are offloaded from the radio at every connect and loaded into a
-    slot on demand, so the radio is not touched here; when they are kept on the
-    radio (``keep_channels_on_radio``, MSHL-41), the slots holding this channel
-    are emptied too, or the next connect sync would adopt it again.
+    The slots holding this channel are emptied too, or the next connect sync would
+    adopt it again: a send leaves it on a slot until then, and
+    ``keep_channels_on_radio`` keeps it there. The row goes in one transaction with
+    a pending clear, dropped once the slots are empty, so any interruption or a radio
+    out of reach is handled at the next connect sync.
     """
     if is_public_channel_key(key):
         raise HTTPException(
             status_code=400, detail="The canonical Public channel cannot be deleted"
         )
+    if not _CHANNEL_KEY_RE.fullmatch(key):
+        raise HTTPException(
+            status_code=400, detail="Channel key must be exactly 16 bytes (32 hex chars)"
+        )
 
-    logger.info("Deleting channel %s from database", key)
-    await ChannelRepository.delete(key)
-    from app.radio_sync import clear_channel_from_radio_slots
-
-    await clear_channel_from_radio_slots(key)
-
+    logger.info("Deleting a channel from the database")
+    deleted = await ChannelRepository.delete_with_slot_clear_pending(key)
     broadcast_event(WsEvent.CHANNEL_DELETED, {"key": key})
+
+    if deleted:
+        from app.radio_sync import clear_channel_from_radio_slots
+
+        await clear_channel_from_radio_slots(key)
 
     return {"status": "ok"}

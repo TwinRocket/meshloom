@@ -38,6 +38,7 @@ from app.log_redaction import (
 # Imported at module level: importing app.main runs setup_logging(), whose
 # dictConfig would drop caplog's handler if it happened inside a test.
 from app.main import log_server_errors, request_validation_error_handler
+from app.services.channel_slots import channel_slot_frame
 from tests.fixtures.meshcore_loopback import cli_reply, make_loopback
 
 SECRET = "S3cr3t-Pw!"
@@ -822,3 +823,111 @@ def test_formatter_whose_inner_raises_gives_the_placeholder(capsys):
     assert line.endswith(REDACTION_FAILED)
     assert SECRET not in line
     assert capsys.readouterr().err == ""
+
+
+# -- channel keys in request URLs (MSHL-459) --------------------------------------
+
+CHANNEL_KEY = "C3" * 16
+
+
+def _app_handlers(logger: logging.Logger) -> list[logging.Handler]:
+    """The handlers setup_logging() wrapped, without pytest's own capture handlers."""
+    return [h for h in logger.handlers if isinstance(h.formatter, RedactingFormatter)]
+
+
+def _access_record(method: str, path: str) -> logging.LogRecord:
+    """The record uvicorn's access logger makes (same format string, same arguments)."""
+    return logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:5000", method, path, "1.1", 200),
+        None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("DELETE", f"/api/channels/{CHANNEL_KEY}"),
+        ("GET", f"/api/channels/{CHANNEL_KEY}/detail"),
+        ("POST", f"/api/channels/{CHANNEL_KEY.lower()}/mark-read"),
+        ("GET", f"/api/messages?type=CHAN&conversation_key={CHANNEL_KEY}"),
+        ("GET", f"/api/messages?conversation_key={CHANNEL_KEY}&limit=5"),
+        ("PUT", f"/api/notifications/rules/conversations/{CHANNEL_KEY}"),
+    ],
+)
+def test_a_channel_key_in_a_request_url_never_reaches_a_log(method, path):
+    """Through the handlers setup_logging() installed: stream and GET /api/debug buffer."""
+    access = logging.getLogger("uvicorn.access")
+    handlers = _app_handlers(access)
+    assert len(handlers) == 2  # the stream and the ring buffer
+    for handler in handlers:
+        line = handler.format(_access_record(method, path))
+        assert CHANNEL_KEY not in line.upper()
+        assert REDACTED in line
+    access_level = access.level
+    access.setLevel(logging.INFO)
+    try:
+        access.handle(_access_record(method, path))
+    finally:
+        access.setLevel(access_level)
+    recent = [line for line in get_recent_log_lines(1000) if method in line]
+    assert recent and CHANNEL_KEY not in recent[-1].upper()
+
+
+def test_the_server_error_line_does_not_carry_a_channel_key():
+    handlers = _app_handlers(logging.getLogger())
+    assert handlers
+    record = logging.LogRecord(
+        "app.main",
+        logging.ERROR,
+        __file__,
+        1,
+        "HTTP %d on %s %s",
+        (500, "DELETE", f"/api/channels/{CHANNEL_KEY}"),
+        None,
+    )
+    for handler in handlers:
+        assert CHANNEL_KEY not in handler.format(record)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "/api/contacts/" + "ab" * 32,  # a contact's public key is public
+        "/api/channels/" + "ab" * 15,  # too short to be a channel key
+        "/api/settings?limit=" + "1" * 12,
+    ],
+)
+def test_other_url_values_stay_readable(text):
+    assert redact_text(text, unanchored=True) == text
+
+
+# -- channel secrets in meshcore's DEBUG frames (MSHL-459) ------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["serial", "tcp"])
+async def test_a_channel_secret_stays_out_of_debug_logs(debug_logs, kind):
+    """SET_CHANNEL going out and CHANNEL_INFO coming back, through the real stack."""
+    secret = bytes(range(0xA0, 0xB0))
+    channel_info = b"\x12\x02" + b"#ops".ljust(32, b"\x00") + secret
+
+    def responder(frame: bytes) -> list[bytes]:
+        return [channel_info] if frame[0] == 0x1F else [b"\x00"]
+
+    loop = await make_loopback(kind, responder=responder)
+    try:
+        await loop.mc.commands.send(channel_slot_frame(2, "#ops", secret), [EventType.OK])
+        result = await loop.mc.commands.get_channel(2)
+        await loop.settle()
+    finally:
+        await loop.close()
+
+    assert result.payload["channel_secret"] == secret  # the app still reads it
+    output = debug_logs.text + "\n".join(get_recent_log_lines(1000))
+    for form in secret_forms(secret):
+        assert form not in output

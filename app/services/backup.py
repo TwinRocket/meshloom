@@ -223,6 +223,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "Community attestations of the instance keys: the restore rotates those keys",
     ),
+    "channel_slot_clears_pending": (
+        "excluded",
+        "Deleted channels still on a slot of this radio: kept out of a copy, they hold keys",
+    ),
     **{
         f"app_settings.{column}": (
             "excluded",

@@ -474,7 +474,7 @@ export function ComposerFileTab({
           >
             {byteLimit === null
               ? t('chat.fileTab.bytes', { count: estimated })
-              : t('chat.fileTab.budget', { used: estimated, limit: byteLimit - 1 })}
+              : t('chat.fileTab.budget', { used: estimated, limit: byteLimit })}
             {!captionFits && ` - ${t('chat.fileTab.captionTooLong')}`}
           </p>
         </div>

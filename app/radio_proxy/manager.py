@@ -17,6 +17,7 @@ from app.message_limits import is_message_too_long
 from app.radio_proxy.policy import CommandDisposition, classify_command, send_txt_is_plain
 from app.radio_proxy.protocol import (
     FrameAssembler,
+    NotAFrameStart,
     encode_ack,
     encode_battery,
     encode_channel_info,
@@ -411,7 +412,12 @@ class RadioProxyManager:
                 return
             if not chunk:
                 return
-            for payload in assembler.feed(chunk):
+            try:
+                frames = assembler.feed(chunk)
+            except NotAFrameStart:
+                logger.info("Radio proxy closed a connection that does not speak MeshCore")
+                return
+            for payload in frames:
                 await self._handle_command(session, payload)
 
     async def _handle_command(self, session: ProxySession, payload: bytes) -> None:

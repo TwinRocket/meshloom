@@ -123,6 +123,7 @@ def test_the_redaction_prefixes_still_exist_in_meshcore():
         "sending pkt : ",
         "Received data: ",
         "Received private key response: ",
+        "received channel info response: ",
         "Unhandled data received ",
         "Dispatching event: ",
         "handle_rx parse error: %s: %s | raw=%s\\n%s",

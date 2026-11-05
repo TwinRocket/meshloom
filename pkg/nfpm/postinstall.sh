@@ -121,13 +121,28 @@ migrate_dnf_source
 mark_kiosk_host() {
     [ -f /etc/xdg/autostart/meshloom-kiosk.desktop ] \
         || [ -f /usr/lib/meshloom/meshloom-kiosk-setup ] || return 0
-    [ -e /var/lib/meshloom/kiosk ] && return 0
+    if [ -e /var/lib/meshloom/kiosk ] && [ ! -L /var/lib/meshloom/kiosk ]; then
+        return 0
+    fi
     mkdir -p /var/lib/meshloom || return 0
-    : >/var/lib/meshloom/kiosk || return 0
-    chmod 0644 /var/lib/meshloom/kiosk || true
+    # The meshloom user owns this directory and could plant a link at this name:
+    # root never writes through it. Built in the root-owned directory, then renamed
+    # over whatever is there (a rename replaces a link, it does not follow it).
+    marker=$(mktemp /var/lib/meshloom-update/kiosk.XXXXXX) || return 0
+    chmod 0644 "$marker" || true
+    mv -fT "$marker" /var/lib/meshloom/kiosk || { rm -f "$marker"; return 0; }
     echo "==> Kiosk image detected: marked this host as a Meshloom kiosk."
 }
 mark_kiosk_host || true
+
+# Up to 4.18 meshloom.service reset this directory to 0755 at every start, with a
+# 0644 database inside. Closing the directory shuts out other accounts now; the
+# server tightens the database files itself at its next start, as meshloom. Root
+# does not walk this tree: the meshloom user could plant links in it.
+state_dir=/var/lib/meshloom
+if [ -d "$state_dir" ] && [ ! -L "$state_dir" ]; then
+    chmod 0750 "$state_dir" || true
+fi
 
 # Kiosk device token (app/services/kiosk.py, docs/dev/auth.md "Kiosk device
 # token"): the server writes /var/lib/meshloom-kiosk/kiosk.token (0640) and the

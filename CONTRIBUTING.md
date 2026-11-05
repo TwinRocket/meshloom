@@ -133,15 +133,23 @@ overload). The figures and how to read them: `docs/dev/plugins-security.md`,
 
 | Script | Purpose |
 |--------|---------|
-| `publish.sh` | Cuts a release in one command (`scripts/build/publish.sh X.Y.Z`), run by an admin on `main` equal to `origin/main`. The only local change allowed is an uncommitted `CHANGELOG.md` edit (the `[X.Y.Z]` section written by hand), which is committed with the release. Refuses a tag that already exists locally or on origin. Runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), checks it with `check_version_consistency.sh`, commits exactly those files and `LICENSES.md` (unless `--skip-licenses`), pushes `main`, then pushes the annotated (unsigned) `X.Y.Z` tag. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
-| `tag_release.sh` | Recovery only, when `publish.sh` pushed `main` but not the tag: on a clean `main` equal to `origin/main`, checks the version sources, the CHANGELOG section, the `all-quality` check on HEAD and that the tag is new, then pushes the annotated `X.Y.Z` tag after confirmation (`--dry-run` checks only). |
+| `publish.sh` | Cuts a release in one command (`scripts/build/publish.sh X.Y.Z`), run by an admin on `main` equal to `origin/main`. The only local change allowed is an uncommitted `CHANGELOG.md` edit (the `[X.Y.Z]` section written by hand), which is committed with the release. Refuses a tag that already exists locally or on origin. Runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), checks it with `check_version_consistency.sh`, commits exactly those files and `LICENSES.md` (unless `--skip-licenses`), pushes `main`, then pushes the annotated (unsigned) `X.Y.Z` tag. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. `X.Y.Z-rc.N` works the same from `main` or `preversion-5`, without touching the add-on files (`docs/dev/releasing.md`). |
+| `tag_release.sh` | Recovery only, when `publish.sh` pushed `main` but not the tag: on a clean `main` equal to `origin/main`, checks the version sources, the CHANGELOG section, the `all-quality` check on HEAD and that the tag is new, then pushes the annotated `X.Y.Z` tag after confirmation (`--dry-run` checks only). Also takes `X.Y.Z-rc.N`, on `main` or `preversion-5`. |
 | `release_common.sh` | Shared shell helpers (version validation, formatting) sourced by other build scripts. |
-| `check_version_consistency.sh` | Fails unless the four version sources (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag of `meshloom/Dockerfile`) equal the tag (Release `preflight`, `publish.sh`, `tag_release.sh`). `uv.lock` is updated by `publish.sh` but not checked. |
+| `check_version_consistency.sh` | Fails unless the four version sources (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag of `meshloom/Dockerfile`) equal the tag (Release `preflight`, `publish.sh`, `tag_release.sh`). For `X.Y.Z-rc.N`, the add-on's two must instead stay on one stable version. `uv.lock` is updated by `publish.sh` but not checked. |
+| `install_nfpm.sh` | Installs the pinned nFPM after checking its sha256. Release jobs run it next to the signing key. |
+| `resolve_linux_repo_channels.py` | Decides which release the apt/dnf `stable` and `testing` suites serve, from the published releases. Fails closed. |
+| `fetch_linux_repo_packages.sh` | Downloads and checks what each suite serves. Stable fails closed; an rc that cannot be served only stops its own publication. |
+| `check_linux_repo_packages.sh` | Fails unless a directory holds the signed packages of exactly one release. |
+| `build_linux_repo.sh` | Builds both suites' apt and dnf trees, unsigned, from downloaded packages. Refuses a package of another version in a suite. |
+| `list_release_assets.sh` | Lists a GitHub release's assets, and fails if a directory holds anything else. |
+| `check_signing_environment.py` | Fails unless the `release-signing` environment exists and is limited to selected refs. |
 | `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |
 | `package_release_artifact.sh` | Builds the prebuilt-frontend release zip (called by `release.yml`). |
 | `create_github_release.sh` | Creates the GitHub release with changelog notes (called by `release.yml`). Never creates a tag: fails unless `X.Y.Z` exists on origin and points at the built commit. |
 | `build_nfpm_packages.sh` | Builds Meshloom `.deb` and `.rpm` packages with nFPM. |
 | `check_rpm_signed.py` | Fails unless each `.rpm` carries a signature header. |
+| `check_deb_signed.py` | Fails unless each `.deb`'s origin signature verifies against a keyring. |
 | `neutralize_project_version.py` | Pins the project's own version in the dependency manifests so the Docker dependency layer stays cached across releases. |
 | `build_rpi_image.sh` / `build_rpi_kiosk_image.sh` | Raspberry Pi Lite image (built by `release.yml`) / Desktop kiosk image (manual). |
 | `collect_licenses.sh` | Gathers third-party license attributions into `LICENSES.md`. |

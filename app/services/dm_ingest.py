@@ -21,7 +21,6 @@ from app.services.messages import (
     format_contact_log_target,
     handle_duplicate_message,
     reconcile_duplicate_message,
-    truncate_for_log,
 )
 
 if TYPE_CHECKING:
@@ -379,8 +378,7 @@ async def ingest_decrypted_direct_message(
         return None
 
     logger.info(
-        'Stored direct message "%s" for %r (msg ID %d in contact ID %s, outgoing=%s)',
-        truncate_for_log(decrypted.message),
+        "Stored direct message for %r (msg ID %d in contact ID %s, outgoing=%s)",
         format_contact_log_target(contact.name if contact else None, conversation_key),
         message.id,
         conversation_key,

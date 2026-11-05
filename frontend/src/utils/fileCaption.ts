@@ -19,7 +19,7 @@ export function estimatedFileMessageBytes(host: string, caption: string): number
   return trimmed ? base + 1 + byteLength(trimmed) : base;
 }
 
-/** A message of `bytes` fits `limit` (null: none) the way the composer judges: strictly under. */
+/** A message of `bytes` fits `limit` (null: none) the way the composer and the server judge. */
 export function fitsLimit(bytes: number, limit: number | null): boolean {
-  return limit === null || bytes < limit;
+  return limit === null || bytes <= limit;
 }

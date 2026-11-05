@@ -2,6 +2,9 @@
   "errors": {
     "relay_login_challenge": "Too many failed sign-ins through Meshloom Remote from this network. Opening the check page…",
     "auth_rate_limited": "Too many attempts. Try again in {{retry_after}} seconds.",
+    "request_timeout": "This request took too long to arrive. Try again.",
+    "server_busy": "Meshloom is busy. Try again in a moment.",
+    "request_too_large": "This request is too large for Meshloom.",
     "auth_host_rejected": "Request refused: this address is not one this instance answers to.",
     "auth_last_admin": "This is the last administrator: keep at least one.",
     "auth_no_session": "Signing in did not open a session. Reload the page and try again.",

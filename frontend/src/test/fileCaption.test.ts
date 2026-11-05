@@ -16,9 +16,9 @@ describe('fileCaption', () => {
     expect(estimatedFileMessageBytes('meshl.ink', 'abc')).toBe(34);
     expect(estimatedFileMessageBytes('meshl.ink', 'é')).toBe(33);
   });
-  it('judges the limit strictly, like the composer', () => {
-    expect(fitsLimit(155, 156)).toBe(true);
-    expect(fitsLimit(156, 156)).toBe(false);
+  it('accepts exactly the limit, like the composer and the server', () => {
+    expect(fitsLimit(156, 156)).toBe(true);
+    expect(fitsLimit(157, 156)).toBe(false);
     expect(fitsLimit(10_000, null)).toBe(true);
   });
 });

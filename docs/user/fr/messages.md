@@ -52,7 +52,7 @@ Le nom, avec son `#` initial, passe dans une fonction de hachage (SHA-256, une r
 Quelques conséquences :
 
 - **Le nom est haché exactement tel qu’écrit.** Une majuscule, un espace ou un accent en trop donne une autre clé, donc un autre canal. Par défaut, Meshloom évite ces fautes, comme l’application officielle MeshCore : il retire les espaces aux deux bouts, met le nom en minuscules, et n’accepte que des lettres sans accent, des chiffres et des tirets. L’option **Autoriser majuscules, espaces et caractères étendus** permet de rejoindre un canal créé ailleurs avec un nom inhabituel : le nom est alors haché tel quel, sauf les espaces aux deux extrémités. Toutes les applications ne retirent pas ces espaces extérieurs, évitez-les dans un nom de canal.
-- **Le nom doit être court.** 30 octets au plus, `#` compris, par défaut (comme l’application officielle), et 32 avec l’option (la limite de la radio). Un caractère accentué peut occuper plusieurs octets.
+- **Le nom doit être court.** 30 octets au plus, `#` compris, par défaut (comme l’application officielle), et 32 avec l’option (la radio garde les 31 premiers octets du nom, et le canal fonctionne de la même façon). Un caractère accentué peut occuper plusieurs octets.
 - **Un nom facile à deviner est un canal ouvert.** N’importe qui peut taper `#meteo`. Un canal hashtag organise les conversations, il ne les cache pas.
 
 Vous pouvez aussi en ajouter plusieurs d’un coup : l’onglet **Ajout groupé** accepte une liste de noms, séparés par des retours à la ligne, des espaces ou des virgules. Meshloom trouve aussi certains canaux hashtag tout seul : ils attendent dans **Canaux découverts**, où vous choisissez **Adopter** ou **Refuser** pour chacun.

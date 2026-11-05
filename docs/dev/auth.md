@@ -282,7 +282,8 @@ the setup code are never exported; `auth_audit` is not in the JSON backup but
 stays in the SQLite download (IPs, usernames). The SQLite download
 (`GET /settings/backup/database`) keeps the accounts and the audit trail but
 not their secrets: `prepare_sqlite_snapshot()` sets `users.password_hash`,
-`users.totp_secret` and `auth_settings.setup_code_hash` to NULL and empties
+`users.totp_secret` with `totp_enabled_at` and `totp_last_counter`, and
+`auth_settings.setup_code_hash` to NULL and empties
 `sessions` and `recovery_codes` in the copy, under `secure_delete`. A restored snapshot therefore
 has accounts that cannot log in with a password until an admin reset. The
 passkeys (`webauthn_credentials`) stay in the copy: they are public keys, and
@@ -1532,8 +1533,9 @@ in `app/auth/providers/trusted_network.py`: `X-Forwarded-*`, `Forwarded`,
 address that is not local (`ratelimit.client_is_public`: not RFC 1918,
 loopback, link-local, ULA or CGNAT per `app/net/local_address.py`, so a
 documentation or reserved address is exposed too; on the address a trusted
-proxy forwarded), or
-when `auth_settings.public_urls` is not empty. The first exposed `GET
+proxy forwarded), has a `Host` a public DNS zone could hold
+(`host_guard.name_cannot_be_rebound` fails, whatever `host_guard_mode` says: DNS
+rebinding, MSHL-461), or when `auth_settings.public_urls` is not empty. The first exposed `GET
 /api/auth/session` or `POST /api/auth/setup` issues a code
 (`ensure_exposure_code()`, under a lock, only when none is stored), logs it at
 WARNING and answers `setup_code_required: true`; setup without it answers 403
@@ -1814,11 +1816,17 @@ the result here.
 ## Host guard
 
 `app/middleware/host_guard.py` (MSHL-60) answers one question, "is this `Host` a
-name of this instance?" (`host_allowed`), for two callers with different
+name of this instance?" (`host_allowed`), for callers with different
 strictness:
 
 - The trusted-network provider calls it directly and **always** refuses a
   rejected host, in both modes (see "Trusted networks").
+- First run (`setup_code.request_exposed`) asks `name_cannot_be_rebound`, in both
+  modes: `host_allowed` plus single-label names, since no public DNS name has one
+  label and a Docker container's own name is not the one its LAN users type. A
+  rebinding page is same-origin for the CSRF rule and comes from a LAN browser, so
+  only its name gives it away. It then needs the installation code, as does an owner
+  on a dotted name of their own.
 - Mailed sign-in links do not use it: `host_allowed` accepts any IP literal and
   `.local` name, which a client can point at its own box. They take the stricter
   `_host_is_this_machine` of `app/routers/auth_email.py` ("E-mail code and sign-in

@@ -374,7 +374,12 @@ async def test_an_existing_database_without_a_code_stays_closed_to_public_peers(
 
 async def test_a_relayed_request_is_exposed_even_from_loopback():
     """The relay connects from the host itself: its auth_via alone marks it."""
-    scope = {"type": "http", "auth_via": "relay", "client": ("127.0.0.1", 1), "headers": []}
+    scope = {
+        "type": "http",
+        "auth_via": "relay",
+        "client": ("127.0.0.1", 1),
+        "headers": [(b"host", b"127.0.0.1:8000")],
+    }
     assert await setup_code.request_exposed(scope) is True
     assert await setup_code.request_exposed({**scope, "auth_via": "lan"}) is False
 
@@ -384,7 +389,12 @@ async def test_a_relayed_request_is_exposed_even_from_loopback():
 )
 async def test_a_client_that_is_not_exactly_a_local_address_is_exposed(client):
     """MSHL-431: a trusted proxy's X-Forwarded-For lands in scope["client"] verbatim."""
-    scope = {"type": "http", "auth_via": "lan", "client": (client, 1), "headers": []}
+    scope = {
+        "type": "http",
+        "auth_via": "lan",
+        "client": (client, 1),
+        "headers": [(b"host", b"192.168.1.5:8000")],
+    }
     assert await setup_code.request_exposed(scope) is True
     exact = client.strip().split("%")[0].removeprefix("::ffff:")
     assert await setup_code.request_exposed({**scope, "client": (exact, 1)}) is False
@@ -425,3 +435,81 @@ async def test_a_public_peer_needs_a_code_while_first_run_was_never_prepared():
         assert (await client.get("/api/auth/session")).json()["setup_code_required"] is True
     async with make_client(client=("192.168.1.10", 40000)) as client:
         assert (await client.get("/api/auth/session")).json()["setup_code_required"] is False
+
+
+# ---------------------------------------------------------------- the Host of a first-run request
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "attacker.example",
+        "attacker.example:8000",
+        "attacker.example.",
+        "192.168.1.5.nip.io",
+        "meshloom.my-home.example.org",
+    ],
+)
+async def test_a_name_that_may_be_public_needs_the_code_even_from_the_lan(host, caplog):
+    """A public DNS name may point at this instance for one page's lifetime."""
+    await _fresh()
+    headers = {"Host": host, "Origin": f"http://{host}", "Sec-Fetch-Site": "same-origin"}
+    with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
+        async with make_client(client=("192.168.1.10", 40000)) as client:
+            session = (await client.get("/api/auth/session", headers=headers)).json()
+            assert session["setup_code_required"] is True
+            refused = await client.post("/api/auth/setup", json=_setup_body(), headers=headers)
+            assert refused.status_code == 403
+            assert _code(refused) == "auth_setup_code_invalid"
+            assert not await UserRepository.any_exist()
+            # The owner, on such a name of their own, uses the logged code.
+            code = _logged_code(caplog)
+            done = await client.post(
+                "/api/auth/setup", json=_setup_body(setup_code=code), headers=headers
+            )
+            assert done.status_code == 200, done.text
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "192.168.1.5",
+        "192.168.1.5:8000",
+        "[fd00::5]:8000",
+        "localhost:8000",
+        "meshloom.local",
+        "meshloom.lan:8000",
+        "meshloom.home.arpa",
+        "meshloom.internal",
+        "mypi",  # a bare name: Docker's host name is not the machine's
+        "mypi:8000",
+    ],
+)
+async def test_lan_names_still_set_up_without_a_code(host, caplog):
+    await _fresh()
+    headers = {"Host": host}
+    with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
+        async with make_client(client=("192.168.1.10", 40000)) as client:
+            session = (await client.get("/api/auth/session", headers=headers)).json()
+            assert session["setup_code_required"] is False
+            done = await client.post("/api/auth/setup", json=_setup_body(), headers=headers)
+            assert done.status_code == 200, done.text
+    assert not any("installation code" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_public_name_does_not_lock_out_the_owner_on_the_lan_address():
+    """The exposure code stays waived for a request on a local name."""
+    await _fresh()
+    async with make_client(client=("192.168.1.10", 40000)) as client:
+        foreign = await client.get("/api/auth/session", headers={"Host": "attacker.example"})
+        assert foreign.json()["setup_code_required"] is True
+        owner = {"Host": "192.168.1.5:8000"}
+        session = (await client.get("/api/auth/session", headers=owner)).json()
+        assert session["setup_code_required"] is False
+        done = await client.post("/api/auth/setup", json=_setup_body(), headers=owner)
+        assert done.status_code == 200, done.text
+
+
+async def test_a_request_without_a_host_header_is_exposed():
+    scope = {"type": "http", "auth_via": "lan", "client": ("192.168.1.10", 1), "headers": []}
+    assert await setup_code.request_exposed(scope) is True

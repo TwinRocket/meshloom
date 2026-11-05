@@ -133,6 +133,12 @@ COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # The same wrapper the deb/rpm package ships; it finds /app/.venv by itself.
 COPY --chmod=0755 pkg/nfpm/meshloom-admin /usr/local/bin/meshloom-admin
 
+# The venv is complete in the image: `uv run` must never sync it (that would install
+# the dev group, from the network). The cache directory is one any uid can create
+# (`docker run --user` has no home). The entrypoint moves it for MESHLOOM_RUN_AS_USER.
+ENV UV_NO_SYNC=1
+ENV UV_CACHE_DIR=/tmp/meshloom-uv-cache
+
 # Last, because its value changes with every commit and an ENV layer invalidates
 # everything built after it. Declared any earlier, it rebuilt the dependency
 # layer on every push — which on armv7 means compiling eight C extensions under

@@ -731,7 +731,10 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
     user = await UserRepository.create("admin", "admin", password_hash=password_hash)
     recovery_hash = "$argon2id$v=19$m=1024,t=2,p=1$cmVjb3Zlcnk$cmVjb3ZlcnloYXNo"
     async with test_db.tx() as conn:
-        await conn.execute("UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP'")
+        await conn.execute(
+            "UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP', totp_enabled_at = 1,"
+            " totp_last_counter = 7"
+        )
         await conn.execute(
             "INSERT INTO recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, 1)",
             (user.id, recovery_hash),
@@ -748,6 +751,9 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
     async with aiosqlite.connect(snapshot) as conn:
         async with conn.execute("SELECT username, password_hash, totp_secret FROM users") as c:
             assert await c.fetchall() == [("admin", None, None)]
+        # An enabled flag without its secret would ask a code nobody can give.
+        async with conn.execute("SELECT totp_enabled_at, totp_last_counter FROM users") as c:
+            assert await c.fetchall() == [(None, None)]
         async with conn.execute("SELECT COUNT(*) FROM sessions") as c:
             assert (await c.fetchone())[0] == 0
         async with conn.execute("SELECT COUNT(*) FROM recovery_codes") as c:

@@ -145,6 +145,14 @@ and the OpenAPI page (`/docs`), not a table here.
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
   middleware): HSTS only over direct https (never ingress or relay: the relay owns it), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).
+- `middleware/body_limit.py` (`BodyLimitMiddleware`, just outside the auth gate, MSHL-461):
+  1 MiB per request by default, on `Content-Length` before reading and counted for a
+  chunked body; 413 `request_too_large` with `Connection: close`. `SELF_LIMITED_ROUTES`
+  (backup inspect and restore, share uploads) read in chunks and refuse with their own
+  code; `LARGER_ROUTES` holds JSON routes that need more (plugin source). A new route
+  taking a large body goes in one of the two. Capped routes also have a read deadline
+  (408 `request_timeout`) and, with no principal, share a budget for what they hold past
+  16 KiB (503 `server_busy`); self-limited ones have neither: the gate answers first.
 - `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
   gate and CORS) is the only interpreter of `X-Forwarded-For` and
   `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
@@ -817,6 +825,9 @@ run as root).
 
 ## Migrations
 
+- `app/database_copy.py` runs first (`Database.connect`): it refuses a schema newer than
+  the highest migration, and copies a populated database with pending migrations, or
+  stops the start if it cannot (`docs/dev/database.md`).
 - One file per version: `app/migrations/_NNN_description.py`, discovered by numeric
   prefix, run in order, tracked by `PRAGMA user_version`.
 - Never rename or delete one (root `AGENTS.md`, "Deployments that never delete
@@ -830,6 +841,9 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 145 (MSHL-459) adds `channel_slot_clears_pending` (keys of deleted channels
+  still on a radio slot); `IF NOT EXISTS`, no `SCHEMA_TABLES` change. Excluded from the JSON
+  backup, emptied in a database copy (`SNAPSHOT_EMPTIED_TABLES`).
 - Migration 144 sets `share_preview_policy` to `always`, the new default, where it holds
   `private`, sharing is off and the share terms were never accepted (`share_terms_version = 0`); any other keeps its value. The column
   default from migration 102 stays `private` (SQLite cannot change it), which is harmless:
@@ -1199,7 +1213,11 @@ run as root).
   budget; `tests/test_message_limits.py` reads the composer's TSX constants and fails
   when they drift or are not found.
 - Channel slots are reused through a session LRU cache, except on TCP or with
-  `force_channel_slot_reconfigure`, where every send calls `set_channel(...)`.
+  `force_channel_slot_reconfigure`, where every send rewrites the slot. A real channel is
+  always written through `services/channel_slots.py` (`write_channel_slot`, raw
+  `CMD_SET_CHANNEL` frame), never `mc.commands.set_channel`: the library replaces the secret
+  of any `#` name by the hash of the name, which breaks a private channel named `#x`.
+  `set_channel` remains for emptying a slot (empty name, zero secret).
 - `keep_channels_on_radio` (MSHL-41, `app_settings`, off by default, migration 139).
   Off: `sync_and_offload_channels()` copies every slot into the DB and empties it
   at each connect. On: it copies them without clearing (`on_radio=True`) and seeds
@@ -1210,9 +1228,14 @@ run as root).
   forced reconfigure) every send rewrites the scratch slot. One-off sends that
   borrow a slot (the mesh test, `routers/tools.py`) ask
   `temp_channel_slot()`, which answers the scratch slot in keep mode. Deleting a
-  channel (`DELETE /api/channels/{key}`) empties the slots holding it in keep mode
-  (`radio_sync.clear_channel_from_radio_slots()`), or the next connect would adopt
-  it again. The setting is in the v1 backup settings. Tests:
+  channel (`DELETE /api/channels/{key}`) forgets its cached slot and empties the slots
+  holding it in both modes (`radio_sync.clear_channel_from_radio_slots()`), or the next
+  connect would adopt it again. The delete writes the key to `channel_slot_clears_pending`
+  (migration 145) in the same transaction and drops it once the slots are empty; the scan
+  stops at the first radio timeout. A key still there is never adopted by the drain of
+  queued messages, and the next connect sync empties its slot without adopting it, unless
+  the channel was added back. A slot keeps 31 bytes of a name (`name_as_kept_by_radio`): the
+  hourly audit compares through it and the sync never shortens the stored name. The setting is in the v1 backup settings. Tests:
   `tests/test_keep_channels_on_radio.py`.
 - Path hash modes `0`/`1`/`2` mean 1-, 2- and 3-byte hop IDs. `path_len` in the
   API is always a hop count.
@@ -1278,6 +1301,15 @@ run as root).
   `poweroff`, `shutdown`, `erase` and `start` are refused: reboot with
   `mc.commands.reboot()` plus `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
   use the remote CLI over the mesh.
+- **No message text at INFO or above**, and no private channel's name on the message lines:
+  they use `channel_log_label()` (`app/data/meshcore_channels.py`), because logs end up in bug
+  reports. A few DEBUG lines keep the first 50 characters; `docs/user/*/deep/security.md` says so.
+- **Never log a channel key.** App code does not pass a whole key to a logger. A key in a
+  request URL (uvicorn's access log, the server-error lines, the `GET /api/debug` buffer) is
+  replaced by the formatter (`_URL_CHANNEL_KEY_RE`, `app/log_redaction.py`), and the SET_CHANNEL
+  and CHANNEL_INFO frames meshcore logs at DEBUG are redacted like the other secret frames.
+  A few debug and audit lines in `radio_sync.py` and `message_send.py` carry `key[:8]`: 4 bytes
+  of the secret, which identify a channel across logs.
 - **Never log a Wi-Fi password or a private key, at any level.**
   `app/log_redaction.py` enforces it for what meshcore logs: a filter at index 0
   of the `meshcore` logger (structural rules on the frame codes 0x42/0x18 out,

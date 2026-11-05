@@ -41,6 +41,8 @@ Deux exceptions à cette réutilisation :
 - Avec une **radio réseau (TCP)**, chaque envoi vers un salon réécrit le salon dans la radio, car un autre programme peut utiliser la même radio.
 - **Réécrire le canal avant chaque envoi**, dans **Réglages → Radio → Avancé**, fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
 
+Supprimer un salon dans Meshloom vide aussi son emplacement sur la radio, tout de suite ou à la prochaine connexion si la radio est absente. Sinon, cette connexion ferait revenir le salon.
+
 ### Garder les salons sur la radio
 
 **Garder les canaux sur la radio**, dans **Réglages → Radio → Messagerie**, est désactivé par défaut. Activez-le si vous utilisez aussi la radio sans Meshloom (l’application MeshCore officielle, un autre client) ou si vous voulez que les salons d’une restauration restent sur la radio. Le réglage s’applique à la prochaine connexion :
@@ -49,7 +51,6 @@ Deux exceptions à cette réutilisation :
 - Un envoi vers un salon déjà présent sur la radio utilise son emplacement tel quel.
 - Meshloom garde un emplacement pour lui, le dernier, pour envoyer vers les salons absents de la radio. Il n’écrase jamais les autres. Une radio à 8 emplacements garde 7 salons ; la page des réglages affiche le nombre pour votre radio.
 - Avec une radio réseau (TCP), ou avec **Réécrire le canal avant chaque envoi**, chaque envoi vers un salon passe par ce dernier emplacement.
-- Supprimer un salon dans Meshloom vide aussi son emplacement sur la radio, sinon la connexion suivante le ferait revenir.
 - Le **Test radio** (dans la barre latérale) emprunte lui aussi le dernier emplacement.
 
 Le choix des salons gardés vous revient : ajoutez-les ou retirez-les sur la radio avec une autre application MeshCore, ou restaurez une sauvegarde (voir [Sauvegarder votre radio](/docs/backup/)).
@@ -205,7 +206,7 @@ La radio redémarre et Meshloom se reconnecte tout seul. Il vous demande ensuite
 
 **Réglages → Proxy** peut faire passer Meshloom pour une radio MeshCore sur votre réseau, afin qu’une application mobile ou un autre Meshloom se connecte à travers lui. Il est désactivé par défaut. Une fois activé, il écoute sur le port 5001, sur toutes les adresses réseau, pour 8 clients au plus à la fois. Vous pouvez changer l’adresse, le port et le nombre de clients.
 
-Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Un second Meshloom doit utiliser une nouvelle base de données (ou adopter explicitement cette identité), et Meshloom refuse de brancher sa propre connexion radio sur son propre proxy. Quand c’est l’hôte qui fixe le port publié (l’add-on Home Assistant, par exemple), changez-le dans les réglages réseau de l’hôte.
+Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Une connexion qui ne commence pas comme celle d’un client MeshCore, par exemple une page web ou un scan de ports, est fermée. Un second Meshloom doit utiliser une nouvelle base de données (ou adopter explicitement cette identité), et Meshloom refuse de brancher sa propre connexion radio sur son propre proxy. Quand c’est l’hôte qui fixe le port publié (l’add-on Home Assistant, par exemple), changez-le dans les réglages réseau de l’hôte.
 
 ## La clé privée
 

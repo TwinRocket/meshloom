@@ -18,6 +18,10 @@ database exactly as it was before that migration (SQLite DDL and the
 by a migration body are deferred to the runner. A migration that cannot run
 in a transaction (``VACUUM``, ``journal_mode`` changes) sets the module-level
 flag ``TRANSACTIONAL = False`` and is responsible for its own idempotence.
+
+``Database.connect`` calls ``app/database_copy.py`` before opening the database:
+a copy is made before the first pending migration, and a schema newer than the
+highest migration here stops the start.
 """
 
 import importlib
@@ -93,6 +97,21 @@ def _refuse_duplicate_numbers(migration_files: list[tuple[int, str]]) -> None:
         seen[num] = name
 
 
+def _discover_migrations() -> list[tuple[int, str]]:
+    migration_files: list[tuple[int, str]] = []
+    for module_info in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
+        match = re.match(r"_(\d+)_", module_info.name)
+        if match:
+            migration_files.append((int(match.group(1)), module_info.name))
+    _refuse_duplicate_numbers(migration_files)
+    return migration_files
+
+
+def latest_known_version() -> int:
+    """The highest schema this code can migrate to (``app/database_copy.py`` reads it)."""
+    return max((num for num, _name in _discover_migrations()), default=0)
+
+
 async def run_migrations(conn: aiosqlite.Connection) -> int:
     """
     Run all pending migrations.
@@ -102,14 +121,7 @@ async def run_migrations(conn: aiosqlite.Connection) -> int:
     version = await get_version(conn)
     applied = 0
 
-    migration_files: list[tuple[int, str]] = []
-    for module_info in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
-        match = re.match(r"_(\d+)_", module_info.name)
-        if match:
-            migration_files.append((int(match.group(1)), module_info.name))
-    _refuse_duplicate_numbers(migration_files)
-
-    for num, name in migration_files:
+    for num, name in _discover_migrations():
         if num <= version:
             continue
         logger.info("Applying migration %d: %s", num, name)

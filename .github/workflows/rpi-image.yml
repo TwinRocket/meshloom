@@ -3,6 +3,10 @@ name: Raspberry Pi image
 # Rebuild an image for a version that already has an arm64 .deb on GitHub.
 # Normal releases bake the image in the Release workflow after nfpm/publish.
 # Do not run on pull requests.
+#
+# X.Y.Z only. Its recipe comes from the default branch, not from the version it
+# bakes, so a release candidate gets its image from the Release workflow only: to
+# redo one, re-run that job.
 
 on:
   workflow_dispatch:

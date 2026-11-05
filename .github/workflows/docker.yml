@@ -2,8 +2,9 @@ name: Docker
 
 # Builds and pushes the multi-arch container image to GHCR. Runs on pushes to
 # main (tagged :edge), on pushes to the 5.0.0 integration branch preversion-5
-# (tagged :next), on version tags (tagged :latest, :X.Y.Z and :X.Y), and on
-# demand. Pull requests build only, to catch Dockerfile breakage without
+# (tagged :next), on version tags (tagged :latest, :X.Y.Z and :X.Y), on release
+# candidate tags (tagged :X.Y.Z-rc.N only, never :latest nor :X.Y, whether pushed
+# or dispatched), and on demand. Pull requests build only, to catch Dockerfile breakage without
 # publishing. After a main build, the deploy job calls the redeploy webhooks in
 # EDGE_DEPLOY_WEBHOOKS (stacks on docker-compose.dev.yaml); after a preversion-5
 # build it calls those in NEXT_DEPLOY_WEBHOOKS (the meshloom-next stack, MSHL-270).
@@ -21,7 +22,7 @@ name: Docker
 on:
   push:
     branches: [main, preversion-5]
-    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+    tags: ["[0-9]+.[0-9]+.[0-9]+", "[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"]
   pull_request:
   workflow_dispatch:
 
@@ -66,7 +67,23 @@ jobs:
     outputs:
       include: ${{ steps.pick.outputs.include }}
       image: ${{ steps.pick.outputs.image }}
+      stable_tag: ${{ steps.ref.outputs.stable_tag }}
     steps:
+      # Only a strict X.Y.Z tag moves :latest and :X.Y. This reads the ref rather
+      # than the event: a dispatch on a tag is a tag build too. Any other tag is
+      # refused, as release.yml refuses it, rather than published as a version.
+      - name: Classify the ref
+        id: ref
+        run: |
+          if [[ "$GITHUB_REF" =~ ^refs/tags/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable_tag=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" =~ ^refs/tags/[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            echo "stable_tag=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::$GITHUB_REF is not X.Y.Z or X.Y.Z-rc.N"
+            exit 1
+          fi
+
       # A pull request builds one architecture. The other two only ever run under
       # emulation, and a Dockerfile mistake shows up on the first one.
       - name: Decide what to build
@@ -210,13 +227,15 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ needs.matrix.outputs.image }}
+          # The action's automatic `latest` would bypass the gate below.
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.matrix.outputs.stable_tag == 'true' }}
             type=ref,event=branch
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=next,enable=${{ github.ref == 'refs/heads/preversion-5' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ needs.matrix.outputs.stable_tag == 'true' }}
             type=sha,format=short
 
       - name: Create the manifest
