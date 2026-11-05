@@ -249,6 +249,21 @@ def test_a_stable_install_runs_nothing_that_only_a_prerelease_loads() -> None:
                 assert allowed or line.lstrip().startswith("#"), f"{name}: {line}"
 
 
+def test_each_message_is_asked_from_the_file_that_holds_it() -> None:
+    """An unknown key prints as is, so a user would read the key's name."""
+    key_line = re.compile(r"^\s*en:([a-z0-9_]+)\)", re.M)
+    asked = re.compile(r"\$\(t ([a-z0-9_]+)")
+    asked_pre = re.compile(r"\$\(t_pre ([a-z0-9_]+)")
+    installer = INSTALL_SH.read_text(encoding="utf-8")
+    helper = PRERELEASE_SH.read_text(encoding="utf-8")
+    installer_keys = set(key_line.findall(installer))
+    helper_keys = set(key_line.findall(helper))
+    assert set(asked.findall(installer)) <= installer_keys
+    assert set(asked.findall(helper)) <= installer_keys
+    assert set(asked_pre.findall(installer)) <= helper_keys
+    assert set(asked_pre.findall(helper)) <= helper_keys
+
+
 def test_every_call_into_the_helper_from_the_installer_is_behind_the_channel() -> None:
     text = INSTALL_SH.read_text(encoding="utf-8")
     main = text.split("# ── main", 1)[1]

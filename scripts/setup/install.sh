@@ -2757,7 +2757,7 @@ install_docker_stack() {
     if [ "$CHANNEL" = "testing" ]; then
         print_way_back "${INSTALL_DIR}/data/meshcore.db"
         if [ "$managed" = 1 ]; then
-            ui_dim "  $(t prerelease_following)"
+            ui_dim "  $(t_pre prerelease_following)"
         fi
     elif [ "$managed" = 1 ]; then
         ui_dim "  $(t update_docker_managed)"
