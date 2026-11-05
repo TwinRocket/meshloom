@@ -9,7 +9,9 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -434,19 +436,24 @@ def test_version_gt(a: str, b: str, greater: bool) -> None:
 # ── the way back ────────────────────────────────────────────────────────────
 
 
-def _sqlite_header(schema: int) -> bytes:
-    header = bytearray(b"SQLite format 3\x00" + b"\x00" * 84)
-    header[60:64] = schema.to_bytes(4, "big")
-    return bytes(header)
-
-
 def _copy(folder: Path, schema: int, version: str, written: int | None = None) -> Path:
     path = folder / f"meshcore.db.schema{schema}.before-{version}.db"
-    path.write_bytes(_sqlite_header(written if written is not None else schema) + b"data")
+    connection = sqlite3.connect(path)
+    connection.execute("create table t (v)")
+    connection.execute("insert into t values ('old')")
+    connection.execute(f"pragma user_version = {written if written is not None else schema}")
+    connection.commit()
+    connection.close()
     return path
 
 
-_SELECT = ("find_database_copies", "copy_header_matches", "select_way_back_copy")
+_SELECT = (
+    "find_database_copies",
+    "copy_header_matches",
+    "stable_schema",
+    "select_way_back_copy",
+)
+_RESTORE = ("data_dir_owner", "as_owner", "restore_database", "undo_restore_database")
 
 
 def test_the_copy_is_chosen_by_schema_not_by_version(tmp_path: Path) -> None:
@@ -490,7 +497,7 @@ def test_restore_puts_the_copy_back_and_keeps_the_current_one(tmp_path: Path) ->
     lock.write_text("")
     copy = _copy(tmp_path, 87, "5.0.0")
     aside = tmp_path / "meshcore.db.aside-x"
-    _ok(("restore_database",), f'restore_database "{db}" "{copy}" "{aside}"')
+    _ok(_RESTORE, f'restore_database "{db}" "{copy}" "{aside}"')
     assert db.read_bytes() == copy.read_bytes()
     assert copy.exists(), "the copy stays: it is the way back again"
     assert not (tmp_path / "meshcore.db-wal").exists()
@@ -507,7 +514,7 @@ def test_restore_keeps_secrets_key_when_the_copy_has_none(tmp_path: Path) -> Non
     db.write_text("current")
     (tmp_path / "secrets.key").write_text("5.0 key")
     copy = _copy(tmp_path, 87, "5.0.0")
-    _ok(("restore_database",), f'restore_database "{db}" "{copy}" "{tmp_path}/aside"')
+    _ok(_RESTORE, f'restore_database "{db}" "{copy}" "{tmp_path}/aside"')
     assert (tmp_path / "secrets.key").read_text() == "5.0 key"
 
 
@@ -518,7 +525,7 @@ def test_restore_puts_the_key_back_when_the_copy_has_one(tmp_path: Path) -> None
     copy = _copy(tmp_path, 144, "5.1.0")
     (tmp_path / "meshcore.db.schema144.before-5.1.0.secrets.key").write_text("old key")
     aside = tmp_path / "aside"
-    _ok(("restore_database",), f'restore_database "{db}" "{copy}" "{aside}"')
+    _ok(_RESTORE, f'restore_database "{db}" "{copy}" "{aside}"')
     assert (tmp_path / "secrets.key").read_text() == "old key"
     assert (tmp_path / "aside.secrets.key").read_text() == "new key"
 
@@ -526,7 +533,7 @@ def test_restore_puts_the_key_back_when_the_copy_has_one(tmp_path: Path) -> None
 def test_restore_without_a_copy_leaves_no_database(tmp_path: Path) -> None:
     db = tmp_path / "meshcore.db"
     db.write_text("current")
-    _ok(("restore_database",), f'restore_database "{db}" "" "{tmp_path}/aside"')
+    _ok(_RESTORE, f'restore_database "{db}" "" "{tmp_path}/aside"')
     assert not db.exists()
     assert (tmp_path / "aside").read_text() == "current"
 
@@ -681,35 +688,344 @@ def test_testing_channel_version_believes_only_the_signature(tmp_path: Path) -> 
     assert run().returncode != 0
 
 
+# ── a planted link never reaches anything ───────────────────────────────────
+
+_CHECK = (*_RESTORE, "return_paths_unsafe", "check_return_paths")
+
+
+def _data_folder(tmp_path: Path) -> tuple[Path, Path, Path]:
+    data = tmp_path / "data"
+    data.mkdir()
+    db = data / "meshcore.db"
+    db.write_text("current")
+    copy = _copy(data, 87, "5.0.0-rc.1")
+    victim = tmp_path / "victim"
+    victim.write_text("ORIGINAL")
+    victim.chmod(0o644)
+    return data, db, copy
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "meshcore.db",
+        "meshcore.db-wal",
+        "meshcore.db-shm",
+        "meshcore.db.migration-in-progress",
+        "secrets.key",
+        "meshcore.db.schema87.before-5.0.0-rc.1.secrets.key",
+        "aside",
+        "aside-wal",
+        "aside-shm",
+        "aside.secrets.key",
+    ],
+)
+def test_a_planted_link_stops_the_return_with_nothing_changed(tmp_path: Path, planted: str) -> None:
+    data, db, copy = _data_folder(tmp_path)
+    victim = tmp_path / "victim"
+    target = data / planted
+    target.unlink(missing_ok=True)
+    target.symlink_to(victim)
+    before = sorted(p.name for p in data.iterdir())
+    for script in (
+        f'check_return_paths "{db}" "{copy}" "{data}/aside"',
+        f'restore_database "{db}" "{copy}" "{data}/aside"',
+    ):
+        assert _bash(_CHECK, script).returncode != 0, script
+    assert victim.read_text() == "ORIGINAL"
+    assert victim.stat().st_mode & 0o777 == 0o644
+    assert sorted(p.name for p in data.iterdir()) == before
+    assert target.is_symlink()
+
+
+def test_a_copy_that_is_a_link_is_not_a_copy(tmp_path: Path) -> None:
+    data, db, copy = _data_folder(tmp_path)
+    real = tmp_path / "elsewhere.db"
+    copy.rename(real)
+    copy.symlink_to(real)
+    assert _ok(_SELECT, f'select_way_back_copy "{db}" 4.18.2') == ""
+    assert _bash(_RESTORE, f'restore_database "{db}" "{copy}" "{data}/aside"').returncode != 0
+    assert db.read_text() == "current"
+
+
+def test_a_folder_that_is_a_link_is_refused(tmp_path: Path) -> None:
+    data, db, copy = _data_folder(tmp_path)
+    link = tmp_path / "linked"
+    link.symlink_to(data)
+    result = _bash(
+        _CHECK, f'check_return_paths "{link}/meshcore.db" "{link}/{copy.name}" "{link}/aside"'
+    )
+    assert result.returncode == 1
+    assert "return_unsafe" in result.stderr
+    assert db.read_text() == "current"
+
+
+def test_the_folder_is_handled_with_its_owner_rights_only() -> None:
+    out = _ok(
+        ("as_owner",),
+        """
+        setpriv() { printf '%s\\n' "setpriv $*"; }
+        as_owner 12345 54321 sh -c true
+        """,
+    )
+    assert out.strip() == "setpriv --reuid=12345 --regid=54321 --clear-groups -- sh -c true"
+    source = _fn("restore_database") + _fn("undo_restore_database")
+    assert source.count("as_owner $owner sh -c") == 2
+
+
+def test_without_a_way_to_drop_rights_nothing_runs() -> None:
+    result = _bash(
+        ("as_owner",),
+        """
+        command() { return 1; }
+        as_root() { echo RAN-AS-ROOT; }
+        as_owner 12345 54321 sh -c true
+        """,
+    )
+    assert result.returncode == 127
+    assert "RAN-AS-ROOT" not in result.stdout
+
+
+def test_a_failure_before_the_swap_changes_nothing(tmp_path: Path) -> None:
+    data, db, copy = _data_folder(tmp_path)
+    (data / "meshcore.db-wal").write_text("wal")
+    copy.chmod(0)
+    if os.access(copy, os.R_OK):
+        pytest.skip("runs as root")
+    result = _bash(_RESTORE, f'restore_database "{db}" "{copy}" "{data}/aside"')
+    assert result.returncode != 0
+    assert db.read_text() == "current"
+    assert (data / "meshcore.db-wal").read_text() == "wal"
+    assert not list(data.glob("*.restoring.*"))
+    assert not (data / "aside").exists()
+    # And undoing that does not touch the database still in place.
+    _ok(_RESTORE, f'undo_restore_database "{db}" "{copy}" "{data}/aside"')
+    assert db.read_text() == "current"
+
+
+def test_undo_brings_back_what_was_running(tmp_path: Path) -> None:
+    data, db, copy = _data_folder(tmp_path)
+    (data / "meshcore.db-wal").write_text("wal")
+    (data / "secrets.key").write_text("new key")
+    copy.with_name(copy.name.removesuffix(".db") + ".secrets.key").write_text("old key")
+    aside = data / "aside"
+    _ok(_RESTORE, f'restore_database "{db}" "{copy}" "{aside}"')
+    assert (data / "secrets.key").read_text() == "old key"
+    _ok(_RESTORE, f'undo_restore_database "{db}" "{copy}" "{aside}"')
+    assert db.read_text() == "current"
+    assert (data / "meshcore.db-wal").read_text() == "wal"
+    assert (data / "secrets.key").read_text() == "new key"
+    assert not list(data.glob("aside*"))
+
+
+# ── which copy, and whether it holds ────────────────────────────────────────
+
+
+def test_a_file_without_the_sqlite_magic_is_not_a_copy(tmp_path: Path) -> None:
+    db = tmp_path / "meshcore.db"
+    copy = _copy(tmp_path, 87, "5.0.0")
+    data = bytearray(copy.read_bytes())
+    data[:16] = b"not sqlite here\x00"
+    copy.write_bytes(bytes(data))
+    assert _ok(_SELECT, f'select_way_back_copy "{db}" 4.18.2') == ""
+
+
+def test_the_most_recent_of_two_copies_of_a_schema_is_chosen(tmp_path: Path) -> None:
+    db = tmp_path / "meshcore.db"
+    first = _copy(tmp_path, 87, "5.0.0-rc.2")
+    second = _copy(tmp_path, 87, "5.0.0-rc.1")
+    now = time.time()
+    os.utime(first, (now - 100, now - 100))
+    os.utime(second, (now, now))
+    assert _ok(_SELECT, f'select_way_back_copy "{db}" 4.18.2') == str(second)
+    os.utime(first, (now + 100, now + 100))
+    assert _ok(_SELECT, f'select_way_back_copy "{db}" 4.18.2') == str(first)
+
+
+_INTACT = ("data_dir_owner", "as_owner", "copy_is_intact")
+
+
+def _large_copy(folder: Path) -> Path:
+    copy = _copy(folder, 87, "5.0.0")
+    connection = sqlite3.connect(copy)
+    connection.executemany("insert into t values (?)", [("x" * 500,) for _ in range(200)])
+    connection.commit()
+    connection.close()
+    return copy
+
+
+def test_a_sound_copy_passes(tmp_path: Path) -> None:
+    assert _bash(_INTACT, f'copy_is_intact "{_large_copy(tmp_path)}"').returncode == 0
+
+
+def test_a_truncated_copy_is_refused(tmp_path: Path) -> None:
+    copy = _large_copy(tmp_path)
+    copy.write_bytes(copy.read_bytes()[:8192])
+    assert _bash(_INTACT, f'copy_is_intact "{copy}"').returncode == 1
+
+
+def test_a_truncated_copy_is_refused_with_no_sqlite_on_the_machine(tmp_path: Path) -> None:
+    copy = _large_copy(tmp_path)
+    copy.write_bytes(copy.read_bytes()[:8192])
+    script = f'command() {{ return 1; }}\ncopy_is_intact "{copy}"'
+    assert _bash(_INTACT, script).returncode == 1
+
+
+def test_a_copy_damaged_inside_is_refused(tmp_path: Path) -> None:
+    copy = _large_copy(tmp_path)
+    data = bytearray(copy.read_bytes())
+    data[4096:8192] = b"\xff" * 4096
+    copy.write_bytes(bytes(data))
+    assert _bash(_INTACT, f'copy_is_intact "{copy}"').returncode == 1
+
+
+# ── the usual command on a machine on an rc ─────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("channel", "installed", "target", "refused", "message"),
+    [
+        ("stable", "5.0.0-rc.1", "4.18.2", True, "return_refuse_newer"),
+        ("stable", "5.1.0-rc.1", "5.0.0", True, "return_refuse_newer"),
+        ("stable", "5.0.0-rc.1", "5.0.0", False, ""),
+        ("stable", "4.18.2", "4.18.2", False, ""),
+        ("stable", "4.18.1", "4.18.2", False, ""),
+        ("stable", "4.18.2", "4.18.1", False, ""),
+        ("stable", "", "4.18.2", False, ""),
+        ("testing", "5.0.0-rc.2", "5.0.0-rc.1", True, "prerelease_older"),
+        ("testing", "5.0.0-rc.1", "5.0.0-rc.2", False, ""),
+    ],
+)
+def test_the_installer_stops_before_going_below_an_rc(
+    channel: str, installed: str, target: str, refused: bool, message: str
+) -> None:
+    result = _bash(
+        ("version_gt", "prerelease_return_command", "refuse_going_below_a_prerelease"),
+        f"""
+        CHANNEL={channel}
+        INSTALLED_VERSION="{installed}"
+        TARGET_VERSION="{target}"
+        refuse_going_below_a_prerelease
+        """,
+    )
+    assert (result.returncode != 0) is refused, result.stderr
+    assert message in result.stderr
+
+
+def test_the_refusal_gives_the_command_and_comes_before_any_write() -> None:
+    result = _bash(
+        ("version_gt", "prerelease_return_command", "refuse_going_below_a_prerelease"),
+        """
+        CHANNEL=stable
+        INSTALLED_VERSION=5.0.0-rc.1
+        TARGET_VERSION=4.18.2
+        refuse_going_below_a_prerelease
+        """,
+    )
+    assert "https://get.meshloom.app/next" in result.stderr
+    assert "--channel stable" in result.stderr
+    body = _fn("confirm_install")
+    assert body.index("refuse_going_below_a_prerelease") < body.index("ui_screen")
+    for name in ("install_native_service", "install_docker_stack"):
+        text = _fn(name)
+        assert text.index("confirm_install") < text.index(
+            "install_prerelease_package" if name == "install_native_service" else "mkdir -p"
+        )
+
+
+def _migrated(path: Path, schema: int) -> None:
+    connection = sqlite3.connect(path)
+    connection.execute("create table if not exists t (v)")
+    connection.execute(f"pragma user_version = {schema}")
+    connection.commit()
+    connection.close()
+
+
+_ABOVE = ("database_schema", "stable_schema", "database_above_stable")
+
+
+def test_the_schema_of_the_database_decides_too(tmp_path: Path) -> None:
+    db = tmp_path / "meshcore.db"
+    check = f'database_above_stable "{db}" 4.18.2'
+    assert _bash(_ABOVE, check).returncode == 1, "no database"
+    _migrated(db, 87)
+    assert _bash(_ABOVE, check).returncode == 1
+    _migrated(db, 144)
+    assert _bash(_ABOVE, check).returncode == 0
+    assert _bash(_ABOVE, f'database_above_stable "{db}" 5.0.0').returncode == 1, "unknown stable"
+    db.write_text("not sqlite" * 20)
+    assert _bash(_ABOVE, check).returncode == 1
+
+
+def test_going_back_by_hand_points_where_the_steps_are() -> None:
+    assert (
+        _ok(("install_paths_docs_url",), "install_paths_docs_url")
+        == "https://meshloom.app/en/docs/deep/install-paths/"
+    )
+    assert (
+        _ok(("install_paths_docs_url",), "ML_LANG=fr; install_paths_docs_url")
+        == "https://meshloom.app/docs/deep/install-paths/"
+    )
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    assert 'return_manual "$(prerelease_docs_url)"' not in text
+    for page in ("en", "fr"):
+        doc = REPO / "docs" / "user" / page / "deep" / "install-paths.md"
+        assert "schema" in doc.read_text(encoding="utf-8")
+
+
 # ── the way back with Docker, with a stub for docker ────────────────────────
 
 
 _COMPOSE_NAMES = (
+    *_CHECK,
     "version_gt",
     "find_database_copies",
     "copy_header_matches",
+    "database_schema",
+    "stable_schema",
+    "database_above_stable",
     "select_way_back_copy",
-    "restore_database",
+    "copy_is_intact",
     "write_unmanaged_env",
+    "compose_pin_env",
+    "compose_pull_stable",
+    "compose_save_state",
+    "compose_put_back",
+    "compose_commit_stable",
     "return_compose",
 )
+_DIGEST = "sha256:" + "ab" * 32
+_RC_PIN = "MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:5.0.0-rc.1@sha256:aa\n"
+_STABLE_PIN = f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@{_DIGEST}"
 
 
-def _compose_stack(tmp_path: Path, *, pull_exit: int = 0) -> tuple[Path, str]:
+def _compose_stack(
+    tmp_path: Path,
+    *,
+    pull_exit: int = 0,
+    digest_exit: int = 0,
+    pin: str = _RC_PIN,
+    schema: int = 144,
+) -> tuple[Path, str]:
     stack = tmp_path / "stack"
-    (stack / "data").mkdir(parents=True)
+    data = stack / "data"
+    data.mkdir(parents=True)
     (stack / "docker-compose.yml").write_text("services: {}\n")
-    (stack / ".env").write_text("MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:5.0.0-rc.1@sha256:aa\n")
-    (stack / "data" / "meshcore.db").write_text("rc database")
-    _copy(stack / "data", 87, "5.0.0-rc.1")
+    (stack / ".env").write_text(pin + "OTHER=1\n")
+    _migrated(data / "meshcore.db", schema)
+    _copy(data, 87, "5.0.0-rc.1")
     calls = tmp_path / "calls"
+    fake = tmp_path / "fake_compose"
+    fake.write_text(
+        "#!/bin/bash\n"
+        f"echo \"$1 env=${{MESHLOOM_IMAGE:-}} file=$(sed -n 's/^MESHLOOM_IMAGE=//p' .env) "
+        f'schema=$(od -An -tu1 -j 62 -N 2 data/meshcore.db | awk \'{{print $1*256+$2}}\')" >> "{calls}"\n'
+        f'[ "$1" != pull ] || exit {pull_exit}\n'
+    )
+    fake.chmod(0o755)
     stubs = f"""
-    compose_cmd() {{ echo fake_compose; }}
-    fake_compose() {{
-        echo "$1 db=$(cut -c1-2 data/meshcore.db) image=$(sed -n 's/^MESHLOOM_IMAGE=//p' .env)" >> "{calls}"
-        [ "$1" != pull ] || return {pull_exit}
-    }}
-    compose_image_version() {{ echo 5.0.0-rc.1; }}
+    compose_cmd() {{ echo "{fake}"; }}
+    compose_image_version() {{ sed -n 's/^MESHLOOM_IMAGE=.*meshloom:\\([^@]*\\).*/\\1/p' "$(dirname "$1")/.env"; }}
     compose_helper_possible() {{ return 1; }}
     return_screen() {{ :; }}
     run_quiet() {{ "$@"; }}
@@ -719,29 +1035,277 @@ def _compose_stack(tmp_path: Path, *, pull_exit: int = 0) -> tuple[Path, str]:
     ui_ok() {{ :; }}
     ui_wrap() {{ :; }}
     ui_yesno() {{ return 0; }}
+    ensure_gpgv() {{ :; }}
+    prepare_release_key() {{ :; }}
+    signed_image_digest() {{ [ {digest_exit} = 0 ] && echo "{_DIGEST}"; }}
     persist_installer_state() {{ :; }}
+    enable_compose_update_helper() {{ echo "enable" >> "{calls}"; }}
     """
     return stack, stubs
 
 
-def test_docker_goes_back_pulling_first_and_restoring_while_stopped(tmp_path: Path) -> None:
+def _calls(tmp_path: Path) -> list[str]:
+    path = tmp_path / "calls"
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def test_docker_pulls_before_writing_and_restores_while_stopped(tmp_path: Path) -> None:
     stack, stubs = _compose_stack(tmp_path)
     _ok(_COMPOSE_NAMES, f'{stubs}\nreturn_compose 4.18.2 "{stack}"')
-    calls = (tmp_path / "calls").read_text().splitlines()
-    verbs = [line.split()[0] for line in calls]
-    assert verbs == ["pull", "stop", "up"], calls
-    assert all("image=ghcr.io/twinrocket/meshloom:latest" in line for line in calls), calls
-    assert "db=rc" in calls[0], "the database is untouched until the image is there"
-    assert "db=SQ" in calls[2], "the container starts on the copy"
-    assert (stack / ".env").read_text() == "MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:latest\n"
+    calls = _calls(tmp_path)
+    assert [line.split()[0] for line in calls] == ["pull", "pull", "stop", "up"], calls
+    assert f"env={_STABLE_PIN.split('=', 1)[1]}" in calls[0], "the signed image, by digest"
+    assert "file=ghcr.io/twinrocket/meshloom:5.0.0-rc.1" in calls[0], ".env not touched yet"
+    assert "schema=144" in calls[2], "the database is untouched until the image is there"
+    assert "schema=87" in calls[3], "the container starts on the copy"
     assert list((stack / "data").glob("meshcore.db.aside-5.0.0-rc.1-*"))
 
 
-def test_docker_changes_nothing_when_the_stable_image_cannot_be_pulled(tmp_path: Path) -> None:
+def test_docker_changes_nothing_when_the_image_cannot_be_pulled(tmp_path: Path) -> None:
     stack, stubs = _compose_stack(tmp_path, pull_exit=1)
     before = (stack / ".env").read_text()
     result = _bash(_COMPOSE_NAMES, f'{stubs}\nreturn_compose 4.18.2 "{stack}"')
     assert result.returncode == 1
+    assert "return_pull_failed" in result.stderr
     assert (stack / ".env").read_text() == before
-    assert (stack / "data" / "meshcore.db").read_text() == "rc database"
-    assert [line.split()[0] for line in (tmp_path / "calls").read_text().splitlines()] == ["pull"]
+    assert sqlite3.connect(stack / "data/meshcore.db").execute(
+        "pragma user_version"
+    ).fetchone() == (144,)
+    assert [line.split()[0] for line in _calls(tmp_path)] == ["pull"]
+
+
+def test_docker_changes_nothing_when_the_image_cannot_be_verified(tmp_path: Path) -> None:
+    stack, stubs = _compose_stack(tmp_path, digest_exit=1)
+    before = (stack / ".env").read_text()
+    result = _bash(_COMPOSE_NAMES, f'{stubs}\nreturn_compose 4.18.2 "{stack}"')
+    assert result.returncode == 1
+    assert "return_image_unverified" in result.stderr
+    assert (stack / ".env").read_text() == before
+    assert _calls(tmp_path) == []
+
+
+def _managed_stubs(tmp_path: Path, stack: Path, helper_exit: int) -> str:
+    helper_env = tmp_path / "compose-update.env"
+    helper_env.write_text("MESHLOOM_UPDATE_CHANNEL=testing\n")
+    status = stack / "update-status"
+    status.mkdir()
+    (status / "status.json").write_text('{"version":"5.0.0-rc.1"}')
+    return f"""
+    compose_helper_possible() {{ return 0; }}
+    install_compose_update_helper() {{
+        echo "MESHLOOM_COMPOSE_DIR=x" > "{helper_env}"
+        echo '{{"version":"4.18.2"}}' > "{status}/status.json"
+        return {helper_exit}
+    }}
+    # The real path is outside the test's reach; the rest of the function is the real one.
+    {_real_paths_to(helper_env)}
+    """
+
+
+def _real_paths_to(helper_env: Path) -> str:
+    return f'as_root() {{ local a=(); for x in "$@"; do a+=("${{x//\\/etc\\/meshloom\\/compose-update.env/{helper_env}}}"); done; "${{a[@]}}"; }}'
+
+
+def _helper_test_script(stubs: str, managed: str, stack: Path) -> str:
+    # return_compose tests the real path with -f, so the managed run goes through a copy of it.
+    body = _fn("return_compose").replace("[ -f /etc/meshloom/compose-update.env ] && ", "")
+    return f'{stubs}\n{managed}\n{body}\nreturn_compose 4.18.2 "{stack}"'
+
+
+def test_docker_puts_channel_and_status_back_when_the_helper_fails(tmp_path: Path) -> None:
+    stack, stubs = _compose_stack(tmp_path)
+    managed = _managed_stubs(tmp_path, stack, helper_exit=1)
+    before = (stack / ".env").read_text()
+    result = _bash(_COMPOSE_NAMES, _helper_test_script(stubs, managed, stack))
+    assert result.returncode == 1, result.stderr
+    assert "return_image_unverified" in result.stderr
+    assert (stack / ".env").read_text() == before
+    assert (tmp_path / "compose-update.env").read_text() == "MESHLOOM_UPDATE_CHANNEL=testing\n"
+    assert (stack / "update-status/status.json").read_text() == '{"version":"5.0.0-rc.1"}'
+    assert [line.split()[0] for line in _calls(tmp_path)] == ["pull", "enable"]
+
+
+def test_docker_managed_pins_the_digest_then_restores(tmp_path: Path) -> None:
+    stack, stubs = _compose_stack(tmp_path)
+    managed = _managed_stubs(tmp_path, stack, helper_exit=0)
+    result = _bash(_COMPOSE_NAMES, _helper_test_script(stubs, managed, stack))
+    assert result.returncode == 0, result.stderr
+    assert (stack / ".env").read_text() == f"{_STABLE_PIN}\nOTHER=1\n"
+    calls = _calls(tmp_path)
+    assert [line.split()[0] for line in calls] == ["pull", "stop", "up", "enable"], calls
+    assert "schema=87" in calls[2]
+
+
+def test_docker_on_a_stable_pin_over_a_migrated_database_still_restores(tmp_path: Path) -> None:
+    """What the usual command of 4.18.2 leaves behind."""
+    pin = "MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@sha256:aa\n"
+    stack, stubs = _compose_stack(tmp_path, pin=pin)
+    _ok(_COMPOSE_NAMES, f'{stubs}\nreturn_compose 4.18.2 "{stack}"')
+    calls = _calls(tmp_path)
+    assert "schema=87" in calls[-1], calls
+    assert list((stack / "data").glob("meshcore.db.aside-4.18.2-*"))
+
+
+def test_docker_with_no_pin_over_a_migrated_database_still_restores(tmp_path: Path) -> None:
+    stack, stubs = _compose_stack(tmp_path, pin="")
+    _ok(_COMPOSE_NAMES, f'{stubs}\nreturn_compose 4.18.2 "{stack}"')
+    assert "schema=87" in _calls(tmp_path)[-1]
+    assert list((stack / "data").glob("meshcore.db.aside-unknown-*"))
+
+
+def test_docker_on_stable_with_a_stable_database_only_moves_the_channel(tmp_path: Path) -> None:
+    pin = "MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@sha256:aa\n"
+    stack, stubs = _compose_stack(tmp_path, pin=pin, schema=87)
+    _ok(_COMPOSE_NAMES, f'{stubs}\nreturn_compose 4.18.2 "{stack}"')
+    assert [line.split()[0] for line in _calls(tmp_path)] == ["pull", "pull", "up"]
+    assert not list((stack / "data").glob("*aside*"))
+
+
+def test_docker_refuses_a_damaged_copy_before_anything(tmp_path: Path) -> None:
+    stack, stubs = _compose_stack(tmp_path)
+    copy = next((stack / "data").glob("*.before-*.db"))
+    data = bytearray(copy.read_bytes())
+    data[28:32] = (99).to_bytes(4, "big")
+    copy.write_bytes(bytes(data))
+    result = _bash(_COMPOSE_NAMES, f'{stubs}\nreturn_compose 4.18.2 "{stack}"')
+    assert result.returncode == 1
+    assert "return_copy_damaged" in result.stderr
+    assert _calls(tmp_path) == []
+
+
+# ── the way back with a package, with stubs for the package manager ─────────
+
+
+_PACKAGE_NAMES = (
+    *_CHECK,
+    "version_gt",
+    "find_database_copies",
+    "copy_header_matches",
+    "database_schema",
+    "stable_schema",
+    "database_above_stable",
+    "select_way_back_copy",
+    "copy_is_intact",
+    "package_source_file",
+    "save_package_source",
+    "restore_package_source",
+    "switch_source_to_stable",
+    "return_package_channel_only",
+    "return_package",
+    "return_package_undo",
+)
+
+
+def _package_host(
+    tmp_path: Path,
+    *,
+    update_exit: int = 0,
+    install_exit: int = 0,
+    after: str = "5.0.0-rc.1",
+    installed: str = "5.0.0-rc.1",
+) -> tuple[Path, Path, str]:
+    data = tmp_path / "data"
+    data.mkdir()
+    db = data / "meshcore.db"
+    _migrated(db, 144)
+    (data / "secrets.key").write_text("key")
+    _copy(data, 87, "5.0.0-rc.1")
+    source = tmp_path / "meshloom.list"
+    source.write_text("testing\n")
+    calls = tmp_path / "calls"
+    state = tmp_path / "version"
+    state.write_text(installed)
+    stubs = f"""
+    PKG_MGR=apt
+    package_installed_version() {{ cat "{state}"; }}
+    package_db_path() {{ echo "{db}"; }}
+    package_source_file() {{ echo "{source}"; }}
+    add_signed_repo() {{ echo stable > "{source}"; }}
+    return_screen() {{ :; }}
+    ensure_gpgv() {{ :; }}
+    prepare_release_key() {{ :; }}
+    fetch_stable_package() {{ touch "$2/f.deb"; echo "$2/f.deb"; }}
+    run_soft() {{ "$@"; }}
+    phase() {{ :; }}
+    phase_ok() {{ :; }}
+    ui_ok() {{ :; }}
+    ui_wrap() {{ :; }}
+    ui_yesno() {{ return 0; }}
+    persist_installer_state() {{ :; }}
+    start_meshloom_unit() {{ echo "start-unit" >> "{calls}"; }}
+    systemctl() {{ echo "systemctl $1" >> "{calls}"; }}
+    apt-get() {{
+        case "$1" in
+            update) echo "update" >> "{calls}"; return {update_exit} ;;
+            *) echo "install" >> "{calls}"; echo "{after}" > "{state}"; return {install_exit} ;;
+        esac
+    }}
+    """
+    return data, source, stubs
+
+
+def _pragma(db: Path) -> int:
+    return sqlite3.connect(db).execute("pragma user_version").fetchone()[0]
+
+
+def test_a_source_that_fails_is_put_back_before_anything_else(tmp_path: Path) -> None:
+    data, source, stubs = _package_host(tmp_path, update_exit=1)
+    result = _bash(_PACKAGE_NAMES, f"{stubs}\nreturn_package 4.18.2")
+    assert result.returncode == 1
+    assert "return_source_failed" in result.stderr
+    assert source.read_text() == "testing\n"
+    assert _pragma(data / "meshcore.db") == 144
+    assert "systemctl stop" not in _calls(tmp_path)
+
+
+def test_a_package_that_fails_puts_everything_back(tmp_path: Path) -> None:
+    data, source, stubs = _package_host(tmp_path, install_exit=1)
+    result = _bash(_PACKAGE_NAMES, f"{stubs}\nreturn_package 4.18.2")
+    assert result.returncode == 1
+    assert "return_rolled_back" in result.stderr
+    assert source.read_text() == "testing\n"
+    assert _pragma(data / "meshcore.db") == 144
+    assert not list(data.glob("*aside*"))
+    assert "systemctl start" in _calls(tmp_path)
+
+
+def test_a_package_left_half_way_says_the_state_and_how_to_repair(tmp_path: Path) -> None:
+    data, source, stubs = _package_host(tmp_path, install_exit=1, after="4.18.2")
+    result = _bash(_PACKAGE_NAMES, f"{stubs}\nreturn_package 4.18.2")
+    assert result.returncode == 1
+    assert "return_midway" in result.stderr
+    assert source.read_text() == "stable\n"
+    assert _pragma(data / "meshcore.db") == 87
+    assert list(data.glob("*aside*"))
+
+
+def test_the_package_way_back_ends_on_the_copy(tmp_path: Path) -> None:
+    data, source, stubs = _package_host(tmp_path, after="4.18.2")
+    _ok(_PACKAGE_NAMES, f"{stubs}\nreturn_package 4.18.2")
+    assert source.read_text() == "stable\n"
+    assert _pragma(data / "meshcore.db") == 87
+    calls = _calls(tmp_path)
+    assert calls.index("systemctl stop") < calls.index("install") < calls.index("start-unit")
+
+
+def test_a_stable_package_over_a_migrated_database_restores_without_a_package(
+    tmp_path: Path,
+) -> None:
+    data, _, stubs = _package_host(tmp_path, installed="4.18.2", after="4.18.2")
+    _ok(_PACKAGE_NAMES, f"{stubs}\nreturn_package 4.18.2")
+    assert _pragma(data / "meshcore.db") == 87
+    assert "install" not in _calls(tmp_path)
+
+
+def test_a_damaged_copy_leaves_the_package_way_back_at_the_start(tmp_path: Path) -> None:
+    data, source, stubs = _package_host(tmp_path)
+    copy = next(data.glob("*.before-*.db"))
+    raw = bytearray(copy.read_bytes())
+    raw[28:32] = (99).to_bytes(4, "big")
+    copy.write_bytes(bytes(raw))
+    result = _bash(_PACKAGE_NAMES, f"{stubs}\nreturn_package 4.18.2")
+    assert result.returncode == 1
+    assert "return_copy_damaged" in result.stderr
+    assert source.read_text() == "testing\n"
+    assert _pragma(data / "meshcore.db") == 144
+    assert _calls(tmp_path) == []

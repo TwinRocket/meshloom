@@ -49,9 +49,10 @@ SYSTEM_KEYRING = Path("/usr/share/keyrings/meshloom-archive-keyring.gpg")
 CHECKOUT_KEYRING = (
     Path(__file__).resolve().parents[2] / "pkg" / "keys" / ("meshloom-archive-keyring.gpg")
 )
-_OFFICIAL_APT = re.compile(r"https://twinrocket\.github\.io/meshloom/apt/?\s+(\S+)")
+_OFFICIAL_APT = re.compile(r"(?:^|\s)https://twinrocket\.github\.io/meshloom/apt/?\s+(\S+)")
 _DEB822_URI = re.compile(
-    r"^URIs:.*https://twinrocket\.github\.io/meshloom/apt", re.MULTILINE | re.IGNORECASE
+    r"^URIs:(?:[ \t]+\S+)*?[ \t]+https://twinrocket\.github\.io/meshloom/apt/?(?:[ \t]|$)",
+    re.MULTILINE | re.IGNORECASE,
 )
 _DEB822_TESTING = re.compile(r"^Suites:.*\btesting\b", re.MULTILINE | re.IGNORECASE)
 _DNF_TESTING = re.compile(

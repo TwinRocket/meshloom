@@ -19,7 +19,7 @@ Paste this into a terminal, on a fresh machine or on one running 4.18:
 
 It is the normal installer, with the same questions. The summary shows the channel before anything starts. When no pre-release is open, the command says so and changes nothing.
 
-Coming from 4.18, read the page **Upgrading from 4.18** first. Meshloom makes a copy of your database before it changes anything, and that copy is your way back.
+Coming from 4.18, read [Upgrading from 4.18](/en/docs/upgrade-4-18/) first. Meshloom makes a copy of your database before it changes anything, and that copy is your way back.
 
 ## What this applies to
 
@@ -59,8 +59,8 @@ While you are on a release candidate, this returns the machine to the current st
 
 The command shows what it will do and asks first. It installs the stable version again, and puts back the [copy of your database made before the upgrade](/en/docs/deep/install-paths/#the-copy-made-before-an-upgrade). **What you did since that copy (messages heard, settings, accounts) does not come back with it.** The database you were using is kept aside, next to the copy, under a name with `aside` in it.
 
-If no copy fits the stable version, the command says so. It can then start from an empty database, only if you answer yes; your current database is still kept aside.
+If a copy is damaged, or something in the data folder is not a plain file, the command stops and changes nothing. If no copy fits the stable version, the command says so. It can then start from an empty database, only if you answer yes; your current database is still kept aside.
 
-The regular install command, without `--channel stable`, is not the way back: it can stop with an error about the package, and your version does not change. Use the command above.
+**Do not use the regular install command to come back.** Until the final release is out, it is the 4.18 installer, which does not know about pre-releases. With a Linux package it stops with an error about the package and your version does not change, but the source is left on stable. With Docker it starts 4.18 on a database it cannot read correctly, and says it upgraded. In both cases, run the command above: it notices, and puts the copy back.
 
 Docker works the same way: run the command on that machine, and it puts the stable image back.

@@ -19,7 +19,7 @@ Collez ceci dans un terminal, sur une machine neuve ou sur une machine en 4.18 :
 
 C’est l’installateur habituel, avec les mêmes questions. Le récapitulatif indique le canal avant de commencer. Quand aucune pré-version n’est ouverte, la commande le dit et ne change rien.
 
-Si vous venez de la 4.18, lisez d’abord la page **Passer de la 4.18 à la 5.0**. Meshloom fait une copie de votre base de données avant de la modifier, et cette copie est votre chemin de retour.
+Si vous venez de la 4.18, lisez d’abord [Passer de la 4.18 à la 5.0](/docs/upgrade-4-18/). Meshloom fait une copie de votre base de données avant de la modifier, et cette copie est votre chemin de retour.
 
 ## À quoi cela s’applique
 
@@ -59,8 +59,8 @@ Tant que vous êtes sur une version candidate, ceci ramène la machine à la ver
 
 La commande montre ce qu’elle va faire et demande d’abord. Elle réinstalle la version stable et remet en place la [copie de votre base faite avant la mise à niveau](/docs/deep/install-paths/#la-copie-faite-avant-une-mise-à-niveau). **Ce que vous avez fait depuis cette copie (messages entendus, réglages, comptes) ne revient pas avec elle.** La base que vous utilisiez est mise de côté, à côté de la copie, sous un nom contenant `aside`.
 
-Si aucune copie ne convient à la version stable, la commande le dit. Elle peut alors repartir d’une base vide, seulement si vous répondez oui ; votre base actuelle est quand même mise de côté.
+Si une copie est endommagée, ou si un élément du dossier de données n’est pas un simple fichier, la commande s’arrête et ne change rien. Si aucune copie ne convient à la version stable, la commande le dit. Elle peut alors repartir d’une base vide, seulement si vous répondez oui ; votre base actuelle est quand même mise de côté.
 
-La commande d’installation habituelle, sans `--channel stable`, n’est pas le chemin de retour : elle peut s’arrêter sur une erreur de paquet, et votre version ne change pas. Utilisez la commande ci-dessus.
+**N’utilisez pas la commande d’installation habituelle pour revenir.** Tant que la version finale n’est pas sortie, c’est l’installeur de la 4.18, qui ne connaît pas les pré-versions. Avec un paquet Linux, il s’arrête sur une erreur de paquet et votre version ne change pas, mais la source reste sur le stable. Avec Docker, il démarre la 4.18 sur une base qu’elle ne sait pas lire correctement, et annonce une mise à niveau. Dans les deux cas, lancez la commande ci-dessus : elle s’en aperçoit et remet la copie.
 
 Docker fonctionne de la même façon : lancez la commande sur la machine, elle remet l’image stable.

@@ -471,3 +471,36 @@ def test_no_app_code_writes_where_the_channel_lives() -> None:
     source = (root / "services" / "update_channel.py").read_text(encoding="utf-8")
     for forbidden in (".write_text(APT", "unlink", "chmod", "rename(", "replace("):
         assert forbidden not in source
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "URIs: https://example.invalid/?https://twinrocket.github.io/meshloom/apt",
+        "URIs: https://twinrocket.github.io.example.invalid/meshloom/apt",
+        "URIs: https://twinrocket.github.io/meshloom/aptx",
+    ],
+)
+def test_a_deb822_source_elsewhere_is_not_the_official_one(line: str) -> None:
+    assert update_channel._DEB822_URI.search(line) is None
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "URIs: https://twinrocket.github.io/meshloom/apt",
+        "URIs: https://twinrocket.github.io/meshloom/apt/",
+        "uris: https://example.invalid/x https://twinrocket.github.io/meshloom/apt",
+    ],
+)
+def test_the_official_deb822_source_is_recognised(line: str) -> None:
+    assert update_channel._DEB822_URI.search(line) is not None
+
+
+def test_a_list_source_with_the_address_inside_another_is_not_official() -> None:
+    assert (
+        update_channel._OFFICIAL_APT.search(
+            "deb [x] https://example.invalid/?https://twinrocket.github.io/meshloom/apt testing"
+        )
+        is None
+    )

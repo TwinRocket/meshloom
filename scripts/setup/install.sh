@@ -108,8 +108,8 @@ t() {
         fr:way_back_docs) echo "Revenir en arrière, et retrouver la version stable" ;;
         en:step_return) echo "Back to stable" ;;
         fr:step_return) echo "Retour à la version stable" ;;
-        en:return_switch_q) echo "Move this machine to the stable channel? The version does not change until a newer stable one is out." ;;
-        fr:return_switch_q) echo "Passer cette machine sur le canal stable ? La version ne change pas avant qu'une version stable plus récente sorte." ;;
+        en:return_switch_q) echo "Move this machine to the stable channel? Only stable versions are offered from now on." ;;
+        fr:return_switch_q) echo "Passer cette machine sur le canal stable ? Seules les versions stables seront proposées désormais." ;;
         en:return_switch_done) echo "This machine now follows the stable channel." ;;
         fr:return_switch_done) echo "Cette machine suit maintenant le canal stable." ;;
         en:return_uses_copy) echo "Your database goes back to the copy $1. What changed since then is not kept, and the current database stays beside it as $2." ;;
@@ -120,12 +120,30 @@ t() {
         fr:return_q) echo "Revenir à la version $1 ?" ;;
         en:return_done) echo "Meshloom $1 is back, on the stable channel." ;;
         fr:return_done) echo "Meshloom $1 est de retour, sur le canal stable." ;;
+        en:return_refuse_newer) echo "This machine runs the pre-release $1, newer than $2. Nothing was changed. To go back to stable, with the copy of your database: $3" ;;
+        fr:return_refuse_newer) echo "Cette machine fait tourner la pré-version $1, plus récente que la $2. Rien n'a été modifié. Pour revenir au stable, avec la copie de votre base : $3" ;;
+        en:prerelease_older) echo "This machine runs $1, newer than the pre-release $2. Nothing was changed." ;;
+        fr:prerelease_older) echo "Cette machine fait tourner la $1, plus récente que la pré-version $2. Rien n'a été modifié." ;;
+        en:return_unsafe) echo "Something in the data folder is not what it should be: $1. Nothing was changed. Check that folder, then try again." ;;
+        fr:return_unsafe) echo "Un élément du dossier de données n'est pas ce qu'il devrait être : $1. Rien n'a été modifié. Vérifiez ce dossier, puis réessayez." ;;
+        en:return_copy_damaged) echo "The copy $1 is damaged, so it cannot be used. Nothing was changed, and your current database is still in place." ;;
+        fr:return_copy_damaged) echo "La copie $1 est endommagée et ne peut pas servir. Rien n'a été modifié, et votre base actuelle est toujours en place." ;;
+        en:return_source_failed) echo "The stable package source could not be reached. The source was put back and nothing else was changed. Try again shortly." ;;
+        fr:return_source_failed) echo "La source de paquets stable est injoignable. La source a été remise en place et rien d'autre n'a été modifié. Réessayez dans un instant." ;;
+        en:return_rolled_back) echo "The stable package could not be installed. Your database, the package source and the service are back as they were. Run the same command again." ;;
+        fr:return_rolled_back) echo "Le paquet stable n'a pas pu être installé. Votre base, la source de paquets et le service sont revenus comme avant. Relancez la même commande." ;;
+        en:return_midway) echo "The package step stopped part way. The service is stopped, the source is stable and the database is the copy. Running the same command again repairs this. Your previous database is $1." ;;
+        fr:return_midway) echo "L'étape du paquet s'est arrêtée en cours de route. Le service est arrêté, la source est stable et la base est la copie. Relancer la même commande répare cela. Votre base précédente est $1." ;;
+        en:return_image_unverified) echo "Could not verify the signed stable image. Nothing was changed. Try again shortly." ;;
+        fr:return_image_unverified) echo "Impossible de vérifier l'image stable signée. Rien n'a été modifié. Réessayez dans un instant." ;;
+        en:return_up_failed) echo "The stable version and the copy of your database are in place, but the stack did not start. Fix what the log says, then run: docker compose up -d, in $1. Your previous database is $2." ;;
+        fr:return_up_failed) echo "La version stable et la copie de votre base sont en place, mais la pile n'a pas démarré. Corrigez ce qu'indique le journal, puis lancez docker compose up -d dans $1. Votre base précédente est $2." ;;
         en:return_manual) echo "This install cannot go back automatically. The steps: $1" ;;
         fr:return_manual) echo "Cette installation ne peut pas revenir en arrière automatiquement. La marche à suivre : $1" ;;
         en:return_stable_unknown) echo "Could not confirm the stable version. Nothing was changed. Try again shortly." ;;
         fr:return_stable_unknown) echo "Impossible de confirmer la version stable. Rien n'a été modifié. Réessayez dans un instant." ;;
-        en:return_pull_failed) echo "Could not download the stable image. Nothing else was changed." ;;
-        fr:return_pull_failed) echo "Impossible de télécharger l'image stable. Rien d'autre n'a été modifié." ;;
+        en:return_pull_failed) echo "Could not download the stable image. Nothing was changed." ;;
+        fr:return_pull_failed) echo "Impossible de télécharger l'image stable. Rien n'a été modifié." ;;
         en:bad_argument) echo "Unknown option: $1. Accepted: --channel testing, --channel stable." ;;
         fr:bad_argument) echo "Option inconnue : $1. Options acceptées : --channel testing, --channel stable." ;;
         en:title) echo "Meshloom installation" ;;
@@ -1352,6 +1370,7 @@ confirm_question() {
 confirm_install() {
     local step_label
     resolve_upgrade_kind
+    refuse_going_below_a_prerelease
     if [ -n "$UPGRADE_KIND" ]; then
         step_label="$(t step_upgrade)"
     else
@@ -1816,7 +1835,11 @@ resolve_target() {
     if [ "$CHANNEL" = testing ]; then
         rc=0
         candidate=$(signed_channel_version) || rc=$?
-        [ "$rc" -eq 0 ] || return $((rc + 10))
+        # Without a usable file the stable release is still a target: the caller decides.
+        if [ "$rc" -ne 0 ]; then
+            printf '%s' "$target"
+            return $((rc + 10))
+        fi
         if version_gt "$candidate" "$target"; then
             target=$candidate
         fi
@@ -1945,14 +1968,22 @@ command -v gpgv >/dev/null 2>&1 || fail "gpgv is not installed"
 
 rc=0
 TARGET=$(resolve_target) || rc=$?
+CHANNEL_PROBLEM=""
 case "$rc" in
     0) ;;
-    12) fail "could not download the channel file" ;;
-    13) fail "channel file signature check failed" ;;
-    14) fail "invalid channel file" ;;
-    15) fail "refusing a channel file older than the last one seen" ;;
+    12) CHANNEL_PROBLEM="could not download the channel file" ;;
+    13) CHANNEL_PROBLEM="channel file signature check failed" ;;
+    14) CHANNEL_PROBLEM="invalid channel file" ;;
+    15) CHANNEL_PROBLEM="refusing a channel file older than the last one seen" ;;
     *) fail "could not resolve the latest release" ;;
 esac
+# A problem with the file only matters if the stable release is not an update by itself.
+if [ -n "$CHANNEL_PROBLEM" ]; then
+    if [ -z "$CURRENT" ] || ! version_gt "$TARGET" "$CURRENT"; then
+        fail "$CHANNEL_PROBLEM"
+    fi
+    log "$CHANNEL_PROBLEM; following the stable release $TARGET"
+fi
 rc=0
 DIGEST=$(signed_digest "$TARGET") || rc=$?
 case "$rc" in
@@ -2123,6 +2154,7 @@ install_compose_update_helper() {
     as_root rm -f "${dir}/data/update-job.json"
     as_root systemctl daemon-reload || true
     if ! run_soft as_root env MESHLOOM_COMPOSE_DIR="$dir" MESHLOOM_UPDATE_CHANNEL="$CHANNEL" /usr/lib/meshloom/compose-update --bootstrap; then
+        [ "${COMPOSE_BOOTSTRAP_SOFT:-0}" != 1 ] || return 1
         ui_err "$(t compose_pin_failed)"
         tail -n 20 "$INSTALL_LOG" >&2 || true
         printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
@@ -2864,6 +2896,16 @@ prerelease_docs_url() {
     printf '%s/docs/%s' "$NEXT_URL" "$ML_LANG"
 }
 
+# Going back by hand: the section of this page. Only reached with a stable newer than 4.18,
+# whose site has it.
+install_paths_docs_url() {
+    if [ "$ML_LANG" = "fr" ]; then
+        printf 'https://meshloom.app/docs/deep/install-paths/'
+    else
+        printf 'https://meshloom.app/en/docs/deep/install-paths/'
+    fi
+}
+
 # What the signed channel file says the testing suite serves. Fails on a download
 # error, a bad signature or anything unexpected in it.
 testing_channel_version() {
@@ -2963,7 +3005,7 @@ stable_release_tag() {
     printf '%s' "$tag"
 }
 
-# A real database copy holding schema $2: SQLite's header and its user_version (offset 60).
+# A real SQLite file holding schema $2: its header and its user_version (offset 60).
 copy_header_matches() {
     local hex
     hex="$(as_root od -An -v -tx1 -N 64 "$1" 2>/dev/null | tr -d '[:space:]')"
@@ -2972,15 +3014,40 @@ copy_header_matches() {
     [ "$((16#${hex:120:8}))" = "$2" ]
 }
 
+# The schema in a database's header, empty when the file is absent or not SQLite. A database
+# still open with a WAL can be ahead of this: it only matters in the direction it can show.
+database_schema() {
+    local hex
+    hex="$(as_root od -An -v -tx1 -N 64 "$1" 2>/dev/null | tr -d '[:space:]')"
+    [ "${#hex}" -eq 128 ] || return 0
+    [ "${hex:0:32}" = "53514c69746520666f726d6174203300" ] || return 0
+    printf '%s' "$((16#${hex:120:8}))"
+}
+
+# The highest schema release $1 reads. Every 4.18 uses 87. Fails for any other: this script
+# does not know them, and the steps are in the docs.
+stable_schema() {
+    case "$1" in
+        4.18.*) printf '87' ;;
+        *) return 2 ;;
+    esac
+}
+
+# True when the stable version cannot read this database: it was already migrated, whatever
+# the version running says. The usual 4.18.2 command puts that image on a migrated database.
+database_above_stable() {
+    local target schema
+    target="$(stable_schema "$2")" || return 1
+    schema="$(database_schema "$1")"
+    [ -n "$schema" ] && [ "$schema" -gt "$target" ]
+}
+
 # The copy to go back to, chosen by schema number, never by the version in its name
-# (MSHL-460): the highest schema the stable version can read. Every 4.18 uses schema 87.
+# (MSHL-460): the highest schema the stable version can read, the most recent of equals.
 # Returns 2 when this script does not know that schema for the stable version.
 select_way_back_copy() {
     local db="$1" stable="$2" target entry n base best="" best_n=-1
-    case "$stable" in
-        4.18.*) target=87 ;;
-        *) return 2 ;;
-    esac
+    target="$(stable_schema "$stable")" || return 2
     base="$(basename "$db")"
     while IFS= read -r entry; do
         [ -n "$entry" ] || continue
@@ -2990,35 +3057,198 @@ select_way_back_copy() {
         case "$n" in
             '' | *[!0-9]*) continue ;;
         esac
-        if [ "$n" -le "$target" ] && [ "$n" -gt "$best_n" ] && copy_header_matches "$entry" "$n"; then
+        [ "$n" -le "$target" ] || continue
+        [ "$n" -gt "$best_n" ] || { [ "$n" -eq "$best_n" ] && as_root test "$entry" -nt "$best"; } || continue
+        if copy_header_matches "$entry" "$n"; then
             best="$entry"
             best_n="$n"
         fi
-    done <<<"$(find_database_copies "$db")"
+    done <<<"$(find_database_copies "$db" | sort)"
     printf '%s' "$best"
 }
 
-# Puts the copy in place of the database (MSHL-460): -wal, -shm and the migration marker
-# go, and the current database stays beside it. Without a copy, the next start is empty.
-restore_database() {
-    local db="$1" copy="$2" aside="$3" ext key secrets
-    for ext in "" -wal -shm; do
-        if as_root test -e "${db}${ext}"; then
-            as_root mv -f "${db}${ext}" "${aside}${ext}"
-            as_root chmod 0600 "${aside}${ext}"
+# Runs a command as uid $1, gid $2. The data folder belongs to the service, which an attacker
+# in the service controls: what happens inside it must carry no more rights than that.
+as_owner() {
+    local uid="$1" gid="$2"
+    shift 2
+    if [ "$uid" = "$(id -u)" ]; then
+        "$@"
+    elif command -v setpriv >/dev/null 2>&1; then
+        as_root setpriv --reuid="$uid" --regid="$gid" --clear-groups -- "$@"
+    else
+        return 127
+    fi
+}
+
+# "uid gid" of a real folder (no link), or nothing.
+data_dir_owner() {
+    local dir="$1" owner
+    as_root test -d "$dir" || return 1
+    if as_root test -L "$dir"; then
+        return 1
+    fi
+    owner="$(as_root stat -c '%u %g' "$dir" 2>/dev/null || as_root stat -f '%u %g' "$dir" 2>/dev/null)" || return 1
+    case "$owner" in
+        *[!0-9\ ]* | '') return 1 ;;
+    esac
+    printf '%s' "$owner"
+}
+
+# Every file the return touches is a regular file or absent. Prints the first that is not.
+return_paths_unsafe() {
+    local db="$1" copy="$2" aside="$3" dir f
+    dir="$(dirname "$db")"
+    for f in "$db" "${db}-wal" "${db}-shm" "${db}.migration-in-progress" "${dir}/secrets.key" \
+        "${copy:-$db}" "${copy:+${copy%.db}.secrets.key}"; do
+        [ -n "$f" ] || continue
+        if as_root test -L "$f" || { as_root test -e "$f" && ! as_root test -f "$f"; }; then
+            printf '%s' "$f"
+            return 0
         fi
     done
-    as_root rm -f "${db}.migration-in-progress"
-    [ -n "$copy" ] || return 0
-    as_root cp -p "$copy" "$db"
-    key="${copy%.db}.secrets.key"
-    secrets="$(dirname "$db")/secrets.key"
-    if as_root test -f "$key"; then
-        if as_root test -f "$secrets"; then
-            as_root cp -p "$secrets" "${aside}.secrets.key"
+    for f in "$aside" "${aside}-wal" "${aside}-shm" "${aside}.secrets.key"; do
+        if as_root test -L "$f" || as_root test -e "$f"; then
+            printf '%s' "$f"
+            return 0
         fi
-        as_root cp -p "$key" "$secrets"
+    done
+    return 1
+}
+
+# Refuses, with nothing changed, what is not a plain file where one is expected.
+check_return_paths() {
+    local bad
+    if ! data_dir_owner "$(dirname "$1")" >/dev/null; then
+        ui_err "$(t return_unsafe "$(dirname "$1")")"
+        exit 1
     fi
+    if bad="$(return_paths_unsafe "$1" "$2" "$3")"; then
+        ui_err "$(t return_unsafe "$bad")"
+        exit 1
+    fi
+}
+
+# The header's page count against the size, then SQLite's own check where something on this
+# machine can run it (nothing guarantees a Docker host has one). The copy is read as its owner.
+copy_is_intact() {
+    local copy="$1" owner hex size page pages rc tool
+    owner="$(data_dir_owner "$(dirname "$copy")")" || return 1
+    hex="$(as_root od -An -v -tx1 -N 96 "$copy" 2>/dev/null | tr -d '[:space:]')"
+    [ "${#hex}" -eq 192 ] || return 1
+    page="$((16#${hex:32:4}))"
+    [ "$page" -ne 1 ] || page=65536
+    pages="$((16#${hex:56:8}))"
+    # The page count holds when the change counter (24) equals version-valid-for (92).
+    if [ "${hex:48:8}" = "${hex:184:8}" ] && [ "$pages" -gt 0 ]; then
+        size="$(as_root sh -c 'wc -c <"$1"' sh "$copy" 2>/dev/null | tr -d '[:space:]')" || return 1
+        [ "$size" = "$((page * pages))" ] || return 1
+    fi
+    # shellcheck disable=SC2086 # "uid gid"
+    for tool in /opt/meshloom/.venv/bin/python python3; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        rc=0
+        as_owner $owner "$tool" -I -c '
+import sys, urllib.parse
+try:
+    import sqlite3
+except ImportError:
+    sys.exit(3)
+try:
+    c = sqlite3.connect("file:" + urllib.parse.quote(sys.argv[1]) + "?mode=ro&immutable=1", uri=True)
+    sys.exit(0 if c.execute("PRAGMA quick_check(1)").fetchone()[0] == "ok" else 1)
+except sqlite3.Error:
+    sys.exit(1)
+' "$copy" >/dev/null 2>&1 || rc=$?
+        case "$rc" in
+            0) return 0 ;;
+            1) return 1 ;;
+        esac
+    done
+    if command -v sqlite3 >/dev/null 2>&1; then
+        # shellcheck disable=SC2086 # "uid gid"
+        [ "$(as_owner $owner sqlite3 "file:${copy}?mode=ro&immutable=1" 'PRAGMA quick_check(1)' 2>/dev/null)" = "ok" ]
+        return
+    fi
+    return 0
+}
+
+# Puts the copy in place of the database (MSHL-460): -wal, -shm and the migration marker go,
+# and the current database stays beside it. Without a copy, the next start is empty. Runs as
+# the owner of the folder, and refuses anything but plain files: a link planted there leads
+# nowhere that owner could not already reach. Nothing moves until the new files are written.
+restore_database() {
+    local db="$1" copy="$2" aside="$3" owner
+    owner="$(data_dir_owner "$(dirname "$db")")" || return 1
+    # shellcheck disable=SC2086 # "uid gid"
+    as_owner $owner sh -c '
+set -eu
+db=$1 copy=$2 aside=$3
+dir=$(dirname "$db")
+secrets=$dir/secrets.key
+plain() { [ ! -L "$1" ] && { [ ! -e "$1" ] || [ -f "$1" ]; }; }
+absent() { [ ! -L "$1" ] && [ ! -e "$1" ]; }
+real() { [ ! -L "$1" ] && [ -f "$1" ]; }
+for f in "$db" "$db-wal" "$db-shm" "$db.migration-in-progress" "$secrets"; do plain "$f"; done
+for f in "$aside" "$aside-wal" "$aside-shm" "$aside.secrets.key"; do absent "$f"; done
+umask 077
+new_db="" new_key=""
+trap "rm -f \"\$new_db\" \"\$new_key\"" EXIT
+if [ -n "$copy" ]; then
+    real "$copy"
+    new_db=$(mktemp "$db.restoring.XXXXXX")
+    cat "$copy" >"$new_db"
+    key=${copy%.db}.secrets.key
+    plain "$key"
+    if [ -f "$key" ]; then
+        new_key=$(mktemp "$db.restoring.XXXXXX")
+        cat "$key" >"$new_key"
+    fi
+fi
+for ext in "" -wal -shm; do
+    if [ -e "$db$ext" ]; then
+        mv -f "$db$ext" "$aside$ext"
+        [ -L "$aside$ext" ] || chmod 0600 "$aside$ext"
+    fi
+done
+rm -f "$db.migration-in-progress"
+if [ -n "$new_db" ]; then
+    mv -f "$new_db" "$db"
+    new_db=""
+fi
+if [ -n "$new_key" ]; then
+    if [ -e "$secrets" ]; then
+        mv -f "$secrets" "$aside.secrets.key"
+    fi
+    mv -f "$new_key" "$secrets"
+    new_key=""
+fi
+' sh "$db" "$copy" "$aside"
+}
+
+# The reverse, when the package step failed: the database that was running comes back.
+undo_restore_database() {
+    local db="$1" copy="$2" aside="$3" owner
+    owner="$(data_dir_owner "$(dirname "$db")")" || return 1
+    # shellcheck disable=SC2086 # "uid gid"
+    as_owner $owner sh -c '
+set -eu
+db=$1 copy=$2 aside=$3
+secrets=$(dirname "$db")/secrets.key
+# The swap never began: what is in place is what was running.
+[ -e "$aside" ] || exit 0
+rm -f "$db" "$db-wal" "$db-shm"
+for ext in "" -wal -shm; do
+    if [ -f "$aside$ext" ] && [ ! -L "$aside$ext" ]; then
+        mv -f "$aside$ext" "$db$ext"
+    fi
+done
+if [ -f "$aside.secrets.key" ] && [ ! -L "$aside.secrets.key" ]; then
+    mv -f "$aside.secrets.key" "$secrets"
+elif [ -n "$copy" ] && [ -f "${copy%.db}.secrets.key" ]; then
+    rm -f "$secrets"
+fi
+' sh "$db" "$copy" "$aside"
 }
 
 # Downloads the package of release $1 for this machine into $2, checked against the
@@ -3057,48 +3287,126 @@ return_screen() {
     ui_screen "$(t step_return)" 1
 }
 
+# The command that leaves a pre-release, from any installer that knows it.
+prerelease_return_command() {
+    printf '/bin/bash -c "$(curl -fsSL %s)" -- --channel stable' "$NEXT_URL"
+}
+
+# The installers of 4.18 pin or install the older version over a migrated database. This one
+# stops first, before it writes anything. A stable above stable (a moved `latest`) is left alone.
+refuse_going_below_a_prerelease() {
+    [ -n "$INSTALLED_VERSION" ] && [ -n "$TARGET_VERSION" ] || return 0
+    version_gt "$INSTALLED_VERSION" "$TARGET_VERSION" || return 0
+    if [ "$CHANNEL" = "testing" ]; then
+        ui_err "$(t prerelease_older "$INSTALLED_VERSION" "$TARGET_VERSION")"
+        exit 1
+    fi
+    case "$INSTALLED_VERSION" in
+        *-rc.*)
+            ui_err "$(t return_refuse_newer "$INSTALLED_VERSION" "$TARGET_VERSION" "$(prerelease_return_command)")"
+            exit 1
+            ;;
+    esac
+}
+
+package_source_file() {
+    if [ "$PKG_MGR" = "apt" ]; then
+        printf '/etc/apt/sources.list.d/meshloom.list'
+    else
+        printf '/etc/yum.repos.d/meshloom.repo'
+    fi
+}
+
+# The source as it is now, so that a failure can put it back.
+save_package_source() {
+    SAVED_SOURCE="$(mktemp /tmp/meshloom-source.XXXXXX)"
+    if ! as_root cat "$(package_source_file)" >"$SAVED_SOURCE" 2>/dev/null; then
+        rm -f "$SAVED_SOURCE"
+        SAVED_SOURCE=""
+    fi
+}
+
+restore_package_source() {
+    if [ -n "${SAVED_SOURCE:-}" ]; then
+        as_root sh -c 'cat "$1" > "$2"' sh "$SAVED_SOURCE" "$(package_source_file)"
+        rm -f "$SAVED_SOURCE"
+        SAVED_SOURCE=""
+        if [ "$PKG_MGR" = "apt" ]; then
+            run_soft as_root apt-get update || true
+        fi
+    fi
+}
+
+# Moves the source to stable and reads it. On failure the source is back as it was.
+switch_source_to_stable() {
+    save_package_source
+    add_signed_repo
+    if [ "$PKG_MGR" = "apt" ] && ! run_soft as_root apt-get update; then
+        restore_package_source
+        ui_err "$(t return_source_failed)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        exit 1
+    fi
+}
+
 # Nothing to undo: the version is not newer than stable, only the channel moves.
 return_package_channel_only() {
+    local rc=0
     if ! ui_yesno "$(t return_switch_q)" y; then
         printf '\n%s\n' "$(t cancelled)"
         exit 130
     fi
     phase "$(t using_repo)"
-    add_signed_repo
+    switch_source_to_stable
     if [ "$PKG_MGR" = "apt" ]; then
-        run_quiet as_root apt-get update
-        run_quiet as_root apt-get install -y --only-upgrade meshloom
+        run_soft as_root apt-get install -y --only-upgrade meshloom || rc=$?
     else
-        run_quiet as_root dnf -y --refresh upgrade meshloom
+        run_soft as_root dnf -y --refresh upgrade meshloom || rc=$?
     fi
+    if [ "$rc" -ne 0 ]; then
+        restore_package_source
+        ui_err "$(t return_source_failed)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        exit 1
+    fi
+    rm -f "${SAVED_SOURCE:-}"
     phase_ok
     ui_ok "  $(t return_switch_done)"
 }
 
 return_package() {
-    local stable="$1" installed db copy="" rc=0 aside tmpdir file
+    local stable="$1" installed db copy="" rc=0 aside tmpdir="" file="" downgrade=0
     installed="$(package_installed_version)"
+    db="$(package_db_path)"
     return_screen
-    if ! version_gt "$installed" "$stable"; then
+    if version_gt "$installed" "$stable"; then
+        downgrade=1
+    elif ! database_above_stable "$db" "$stable"; then
         return_package_channel_only
         return
     fi
-    db="$(package_db_path)"
     copy="$(select_way_back_copy "$db" "$stable")" || rc=$?
     if [ "$rc" -ne 0 ]; then
-        ui_err "$(t return_manual "$(prerelease_docs_url)")"
-        exit 1
-    fi
-    ensure_gpgv
-    prepare_release_key
-    tmpdir="$(mktemp -d /tmp/meshloom-return.XXXXXX)"
-    if ! file="$(fetch_stable_package "$stable" "$tmpdir")"; then
-        ui_err "$(t sig_failed)"
-        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-        rm -rf "$tmpdir"
+        ui_err "$(t return_manual "$(install_paths_docs_url)")"
         exit 1
     fi
     aside="${db}.aside-${installed}-$(date +%Y%m%d-%H%M%S)"
+    check_return_paths "$db" "$copy" "$aside"
+    if [ -n "$copy" ] && ! copy_is_intact "$copy"; then
+        ui_err "$(t return_copy_damaged "$(basename "$copy")")"
+        exit 1
+    fi
+    if [ "$downgrade" = 1 ]; then
+        ensure_gpgv
+        prepare_release_key
+        tmpdir="$(mktemp -d /tmp/meshloom-return.XXXXXX)"
+        if ! file="$(fetch_stable_package "$stable" "$tmpdir")"; then
+            ui_err "$(t sig_failed)"
+            printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+            rm -rf "$tmpdir"
+            exit 1
+        fi
+    fi
     if [ -n "$copy" ]; then
         ui_wrap 2 70 "$(t return_uses_copy "$(basename "$copy")" "$(basename "$aside")")"
     else
@@ -3106,24 +3414,37 @@ return_package() {
     fi
     printf '\n'
     if ! ui_yesno "$(t return_q "$stable")" "$([ -n "$copy" ] && echo y || echo n)"; then
-        rm -rf "$tmpdir"
+        [ -z "$tmpdir" ] || rm -rf "$tmpdir"
         printf '\n%s\n' "$(t cancelled)"
         exit 130
     fi
     phase "$(t working)"
-    add_signed_repo
-    if [ "$PKG_MGR" = "apt" ]; then
-        run_quiet as_root apt-get update
-    fi
+    switch_source_to_stable
     as_root systemctl stop meshloom 2>/dev/null || true
-    restore_database "$db" "$copy" "$aside"
-    # The package's own scripts restart the service: the database is ready by then.
-    if [ "$PKG_MGR" = "apt" ]; then
-        run_quiet as_root apt-get install -y --allow-downgrades "$file"
-    else
-        run_quiet as_root dnf -y downgrade "$file"
+    if ! restore_database "$db" "$copy" "$aside"; then
+        return_package_undo "$db" "$copy" "$aside" "$tmpdir"
     fi
-    rm -rf "$tmpdir"
+    if [ "$downgrade" = 1 ]; then
+        # The package's own scripts restart the service: the database is ready by then.
+        rc=0
+        if [ "$PKG_MGR" = "apt" ]; then
+            run_soft as_root apt-get install -y --allow-downgrades "$file" || rc=$?
+        else
+            run_soft as_root dnf -y downgrade "$file" || rc=$?
+        fi
+        if [ "$rc" -ne 0 ]; then
+            if [ "$(package_installed_version)" = "$installed" ]; then
+                return_package_undo "$db" "$copy" "$aside" "$tmpdir"
+            fi
+            rm -rf "$tmpdir"
+            rm -f "${SAVED_SOURCE:-}"
+            ui_err "$(t return_midway "$(basename "$aside")")"
+            printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+            exit 1
+        fi
+        rm -rf "$tmpdir"
+    fi
+    rm -f "${SAVED_SOURCE:-}"
     # The unit may be at its start limit (StartLimitBurst).
     as_root systemctl reset-failed meshloom 2>/dev/null || true
     start_meshloom_unit
@@ -3133,40 +3454,141 @@ return_package() {
     ui_ok "  $(t return_done "$stable")"
 }
 
+# Nothing is lost: the running database, the source and the service come back.
+return_package_undo() {
+    local db="$1" copy="$2" aside="$3" tmpdir="$4"
+    undo_restore_database "$db" "$copy" "$aside" || true
+    restore_package_source
+    [ -z "$tmpdir" ] || rm -rf "$tmpdir"
+    as_root systemctl reset-failed meshloom 2>/dev/null || true
+    as_root systemctl start meshloom 2>/dev/null || true
+    ui_err "$(t return_rolled_back)"
+    printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+    exit 1
+}
+
+# Writes MESHLOOM_IMAGE=$2 in the stack's .env, in one step, keeping the other lines.
+compose_pin_env() {
+    local env_file="${1}/.env" tmp
+    tmp="$(mktemp /tmp/meshloom-env-new.XXXXXX)"
+    {
+        printf 'MESHLOOM_IMAGE=%s\n' "$2"
+        as_root grep -v '^MESHLOOM_IMAGE=' "$env_file" 2>/dev/null || true
+    } >"$tmp"
+    as_root sh -c 'cat "$1" > "$2"' sh "$tmp" "$env_file"
+    rm -f "$tmp"
+}
+
+# The signed stable image, downloaded without touching the stack: the variable wins over .env.
+# Fails, with nothing changed and the reason said.
+compose_pull_stable() {
+    local stable="$1" dir="$2" dc="$3" digest
+    ensure_gpgv
+    prepare_release_key
+    if ! digest="$(signed_image_digest "$stable")"; then
+        ui_err "$(t return_image_unverified)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        return 1
+    fi
+    RETURN_IMAGE="${GHCR_IMAGE}:${stable}@${digest}"
+    # shellcheck disable=SC2086 # "docker compose"
+    if ! (cd "$dir" && run_soft as_root env MESHLOOM_IMAGE="$RETURN_IMAGE" $dc pull); then
+        ui_err "$(t return_pull_failed)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        return 1
+    fi
+}
+
+# .env, the helper's env and its status as they are, for compose_put_back.
+compose_save_state() {
+    local dir="$1" f name
+    COMPOSE_SAVED="$(mktemp -d /tmp/meshloom-compose-saved.XXXXXX)"
+    for f in "${dir}/.env" /etc/meshloom/compose-update.env "${dir}/update-status/status.json"; do
+        name="$(basename "$f")"
+        if as_root test -f "$f"; then
+            as_root cat "$f" >"${COMPOSE_SAVED}/${name}"
+        fi
+    done
+}
+
+compose_put_back() {
+    local dir="$1" managed="$2" f name
+    for f in "${dir}/.env" /etc/meshloom/compose-update.env "${dir}/update-status/status.json"; do
+        name="$(basename "$f")"
+        if [ -f "${COMPOSE_SAVED}/${name}" ]; then
+            as_root sh -c 'cat "$1" > "$2"' sh "${COMPOSE_SAVED}/${name}" "$f"
+        fi
+    done
+    rm -rf "$COMPOSE_SAVED"
+    if [ "$managed" = 1 ]; then
+        enable_compose_update_helper
+    fi
+}
+
+# Moves the stack to the stable image already pulled. On failure everything is put back.
+compose_commit_stable() {
+    local dir="$1" managed="$2" dc="$3"
+    compose_save_state "$dir"
+    if [ "$managed" = 1 ]; then
+        compose_pin_env "$dir" "$RETURN_IMAGE"
+        if ! COMPOSE_BOOTSTRAP_SOFT=1 install_compose_update_helper "$dir"; then
+            compose_put_back "$dir" "$managed"
+            ui_err "$(t return_image_unverified)"
+            return 1
+        fi
+        return 0
+    fi
+    write_unmanaged_env "$dir"
+    # shellcheck disable=SC2086 # "docker compose"
+    if ! (cd "$dir" && run_soft as_root $dc pull); then
+        compose_put_back "$dir" "$managed"
+        ui_err "$(t return_pull_failed)"
+        return 1
+    fi
+}
+
 return_compose() {
-    local stable="$1" dir="$2" installed="" db copy="" rc=0 aside managed=0 dc saved_env
+    local stable="$1" dir="$2" installed="" db copy="" rc=0 aside managed=0 dc
     INSTALL_DIR="$dir"
     COMPOSE_DIR_SAVED="$dir"
     dc="$(compose_cmd)"
     installed="$(compose_image_version "${dir}/docker-compose.yml" || true)"
+    db="${dir}/data/meshcore.db"
     if [ -f /etc/meshloom/compose-update.env ] && compose_helper_possible "$dir"; then
         managed=1
     fi
     return_screen
-    if [ -z "$installed" ] || ! version_gt "$installed" "$stable"; then
+    # The pin alone does not say: the usual stable command of 4.18 pins it over a migrated database.
+    if { [ -z "$installed" ] || ! version_gt "$installed" "$stable"; } &&
+        ! database_above_stable "$db" "$stable"; then
         if ! ui_yesno "$(t return_switch_q)" y; then
             printf '\n%s\n' "$(t cancelled)"
             exit 130
         fi
         phase "$(t compose_secure)"
+        compose_pull_stable "$stable" "$dir" "$dc" || exit 1
+        compose_commit_stable "$dir" "$managed" "$dc" || exit 1
+        rm -rf "$COMPOSE_SAVED"
+        # shellcheck disable=SC2086 # "docker compose"
+        (cd "$dir" && run_quiet as_root $dc up -d)
         if [ "$managed" = 1 ]; then
-            install_compose_update_helper "$dir"
             enable_compose_update_helper
-        else
-            write_unmanaged_env "$dir"
         fi
-        (cd "$dir" && run_quiet as_root $dc pull && run_quiet as_root $dc up -d)
         phase_ok
         ui_ok "  $(t return_switch_done)"
         return
     fi
-    db="${dir}/data/meshcore.db"
     copy="$(select_way_back_copy "$db" "$stable")" || rc=$?
     if [ "$rc" -ne 0 ] || ! as_root test -e "$db"; then
-        ui_err "$(t return_manual "$(prerelease_docs_url)")"
+        ui_err "$(t return_manual "$(install_paths_docs_url)")"
         exit 1
     fi
-    aside="${db}.aside-${installed}-$(date +%Y%m%d-%H%M%S)"
+    aside="${db}.aside-${installed:-unknown}-$(date +%Y%m%d-%H%M%S)"
+    check_return_paths "$db" "$copy" "$aside"
+    if [ -n "$copy" ] && ! copy_is_intact "$copy"; then
+        ui_err "$(t return_copy_damaged "$(basename "$copy")")"
+        exit 1
+    fi
     if [ -n "$copy" ]; then
         ui_wrap 2 70 "$(t return_uses_copy "$(basename "$copy")" "$(basename "$aside")")"
     else
@@ -3178,26 +3600,24 @@ return_compose() {
         exit 130
     fi
     phase "$(t working)"
-    # The helper refuses to go down from a pin, by design: with none it takes stable.
-    saved_env="$(mktemp /tmp/meshloom-env-saved.XXXXXX)"
-    as_root cat "${dir}/.env" >"$saved_env"
-    as_root sed -i '/^MESHLOOM_IMAGE=/d' "${dir}/.env"
-    if [ "$managed" = 1 ]; then
-        install_compose_update_helper "$dir"
-    else
-        write_unmanaged_env "$dir"
+    # Nothing is written until the signed image is here.
+    compose_pull_stable "$stable" "$dir" "$dc" || exit 1
+    compose_commit_stable "$dir" "$managed" "$dc" || exit 1
+    # shellcheck disable=SC2086 # "docker compose"
+    if ! (cd "$dir" && run_soft as_root $dc stop) || ! restore_database "$db" "$copy" "$aside"; then
+        compose_put_back "$dir" "$managed"
+        # shellcheck disable=SC2086 # "docker compose"
+        (cd "$dir" && run_soft as_root $dc up -d) || true
+        ui_err "$(t return_unsafe "$db")"
+        exit 1
     fi
-    if ! (cd "$dir" && run_soft as_root $dc pull); then
-        as_root sh -c 'cat "$1" > "$2"' sh "$saved_env" "${dir}/.env"
-        rm -f "$saved_env"
-        ui_err "$(t return_pull_failed)"
+    rm -rf "$COMPOSE_SAVED"
+    # shellcheck disable=SC2086 # "docker compose"
+    if ! (cd "$dir" && run_soft as_root $dc up -d); then
+        ui_err "$(t return_up_failed "$dir" "$(basename "$aside")")"
         printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
         exit 1
     fi
-    rm -f "$saved_env"
-    (cd "$dir" && run_quiet as_root $dc stop)
-    restore_database "$db" "$copy" "$aside"
-    (cd "$dir" && run_quiet as_root $dc up -d)
     if [ "$managed" = 1 ]; then
         enable_compose_update_helper
     fi
@@ -3226,7 +3646,7 @@ return_to_stable() {
         return_compose "$stable" "$dir"
         return
     fi
-    ui_err "$(t return_manual "$(prerelease_docs_url)")"
+    ui_err "$(t return_manual "$(install_paths_docs_url)")"
     exit 1
 }
 

@@ -277,10 +277,24 @@ out, `get.meshloom.app` serves that older installer.
   with the name). The current database is kept as `<db>.aside-<version>-<date>`.
   It knows the schema of 4.18.x (87). For another stable, it stops and points to the
   docs: **add the schema there when a later stable needs this path**.
-- The regular installer on an rc machine downgrades nothing. On apt it writes the
-  `stable` source, then `apt-get install` stops with no candidate: the pin gives the
-  installed version -1 and the older stable stays under 1000. The machine then shows as
-  `stable` and stays on the rc; `--channel stable` still works from there.
+- The installer of 4.18, which `get.meshloom.app` serves until a 5.x stable exists, knows
+  nothing of rc versions, and cannot be changed. On apt it writes the `stable` source, then
+  `apt-get install` stops with no candidate (the pin gives the installed version -1, and the
+  older stable stays under 1000): the version stays, the machine shows as `stable`. Under
+  Docker it pins 4.18.x and starts it on the migrated database, and reports an upgrade.
+  `--channel stable` decides from the schema in the database as well as from the version,
+  so it offers the restore in both states.
+- This installer refuses before any write when it would go below an installed rc, and gives
+  the command. A stable above the target (a moved `latest`) keeps its old behaviour.
+- The return runs inside the data folder as that folder's owner (`setpriv`), and refuses
+  anything there that is not a plain file. That folder belongs to the service.
+- It checks the copy before it touches anything: the header's page count against the size,
+  then SQLite's `quick_check` with the first of the package's Python, `python3`, `sqlite3`.
+  A Docker host with none of them gets the size check only.
+- A failure leaves things as they were, or says what they are. Docker pulls the signed image
+  first, through the variable and not `.env`, then writes; a failed package step puts the
+  database, the source and the service back when the package did not change, and otherwise
+  says the state and that the same command repairs it.
 
 ### The channel file
 
@@ -300,7 +314,9 @@ offer an rc whose packages are not there. Exactly these lines, in this order.
 
 - The app (`update_channel.py`) and `compose-update` verify it with `gpgv` against
   `/usr/share/keyrings/meshloom-archive-keyring.gpg` (the image and the packages ship
-  it). A file that fails is ignored: the app keeps the stable answer.
+  it). A file that fails is ignored and the stable answer stands: the app and the helper
+  still move to a newer stable release, and the helper fails with the reason only when
+  that is not an update.
 - Replay: `issued_at` must not go backwards (in memory in the app, on disk in
   `compose-update`), and only a version newer than the running one is offered. The
   comparison is on `issued_at`, not the version, so a withdrawn rc can leave the file.

@@ -160,7 +160,11 @@ resolve_target() {
     if [ "$CHANNEL" = testing ]; then
         rc=0
         candidate=$(signed_channel_version) || rc=$?
-        [ "$rc" -eq 0 ] || return $((rc + 10))
+        # Without a usable file the stable release is still a target: the caller decides.
+        if [ "$rc" -ne 0 ]; then
+            printf '%s' "$target"
+            return $((rc + 10))
+        fi
         if version_gt "$candidate" "$target"; then
             target=$candidate
         fi
@@ -289,14 +293,22 @@ command -v gpgv >/dev/null 2>&1 || fail "gpgv is not installed"
 
 rc=0
 TARGET=$(resolve_target) || rc=$?
+CHANNEL_PROBLEM=""
 case "$rc" in
     0) ;;
-    12) fail "could not download the channel file" ;;
-    13) fail "channel file signature check failed" ;;
-    14) fail "invalid channel file" ;;
-    15) fail "refusing a channel file older than the last one seen" ;;
+    12) CHANNEL_PROBLEM="could not download the channel file" ;;
+    13) CHANNEL_PROBLEM="channel file signature check failed" ;;
+    14) CHANNEL_PROBLEM="invalid channel file" ;;
+    15) CHANNEL_PROBLEM="refusing a channel file older than the last one seen" ;;
     *) fail "could not resolve the latest release" ;;
 esac
+# A problem with the file only matters if the stable release is not an update by itself.
+if [ -n "$CHANNEL_PROBLEM" ]; then
+    if [ -z "$CURRENT" ] || ! version_gt "$TARGET" "$CURRENT"; then
+        fail "$CHANNEL_PROBLEM"
+    fi
+    log "$CHANNEL_PROBLEM; following the stable release $TARGET"
+fi
 rc=0
 DIGEST=$(signed_digest "$TARGET") || rc=$?
 case "$rc" in

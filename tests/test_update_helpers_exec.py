@@ -1077,6 +1077,33 @@ def test_compose_testing_fails_closed_without_the_channel_file(testing_host) -> 
     assert ":4.18.2@" in (compose_dir / ".env").read_text()
 
 
+@pytest.mark.parametrize("problem", ["missing", "forged"])
+def test_compose_testing_still_takes_a_newer_stable_without_a_usable_file(
+    testing_host, signers, problem: str
+) -> None:
+    _root, _log, env, files, compose_dir = testing_host
+    _publish(files, signers["release"], "4.18.3")
+    (files / "location").write_text(f"{REPO_URL}/releases/tag/4.18.3")
+    _pin(compose_dir)
+    if problem == "missing":
+        (files / CHANNEL_FILE).unlink()
+    else:
+        (files / CHANNEL_FILE).write_text(
+            "schema=1\nchannel=testing\nversion=9.9.9-rc.1\nstable=4.18.2\nissued_at=9\n"
+        )
+    assert _run(COMPOSE_UPDATE, env).returncode == 0
+    assert ":4.18.3@" in (compose_dir / ".env").read_text()
+
+
+def test_compose_testing_on_an_rc_without_a_file_fails_with_the_reason(testing_host) -> None:
+    _root, _log, env, files, compose_dir = testing_host
+    _pin(compose_dir, RC)
+    (files / CHANNEL_FILE).unlink()
+    assert _run(COMPOSE_UPDATE, env).returncode == 1
+    assert "channel file" in _status(compose_dir / "update-status/status.json")["error"]
+    assert f":{RC}@" in (compose_dir / ".env").read_text()
+
+
 def test_compose_refuses_a_bad_channel_setting(testing_host) -> None:
     _root, _log, env, _files, _compose_dir = testing_host
     env["MESHLOOM_UPDATE_CHANNEL"] = "../../evil"
