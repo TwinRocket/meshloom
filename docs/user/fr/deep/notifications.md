@@ -1,6 +1,6 @@
 ---
 title: Notifications
-description: Canaux, événements et règles : être prévenu quand quelque chose se passe, sur votre téléphone, par e-mail, sur ntfy, Telegram, Discord, Home Assistant et d’autres.
+description: "Canaux, événements et règles : être prévenu quand quelque chose se passe, sur votre téléphone, par e-mail, sur ntfy, Telegram, Discord, Home Assistant et d’autres."
 level: deep
 order: 17
 ---

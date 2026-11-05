@@ -432,7 +432,7 @@ def is_self_address(ip: IPAddress) -> bool:
     one of its interfaces (its LAN address, a Docker bridge such as 172.17.0.1, a
     Tailscale address...), or, inside a container, the default gateway, which is the
     Docker or Home Assistant host (not with ``network_mode: host``, where it is the LAN
-    router: ``_gateway_is_host``). There the radio proxy (5051, no authentication)
+    router: ``_gateway_is_host``). There the radio proxy (5001 by default, 5051 in the add-on; no authentication)
     and the app's own port listen. The host's LAN address seen from inside a bridged
     container cannot be listed: that residual risk is in
     ``docs/dev/plugins-security.md``."""

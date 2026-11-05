@@ -1,6 +1,6 @@
 ---
 title: Meshloom Remote
-description: Ouvrir votre Meshloom de partout par le relais Meshloom Remote : l’activer, autoriser des appareils, ce que voit le relais et ce que veut dire chaque état.
+description: "Ouvrir votre Meshloom de partout par le relais Meshloom Remote : l’activer, autoriser des appareils, ce que voit le relais et ce que veut dire chaque état."
 level: deep
 order: 24.2
 ---
@@ -30,7 +30,14 @@ Le relais est exploité par TwinRocket. Il termine la connexion chiffrée avant 
 
 Pour qu’un mot de passe vu par le relais ne suffise pas à entrer, utilisez une clé d’accès (passkey) ou activez la double authentification (**Réglages → Utilisateurs et accès**, voir [Passkeys](/docs/deep/access/#les-passkeys) et [Double authentification](/docs/deep/access/#la-double-authentification)).
 
-Quand Remote est activé, Meshloom indique aussi au relais sa version, son type d’installation, et s’il fait tourner des plugins avec quel niveau d’isolation. Tant que Remote est désactivé, rien n’est envoyé. Les conditions et la politique de confidentialité du relais disent ce qu’il conserve.
+Quand Remote est activé, Meshloom indique aussi au relais sa version, son type d’installation, et s’il fait tourner des plugins avec quel niveau d’isolation. Tant que Remote est désactivé, rien n’est envoyé. Il n’y a pas de compte sur le relais. Pour chaque instance, il conserve :
+
+- son enregistrement : la clé, l’adresse, la version de Meshloom, le type d’installation, si des plugins tournent et avec quelle isolation ;
+- l’état des appareils autorisés (pas leurs noms) ;
+- des chiffres d’usage par instance et par mois : requêtes, trafic, durée de connexion de l’instance, erreurs. Ils ne contiennent aucun contenu, et le relais s’en sert pour appliquer la limite mensuelle ci-dessous et maîtriser ses propres coûts ;
+- une trace des actions de l’opérateur sur une instance (une pause, un bannissement, une clé retirée), avec la date.
+
+Une demande d’accès vit 10 minutes et une connexion échouée est retenue 15 minutes, chacune sous une étiquette brouillée de l’adresse réseau, jamais l’adresse elle-même. Les journaux du relais ne contiennent ni message, ni adresse, ni adresse web, ni clé ; les chiffres d’usage sont gardés quelques mois. **Quitter Meshloom Remote** supprime du relais l’enregistrement et l’état des appareils ; la clé et l’adresse vous restent réservées 30 jours (voir plus bas), et les chiffres d’usage expirent d’eux-mêmes.
 
 ## États
 
@@ -43,7 +50,7 @@ Le badge sous **État** dit où en est la liaison :
 | Connexion, Connectée | La liaison s’établit, ou est établie : les appareils autorisés ouvrent l’adresse affichée. |
 | Hors ligne | La liaison est coupée. Meshloom se reconnecte seul, en espaçant les essais (jusqu’à 5 minutes). Vérifiez la connexion internet de cette machine. |
 | Inconnue du relais | Le relais a oublié l’instance et le nouvel enregistrement a échoué. Désactivez puis réactivez Remote ; si cela ne suffit pas, remplacez la clé. |
-| En pause | TwinRocket a mis cette instance en pause. Meshloom réessaie seul après 15 à 20 minutes. |
+| En pause | L’instance est en pause : soit elle a dépassé son [quota mensuel](#limites), soit TwinRocket l’a mise en pause. Meshloom ne dit pas laquelle et réessaie seul après 15 à 20 minutes ; en cas de dépassement du quota, la pause dure jusqu’au 1er du mois suivant (UTC). Le réseau local n’est pas touché : Meshloom continue de fonctionner chez vous. |
 | Remplacée | Une autre installation utilise la clé de cette instance, souvent une copie restaurée depuis une sauvegarde. Une clé ne sert qu’à une installation : remplacez la clé ici, puis autorisez de nouveau chaque appareil. |
 | Bannie | TwinRocket a banni l’instance ; Meshloom n’essaie plus. Contactez TwinRocket si vous pensez que c’est une erreur. |
 | Mise à jour requise | Le relais n’accepte plus cette version : mettez Meshloom à jour, Remote se reconnecte ensuite. |
@@ -51,10 +58,27 @@ Le badge sous **État** dit où en est la liaison :
 
 L’empreinte de la clé identifie l’instance auprès du relais ; elle ne change que si vous remplacez la clé.
 
+## Limites
+
+| Limite | Valeur |
+|---|---|
+| Trafic par instance et par mois | 5 Go, compté dans les deux sens (requêtes, réponses et connexions en direct) |
+| Requêtes par instance et par mois | 500 000 (la connexion en direct d’un navigateur compte pour une) |
+| Remise à zéro | Le 1er de chaque mois, en UTC |
+| Au-delà | L’instance est en pause jusqu’au mois suivant : toute requête est refusée, quel que soit l’appareil. Aucun avertissement n’est envoyé avant aujourd’hui : Meshloom affiche seulement **En pause**. Le réseau local continue de fonctionner |
+| Requêtes par instance | 1 200 par minute ; au-delà, le relais répond « trop de requêtes » un instant |
+| Connexions échouées | Après quelques-unes depuis un même réseau, une page de vérification d’abord (voir plus haut) |
+| Demande d’accès | Valable 10 minutes ; 5 au plus en attente à la fois pour une instance |
+| QR code | Un seul usage, 15 minutes |
+| Appareil autorisé | 90 jours pour un navigateur, 365 jours pour une application ou un script |
+| Adresse après **Quitter** | Conservée 30 jours pour la même clé |
+
+Les limites sont les mêmes pour toutes les instances. L’usage normal de l’interface reste très en dessous ; un script qui interroge toutes les quelques secondes, ou de gros médias, sont ce qui les atteint.
+
 ## Désactiver, quitter, remplacer la clé
 
 - **Désactiver** : plus rien n’est envoyé au relais et vos appareils ne peuvent plus ouvrir l’instance de l’extérieur. L’adresse et les appareils autorisés sont conservés pour la prochaine activation.
-- **Quitter Meshloom Remote** : le relais oublie l’adresse de l’instance et Remote se désactive. La clé est conservée : réactivez Remote dans les 30 jours pour retrouver la même adresse.
+- **Quitter Meshloom Remote** : le relais supprime l’enregistrement de l’instance et Remote se désactive. La clé reste sur cette machine et l’adresse vous reste réservée 30 jours : réactivez Remote dans ce délai pour retrouver la même adresse, passé ce délai une nouvelle est attribuée.
 - **Remplacer la clé** : une nouvelle clé et une nouvelle adresse ; tous les appareils autorisés et les demandes en attente sont oubliés, il faut autoriser de nouveau chaque appareil.
 
 Une sauvegarde restaurée ne ramène jamais Remote : l’instance restaurée repart avec Remote désactivé, sans adresse ni appareil.

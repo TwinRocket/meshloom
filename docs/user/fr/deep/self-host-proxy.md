@@ -94,5 +94,5 @@ Ouvrez `https://meshloom.example.org` et connectez-vous. La page de connexion ne
 
 ## Rester prudent
 
-- **Ne publiez ni le port 8000 ni le port du proxy radio.** Dès que le proxy est devant Meshloom, le port 8000 ne doit plus être joignable autrement. Le proxy radio (**Réglages → Proxy**, port 5051 par défaut) écoute sur `0.0.0.0` et n’a pas de connexion : ne le redirigez jamais, ne le placez jamais derrière le proxy ([Sécurité](/docs/deep/security/#proxy-radio)).
+- **Ne publiez ni le port 8000 ni le port du proxy radio.** Dès que le proxy est devant Meshloom, le port 8000 ne doit plus être joignable autrement. Le proxy radio (**Réglages → Proxy**, port 5001 par défaut) écoute sur `0.0.0.0` et n’a pas de connexion : ne le redirigez jamais, ne le placez jamais derrière le proxy ([Sécurité](/docs/deep/security/#proxy-radio)).
 - **Échecs de connexion répétés.** Le [bannissement intégré](/docs/deep/access/#les-délais-de-connexion) de Meshloom est actif par défaut et compte chaque visiteur séparément dès que le proxy est listé dans les Proxies de confiance. Pour un blocage au pare-feu, ou dans le journal du proxy, voir [fail2ban](/docs/deep/fail2ban/#derrière-un-reverse-proxy-sur-la-même-machine).

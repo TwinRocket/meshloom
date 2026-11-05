@@ -238,7 +238,7 @@ def test_lan_suggestions_are_the_entries_check_lan_host_accepts(monkeypatch):
         """\
         A = "http://Shelly.local:80/rpc and https://user:secret@192.168.1.20:8443/x"
         B = "http://[fd00::1]:8080/ https://[fd00::2]:443/ http://nas http://nas:8123/"
-        C = "http://192.168.1.30:5051 http://10.0.0.5:8000/ http://printer.lan."
+        C = "http://192.168.1.30:5051 http://192.168.1.31:5001 http://10.0.0.5:8000/ http://printer.lan."
         D = "http://localhost:1 http://169.254.169.254/ http://8.8.8.8 http://nas.example.com"
         E = "http://*.local http://nas*.lan http://meshloom.local http://meshloom:8000"
         F = "http://pi4 http://pi4.local http://pi4.example.net http://host.docker.internal"
@@ -255,6 +255,7 @@ def test_lan_suggestions_are_the_entries_check_lan_host_accepts(monkeypatch):
         ("nas", 2, False),
         ("nas:8123", 2, True),
         ("192.168.1.30:5051", 3, True),
+        ("192.168.1.31:5001", 3, True),
         ("10.0.0.5:8000", 3, True),
         ("printer.lan", 3, False),
     ]

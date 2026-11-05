@@ -1,6 +1,6 @@
 ---
 title: Meshloom Remote
-description: Open your Meshloom from anywhere through the Meshloom Remote relay: turning it on, allowing devices, what the relay sees, and what each status means.
+description: "Open your Meshloom from anywhere through the Meshloom Remote relay: turning it on, allowing devices, what the relay sees, and what each status means."
 level: deep
 order: 24.2
 ---
@@ -30,7 +30,14 @@ The relay is run by TwinRocket. It ends the encrypted connection before passing 
 
 So that a password seen by the relay is not enough to get in, use a passkey or turn on two-factor authentication (**Settings → Users & Access**, see [Passkeys](/en/docs/deep/access/#passkeys) and [Two-factor authentication](/en/docs/deep/access/#two-factor-authentication)).
 
-While Remote is on, Meshloom also tells the relay its version, its kind of install, and whether it runs plugins and with which isolation. While Remote is off, nothing is sent. The relay's own terms and privacy policy say what it keeps.
+While Remote is on, Meshloom also tells the relay its version, its kind of install, and whether it runs plugins and with which isolation. While Remote is off, nothing is sent. There is no relay account. For each instance the relay keeps:
+
+- its registration: the key, the address, the Meshloom version, the kind of install, whether plugins run and with which isolation;
+- the state of the allowed devices (not their names);
+- usage figures per instance and month: requests, traffic, how long the instance was connected, errors. They hold no content, and the relay uses them to apply the monthly limit below and to keep its own costs in check;
+- a record of the actions the operator takes on an instance (a pause, a ban, a key withdrawn), with the date.
+
+An access request lives 10 minutes and a failed sign-in is remembered for 15 minutes, each under a scrambled tag of the network address, never the address itself. The relay's logs hold no message, address, web address or key; the usage figures are kept for a few months. **Leave Meshloom Remote** deletes the registration and the device state from the relay; the key and the address stay reserved for you for 30 days (see below), and the usage figures expire on their own.
 
 ## Status
 
@@ -43,7 +50,7 @@ The badge under **Status** says where the link stands:
 | Connecting, Connected | The link is coming up, or up: allowed devices open the address shown. |
 | Offline | The link dropped. Meshloom reconnects by itself, waiting longer between tries (up to 5 minutes). Check this machine's internet connection. |
 | Unknown to the relay | The relay forgot the instance and registering again failed. Turn Remote off and on again; if that is not enough, replace the key. |
-| Paused | TwinRocket paused this instance. Meshloom tries again by itself after 15 to 20 minutes. |
+| Paused | The instance is paused: either it went over its [monthly quota](#limits), or TwinRocket paused it. Meshloom does not say which and tries again by itself after 15 to 20 minutes; over the quota, the pause lasts until the 1st of the next month (UTC). The local network is not affected: Meshloom keeps working at home. |
 | Replaced | Another install uses this instance's key, often a copy restored from a backup. A key serves one install only: replace the key here, then allow every device again. |
 | Banned | TwinRocket banned the instance; Meshloom stops trying. Contact TwinRocket if you think it is a mistake. |
 | Update required | The relay no longer accepts this version: update Meshloom, Remote then reconnects. |
@@ -51,10 +58,27 @@ The badge under **Status** says where the link stands:
 
 The key fingerprint identifies the instance to the relay; it only changes when you replace the key.
 
+## Limits
+
+| Limit | Value |
+|---|---|
+| Traffic per instance and month | 5 GB, counted both ways (requests, responses and live connections) |
+| Requests per instance and month | 500,000 (a browser's live connection counts as one) |
+| Reset | On the 1st of each month, UTC |
+| Past the limit | The instance is paused until the next month: every request is refused, whoever asks. No warning is sent beforehand today: Meshloom only shows **Paused**. The local network keeps working |
+| Requests per instance | 1,200 per minute; beyond that the relay answers "too many requests" for a moment |
+| Failed sign-ins | After a few from one network, a check page first (see above) |
+| Access request | Valid 10 minutes; at most 5 waiting at once for an instance |
+| QR code | One use, 15 minutes |
+| Allowed device | 90 days for a browser, 365 days for an app or script |
+| Address after **Leave** | Kept 30 days for the same key |
+
+The limits are the same for every instance. Ordinary use of the interface stays far below them; a script that polls every few seconds, or large media, is what reaches them.
+
 ## Turning it off, leaving, replacing the key
 
 - **Turn off**: nothing more is sent to the relay and your devices can no longer open the instance from outside. The address and the allowed devices are kept for when you turn it on again.
-- **Leave Meshloom Remote**: the relay forgets the instance's address and Remote turns off. The key is kept: turn Remote on again within 30 days to get the same address back.
+- **Leave Meshloom Remote**: the relay deletes the instance's registration and Remote turns off. The key stays on this machine and the address stays reserved for 30 days: turn Remote on again within that time to get the same address back, after it a new one is given.
 - **Replace the key**: a new key and a new address; every allowed device and pending request is forgotten, so each device must be allowed again.
 
 A restored backup never brings Remote back: the restored instance starts with Remote off, no address and no device.

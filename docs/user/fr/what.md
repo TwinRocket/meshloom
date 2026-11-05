@@ -1,6 +1,6 @@
 ---
 title: Qu’est-ce que c’est
-description: MeshCore, la radio compagnon, Meshloom : ce que fait chacun, sans le jargon.
+description: "MeshCore, la radio compagnon, Meshloom : ce que fait chacun, sans le jargon."
 level: start
 order: 1
 ---

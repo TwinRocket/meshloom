@@ -1,6 +1,6 @@
 ---
 title: Notifications
-description: Channels, events and rules: tell yourself when something happens, on your phone, by e-mail, on ntfy, Telegram, Discord, Home Assistant and more.
+description: "Channels, events and rules: tell yourself when something happens, on your phone, by e-mail, on ntfy, Telegram, Discord, Home Assistant and more."
 level: deep
 order: 17
 ---
