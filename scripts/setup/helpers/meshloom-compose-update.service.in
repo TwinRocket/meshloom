@@ -11,7 +11,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-# Holds MESHLOOM_COMPOSE_DIR only. Root-owned; the helper validates it.
+# Holds MESHLOOM_COMPOSE_DIR and, on the pre-release channel, MESHLOOM_UPDATE_CHANNEL.
+# Root-owned; the helper validates both.
 EnvironmentFile=/etc/meshloom/compose-update.env
 Environment=DOCKER_CONFIG=/run/meshloom-compose-update/docker
 ExecStart=/usr/lib/meshloom/compose-update

@@ -7,10 +7,14 @@
 #   - The target is the latest GitHub release, resolved from the
 #     releases/latest redirect. Its image digest comes from OCI-DIGESTS, signed
 #     with the Meshloom release key (gpgv). Downgrades are refused.
+#   - The channel comes from /etc/meshloom/compose-update.env (root-owned, written by
+#     the installer), never from the app. On `testing` the target is the newer of that
+#     release and what the signed channel file names; a copy of the file older than
+#     the last one seen is refused.
 #   - The image is pinned by digest in <dir>/.env (MESHLOOM_IMAGE), rewritten
 #     with mktemp + mv. docker-compose.yml is never edited.
 #   - Progress goes to <dir>/update-status/status.json (root 0755 directory,
-#     mounted read-only in the container).
+#     mounted read-only in the container). On `testing` it also names the channel.
 #
 # Usage: compose-update             apply the latest release (systemd unit)
 #        compose-update --bootstrap  write .env for a fresh install, no pull/up
@@ -23,12 +27,15 @@ fi
 
 REPO_URL="https://github.com/TwinRocket/meshloom"
 IMAGE_REPO="ghcr.io/twinrocket/meshloom"
+CHANNEL_FILE_URL="https://twinrocket.github.io/meshloom/channels/testing.txt"
 KEYRING="$R/usr/share/keyrings/meshloom-archive-keyring.gpg"
 STATE_DIR="$R/var/lib/meshloom-compose-update"
 STAMP_PATH="$STATE_DIR/last-start"
+ISSUED_PATH="$STATE_DIR/channel-issued-at"
 RUN_DIR="${RUNTIME_DIRECTORY:-$R/run/meshloom-compose-update}"
 COOLDOWN_SECONDS=120
 VERSION_RE='^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$'
+RC_VERSION_RE='^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-rc\.[1-9][0-9]{0,5}$'
 DIGEST_RE='^sha256:[0-9a-f]{64}$'
 DIR_RE='^/[A-Za-z0-9._/-]+$'
 
@@ -67,8 +74,10 @@ write_status() {
     if [ -n "$VERSION" ]; then version_json="\"$VERSION\""; else version_json=null; fi
     now=$(date +%s)
     tmp=$(mktemp "$STATUS_DIR/.status.XXXXXX")
-    printf '{"schema":1,"state":"%s","phase":"%s","percent":%s,"error":%s,"started_at":%s,"updated_at":%s,"version":%s}\n' \
-        "$STATE" "$PHASE" "$percent_json" "$error_json" "$STARTED_AT" "$now" "$version_json" >"$tmp"
+    channel_json=
+    if [ "$CHANNEL" = testing ]; then channel_json=',"channel":"testing"'; fi
+    printf '{"schema":1,"state":"%s","phase":"%s","percent":%s,"error":%s,"started_at":%s,"updated_at":%s,"version":%s%s}\n' \
+        "$STATE" "$PHASE" "$percent_json" "$error_json" "$STARTED_AT" "$now" "$version_json" "$channel_json" >"$tmp"
     chmod 0644 "$tmp"
     mv -f "$tmp" "$STATUS_DIR/status.json"
 }
@@ -93,13 +102,18 @@ on_exit() {
     fi
 }
 
-# version_gt A B: true when A > B (both already match VERSION_RE).
+# version_gt A B: true when A > B (X.Y.Z or X.Y.Z-rc.N, already validated). An rc
+# sorts before its final release, and rc.10 after rc.9.
 version_gt() {
-    a1=${1%%.*}; rest=${1#*.}; a2=${rest%%.*}; a3=${rest#*.}
-    b1=${2%%.*}; rest=${2#*.}; b2=${rest%%.*}; b3=${rest#*.}
+    a=${1%%-rc.*}; b=${2%%-rc.*}
+    a1=${a%%.*}; rest=${a#*.}; a2=${rest%%.*}; a3=${rest#*.}
+    b1=${b%%.*}; rest=${b#*.}; b2=${rest%%.*}; b3=${rest#*.}
     [ "$a1" -ne "$b1" ] && { [ "$a1" -gt "$b1" ]; return; }
     [ "$a2" -ne "$b2" ] && { [ "$a2" -gt "$b2" ]; return; }
-    [ "$a3" -gt "$b3" ]
+    [ "$a3" -ne "$b3" ] && { [ "$a3" -gt "$b3" ]; return; }
+    case "$1" in *-rc.*) ar=${1##*-rc.} ;; *) ar=9999999 ;; esac
+    case "$2" in *-rc.*) br=${2##*-rc.} ;; *) br=9999999 ;; esac
+    [ "$ar" -gt "$br" ]
 }
 
 # Latest release tag from the releases/latest redirect. The Location header
@@ -116,9 +130,47 @@ resolve_latest() {
     printf '%s' "$tag"
 }
 
+# What the testing channel serves, from the file signed with the Meshloom release key:
+#   schema=1 / channel=testing / version=<X.Y.Z or X.Y.Z-rc.N> / stable=X.Y.Z / issued_at=<unix>
+# Returns 2 when it cannot be downloaded, 3 on a bad signature, 4 on anything else wrong
+# with it, 5 when it is older than the copy already accepted.
+signed_channel_version() {
+    curl -fsSL --proto '=https' --max-time 20 -o "$WORK/testing.txt" "$CHANNEL_FILE_URL" || return 2
+    curl -fsSL --proto '=https' --max-time 20 -o "$WORK/testing.txt.asc" "${CHANNEL_FILE_URL}.asc" || return 2
+    gpgv --keyring "$KEYRING" "$WORK/testing.txt.asc" "$WORK/testing.txt" >/dev/null 2>&1 || return 3
+    [ "$(wc -l <"$WORK/testing.txt" | tr -d ' ')" = 5 ] || return 4
+    [ "$(sed -n 1p "$WORK/testing.txt")" = schema=1 ] || return 4
+    [ "$(sed -n 2p "$WORK/testing.txt")" = channel=testing ] || return 4
+    channel_version=$(sed -n 's/^version=//p' "$WORK/testing.txt")
+    printf '%s\n' "$channel_version" | grep -Eq "$VERSION_RE|$RC_VERSION_RE" || return 4
+    issued=$(sed -n 's/^issued_at=//p' "$WORK/testing.txt")
+    printf '%s\n' "$issued" | grep -Eq '^[0-9]{1,12}$' || return 4
+    seen=$(sed -n '1{/^[0-9][0-9]*$/p;}' "$ISSUED_PATH" 2>/dev/null || true)
+    if [ -n "$seen" ] && [ "$issued" -lt "$seen" ]; then
+        return 5
+    fi
+    printf '%s\n' "$issued" >"$ISSUED_PATH"
+    printf '%s' "$channel_version"
+}
+
+# The version to pin: the latest release, or on `testing` what the channel serves
+# when that is newer.
+resolve_target() {
+    target=$(resolve_latest) || return 1
+    if [ "$CHANNEL" = testing ]; then
+        rc=0
+        candidate=$(signed_channel_version) || rc=$?
+        [ "$rc" -eq 0 ] || return $((rc + 10))
+        if version_gt "$candidate" "$target"; then
+            target=$candidate
+        fi
+    fi
+    printf '%s' "$target"
+}
+
 # Digest of the OCI index for $1, from the release's OCI-DIGESTS file signed
 # with the Meshloom release key. The file holds exactly one line:
-#   ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<64 lowercase hex>
+#   ghcr.io/twinrocket/meshloom:<tag> sha256:<64 lowercase hex>
 signed_digest() {
     tag=$1
     curl -fsSL --proto '=https' --max-time 60 -o "$WORK/OCI-DIGESTS" \
@@ -139,7 +191,7 @@ signed_digest() {
 current_version() {
     [ -f "$ENV_FILE" ] || return 0
     sed -n 's/^MESHLOOM_IMAGE=//p' "$ENV_FILE" | head -n 1 |
-        sed -n "s|^ghcr\.io/twinrocket/meshloom:\([0-9]*\.[0-9]*\.[0-9]*\)@sha256:[0-9a-f]\{64\}\$|\1|p"
+        sed -n "s|^ghcr\.io/twinrocket/meshloom:\([0-9]*\.[0-9]*\.[0-9]*\(-rc\.[1-9][0-9]*\)\{0,1\}\)@sha256:[0-9a-f]\{64\}\$|\1|p"
 }
 
 write_env() {
@@ -166,8 +218,16 @@ if [ -z "$R" ] && [ "$(id -u)" -ne 0 ]; then
 fi
 umask 022
 
-# Only the directory comes from /etc/meshloom/compose-update.env (root-owned,
-# passed by systemd EnvironmentFile=). It is validated, never sourced.
+# Only the directory and the channel come from /etc/meshloom/compose-update.env
+# (root-owned, passed by systemd EnvironmentFile=). They are validated, never sourced.
+CHANNEL="${MESHLOOM_UPDATE_CHANNEL:-stable}"
+case "$CHANNEL" in
+    stable | testing) ;;
+    *)
+        log "invalid MESHLOOM_UPDATE_CHANNEL"
+        exit 1
+        ;;
+esac
 COMPOSE_DIR="${MESHLOOM_COMPOSE_DIR:-}"
 if ! printf '%s\n' "$COMPOSE_DIR" | grep -Eq "$DIR_RE" || [ "$(printf '%s\n' "$COMPOSE_DIR" | wc -l)" -ne 1 ]; then
     log "invalid MESHLOOM_COMPOSE_DIR"
@@ -227,7 +287,16 @@ write_status
 [ -s "$KEYRING" ] || fail "release key missing ($KEYRING); re-run the installer"
 command -v gpgv >/dev/null 2>&1 || fail "gpgv is not installed"
 
-TARGET=$(resolve_latest) || fail "could not resolve the latest release"
+rc=0
+TARGET=$(resolve_target) || rc=$?
+case "$rc" in
+    0) ;;
+    12) fail "could not download the channel file" ;;
+    13) fail "channel file signature check failed" ;;
+    14) fail "invalid channel file" ;;
+    15) fail "refusing a channel file older than the last one seen" ;;
+    *) fail "could not resolve the latest release" ;;
+esac
 rc=0
 DIGEST=$(signed_digest "$TARGET") || rc=$?
 case "$rc" in

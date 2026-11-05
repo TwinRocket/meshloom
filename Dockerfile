@@ -108,6 +108,13 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
 
+# Trust anchor and tool for the signed channel file (app/services/update_channel.py). The
+# slim base no longer brings gpgv: apt on trixie uses sqv.
+COPY pkg/keys/meshloom-archive-keyring.gpg /usr/share/keyrings/meshloom-archive-keyring.gpg
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gpgv \
+    && rm -rf /var/lib/apt/lists/*
+
 # The account that turns on the dedicated-uid isolation when it exists (root, the
 # default here and in the Home Assistant add-on, or MESHLOOM_RUN_AS_USER):
 # app/plugins/isolation/setuid.py. Each plugin instance then runs under a uid of

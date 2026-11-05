@@ -104,11 +104,14 @@ overrides:
   # bubblewrap isolates the plugin children (app/plugins/isolation/bwrap.py).
   # Recommended, not required: without it plugins run "hooks only", logged and
   # shown in /api/health.
+  # gpgv/gnupg2: the updater checks the signed channel file on a pre-release channel
+  # (app/services/update_channel.py); without it that machine only sees stable releases.
   deb:
     depends:
       - libc6
     recommends:
       - bubblewrap
+      - gpgv
     suggests:
       - fail2ban
   rpm:
@@ -116,6 +119,7 @@ overrides:
       - glibc
     recommends:
       - bubblewrap
+      - gnupg2
     suggests:
       - fail2ban
 rpm:

@@ -7,6 +7,11 @@
 # Run from a checkout:
 #   bash scripts/setup/install.sh
 #
+# Pre-releases: `get.meshloom.app/next` serves this same file from the latest release
+# candidate, with the line INSTALLER_DEFAULT_CHANNEL below set to testing
+# (scripts/build/stage_install_sh.sh). `--channel testing|stable` chooses explicitly;
+# `--channel stable` is the way back (see return_to_stable).
+#
 # Answers are normalised (CR/whitespace) because some terminals send "2\r".
 
 set -euo pipefail
@@ -36,6 +41,16 @@ GIT_URL="https://github.com/${REPO}.git"
 PAGES_BASE="https://twinrocket.github.io/meshloom"
 GHCR_IMAGE="ghcr.io/twinrocket/meshloom"
 API_RELEASES="https://api.github.com/repos/${REPO}/releases/latest"
+
+# The one line a release candidate's copy of this file changes. Keep it exact.
+INSTALLER_DEFAULT_CHANNEL=stable
+CHANNEL="$INSTALLER_DEFAULT_CHANNEL"
+CHANNEL_REQUESTED=""
+APT_SUITE="stable"
+RPM_PREFIX=""
+PRERELEASE_VERSION=""
+CHANNEL_FILE_URL="${PAGES_BASE}/channels/testing.txt"
+NEXT_URL="https://get.meshloom.app/next"
 
 ML_LANG="en"
 OS_FAMILY=""
@@ -71,6 +86,48 @@ t() {
     local key="$1"
     shift || true
     case "${ML_LANG}:${key}" in
+        en:recap_channel) echo "Channel" ;;
+        fr:recap_channel) echo "Canal" ;;
+        en:channel_testing) echo "pre-release" ;;
+        fr:channel_testing) echo "pré-version" ;;
+        en:prerelease_note) echo "A copy of your database is made before the upgrade, and you can go back from it: $1" ;;
+        fr:prerelease_note) echo "Une copie de votre base est faite avant la mise à jour, et vous pouvez revenir en arrière grâce à elle : $1" ;;
+        en:prerelease_none) echo "No pre-release is available right now. The stable version: /bin/bash -c \"\$(curl -fsSL https://get.meshloom.app)\"" ;;
+        fr:prerelease_none) echo "Aucune pré-version n'est disponible pour le moment. La version stable : /bin/bash -c \"\$(curl -fsSL https://get.meshloom.app)\"" ;;
+        en:prerelease_armhf) echo "Pre-releases have no 32-bit package, so nothing was changed here. Docker can run them: $1" ;;
+        fr:prerelease_armhf) echo "Les pré-versions n'ont pas de paquet 32 bits : rien n'a été modifié ici. Docker peut les faire tourner : $1" ;;
+        en:prerelease_no_package) echo "Pre-releases come as apt or dnf packages, or with Docker, so nothing was changed here: $1" ;;
+        fr:prerelease_no_package) echo "Les pré-versions existent en paquets apt ou dnf, ou avec Docker : rien n'a été modifié ici. $1" ;;
+        en:prerelease_following) echo "This machine now follows pre-releases. Settings > Updates offers the new ones." ;;
+        fr:prerelease_following) echo "Cette machine suit maintenant les pré-versions. Réglages > Mises à jour propose les nouvelles." ;;
+        en:prerelease_image_failed) echo "Could not verify the signed image of the pre-release. Nothing was changed." ;;
+        fr:prerelease_image_failed) echo "Impossible de vérifier l'image signée de la pré-version. Rien n'a été modifié." ;;
+        en:way_back_copy) echo "Copy of your database" ;;
+        fr:way_back_copy) echo "Copie de votre base" ;;
+        en:way_back_docs) echo "Going back, and returning to stable" ;;
+        fr:way_back_docs) echo "Revenir en arrière, et retrouver la version stable" ;;
+        en:step_return) echo "Back to stable" ;;
+        fr:step_return) echo "Retour à la version stable" ;;
+        en:return_switch_q) echo "Move this machine to the stable channel? The version does not change until a newer stable one is out." ;;
+        fr:return_switch_q) echo "Passer cette machine sur le canal stable ? La version ne change pas avant qu'une version stable plus récente sorte." ;;
+        en:return_switch_done) echo "This machine now follows the stable channel." ;;
+        fr:return_switch_done) echo "Cette machine suit maintenant le canal stable." ;;
+        en:return_uses_copy) echo "Your database goes back to the copy $1. What changed since then is not kept, and the current database stays beside it as $2." ;;
+        fr:return_uses_copy) echo "Votre base revient à la copie $1. Ce qui a changé depuis n'est pas conservé, et la base actuelle reste à côté sous le nom $2." ;;
+        en:return_no_copy) echo "No copy of your database was found for this version, so $1 starts on an empty database. The current one stays beside it as $2." ;;
+        fr:return_no_copy) echo "Aucune copie de votre base n'existe pour cette version : la $1 démarre donc sur une base vide. La base actuelle reste à côté sous le nom $2." ;;
+        en:return_q) echo "Go back to version $1?" ;;
+        fr:return_q) echo "Revenir à la version $1 ?" ;;
+        en:return_done) echo "Meshloom $1 is back, on the stable channel." ;;
+        fr:return_done) echo "Meshloom $1 est de retour, sur le canal stable." ;;
+        en:return_manual) echo "This install cannot go back automatically. The steps: $1" ;;
+        fr:return_manual) echo "Cette installation ne peut pas revenir en arrière automatiquement. La marche à suivre : $1" ;;
+        en:return_stable_unknown) echo "Could not confirm the stable version. Nothing was changed. Try again shortly." ;;
+        fr:return_stable_unknown) echo "Impossible de confirmer la version stable. Rien n'a été modifié. Réessayez dans un instant." ;;
+        en:return_pull_failed) echo "Could not download the stable image. Nothing else was changed." ;;
+        fr:return_pull_failed) echo "Impossible de télécharger l'image stable. Rien d'autre n'a été modifié." ;;
+        en:bad_argument) echo "Unknown option: $1. Accepted: --channel testing, --channel stable." ;;
+        fr:bad_argument) echo "Option inconnue : $1. Options acceptées : --channel testing, --channel stable." ;;
         en:title) echo "Meshloom installation" ;;
         fr:title) echo "Installation Meshloom" ;;
         en:tagline) echo "Web interface for MeshCore mesh radio networks" ;;
@@ -573,10 +630,33 @@ normalize_version() {
     v="${v#v}"
     v="${v#V}"
     v="${v%%+*}"
+    # A release candidate stays one: packages spell it 5.0.0~rc.1(-1), the tag 5.0.0-rc.1.
+    v="${v/\~rc./-rc.}"
     case "$v" in
+        *-rc.*)
+            local rc="${v#*-rc.}"
+            v="${v%%-rc.*}-rc.${rc%%-*}"
+            ;;
         *-*) v="${v%%-*}" ;;
     esac
     printf '%s' "$v"
+}
+
+# True when A > B (X.Y.Z or X.Y.Z-rc.N). An rc sorts before its final release.
+version_gt() {
+    local a="${1%%-rc.*}" b="${2%%-rc.*}" i ar=9999999 br=9999999
+    local -a pa pb
+    IFS=. read -r -a pa <<<"$a"
+    IFS=. read -r -a pb <<<"$b"
+    for i in 0 1 2; do
+        if [ "${pa[$i]:-0}" -ne "${pb[$i]:-0}" ]; then
+            [ "${pa[$i]:-0}" -gt "${pb[$i]:-0}" ]
+            return
+        fi
+    done
+    case "$1" in *-rc.*) ar="${1##*-rc.}" ;; esac
+    case "$2" in *-rc.*) br="${2##*-rc.}" ;; esac
+    [ "$ar" -gt "$br" ]
 }
 
 is_installer_lang() {
@@ -784,6 +864,10 @@ detect_installed_version() {
 detect_target_version() {
     local v="" tag=""
     TARGET_VERSION=""
+    if [ "$CHANNEL" = "testing" ]; then
+        TARGET_VERSION="$PRERELEASE_VERSION"
+        return 0
+    fi
     if [ "$INSTALL_MODE" = "service" ] && [ -n "$IN_CHECKOUT" ]; then
         if [ "$PKG_MGR" != "apt" ] && [ "$PKG_MGR" != "dnf" ]; then
             if v="$(read_project_version "$IN_CHECKOUT")"; then
@@ -851,7 +935,7 @@ pages_apt_has_host_arch() {
     local arch line
     arch="$(host_arch)"
     [ "$arch" != "unknown" ] || return 1
-    line="$(curl -fsSL --max-time 8 "${PAGES_BASE}/apt/dists/stable/Release" 2>/dev/null |
+    line="$(curl -fsSL --max-time 8 "${PAGES_BASE}/apt/dists/${APT_SUITE}/Release" 2>/dev/null |
         grep -i '^Architectures:' || true)"
     [ -n "$line" ] || return 1
     case " ${line#*:} " in
@@ -1280,6 +1364,9 @@ confirm_install() {
     if [ "$INSTALL_MODE" = "docker" ] && [ -n "$DBUS_SOCKET" ]; then
         printf '    %s    %s\n' "$(t recap_dbus)" "$(t recap_dbus_mapped)"
     fi
+    if [ "$CHANNEL" = "testing" ]; then
+        printf '    %s    %s\n' "$(t recap_channel)" "$(t channel_testing)"
+    fi
     if [ -n "$INSTALLED_VERSION" ] && [ -n "$TARGET_VERSION" ]; then
         printf '    %s    %s → %s\n' "$(t recap_version)" "$INSTALLED_VERSION" "$TARGET_VERSION"
     elif [ -n "$INSTALLED_VERSION" ]; then
@@ -1291,6 +1378,10 @@ confirm_install() {
     if [ -n "$UPGRADE_KIND" ]; then
         ui_wrap 2 70 "$(t upgrade_keeps_data)"
         printf '\n'
+        if [ "$CHANNEL" = "testing" ]; then
+            ui_wrap 2 70 "$(t prerelease_note "$(prerelease_docs_url)")"
+            printf '\n'
+        fi
     fi
     if ! is_root; then
         ui_wrap 2 70 "$(t sudo_note)"
@@ -1488,7 +1579,7 @@ add_signed_repo() {
         as_root install -D -m 0644 "$tmp" /etc/apt/preferences.d/meshloom.pref
         rm -f "$tmp"
         as_root mkdir -p /etc/apt/sources.list.d
-        echo "deb [signed-by=${KEYRING_PATH}] ${PAGES_BASE}/apt stable main" |
+        echo "deb [signed-by=${KEYRING_PATH}] ${PAGES_BASE}/apt ${APT_SUITE} main" |
             as_root tee /etc/apt/sources.list.d/meshloom.list >/dev/null
         as_root chmod 0644 /etc/apt/sources.list.d/meshloom.list
     else
@@ -1496,7 +1587,7 @@ add_signed_repo() {
         as_root tee /etc/yum.repos.d/meshloom.repo >/dev/null <<EOF
 [meshloom]
 name=Meshloom
-baseurl=${PAGES_BASE}/rpm/\$basearch
+baseurl=${PAGES_BASE}/rpm/${RPM_PREFIX}\$basearch
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
@@ -1572,10 +1663,14 @@ _embed_compose_update() {
 #   - The target is the latest GitHub release, resolved from the
 #     releases/latest redirect. Its image digest comes from OCI-DIGESTS, signed
 #     with the Meshloom release key (gpgv). Downgrades are refused.
+#   - The channel comes from /etc/meshloom/compose-update.env (root-owned, written by
+#     the installer), never from the app. On `testing` the target is the newer of that
+#     release and what the signed channel file names; a copy of the file older than
+#     the last one seen is refused.
 #   - The image is pinned by digest in <dir>/.env (MESHLOOM_IMAGE), rewritten
 #     with mktemp + mv. docker-compose.yml is never edited.
 #   - Progress goes to <dir>/update-status/status.json (root 0755 directory,
-#     mounted read-only in the container).
+#     mounted read-only in the container). On `testing` it also names the channel.
 #
 # Usage: compose-update             apply the latest release (systemd unit)
 #        compose-update --bootstrap  write .env for a fresh install, no pull/up
@@ -1588,12 +1683,15 @@ fi
 
 REPO_URL="https://github.com/TwinRocket/meshloom"
 IMAGE_REPO="ghcr.io/twinrocket/meshloom"
+CHANNEL_FILE_URL="https://twinrocket.github.io/meshloom/channels/testing.txt"
 KEYRING="$R/usr/share/keyrings/meshloom-archive-keyring.gpg"
 STATE_DIR="$R/var/lib/meshloom-compose-update"
 STAMP_PATH="$STATE_DIR/last-start"
+ISSUED_PATH="$STATE_DIR/channel-issued-at"
 RUN_DIR="${RUNTIME_DIRECTORY:-$R/run/meshloom-compose-update}"
 COOLDOWN_SECONDS=120
 VERSION_RE='^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$'
+RC_VERSION_RE='^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-rc\.[1-9][0-9]{0,5}$'
 DIGEST_RE='^sha256:[0-9a-f]{64}$'
 DIR_RE='^/[A-Za-z0-9._/-]+$'
 
@@ -1632,8 +1730,10 @@ write_status() {
     if [ -n "$VERSION" ]; then version_json="\"$VERSION\""; else version_json=null; fi
     now=$(date +%s)
     tmp=$(mktemp "$STATUS_DIR/.status.XXXXXX")
-    printf '{"schema":1,"state":"%s","phase":"%s","percent":%s,"error":%s,"started_at":%s,"updated_at":%s,"version":%s}\n' \
-        "$STATE" "$PHASE" "$percent_json" "$error_json" "$STARTED_AT" "$now" "$version_json" >"$tmp"
+    channel_json=
+    if [ "$CHANNEL" = testing ]; then channel_json=',"channel":"testing"'; fi
+    printf '{"schema":1,"state":"%s","phase":"%s","percent":%s,"error":%s,"started_at":%s,"updated_at":%s,"version":%s%s}\n' \
+        "$STATE" "$PHASE" "$percent_json" "$error_json" "$STARTED_AT" "$now" "$version_json" "$channel_json" >"$tmp"
     chmod 0644 "$tmp"
     mv -f "$tmp" "$STATUS_DIR/status.json"
 }
@@ -1658,13 +1758,18 @@ on_exit() {
     fi
 }
 
-# version_gt A B: true when A > B (both already match VERSION_RE).
+# version_gt A B: true when A > B (X.Y.Z or X.Y.Z-rc.N, already validated). An rc
+# sorts before its final release, and rc.10 after rc.9.
 version_gt() {
-    a1=${1%%.*}; rest=${1#*.}; a2=${rest%%.*}; a3=${rest#*.}
-    b1=${2%%.*}; rest=${2#*.}; b2=${rest%%.*}; b3=${rest#*.}
+    a=${1%%-rc.*}; b=${2%%-rc.*}
+    a1=${a%%.*}; rest=${a#*.}; a2=${rest%%.*}; a3=${rest#*.}
+    b1=${b%%.*}; rest=${b#*.}; b2=${rest%%.*}; b3=${rest#*.}
     [ "$a1" -ne "$b1" ] && { [ "$a1" -gt "$b1" ]; return; }
     [ "$a2" -ne "$b2" ] && { [ "$a2" -gt "$b2" ]; return; }
-    [ "$a3" -gt "$b3" ]
+    [ "$a3" -ne "$b3" ] && { [ "$a3" -gt "$b3" ]; return; }
+    case "$1" in *-rc.*) ar=${1##*-rc.} ;; *) ar=9999999 ;; esac
+    case "$2" in *-rc.*) br=${2##*-rc.} ;; *) br=9999999 ;; esac
+    [ "$ar" -gt "$br" ]
 }
 
 # Latest release tag from the releases/latest redirect. The Location header
@@ -1681,9 +1786,47 @@ resolve_latest() {
     printf '%s' "$tag"
 }
 
+# What the testing channel serves, from the file signed with the Meshloom release key:
+#   schema=1 / channel=testing / version=<X.Y.Z or X.Y.Z-rc.N> / stable=X.Y.Z / issued_at=<unix>
+# Returns 2 when it cannot be downloaded, 3 on a bad signature, 4 on anything else wrong
+# with it, 5 when it is older than the copy already accepted.
+signed_channel_version() {
+    curl -fsSL --proto '=https' --max-time 20 -o "$WORK/testing.txt" "$CHANNEL_FILE_URL" || return 2
+    curl -fsSL --proto '=https' --max-time 20 -o "$WORK/testing.txt.asc" "${CHANNEL_FILE_URL}.asc" || return 2
+    gpgv --keyring "$KEYRING" "$WORK/testing.txt.asc" "$WORK/testing.txt" >/dev/null 2>&1 || return 3
+    [ "$(wc -l <"$WORK/testing.txt" | tr -d ' ')" = 5 ] || return 4
+    [ "$(sed -n 1p "$WORK/testing.txt")" = schema=1 ] || return 4
+    [ "$(sed -n 2p "$WORK/testing.txt")" = channel=testing ] || return 4
+    channel_version=$(sed -n 's/^version=//p' "$WORK/testing.txt")
+    printf '%s\n' "$channel_version" | grep -Eq "$VERSION_RE|$RC_VERSION_RE" || return 4
+    issued=$(sed -n 's/^issued_at=//p' "$WORK/testing.txt")
+    printf '%s\n' "$issued" | grep -Eq '^[0-9]{1,12}$' || return 4
+    seen=$(sed -n '1{/^[0-9][0-9]*$/p;}' "$ISSUED_PATH" 2>/dev/null || true)
+    if [ -n "$seen" ] && [ "$issued" -lt "$seen" ]; then
+        return 5
+    fi
+    printf '%s\n' "$issued" >"$ISSUED_PATH"
+    printf '%s' "$channel_version"
+}
+
+# The version to pin: the latest release, or on `testing` what the channel serves
+# when that is newer.
+resolve_target() {
+    target=$(resolve_latest) || return 1
+    if [ "$CHANNEL" = testing ]; then
+        rc=0
+        candidate=$(signed_channel_version) || rc=$?
+        [ "$rc" -eq 0 ] || return $((rc + 10))
+        if version_gt "$candidate" "$target"; then
+            target=$candidate
+        fi
+    fi
+    printf '%s' "$target"
+}
+
 # Digest of the OCI index for $1, from the release's OCI-DIGESTS file signed
 # with the Meshloom release key. The file holds exactly one line:
-#   ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<64 lowercase hex>
+#   ghcr.io/twinrocket/meshloom:<tag> sha256:<64 lowercase hex>
 signed_digest() {
     tag=$1
     curl -fsSL --proto '=https' --max-time 60 -o "$WORK/OCI-DIGESTS" \
@@ -1704,7 +1847,7 @@ signed_digest() {
 current_version() {
     [ -f "$ENV_FILE" ] || return 0
     sed -n 's/^MESHLOOM_IMAGE=//p' "$ENV_FILE" | head -n 1 |
-        sed -n "s|^ghcr\.io/twinrocket/meshloom:\([0-9]*\.[0-9]*\.[0-9]*\)@sha256:[0-9a-f]\{64\}\$|\1|p"
+        sed -n "s|^ghcr\.io/twinrocket/meshloom:\([0-9]*\.[0-9]*\.[0-9]*\(-rc\.[1-9][0-9]*\)\{0,1\}\)@sha256:[0-9a-f]\{64\}\$|\1|p"
 }
 
 write_env() {
@@ -1731,8 +1874,16 @@ if [ -z "$R" ] && [ "$(id -u)" -ne 0 ]; then
 fi
 umask 022
 
-# Only the directory comes from /etc/meshloom/compose-update.env (root-owned,
-# passed by systemd EnvironmentFile=). It is validated, never sourced.
+# Only the directory and the channel come from /etc/meshloom/compose-update.env
+# (root-owned, passed by systemd EnvironmentFile=). They are validated, never sourced.
+CHANNEL="${MESHLOOM_UPDATE_CHANNEL:-stable}"
+case "$CHANNEL" in
+    stable | testing) ;;
+    *)
+        log "invalid MESHLOOM_UPDATE_CHANNEL"
+        exit 1
+        ;;
+esac
 COMPOSE_DIR="${MESHLOOM_COMPOSE_DIR:-}"
 if ! printf '%s\n' "$COMPOSE_DIR" | grep -Eq "$DIR_RE" || [ "$(printf '%s\n' "$COMPOSE_DIR" | wc -l)" -ne 1 ]; then
     log "invalid MESHLOOM_COMPOSE_DIR"
@@ -1792,7 +1943,16 @@ write_status
 [ -s "$KEYRING" ] || fail "release key missing ($KEYRING); re-run the installer"
 command -v gpgv >/dev/null 2>&1 || fail "gpgv is not installed"
 
-TARGET=$(resolve_latest) || fail "could not resolve the latest release"
+rc=0
+TARGET=$(resolve_target) || rc=$?
+case "$rc" in
+    0) ;;
+    12) fail "could not download the channel file" ;;
+    13) fail "channel file signature check failed" ;;
+    14) fail "invalid channel file" ;;
+    15) fail "refusing a channel file older than the last one seen" ;;
+    *) fail "could not resolve the latest release" ;;
+esac
 rc=0
 DIGEST=$(signed_digest "$TARGET") || rc=$?
 case "$rc" in
@@ -1871,7 +2031,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-# Holds MESHLOOM_COMPOSE_DIR only. Root-owned; the helper validates it.
+# Holds MESHLOOM_COMPOSE_DIR and, on the pre-release channel, MESHLOOM_UPDATE_CHANNEL.
+# Root-owned; the helper validates both.
 EnvironmentFile=/etc/meshloom/compose-update.env
 Environment=DOCKER_CONFIG=/run/meshloom-compose-update/docker
 ExecStart=/usr/lib/meshloom/compose-update
@@ -1945,6 +2106,9 @@ install_compose_update_helper() {
     _embed_compose_service | sed "s|@COMPOSE_DIR@|${dir}|g" >"$tmp/meshloom-compose-update.service"
     _embed_compose_path | sed "s|@COMPOSE_DIR@|${dir}|g" >"$tmp/meshloom-compose-update.path"
     printf 'MESHLOOM_COMPOSE_DIR=%s\n' "$dir" >"$tmp/compose-update.env"
+    if [ "$CHANNEL" = "testing" ]; then
+        printf 'MESHLOOM_UPDATE_CHANNEL=testing\n' >>"$tmp/compose-update.env"
+    fi
     secure_etc_meshloom
     as_root install -D -m 0755 "$tmp/compose-update" /usr/lib/meshloom/compose-update
     install_etc_file "$tmp/compose-update.env" /etc/meshloom/compose-update.env 0644
@@ -1958,7 +2122,7 @@ install_compose_update_helper() {
     # Up to 4.17 the root helper read its target back from this file.
     as_root rm -f "${dir}/data/update-job.json"
     as_root systemctl daemon-reload || true
-    if ! run_soft as_root env MESHLOOM_COMPOSE_DIR="$dir" /usr/lib/meshloom/compose-update --bootstrap; then
+    if ! run_soft as_root env MESHLOOM_COMPOSE_DIR="$dir" MESHLOOM_UPDATE_CHANNEL="$CHANNEL" /usr/lib/meshloom/compose-update --bootstrap; then
         ui_err "$(t compose_pin_failed)"
         tail -n 20 "$INSTALL_LOG" >&2 || true
         printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
@@ -2017,6 +2181,31 @@ install_from_pages() {
     persist_installer_state
     ensure_update_helper
     phase_ok
+}
+
+# Pre-release channel: from the signed `testing` suite and nothing else. No fallback to
+# a release asset or a source install, which would quietly be something else.
+install_prerelease_package() {
+    phase "$(t using_repo)"
+    add_signed_repo
+    if [ "$PKG_MGR" = "apt" ]; then
+        run_quiet as_root apt-get update
+        run_quiet as_root apt-get install -y meshloom
+    elif rpm -q meshloom >/dev/null 2>&1; then
+        # dnf install does nothing on an installed package (dnf5).
+        run_quiet as_root dnf -y --refresh upgrade meshloom
+    else
+        run_quiet as_root dnf -y --refresh install meshloom
+    fi
+    REPO_HAS_ARCH=1
+    write_meshloom_env /etc/meshloom/meshloom.env
+    start_meshloom_unit
+    persist_installer_state
+    ensure_update_helper
+    phase_ok
+    print_done_native
+    print_way_back "$(package_db_path)"
+    ui_dim "  $(t prerelease_following)"
 }
 
 # Signed release manifest: SHA256SUMS checked with gpgv against the embedded key.
@@ -2181,6 +2370,10 @@ print_done_native() {
 install_native_service() {
     ensure_cmd curl "curl"
     confirm_install
+    if [ "$CHANNEL" = "testing" ]; then
+        install_prerelease_package
+        return
+    fi
     # The architecture check is what keeps a 32-bit Raspberry Pi out of a
     # repository built for amd64 and arm64. Without it the installer added the
     # repository, apt found no candidate, and the source install below, which
@@ -2284,13 +2477,21 @@ write_docker_compose() {
 # Stacks without the root helper (Docker Desktop, rootless Docker) follow
 # :latest, so the manual "pull && up -d" recipe keeps upgrading them.
 write_unmanaged_env() {
-    local dir="$1"
+    local dir="$1" image="${GHCR_IMAGE}:latest" digest
+    # No moving tag for a pre-release: its version, pinned by its signed digest.
+    if [ "$CHANNEL" = "testing" ]; then
+        if ! digest="$(signed_image_digest "$PRERELEASE_VERSION")"; then
+            ui_err "$(t prerelease_image_failed)"
+            exit 1
+        fi
+        image="${GHCR_IMAGE}:${PRERELEASE_VERSION}@${digest}"
+    fi
     if [ -f "${dir}/.env" ]; then
         grep -v '^MESHLOOM_IMAGE=' "${dir}/.env" >"${dir}/.env.new" || true
     else
         : >"${dir}/.env.new"
     fi
-    { echo "MESHLOOM_IMAGE=${GHCR_IMAGE}:latest"; cat "${dir}/.env.new"; } >"${dir}/.env"
+    { echo "MESHLOOM_IMAGE=${image}"; cat "${dir}/.env.new"; } >"${dir}/.env"
     rm -f "${dir}/.env.new"
 }
 
@@ -2592,7 +2793,12 @@ install_docker_stack() {
         ui_ok "  $(t done)"
     fi
     printf '  %s\n    %s\n' "$(t open_at)" "http://127.0.0.1:8000"
-    if [ "$managed" = 1 ]; then
+    if [ "$CHANNEL" = "testing" ]; then
+        print_way_back "${INSTALL_DIR}/data/meshcore.db"
+        if [ "$managed" = 1 ]; then
+            ui_dim "  $(t prerelease_following)"
+        fi
+    elif [ "$managed" = 1 ]; then
         ui_dim "  $(t update_docker_managed)"
     else
         ui_dim "  $(t update_docker): $(priv "$dc pull") && $(priv "$dc up -d")"
@@ -2608,20 +2814,441 @@ show_browser_only() {
     printf '\n  http://<ip>:8000\n'
 }
 
+# ── channels ──────────────────────────────────────────────────────────────────
+#
+# The channel is the machine's choice, made here and nowhere else (docs/dev/releasing.md):
+# the apt or dnf source, or /etc/meshloom/compose-update.env for Docker. The app only reads it.
+
+set_channel() {
+    CHANNEL="$1"
+    if [ "$CHANNEL" = "testing" ]; then
+        APT_SUITE="testing"
+        RPM_PREFIX="testing/"
+    else
+        APT_SUITE="stable"
+        RPM_PREFIX=""
+    fi
+}
+
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --channel)
+                CHANNEL_REQUESTED="${2:-invalid:--channel}"
+                shift $(($# > 1 ? 2 : 1))
+                ;;
+            --channel=*)
+                CHANNEL_REQUESTED="${1#--channel=}"
+                shift
+                ;;
+            --*)
+                CHANNEL_REQUESTED="invalid:$1"
+                shift
+                ;;
+            *) shift ;;
+        esac
+    done
+    case "$CHANNEL_REQUESTED" in
+        "" | stable | testing) ;;
+        *)
+            ui_err "$(t bad_argument "${CHANNEL_REQUESTED#invalid:}")"
+            exit 2
+            ;;
+    esac
+    set_channel "${CHANNEL_REQUESTED:-$INSTALLER_DEFAULT_CHANNEL}"
+}
+
+prerelease_docs_url() {
+    printf '%s/docs/%s' "$NEXT_URL" "$ML_LANG"
+}
+
+# What the signed channel file says the testing suite serves. Fails on a download
+# error, a bad signature or anything unexpected in it.
+testing_channel_version() {
+    local dir version
+    dir="$(mktemp -d /tmp/meshloom-channel.XXXXXX)"
+    if ! run_soft curl -fsSL --proto '=https' --max-time 20 "$CHANNEL_FILE_URL" -o "${dir}/testing.txt" ||
+        ! run_soft curl -fsSL --proto '=https' --max-time 20 "${CHANNEL_FILE_URL}.asc" -o "${dir}/testing.txt.asc" ||
+        ! run_soft gpgv --keyring "${RELEASE_KEY_DIR}/meshloom.gpg" "${dir}/testing.txt.asc" "${dir}/testing.txt" ||
+        [ "$(sed -n 1p "${dir}/testing.txt")" != "schema=1" ] ||
+        [ "$(sed -n 2p "${dir}/testing.txt")" != "channel=testing" ]; then
+        rm -rf "$dir"
+        return 1
+    fi
+    version="$(sed -n 's/^version=//p' "${dir}/testing.txt" | head -n 1)"
+    rm -rf "$dir"
+    printf '%s\n' "$version" | grep -Eq '^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-rc\.[1-9][0-9]{0,5}$' || return 1
+    printf '%s' "$version"
+}
+
+# Digest of the image index for tag $1, from the release's signed OCI-DIGESTS.
+signed_image_digest() {
+    local tag="$1" dir base="https://github.com/${REPO}/releases/download/${1}" line
+    dir="$(mktemp -d /tmp/meshloom-digest.XXXXXX)"
+    if ! run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/OCI-DIGESTS" -o "${dir}/OCI-DIGESTS" ||
+        ! run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/OCI-DIGESTS.asc" -o "${dir}/OCI-DIGESTS.asc" ||
+        ! run_soft gpgv --keyring "${RELEASE_KEY_DIR}/meshloom.gpg" "${dir}/OCI-DIGESTS.asc" "${dir}/OCI-DIGESTS"; then
+        rm -rf "$dir"
+        return 1
+    fi
+    line="$(grep -xE "ghcr\.io/twinrocket/meshloom:${tag//./\\.} sha256:[0-9a-f]{64}" "${dir}/OCI-DIGESTS" || true)"
+    rm -rf "$dir"
+    [ -n "$line" ] || return 1
+    printf '%s' "${line##* }"
+}
+
+# Before anything is written: is there a pre-release, and can this machine run it?
+prepare_prerelease() {
+    [ "$CHANNEL" = "testing" ] || return 0
+    ensure_log
+    if [ "$INSTALL_MODE" = "service" ]; then
+        if [ "$(host_arch)" = "armhf" ]; then
+            ui_err "$(t prerelease_armhf "$(prerelease_docs_url)")"
+            exit 1
+        fi
+        if [ "$(host_arch)" = "unknown" ] || { [ "$PKG_MGR" != "apt" ] && [ "$PKG_MGR" != "dnf" ]; }; then
+            ui_err "$(t prerelease_no_package "$(prerelease_docs_url)")"
+            exit 1
+        fi
+    fi
+    ensure_cmd curl "curl"
+    ensure_gpgv
+    prepare_release_key
+    if ! PRERELEASE_VERSION="$(testing_channel_version)"; then
+        ui_err "$(t prerelease_none)"
+        exit 1
+    fi
+}
+
+package_db_path() {
+    local value=""
+    value="$(as_root sed -n 's/^MESHCORE_DATABASE_PATH=//p' /etc/meshloom/meshloom.env 2>/dev/null | tail -n 1 | tr -d "\"'")"
+    printf '%s' "${value:-/var/lib/meshloom/meshcore.db}"
+}
+
+find_database_copies() {
+    local db="$1"
+    as_root find "$(dirname "$db")" -maxdepth 1 -type f \
+        -name "$(basename "$db").schema*.before-*.db" 2>/dev/null || true
+}
+
+# The way back after an upgrade: the copy the server made, and the page about it.
+print_way_back() {
+    local db="$1" copy="" i=0
+    if [ "$UPGRADE_KIND" = "upgrade" ]; then
+        # The server makes it first thing at startup; a large database takes longer.
+        while [ "$i" -lt 15 ]; do
+            copy="$(find_database_copies "$db" | sort | head -n 1)"
+            [ -z "$copy" ] || break
+            i=$((i + 1))
+            sleep 1
+        done
+    fi
+    if [ -n "$copy" ]; then
+        ui_dim "  $(t way_back_copy): ${copy}"
+    fi
+    ui_dim "  $(t way_back_docs): $(prerelease_docs_url)"
+}
+
+# The stable version, from the same strict redirect the update helper reads.
+stable_release_tag() {
+    local location tag
+    location="$(curl -fsS --proto '=https' --max-time 20 -o /dev/null -w '%{redirect_url}' \
+        "https://github.com/${REPO}/releases/latest")" || return 1
+    tag="${location#"https://github.com/${REPO}/releases/tag/"}"
+    [ "$tag" != "$location" ] || return 1
+    printf '%s\n' "$tag" | grep -Eq '^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$' || return 1
+    printf '%s' "$tag"
+}
+
+# A real database copy holding schema $2: SQLite's header and its user_version (offset 60).
+copy_header_matches() {
+    local hex
+    hex="$(as_root od -An -v -tx1 -N 64 "$1" 2>/dev/null | tr -d '[:space:]')"
+    [ "${#hex}" -eq 128 ] || return 1
+    [ "${hex:0:32}" = "53514c69746520666f726d6174203300" ] || return 1
+    [ "$((16#${hex:120:8}))" = "$2" ]
+}
+
+# The copy to go back to, chosen by schema number, never by the version in its name
+# (MSHL-460): the highest schema the stable version can read. Every 4.18 uses schema 87.
+# Returns 2 when this script does not know that schema for the stable version.
+select_way_back_copy() {
+    local db="$1" stable="$2" target entry n base best="" best_n=-1
+    case "$stable" in
+        4.18.*) target=87 ;;
+        *) return 2 ;;
+    esac
+    base="$(basename "$db")"
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        n="${entry##*/}"
+        n="${n#"$base".schema}"
+        n="${n%%.*}"
+        case "$n" in
+            '' | *[!0-9]*) continue ;;
+        esac
+        if [ "$n" -le "$target" ] && [ "$n" -gt "$best_n" ] && copy_header_matches "$entry" "$n"; then
+            best="$entry"
+            best_n="$n"
+        fi
+    done <<<"$(find_database_copies "$db")"
+    printf '%s' "$best"
+}
+
+# Puts the copy in place of the database (MSHL-460): -wal, -shm and the migration marker
+# go, and the current database stays beside it. Without a copy, the next start is empty.
+restore_database() {
+    local db="$1" copy="$2" aside="$3" ext key secrets
+    for ext in "" -wal -shm; do
+        if as_root test -e "${db}${ext}"; then
+            as_root mv -f "${db}${ext}" "${aside}${ext}"
+            as_root chmod 0600 "${aside}${ext}"
+        fi
+    done
+    as_root rm -f "${db}.migration-in-progress"
+    [ -n "$copy" ] || return 0
+    as_root cp -p "$copy" "$db"
+    key="${copy%.db}.secrets.key"
+    secrets="$(dirname "$db")/secrets.key"
+    if as_root test -f "$key"; then
+        if as_root test -f "$secrets"; then
+            as_root cp -p "$secrets" "${aside}.secrets.key"
+        fi
+        as_root cp -p "$key" "$secrets"
+    fi
+}
+
+# Downloads the package of release $1 for this machine into $2, checked against the
+# release's signed SHA256SUMS. The repository holds one version only, the release
+# assets all of them. Prints the file.
+fetch_stable_package() {
+    local tag="$1" dir="$2" suffix ext name expected file
+    if [ "$PKG_MGR" = "apt" ]; then
+        suffix="_$(host_arch).deb"
+        ext="deb"
+    else
+        suffix=".$(rpm_arch).rpm"
+        ext="rpm"
+    fi
+    fetch_signed_manifest "$tag" "$dir" || return 1
+    name="$(awk -v s="$suffix" '{ f = $2; sub(/^\*/, "", f) } length(f) > length(s) && substr(f, length(f) - length(s) + 1) == s { print f }' \
+        "${dir}/SHA256SUMS" | head -n 1)"
+    case "$name" in
+        meshloom*) ;;
+        *) return 1 ;;
+    esac
+    case "$name" in
+        *[!A-Za-z0-9._+~-]*) return 1 ;;
+    esac
+    expected="$(awk -v f="$name" '$2 == f || $2 == "*" f { print $1 }' "${dir}/SHA256SUMS" | head -n 1)"
+    file="${dir}/meshloom.${ext}"
+    run_soft curl -fL --proto '=https' --max-time 300 \
+        "https://github.com/${REPO}/releases/download/${tag}/${name}" -o "$file" || return 1
+    pkg_file_is_valid "$file" "$ext" || return 1
+    [ "$(sha256_of "$file")" = "$expected" ] || return 1
+    printf '%s' "$file"
+}
+
+return_screen() {
+    STEP_TOTAL=1
+    ui_screen "$(t step_return)" 1
+}
+
+# Nothing to undo: the version is not newer than stable, only the channel moves.
+return_package_channel_only() {
+    if ! ui_yesno "$(t return_switch_q)" y; then
+        printf '\n%s\n' "$(t cancelled)"
+        exit 130
+    fi
+    phase "$(t using_repo)"
+    add_signed_repo
+    if [ "$PKG_MGR" = "apt" ]; then
+        run_quiet as_root apt-get update
+        run_quiet as_root apt-get install -y --only-upgrade meshloom
+    else
+        run_quiet as_root dnf -y --refresh upgrade meshloom
+    fi
+    phase_ok
+    ui_ok "  $(t return_switch_done)"
+}
+
+return_package() {
+    local stable="$1" installed db copy="" rc=0 aside tmpdir file
+    installed="$(package_installed_version)"
+    return_screen
+    if ! version_gt "$installed" "$stable"; then
+        return_package_channel_only
+        return
+    fi
+    db="$(package_db_path)"
+    copy="$(select_way_back_copy "$db" "$stable")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        ui_err "$(t return_manual "$(prerelease_docs_url)")"
+        exit 1
+    fi
+    ensure_gpgv
+    prepare_release_key
+    tmpdir="$(mktemp -d /tmp/meshloom-return.XXXXXX)"
+    if ! file="$(fetch_stable_package "$stable" "$tmpdir")"; then
+        ui_err "$(t sig_failed)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        rm -rf "$tmpdir"
+        exit 1
+    fi
+    aside="${db}.aside-${installed}-$(date +%Y%m%d-%H%M%S)"
+    if [ -n "$copy" ]; then
+        ui_wrap 2 70 "$(t return_uses_copy "$(basename "$copy")" "$(basename "$aside")")"
+    else
+        ui_wrap 2 70 "$(t return_no_copy "$stable" "$(basename "$aside")")"
+    fi
+    printf '\n'
+    if ! ui_yesno "$(t return_q "$stable")" "$([ -n "$copy" ] && echo y || echo n)"; then
+        rm -rf "$tmpdir"
+        printf '\n%s\n' "$(t cancelled)"
+        exit 130
+    fi
+    phase "$(t working)"
+    add_signed_repo
+    if [ "$PKG_MGR" = "apt" ]; then
+        run_quiet as_root apt-get update
+    fi
+    as_root systemctl stop meshloom 2>/dev/null || true
+    restore_database "$db" "$copy" "$aside"
+    # The package's own scripts restart the service: the database is ready by then.
+    if [ "$PKG_MGR" = "apt" ]; then
+        run_quiet as_root apt-get install -y --allow-downgrades "$file"
+    else
+        run_quiet as_root dnf -y downgrade "$file"
+    fi
+    rm -rf "$tmpdir"
+    # The unit may be at its start limit (StartLimitBurst).
+    as_root systemctl reset-failed meshloom 2>/dev/null || true
+    start_meshloom_unit
+    TARGET_VERSION="$stable"
+    persist_installer_state
+    phase_ok
+    ui_ok "  $(t return_done "$stable")"
+}
+
+return_compose() {
+    local stable="$1" dir="$2" installed="" db copy="" rc=0 aside managed=0 dc saved_env
+    INSTALL_DIR="$dir"
+    COMPOSE_DIR_SAVED="$dir"
+    dc="$(compose_cmd)"
+    installed="$(compose_image_version "${dir}/docker-compose.yml" || true)"
+    if [ -f /etc/meshloom/compose-update.env ] && compose_helper_possible "$dir"; then
+        managed=1
+    fi
+    return_screen
+    if [ -z "$installed" ] || ! version_gt "$installed" "$stable"; then
+        if ! ui_yesno "$(t return_switch_q)" y; then
+            printf '\n%s\n' "$(t cancelled)"
+            exit 130
+        fi
+        phase "$(t compose_secure)"
+        if [ "$managed" = 1 ]; then
+            install_compose_update_helper "$dir"
+            enable_compose_update_helper
+        else
+            write_unmanaged_env "$dir"
+        fi
+        (cd "$dir" && run_quiet as_root $dc pull && run_quiet as_root $dc up -d)
+        phase_ok
+        ui_ok "  $(t return_switch_done)"
+        return
+    fi
+    db="${dir}/data/meshcore.db"
+    copy="$(select_way_back_copy "$db" "$stable")" || rc=$?
+    if [ "$rc" -ne 0 ] || ! as_root test -e "$db"; then
+        ui_err "$(t return_manual "$(prerelease_docs_url)")"
+        exit 1
+    fi
+    aside="${db}.aside-${installed}-$(date +%Y%m%d-%H%M%S)"
+    if [ -n "$copy" ]; then
+        ui_wrap 2 70 "$(t return_uses_copy "$(basename "$copy")" "$(basename "$aside")")"
+    else
+        ui_wrap 2 70 "$(t return_no_copy "$stable" "$(basename "$aside")")"
+    fi
+    printf '\n'
+    if ! ui_yesno "$(t return_q "$stable")" "$([ -n "$copy" ] && echo y || echo n)"; then
+        printf '\n%s\n' "$(t cancelled)"
+        exit 130
+    fi
+    phase "$(t working)"
+    # The helper refuses to go down from a pin, by design: with none it takes stable.
+    saved_env="$(mktemp /tmp/meshloom-env-saved.XXXXXX)"
+    as_root cat "${dir}/.env" >"$saved_env"
+    as_root sed -i '/^MESHLOOM_IMAGE=/d' "${dir}/.env"
+    if [ "$managed" = 1 ]; then
+        install_compose_update_helper "$dir"
+    else
+        write_unmanaged_env "$dir"
+    fi
+    if ! (cd "$dir" && run_soft as_root $dc pull); then
+        as_root sh -c 'cat "$1" > "$2"' sh "$saved_env" "${dir}/.env"
+        rm -f "$saved_env"
+        ui_err "$(t return_pull_failed)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        exit 1
+    fi
+    rm -f "$saved_env"
+    (cd "$dir" && run_quiet as_root $dc stop)
+    restore_database "$db" "$copy" "$aside"
+    (cd "$dir" && run_quiet as_root $dc up -d)
+    if [ "$managed" = 1 ]; then
+        enable_compose_update_helper
+    fi
+    TARGET_VERSION="$stable"
+    persist_installer_state
+    phase_ok
+    ui_ok "  $(t return_done "$stable")"
+}
+
+# `--channel stable`: this machine leaves the pre-release channel. A version newer than
+# stable goes back through the copy made before the upgrade; otherwise only the channel moves.
+return_to_stable() {
+    local stable dir
+    ensure_log
+    ensure_cmd curl "curl"
+    if ! stable="$(stable_release_tag)"; then
+        ui_err "$(t return_stable_unknown)"
+        exit 1
+    fi
+    if package_installed_version >/dev/null; then
+        return_package "$stable"
+        return
+    fi
+    dir="$(saved_compose_dir)"
+    if [ -n "$dir" ] && [ -f "${dir}/docker-compose.yml" ]; then
+        return_compose "$stable" "$dir"
+        return
+    fi
+    ui_err "$(t return_manual "$(prerelease_docs_url)")"
+    exit 1
+}
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
+parse_args "$@"
 refuse_unsupported_hardware
 ui_init
 choose_language
 detect_os
 detect_docker
 detect_checkout
+if [ "$CHANNEL_REQUESTED" = "stable" ]; then
+    return_to_stable
+    exit 0
+fi
 choose_install_mode
 
 if [ "$INSTALL_MODE" = "browser" ]; then
     show_browser_only
     exit 0
 fi
+
+prepare_prerelease
 
 if [ "$INSTALL_MODE" = "service" ]; then
     STEP_TOTAL=2
