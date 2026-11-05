@@ -2664,8 +2664,10 @@ export interface OssUpdateStatus {
   next_auto_apply_at?: number | null;
   /** Compose install still runs the pre-4.18 host helper; re-run the installer. */
   legacy_update_helper?: boolean;
-  /** Where `latest` came from: GitHub (primary), the Community mirror, or an env pin. */
-  latest_source?: 'github' | 'community' | 'env' | null;
+  /** Where `latest` came from: GitHub (primary), the Community mirror, the signed channel file, or an env pin. */
+  latest_source?: 'github' | 'community' | 'channel' | 'env' | null;
+  /** Release channel of this machine: chosen on the system by the installer, only read here. */
+  channel?: 'stable' | 'testing';
   job: OssUpdateJob;
 }
 

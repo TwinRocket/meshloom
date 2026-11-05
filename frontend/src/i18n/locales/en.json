@@ -1109,6 +1109,16 @@
         "container": "Container",
         "source": "Source"
       },
+      "channel": {
+        "label": "Channel",
+        "stable": "Stable",
+        "testing": "Pre-release",
+        "helpStable": "This machine receives stable versions. To test pre-releases, run this on the machine:",
+        "helpTesting": "This machine receives pre-releases. To return to stable, run this on the machine:",
+        "helpAddon": "The Home Assistant add-on follows stable versions.",
+        "helpManualStable": "This install follows the version you choose for it.",
+        "helpManualTesting": "This install runs a pre-release and follows the version you choose for it."
+      },
       "job": "Job",
       "jobState": {
         "idle": "Idle",

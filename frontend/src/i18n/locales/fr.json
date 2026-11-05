@@ -1109,6 +1109,16 @@
         "container": "Conteneur",
         "source": "Source"
       },
+      "channel": {
+        "label": "Canal",
+        "stable": "Stable",
+        "testing": "Pré-version",
+        "helpStable": "Cette machine reçoit les versions stables. Pour tester les pré-versions, lancez ceci sur la machine :",
+        "helpTesting": "Cette machine reçoit les pré-versions. Pour revenir à la version stable, lancez ceci sur la machine :",
+        "helpAddon": "L’add-on Home Assistant suit les versions stables.",
+        "helpManualStable": "Cette installation suit la version que vous choisissez pour elle.",
+        "helpManualTesting": "Cette installation fait tourner une pré-version et suit la version que vous choisissez pour elle."
+      },
       "job": "Tâche",
       "jobState": {
         "idle": "Inactive",

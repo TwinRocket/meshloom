@@ -155,4 +155,79 @@ describe('SettingsUpdatesSection', () => {
     rerender(<SettingsUpdatesSection updates={status({ install_kind: 'compose' })} />);
     expect(screen.queryByTestId('updates-legacy-helper')).not.toBeInTheDocument();
   });
+  describe('channel', () => {
+    const next = '/bin/bash -c "$(curl -fsSL https://get.meshloom.app/next)"';
+    const stable = '/bin/bash -c "$(curl -fsSL https://get.meshloom.app)"';
+
+    it('shows stable, and the command that opens the pre-release, with no control', () => {
+      render(<SettingsUpdatesSection updates={status()} />);
+      const box = screen.getByTestId('updates-channel');
+      expect(screen.getByText(i18n.t('settings.updates.channel.stable'))).toBeInTheDocument();
+      expect(box).toHaveTextContent(i18n.t('settings.updates.channel.helpStable'));
+      expect(box.querySelector('pre')).toHaveTextContent(next);
+      expect(box.querySelector('input, select, button')).toBeNull();
+    });
+
+    it('treats a server that does not send the field as stable', () => {
+      const { channel: _absent, ...older } = status();
+      render(<SettingsUpdatesSection updates={older} />);
+      expect(screen.getByText(i18n.t('settings.updates.channel.stable'))).toBeInTheDocument();
+    });
+
+    it('on an rc, gives the way back through /next', () => {
+      render(
+        <SettingsUpdatesSection updates={status({ channel: 'testing', current: '5.0.0-rc.1' })} />
+      );
+      const box = screen.getByTestId('updates-channel');
+      expect(screen.getByText(i18n.t('settings.updates.channel.testing'))).toBeInTheDocument();
+      expect(box.querySelector('pre')).toHaveTextContent(`${next} -- --channel stable`);
+    });
+
+    it('on a final release still on testing, gives the regular command', () => {
+      render(<SettingsUpdatesSection updates={status({ channel: 'testing', current: '5.0.0' })} />);
+      expect(screen.getByTestId('updates-channel').querySelector('pre')).toHaveTextContent(
+        `${stable} -- --channel stable`
+      );
+    });
+
+    it('says what applies on the add-on, without a command', () => {
+      render(
+        <SettingsUpdatesSection
+          updates={status({ install_kind: 'addon', apply_supported: false })}
+        />
+      );
+      const box = screen.getByTestId('updates-channel');
+      expect(box).toHaveTextContent(i18n.t('settings.updates.channel.helpAddon'));
+      expect(box.querySelector('pre')).toBeNull();
+    });
+
+    it("gives no command when the channel is not the machine's to move", () => {
+      render(
+        <SettingsUpdatesSection
+          updates={status({
+            install_kind: 'container',
+            apply_supported: false,
+            channel: 'testing',
+            current: '5.0.0-rc.1',
+          })}
+        />
+      );
+      const box = screen.getByTestId('updates-channel');
+      expect(box).toHaveTextContent(i18n.t('settings.updates.channel.helpManualTesting'));
+      expect(box.querySelector('pre')).toBeNull();
+    });
+
+    it('links to the docs in the interface language', async () => {
+      await i18n.changeLanguage('fr');
+      try {
+        render(<SettingsUpdatesSection updates={status()} />);
+        const link = screen
+          .getByTestId('updates-channel')
+          .querySelector('a') as HTMLAnchorElement | null;
+        expect(link?.href).toBe('https://get.meshloom.app/next/docs/fr');
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
+  });
 });

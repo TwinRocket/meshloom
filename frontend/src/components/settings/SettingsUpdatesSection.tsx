@@ -9,8 +9,21 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 import { usePluginUpdateCount } from '../../stores/pluginUpdatesStore';
+import { prereleaseDocsUrl } from '../../utils/userDocsUrl';
 
 const ISO_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+
+// The channel is chosen on the machine, by the installer (docs/dev/releasing.md, "Channels"):
+// this page shows it and the command, and offers no control.
+const NEXT_INSTALLER = '/bin/bash -c "$(curl -fsSL https://get.meshloom.app/next)"';
+const STABLE_INSTALLER = '/bin/bash -c "$(curl -fsSL https://get.meshloom.app)"';
+
+/** Until a final release is installed, only the pre-release's installer knows the way back. */
+function channelCommand(channel: 'stable' | 'testing', current: string | undefined): string {
+  if (channel === 'stable') return NEXT_INSTALLER;
+  const installer = current?.includes('rc') ? NEXT_INSTALLER : STABLE_INSTALLER;
+  return `${installer} -- --channel stable`;
+}
 
 function Recipe({ title, code }: { title: string; code: string }) {
   return (
@@ -72,7 +85,7 @@ export function SettingsUpdatesSection({
   applying?: boolean;
   className?: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const pluginUpdates = usePluginUpdateCount();
   const applySupported = updates?.apply_supported === true;
   const updateAvailable = updates?.update_available === true;
@@ -89,6 +102,22 @@ export function SettingsUpdatesSection({
   const checkedAt = formatUnixSeconds(updates?.checked_at);
   const nextAutoApply = formatUnixSeconds(updates?.next_auto_apply_at);
   const weekdays = resolvedWeekdays(updates);
+  const channel = updates?.channel ?? 'stable';
+  // Package and helper-managed Docker: the machine's channel, moved by the install command.
+  const channelHasCommand = applySupported && (kind === 'package' || kind === 'compose');
+  const channelHelp = channelHasCommand
+    ? t(
+        channel === 'testing'
+          ? 'settings.updates.channel.helpTesting'
+          : 'settings.updates.channel.helpStable'
+      )
+    : kind === 'addon'
+      ? t('settings.updates.channel.helpAddon')
+      : t(
+          channel === 'testing'
+            ? 'settings.updates.channel.helpManualTesting'
+            : 'settings.updates.channel.helpManualStable'
+        );
 
   const [windowStart, setWindowStart] = useState(() =>
     normalizeTime(updates?.auto_update_window_start)
@@ -162,6 +191,10 @@ export function SettingsUpdatesSection({
           />
           <StatusRow label={t('settings.updates.timezone')} value={updates?.tz_name || '—'} />
           <StatusRow label={t('settings.updates.installKind.label')} value={installKindLabel} />
+          <StatusRow
+            label={t('settings.updates.channel.label')}
+            value={t(`settings.updates.channel.${channel}`)}
+          />
           <StatusRow label={t('settings.updates.job')} value={jobLabel} />
         </dl>
         {showJobError ? <p className="text-[0.8125rem] text-destructive">{job?.error}</p> : null}
@@ -174,6 +207,25 @@ export function SettingsUpdatesSection({
             {t('settings.updates.legacyHelper')}
           </p>
         ) : null}
+      </SettingsGroup>
+
+      <SettingsGroup id="settings-updates-channel">
+        <div className="space-y-2" data-testid="updates-channel">
+          <p className="text-[0.8125rem] text-muted-foreground">{channelHelp}</p>
+          {channelHasCommand ? (
+            <pre className="overflow-x-auto rounded-xl bg-muted/40 px-4 py-3 font-mono text-[0.8125rem] leading-relaxed text-foreground">
+              {channelCommand(channel, updates?.current)}
+            </pre>
+          ) : null}
+          <a
+            href={prereleaseDocsUrl(i18n.language)}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-muted-foreground hover:text-primary hover:underline"
+          >
+            {t('settings.common.learnMore')}
+          </a>
+        </div>
       </SettingsGroup>
 
       {onOpenExtensionUpdates && (

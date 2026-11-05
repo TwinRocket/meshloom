@@ -869,10 +869,13 @@ every new or edited string:
   keep FR/EN parity. Copy changes never change behaviour.
 - **Docs links**: `components/settings/LearnMoreLink.tsx` (`<LearnMoreLink
   page="deep/community" />`, label `settings.common.learnMore`) builds the URL with
-  `userDocsUrl(language, page)` (`utils/userDocsUrl.ts`, the only docs-URL helper):
+  `userDocsUrl(language, page)` (`utils/userDocsUrl.ts`, the docs-URL helper):
   `https://meshloom.app/docs/<page>/` in French (default locale,
   no prefix), `https://meshloom.app/en/docs/<page>/` in English. No anchor:
   headings, hence anchors, differ between languages.
+  The one exception is `prereleaseDocsUrl(language)`, same file: the site is built from
+  the stable tag and has no pre-release page during a pre-release, so it goes through
+  `get.meshloom.app/next/docs/<lang>`.
 
 ### WebSocket (`useWebSocket.ts`, `wsEvents.ts`)
 
