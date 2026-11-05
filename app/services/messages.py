@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
+from app.data.meshcore_channels import channel_log_label
 from app.models import Message, MessagePath
 from app.repository import ContactRepository, MessageRepository, RawPacketRepository
 
@@ -15,20 +16,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BroadcastFn = Callable[..., Any]
-LOG_MESSAGE_PREVIEW_LEN = 32
-
-
-def truncate_for_log(text: str, max_chars: int = LOG_MESSAGE_PREVIEW_LEN) -> str:
-    """Return a compact single-line message preview for log output."""
-    normalized = " ".join(text.split())
-    if len(normalized) <= max_chars:
-        return normalized
-    return f"{normalized[:max_chars].rstrip()}..."
-
-
-def _format_channel_log_target(channel_name: str | None, channel_key: str) -> str:
-    """Return a human-friendly channel label for logs."""
-    return channel_name or channel_key
 
 
 def format_contact_log_target(contact_name: str | None, public_key: str) -> str:
@@ -390,11 +377,9 @@ async def create_message_from_decrypted(
         return None
 
     logger.info(
-        'Stored channel message "%s" for %r (msg ID %d in chan ID %s)',
-        truncate_for_log(text),
-        _format_channel_log_target(channel_name, channel_key_normalized),
+        "Stored channel message for %r (msg ID %d)",
+        channel_log_label(channel_name, channel_key_normalized),
         msg_id,
-        channel_key_normalized,
     )
     await RawPacketRepository.mark_decrypted(packet_id, msg_id)
 

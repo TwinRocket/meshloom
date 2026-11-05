@@ -316,8 +316,9 @@ describe('MessageInput', () => {
       await expectSendViaButton('x'.repeat(DM_HARD_LIMIT - 1), true);
     });
 
-    it('blocks the send button at the exact hard limit', async () => {
-      await expectSendViaButton('x'.repeat(DM_HARD_LIMIT), false);
+    it('allows the send button at the exact hard limit, as the server does', async () => {
+      await expectSendViaButton('x'.repeat(DM_HARD_LIMIT), true);
+      expect(screen.queryByText(i18n.t('chat.tooLong'), { exact: false })).toBeNull();
     });
 
     it('blocks the send button past the hard limit', async () => {
@@ -348,9 +349,7 @@ describe('MessageInput', () => {
 
       renderInput({ conversationType: 'channel', senderName });
       fireEvent.change(getInput(), { target: { value: atLimit } });
-      expect(getSendButton()).toBeDisabled();
-      fireEvent.click(getSendButton());
-      expect(onSend).not.toHaveBeenCalled();
+      expect(getSendButton()).toBeEnabled(); // exactly the limit: the server accepts it
 
       fireEvent.change(getInput(), { target: { value: over } });
       expect(getSendButton()).toBeDisabled();

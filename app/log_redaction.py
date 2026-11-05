@@ -5,8 +5,9 @@ command bytes (``Sending raw data``, ``sending pkt``), the incoming ones
 (``Received data``), the dispatched event payloads and, on a parse failure, the
 raw frame at ERROR. A companion CLI frame can carry a Wi-Fi password (``set
 wifi.pwd`` out, the ``get wifi.pwd`` reply in) and the private key travels in
-the export (on every connect) and import frames, so those records are redacted
-here before any handler sees them.
+the export (on every connect) and import frames, and a channel secret travels in
+SET_CHANNEL and CHANNEL_INFO, so those records are redacted here before any handler
+sees them. They exist only when someone sets the log level to DEBUG.
 
 Three layers, all always on:
 
@@ -34,6 +35,13 @@ Three layers, all always on:
   asyncio's default exception handler already logs (logger ``asyncio``).
 - ``secret_scope()`` registers literal secrets for the duration of a call; every
   registered form (text, hex, repr escapes) is replaced wherever it appears.
+- A channel key in a request URL (a path segment or a query value, as in
+  ``DELETE /api/channels/<key>``) is replaced in every formatted line: uvicorn's
+  access log, the server-error lines and the ``GET /api/debug`` buffer. Hashtag and
+  private channels alike. A contact's 64-digit public key stays readable. Accepted
+  limits: any other 32-digit session, token or pairing id in a URL is masked too, so a
+  debug report may not say which one was meant; a percent-encoded or otherwise crafted
+  form of a key is not recognized, and only someone who knows the key can send one.
 
 The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, and
 ``aiosqlite`` prints every statement with its parameters (password and token
@@ -72,16 +80,18 @@ SECRET_OUT: frozenset[int] = frozenset(
     {
         0x42,  # CMD_RUN_CLI_COMMAND ("set wifi.pwd ...")
         0x18,  # CMD_IMPORT_PRIVATE_KEY
+        0x20,  # CMD_SET_CHANNEL (the channel secret)
     }
 )
 SECRET_IN: frozenset[int] = frozenset(
     {
         0x1D,  # RESP_CODE_CLI_REPLY ("get wifi.pwd" answer)
         0x0E,  # RESP_CODE_PRIVATE_KEY (export, on every connect)
+        0x12,  # RESP_CODE_CHANNEL_INFO (the channel secret)
     }
 )
 
-_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY")
+_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY", "EventType.CHANNEL_INFO")
 
 # --------------------------------------------------------------------------
 # Log-line forging (MSHL-432)
@@ -397,7 +407,7 @@ def _rule_received_hex(rest: str) -> str | None:
 
 
 def _rule_received_private_key(rest: str) -> str | None:
-    return REDACTED
+    return REDACTED  # also the channel info response: the whole frame is the secret's
 
 
 def _rule_unhandled(rest: str) -> str | None:
@@ -422,6 +432,7 @@ _LINE_RULES = (
     ("sending pkt : ", _rule_sending_pkt),
     ("Received data: ", _rule_received_hex),
     ("Received private key response: ", _rule_received_private_key),
+    ("received channel info response: ", _rule_received_private_key),
     ("Unhandled data received ", _rule_unhandled),
     ("Dispatching event: ", _rule_dispatch),
 )
@@ -469,6 +480,10 @@ def _apply_line_rules(line: str, *, unanchored: bool) -> str:
     return line
 
 
+# 16 bytes in hex as a whole URL path segment or query value.
+_URL_CHANNEL_KEY_RE = re.compile(r"(?<=[/=])[0-9A-Fa-f]{32}(?![0-9A-Za-z])")
+
+
 def redact_text(message: str, *, unanchored: bool = False) -> str:
     """Return ``message`` with every secret-bearing part redacted.
 
@@ -476,14 +491,14 @@ def redact_text(message: str, *, unanchored: bool = False) -> str:
     start of the message or of a line. Unanchored (the formatter, on a formatted
     line that begins with the time/name/level prefix): the rules are searched
     anywhere in a line. Multi-line rules run on the whole text first, then the
-    single-line rules per line, then the literal scrub.
+    single-line rules per line, then the literal scrub and the URL channel keys.
     """
     text = _apply_multiline_rules(message, unanchored=unanchored)
     if any(prefix in text for prefix, _ in _LINE_RULES):
         text = "\n".join(
             _apply_line_rules(line, unanchored=unanchored) for line in text.split("\n")
         )
-    return _scrub_literals(text)
+    return _URL_CHANNEL_KEY_RE.sub(REDACTED, _scrub_literals(text))
 
 
 # --------------------------------------------------------------------------

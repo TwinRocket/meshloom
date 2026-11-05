@@ -237,6 +237,15 @@ def _fingerprint(db_path: Path) -> dict[str, str]:
         return {name: _table_fingerprint(conn, name.replace('"', '""')) for (name,) in names}
 
 
+def _marker_content(copy: Path) -> str:
+    """The copy's name and fingerprint. With no fingerprint, the next start copies again."""
+    try:
+        return f"{copy.name}\n{json.dumps(_fingerprint(copy))}"
+    except Exception as exc:
+        logger.warning("Could not read the database copy to compare it later: %s", exc)
+        return copy.name
+
+
 def _read_marker(marker: Path) -> tuple[str, dict[str, str]]:
     """The name in the marker and the fingerprint stored with it; empty when unusable."""
     try:
@@ -476,10 +485,9 @@ def _copy_with_retention(
         _remove_copy(way_back.path)
     try:
         marker.unlink(missing_ok=True)
-        content = f"{copy.name}\n{json.dumps(_fingerprint(copy))}"
-        _write_private(marker, content.encode("utf-8"))
+        _write_private(marker, _marker_content(copy).encode("utf-8"))
         _fsync_path(marker.parent)
-    except (OSError, sqlite3.Error) as exc:
+    except OSError as exc:
         raise CopyFailedError(
             f"The marker of the migration could not be written ({exc}). Nothing was migrated "
             f"and Meshloom will not start. Fix the cause and start again. {DOCS_URL}"

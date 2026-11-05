@@ -510,6 +510,17 @@ The last Community attestation of each instance key (migration 142, MSHL-445,
 turned off. `CommunityAttestationRepository` (`community_attestations.py`). Excluded from
 backups, emptied in a database copy and by every restore.
 
+### `channel_slot_clears_pending`
+
+Keys of deleted channels whose radio slots are not known to be empty yet (migration 145,
+MSHL-459). PK `key`. Written in the transaction that deletes the channel and dropped once the
+slots are emptied. Otherwise (radio away or silent, a slot not read or cleared, an interruption)
+the next connect sync (`radio_sync.sync_and_offload_channels`) empties such a slot without
+adopting the channel, unless the channel was added back since, and drops the row once every
+slot was read. The drain of queued messages does not adopt such a key either.
+`ChannelRepository` (`channels.py`). Holds channel keys: excluded from backups, emptied in a
+database copy.
+
 ### `plugins`
 
 Plugin instances (migration 103; model and rules in `docs/dev/plugins.md`, "Data

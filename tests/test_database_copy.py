@@ -565,6 +565,44 @@ def test_an_unusable_second_line_in_the_marker_makes_a_copy(db_path, line) -> No
     assert prepare_for_migrations(str(db_path)) == first
 
 
+def _corrupt_table(path: Path, table: str) -> None:
+    """Garbage over the first page of the table: the file opens, reading the table fails."""
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    root = conn.execute("SELECT rootpage FROM sqlite_master WHERE name = ?", (table,)).fetchone()[0]
+    page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+    conn.close()
+    with open(path, "r+b") as fh:
+        fh.seek((root - 1) * page_size)
+        fh.write(b"\xff" * page_size)
+
+
+def test_a_corrupt_page_does_not_refuse_the_start_and_is_copied_again(db_path) -> None:
+    _make_db(db_path, 87, rows=500)
+    _corrupt_table(db_path, "items")
+    with pytest.raises(sqlite3.DatabaseError):
+        _rows(db_path)
+
+    copy = prepare_for_migrations(str(db_path))
+
+    assert copy is not None
+    assert marker_path(db_path).read_text() == copy.name
+    assert prepare_for_migrations(str(db_path)) == copy
+    assert len(list_copies(db_path)) == 1
+
+
+def test_a_large_without_rowid_table_falls_back_the_same_way(db_path, monkeypatch) -> None:
+    monkeypatch.setattr(database_copy, "FINGERPRINT_MAX_ROWS", 1)
+    _make_db(db_path, 87)
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE keyed (id INTEGER PRIMARY KEY) WITHOUT ROWID")
+    conn.executemany("INSERT INTO keyed VALUES (?)", [(1,), (2,), (3,)])
+    conn.commit()
+    conn.close()
+    copy = prepare_for_migrations(str(db_path))
+    assert marker_path(db_path).read_text() == copy.name
+
+
 def test_any_failure_of_the_comparison_makes_a_copy(db_path, monkeypatch) -> None:
     _make_db(db_path, 87)
     first = prepare_for_migrations(str(db_path))

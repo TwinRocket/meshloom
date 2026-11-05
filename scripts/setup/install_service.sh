@@ -283,6 +283,8 @@ echo
 echo -e "${YELLOW}Reloading systemd and applying ${SERVICE_NAME}...${NC}"
 as_root systemctl daemon-reload
 as_root systemctl enable "$SERVICE_NAME"
+# The unit may be at its start limit (StartLimitBurst).
+as_root systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
 as_root systemctl start "$SERVICE_NAME"
 echo
 

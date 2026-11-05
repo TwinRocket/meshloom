@@ -887,15 +887,20 @@ export const api = {
       method: 'DELETE',
     }),
   // In batches: the server caps a request at 1 MiB, about 15,000 keys.
-  bulkDeleteContacts: async (publicKeys: string[]) => {
+  bulkDeleteContacts: async (
+    publicKeys: string[],
+    onBatch?: (keys: string[], deleted: number) => void
+  ) => {
     let deleted = 0;
     for (let start = 0; start < publicKeys.length; start += BULK_DELETE_BATCH) {
+      const batch = publicKeys.slice(start, start + BULK_DELETE_BATCH);
       const result = await fetchJson<{ deleted: number }>('/contacts/bulk-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ public_keys: publicKeys.slice(start, start + BULK_DELETE_BATCH) }),
+        body: JSON.stringify({ public_keys: batch }),
       });
       deleted += result.deleted;
+      onBatch?.(batch, result.deleted);
     }
     return { deleted };
   },

@@ -220,8 +220,14 @@ def _clean_budget():
     body_limit.reset_budget()
 
 
+def _short_deadline(body_limit, monkeypatch) -> None:
+    """50 ms whatever the cap: the rate floor alone would leave 16 s for 1 MiB."""
+    monkeypatch.setattr(body_limit, "BODY_READ_DEADLINE_S", 0.05)
+    monkeypatch.setattr(body_limit, "MIN_BODY_RATE_BYTES_PER_S", 10**12)
+
+
 async def test_a_body_that_stops_arriving_is_refused_at_the_deadline(_clean_budget, monkeypatch):
-    monkeypatch.setattr(_clean_budget, "BODY_READ_DEADLINE_S", 0.05)
+    _short_deadline(_clean_budget, monkeypatch)
     sent = await _answer(
         _reading_app(),
         _asgi_scope(length=100),
@@ -239,7 +245,7 @@ async def test_the_deadline_counts_from_the_first_read_not_from_the_request(
 
     from app.middleware.body_limit import BodyLimitMiddleware
 
-    monkeypatch.setattr(_clean_budget, "BODY_READ_DEADLINE_S", 0.05)
+    _short_deadline(_clean_budget, monkeypatch)
     app = FastAPI()
 
     @app.post("/api/auth/login")
@@ -394,3 +400,34 @@ async def test_an_answered_request_keeps_its_connection():
         )
     assert response.status_code == 200
     assert "connection" not in response.headers
+
+
+async def test_a_streaming_answer_outlives_the_deadline_once_the_body_has_ended(
+    _clean_budget, monkeypatch
+):
+    """Before ASGI spec 2.4 a StreamingResponse waits for the disconnect through ``receive``."""
+    from fastapi import FastAPI
+    from fastapi.responses import StreamingResponse
+
+    from app.middleware.body_limit import BodyLimitMiddleware
+
+    _short_deadline(_clean_budget, monkeypatch)
+    app = FastAPI()
+
+    async def stream():
+        yield b"first"
+        await asyncio.sleep(0.2)
+        yield b"last"
+
+    @app.post("/api/auth/login")
+    async def answer():
+        return StreamingResponse(stream())
+
+    scope = {**_asgi_scope(), "asgi": {"version": "3.0", "spec_version": "2.3"}}
+    sent = await _answer(
+        BodyLimitMiddleware(app), scope, [{"type": "http.request", "body": b"", "more_body": False}]
+    )
+    assert _status(sent) == 200
+    assert b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body") == (
+        b"firstlast"
+    )

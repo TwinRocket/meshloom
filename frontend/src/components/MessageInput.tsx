@@ -235,7 +235,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   const skipShortening =
     shortenMode === 'auto' &&
     shareServiceDown &&
-    (limits === null || byteLen(text) < limits.hardLimit);
+    (limits === null || byteLen(text) <= limits.hardLimit);
   const longUrls = useMemo(
     () =>
       shortenMode === 'never' || skipShortening
@@ -260,7 +260,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   } => {
     if (!limits) return { limitState: 'normal', warningMessage: null };
 
-    if (textByteLen >= limits.hardLimit) {
+    if (textByteLen > limits.hardLimit) {
       return { limitState: 'error', warningMessage: t('chat.tooLong') };
     }
     if (textByteLen >= limits.dangerAt) {
@@ -348,7 +348,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       if (shortenOnSend) {
         // `auto` is best effort: a message that fits as typed never waits long for the
         // service (off-grid, a mesh must keep working) and never fails because of it.
-        const fitsAsTyped = limits === null || byteLen(trimmed) < limits.hardLimit;
+        const fitsAsTyped = limits === null || byteLen(trimmed) <= limits.hardLimit;
         const bestEffort = shortenMode === 'auto' && fitsAsTyped;
         const controller = new AbortController();
         const timer = bestEffort
@@ -365,7 +365,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         if (textRef.current.trim() !== trimmed) return;
         if (shortened !== null) {
           const rewritten = shortened.trim();
-          const stillTooLong = limits !== null && byteLen(rewritten) >= limits.hardLimit;
+          const stillTooLong = limits !== null && byteLen(rewritten) > limits.hardLimit;
           // Nothing sent when the shortened text still fails the guard: the user
           // sees it in the textarea and can undo. `auto` says nothing otherwise.
           applyShortened(trimmed, rewritten, stillTooLong, shortenMode !== 'auto' || stillTooLong);
@@ -514,7 +514,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     [disabled]
   );
 
-  // The file message must fit under the same strict limit as typed text, after the reply prefix.
+  // The file message must fit the same limit as typed text, after the reply prefix.
   const fileByteLimit = limits
     ? limits.hardLimit - (replyQuote ? byteLen(`@[${replyQuote.sender}] `) : 0)
     : null;
