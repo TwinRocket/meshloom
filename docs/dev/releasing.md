@@ -156,9 +156,9 @@ from the default branch, and bumping it would offer the rc to every add-on user.
 |---|---|
 | GitHub release | Flagged pre-release, `--latest=false`, at creation and at every edit |
 | Packages | `meshloom_X.Y.Z~rc.N-1_{amd64,arm64}.deb`, `meshloom-X.Y.Z~rc.N-1.{x86_64,aarch64}.rpm`, signed. GitHub turns `~` into `.` in the asset name; the version inside does not change. No armhf |
-| Other assets | `install.sh`, the prebuilt frontend zip, `SHA256SUMS(.asc)`, `OCI-DIGESTS(.asc)`, the Pi Lite image and its manifest |
+| Other assets | `install.sh` (stamped for the channel, see "Channels"), the prebuilt frontend zip, `SHA256SUMS(.asc)`, `OCI-DIGESTS(.asc)`, the Pi Lite image and its manifest |
 | Image | `ghcr.io/twinrocket/meshloom:X.Y.Z-rc.N` and `:sha-<short>`, with a provenance attestation |
-| apt/dnf | Suite `testing` |
+| apt/dnf | Suite `testing`, and the signed `channels/testing.txt` |
 
 Nothing else moves: not `:latest`, not `:X.Y`, not the apt `stable` suite, not
 `releases/latest` (so neither `get.meshloom.app`, nor the updater, nor the
@@ -177,7 +177,8 @@ default branch, not from the rc's commit. The rc's image comes from the
 
 Versions order correctly everywhere: `4.18.2-1 < 5.0.0~rc.1-1 < 5.0.0~rc.2-1 <
 5.0.0-1` for dpkg and rpm, and PEP 440 reads `5.0.0-rc.1` as a pre-release of
-`5.0.0`. A tester following `testing` moves to the final release by itself.
+`5.0.0`. A tester following `testing` is offered the final release like any
+update (see "Channels").
 
 ### The repository's suites
 
@@ -224,7 +225,7 @@ rpm/testing/$basearch/                testing
 **While `preversion-5` is not merged**, `main` carries the old
 `publish-linux-repo.yml`, which knows nothing about `testing`. Any run from `main`
 (a 4.18.x release, its armhf job, the fallback `gh workflow run publish-linux-repo.yml
--f version=4.18.2`) deploys a site without that suite. Stable users see nothing,
+-f version=4.18.2`) deploys a site without that suite or the channel file. Stable users see nothing,
 testers get a 404 on `apt update`. Restore it with
 `gh workflow run publish-linux-repo.yml --ref X.Y.Z-rc.N -f version=X.Y.Z-rc.N`, once
 the armhf job of that release has finished. Dispatching on `preversion-5` itself
@@ -235,6 +236,86 @@ measured on 4.18.2 and a 5.0 candidate it is 556 MiB without an rc, 716 MiB with
 Above 950 MiB of packages, which leaves 50 MiB for the metadata and the keys, the
 rc is left out before anything is built, under the rule above.
 `build_linux_repo.sh` warns above 900 MiB in any case.
+
+### Channels
+
+A machine is on `stable` or `testing`. The choice is made on the machine, by the
+installer, in a file the service user cannot write; there is no API or setting
+for it, and a web administrator cannot move a machine.
+
+| Install | Where the channel lives | Read by |
+|---|---|---|
+| Package | `/etc/apt/sources.list.d/*` or `/etc/yum.repos.d/meshloom.repo`, on an official source, owned by root, not group or world writable | `services/update_channel.py` |
+| Docker with the helper | `MESHLOOM_UPDATE_CHANNEL=testing` in `/etc/meshloom/compose-update.env` | `compose-update`, which reports it in the root-written `status.json` |
+| Docker without the helper, container, source | None. A running pre-release version shows as `testing` | `update_channel.py` |
+| Add-on | Always `stable`. It has no rc path: `config.yaml` stays on stable | `update_channel.py` |
+
+Commands (user docs: `docs/user/{en,fr}/prerelease.md`):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://get.meshloom.app/next)"                         # to testing
+/bin/bash -c "$(curl -fsSL https://get.meshloom.app/next)" -- --channel stable     # back, from an rc
+/bin/bash -c "$(curl -fsSL https://get.meshloom.app)" -- --channel stable          # back, once on a final
+```
+
+`get.meshloom.app/next` redirects to the `install.sh` of the rc named by the channel
+file, and answers a script that prints a message and exits 1 when there is none.
+`bash -c "$(curl)"` cannot pass arguments through a redirect, so the rc's own
+`install.sh` is stamped: `scripts/build/stage_install_sh.sh` changes the one line
+`INSTALLER_DEFAULT_CHANNEL=stable` to `testing` for `X.Y.Z-rc.N`, and copies the file
+unchanged for `X.Y.Z`. `--channel` overrides it. The 4.18.x installer does not know
+the flag, which is why an rc's way back goes through `/next`: until a 5.x stable is
+out, `get.meshloom.app` serves that older installer.
+
+- `testing` follows the newest rc, or stable when none is newer. After `5.0.0`, a
+  machine left on `testing` is offered the next rc as soon as there is one. The channel
+  never changes by itself.
+- `--channel stable` on a version not newer than stable moves only the source. On a
+  newer version it reinstalls stable: the package from the signed assets of the stable
+  release (the pool holds one version), the database from the copy made before the
+  upgrade (chosen by schema, `<db>.schema<N>.before-<version>.db`; the header must agree
+  with the name). The current database is kept as `<db>.aside-<version>-<date>`.
+  It knows the schema of 4.18.x (87). For another stable, it stops and points to the
+  docs: **add the schema there when a later stable needs this path**.
+- The regular installer on an rc machine downgrades nothing. On apt it writes the
+  `stable` source, then `apt-get install` stops with no candidate: the pin gives the
+  installed version -1 and the older stable stays under 1000. The machine then shows as
+  `stable` and stays on the rc; `--channel stable` still works from there.
+
+### The channel file
+
+`channels/testing.txt` and `.asc` on the repository site, written by
+`build_linux_repo.sh` and signed with the same key by `publish-linux-repo.yml`.
+
+```
+schema=1
+channel=testing
+version=5.0.0-rc.1
+stable=4.18.2
+issued_at=1793750400
+```
+
+`version` is what `testing` serves, stable when the rc was left out, so nothing can
+offer an rc whose packages are not there. Exactly these lines, in this order.
+
+- The app (`update_channel.py`) and `compose-update` verify it with `gpgv` against
+  `/usr/share/keyrings/meshloom-archive-keyring.gpg` (the image and the packages ship
+  it). A file that fails is ignored: the app keeps the stable answer.
+- Replay: `issued_at` must not go backwards (in memory in the app, on disk in
+  `compose-update`), and only a version newer than the running one is offered. The
+  comparison is on `issued_at`, not the version, so a withdrawn rc can leave the file.
+  A replayed file can at worst hide a newer release. A package update goes through the
+  signed apt or dnf metadata, not through this file; `compose-update` pins the image
+  by a digest from the signed `OCI-DIGESTS`.
+- The Worker cannot check OpenPGP. It only lets a strict version reach a fixed release
+  URL of this repository, and the script it lands on verifies what it installs.
+- A run from `main` before `preversion-5` merges drops this file with the suite (see
+  above). `/next` then says there is no pre-release and the app keeps what it knows.
+
+The website's docs are built from the latest stable tag, so `/en/docs/prerelease/`
+does not exist during a pre-release. Installer and Settings link to
+`get.meshloom.app/next/docs/{en,fr}`, which goes to that page in the rc's tag on
+GitHub, and to the site when there is no rc.
 
 ## Who can read the key
 

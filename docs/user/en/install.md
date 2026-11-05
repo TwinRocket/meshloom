@@ -61,6 +61,10 @@ To check a service:
 sudo systemctl status meshloom
 ```
 
+## Pre-release
+
+To try the next version before it is final, or to come back from it, see [Try the pre-release](/en/docs/prerelease/). A machine on the stable channel never receives one.
+
 ## Update
 
 Open **Settings > Updates**. The page shows your type of install (Linux package, Docker Compose, Home Assistant add-on...) and a **Check now** button. When a new release exists and your install can update itself, **Install now** installs it. **Automatic updates** are off until you turn them on, and you can limit them to chosen days and hours (they follow the server's clock, not your browser's). This only updates Meshloom and never runs a full `apt upgrade` on the system.

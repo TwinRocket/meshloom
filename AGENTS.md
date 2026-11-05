@@ -275,6 +275,12 @@ MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
   `testing` suite. It must reach no stable user: no `:latest`, no `:X.Y`, no
   `stable` suite, no add-on bump, no site rebuild, no armhf. Keep that true, and
   covered by `tests/test_release_flow.py`.
+- The channel (`stable`/`testing`) is chosen on the machine by `install.sh`, in a file
+  the service user cannot write. The app reads it (`app/services/update_channel.py`) and
+  never changes it: no API, no setting, no env var. `install.sh` in the repository stays
+  on `INSTALLER_DEFAULT_CHANNEL=stable`; `scripts/build/stage_install_sh.sh` stamps an
+  rc's copy. The stable path is held by `tests/test_install_channel.py`. See
+  `docs/dev/releasing.md`, "Channels" and "The channel file".
 - No job that runs third-party code (npm, `uv sync`, a Docker build) may hold the
   signing key or a write token; key-holding jobs declare
   `environment: release-signing` and receive the key as a named secret, never

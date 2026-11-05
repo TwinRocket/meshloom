@@ -141,7 +141,8 @@ overload). The figures and how to read them: `docs/dev/plugins-security.md`,
 | `resolve_linux_repo_channels.py` | Decides which release the apt/dnf `stable` and `testing` suites serve, from the published releases. Fails closed. |
 | `fetch_linux_repo_packages.sh` | Downloads and checks what each suite serves. Stable fails closed; an rc that cannot be served only stops its own publication. |
 | `check_linux_repo_packages.sh` | Fails unless a directory holds the signed packages of exactly one release. |
-| `build_linux_repo.sh` | Builds both suites' apt and dnf trees, unsigned, from downloaded packages. Refuses a package of another version in a suite. |
+| `build_linux_repo.sh` | Builds both suites' apt and dnf trees and the channel file, unsigned, from downloaded packages. Refuses a package of another version in a suite. |
+| `stage_install_sh.sh` | Writes the `install.sh` a release attaches: unchanged for `X.Y.Z`, with the default channel set to `testing` for `X.Y.Z-rc.N`. |
 | `list_release_assets.sh` | Lists a GitHub release's assets, and fails if a directory holds anything else. |
 | `check_signing_environment.py` | Fails unless the `release-signing` environment exists and is limited to selected refs. |
 | `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |

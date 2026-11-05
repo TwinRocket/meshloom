@@ -121,6 +121,8 @@ The 5.0.0 integration branch has its own instance: the Portainer stack `meshloom
 
 A stack created before this change that is stuck on that build error picks up the new file at its next update. If it still fails, delete the stack and create it again with the same variables and data folder (the database is not touched).
 
+Release candidates have their own channel, chosen with the install command: see [Try the pre-release](docs/user/en/prerelease.md) and `docs/dev/releasing.md`.
+
 To run the **published image** instead, start from [`docker-compose.example.yml`](docker-compose.example.yml) and pin `MESHLOOM_IMAGE` (see the Update section of the [README](README.md)).
 
 ## Systemd Service
