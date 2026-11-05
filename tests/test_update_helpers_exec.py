@@ -212,7 +212,7 @@ def _run(script: Path, env: dict[str, str], *args: str) -> subprocess.CompletedP
 
 def _status(path: Path) -> dict[str, object]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert set(data) == STATUS_KEYS
+    assert set(data) - {"channel"} == STATUS_KEYS
     assert stat.S_IMODE(path.stat().st_mode) == 0o644
     return data
 
@@ -927,3 +927,218 @@ def test_units_pass_systemd_analyze_verify(tmp_path: Path) -> None:
         if line.strip() and "docker.service" not in line and "network-online" not in line
     ]
     assert problems == [], problems
+
+
+# ── the pre-release channel (MSHL-466) ──────────────────────────────────────
+
+RC = "5.0.0-rc.2"
+CHANNEL_FILE = "channels-testing.txt"
+
+
+def _publish_channel(
+    files: Path,
+    signer: Signer,
+    version: str = RC,
+    *,
+    stable: str = "4.18.2",
+    issued_at: int = 1000,
+    body: str | None = None,
+) -> None:
+    path = files / CHANNEL_FILE
+    path.write_text(
+        body
+        if body is not None
+        else f"schema=1\nchannel=testing\nversion={version}\nstable={stable}\nissued_at={issued_at}\n"
+    )
+    signer.sign(path)
+
+
+@pytest.fixture
+def testing_host(compose_host, signers):
+    root, log, env, files, compose_dir = compose_host
+    stubs = Path(env["PATH"].split(":")[0])
+    # The channel file lives on the repository site: same stub, another URL prefix.
+    curl = (stubs / "curl").read_text()
+    (stubs / "curl").write_text(
+        curl.replace(
+            "rel=${url#https://github.com",
+            'case "$url" in\n'
+            "    https://twinrocket.github.io/meshloom/channels/testing.txt)\n"
+            f'        [ -f "$STUB_FILES/{CHANNEL_FILE}" ] || exit 22; cp "$STUB_FILES/{CHANNEL_FILE}" "$out"; exit 0 ;;\n'
+            "    https://twinrocket.github.io/meshloom/channels/testing.txt.asc)\n"
+            f'        [ -f "$STUB_FILES/{CHANNEL_FILE}.asc" ] || exit 22; cp "$STUB_FILES/{CHANNEL_FILE}.asc" "$out"; exit 0 ;;\n'
+            "esac\n"
+            "rel=${url#https://github.com",
+        )
+    )
+    _publish(files, signers["release"], "4.18.2")
+    _publish(files, signers["release"], RC)
+    # _publish leaves `location` on the last tag: releases/latest stays on stable.
+    (files / "location").write_text(f"{REPO_URL}/releases/tag/4.18.2")
+    _publish_channel(files, signers["release"])
+    env["MESHLOOM_UPDATE_CHANNEL"] = "testing"
+    return root, log, env, files, compose_dir
+
+
+def _pin(compose_dir: Path, tag: str = "4.18.2", digest: str = OLD_DIGEST) -> None:
+    (compose_dir / ".env").write_text(
+        f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:{tag}@{digest}\n"
+    )
+
+
+def test_compose_testing_moves_to_the_rc_pinned_by_its_signed_digest(testing_host) -> None:
+    root, log, env, _files, compose_dir = testing_host
+    _pin(compose_dir)
+    assert _run(COMPOSE_UPDATE, env).returncode == 0
+    assert (
+        f"MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:{RC}@{DIGEST}"
+        in (compose_dir / ".env").read_text()
+    )
+    status = _status(compose_dir / "update-status/status.json")
+    assert status["state"] == "succeeded"
+    assert status["version"] == RC
+    assert status["channel"] == "testing"
+
+
+def test_compose_testing_goes_from_rc_to_rc_and_to_the_final(testing_host, signers) -> None:
+    root, log, env, files, compose_dir = testing_host
+    _pin(compose_dir, "5.0.0-rc.1")
+    assert _run(COMPOSE_UPDATE, env).returncode == 0
+    assert f":{RC}@" in (compose_dir / ".env").read_text()
+
+    (root / "var/lib/meshloom-compose-update/last-start").unlink()
+    _publish(files, signers["release"], "5.0.0")
+    _publish_channel(files, signers["release"], "5.0.0", stable="5.0.0", issued_at=2000)
+    assert _run(COMPOSE_UPDATE, env).returncode == 0
+    assert f"meshloom:5.0.0@{DIGEST}" in (compose_dir / ".env").read_text()
+
+
+def test_compose_testing_stays_on_rc_10_rather_than_rc_9(testing_host, signers) -> None:
+    _root, _log, env, files, compose_dir = testing_host
+    _publish(files, signers["release"], "5.0.0-rc.9")
+    (files / "location").write_text(f"{REPO_URL}/releases/tag/4.18.2")
+    _publish_channel(files, signers["release"], "5.0.0-rc.9")
+    _pin(compose_dir, "5.0.0-rc.10")
+    result = _run(COMPOSE_UPDATE, env)
+    assert result.returncode == 1
+    assert "refusing downgrade" in _status(compose_dir / "update-status/status.json")["error"]
+
+
+def test_compose_testing_refuses_a_forged_channel_file(testing_host, signers) -> None:
+    _root, _log, env, files, compose_dir = testing_host
+    _pin(compose_dir)
+    (files / CHANNEL_FILE).write_text(
+        "schema=1\nchannel=testing\nversion=9.9.9-rc.1\nstable=4.18.2\nissued_at=9\n"
+    )
+    assert _run(COMPOSE_UPDATE, env).returncode == 1
+    assert "signature" in _status(compose_dir / "update-status/status.json")["error"]
+    assert ":4.18.2@" in (compose_dir / ".env").read_text()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "",
+        "version=5.0.0-rc.2\n",
+        "schema=1\nchannel=stable\nversion=5.0.0-rc.2\nstable=4.18.2\nissued_at=9\n",
+        "schema=1\nchannel=testing\nversion=latest\nstable=4.18.2\nissued_at=9\n",
+        "schema=1\nchannel=testing\nversion=5.0.0-rc.2;reboot\nstable=4.18.2\nissued_at=9\n",
+        "schema=1\nchannel=testing\nversion=5.0.0-rc.2\nstable=4.18.2\nissued_at=soon\n",
+    ],
+)
+def test_compose_testing_refuses_a_bad_channel_file_even_signed(
+    testing_host, signers, body: str
+) -> None:
+    _root, _log, env, files, compose_dir = testing_host
+    _pin(compose_dir)
+    _publish_channel(files, signers["release"], body=body)
+    assert _run(COMPOSE_UPDATE, env).returncode == 1
+    assert "invalid channel file" in _status(compose_dir / "update-status/status.json")["error"]
+
+
+def test_compose_testing_refuses_an_old_signed_channel_file(testing_host, signers) -> None:
+    root, _log, env, files, compose_dir = testing_host
+    _pin(compose_dir)
+    _publish_channel(files, signers["release"], issued_at=5000)
+    assert _run(COMPOSE_UPDATE, env).returncode == 0
+    (root / "var/lib/meshloom-compose-update/last-start").unlink()
+    _publish(files, signers["release"], "5.0.0-rc.1")
+    (files / "location").write_text(f"{REPO_URL}/releases/tag/4.18.2")
+    _publish_channel(files, signers["release"], "5.0.0-rc.1", issued_at=4000)
+    assert _run(COMPOSE_UPDATE, env).returncode == 1
+    assert "older than" in _status(compose_dir / "update-status/status.json")["error"]
+
+
+def test_compose_testing_fails_closed_without_the_channel_file(testing_host) -> None:
+    _root, _log, env, files, compose_dir = testing_host
+    _pin(compose_dir)
+    (files / CHANNEL_FILE).unlink()
+    assert _run(COMPOSE_UPDATE, env).returncode == 1
+    assert ":4.18.2@" in (compose_dir / ".env").read_text()
+
+
+def test_compose_refuses_a_bad_channel_setting(testing_host) -> None:
+    _root, _log, env, _files, _compose_dir = testing_host
+    env["MESHLOOM_UPDATE_CHANNEL"] = "../../evil"
+    assert _run(COMPOSE_UPDATE, env).returncode == 1
+
+
+def test_compose_stable_reads_no_channel_file_and_writes_no_channel(testing_host) -> None:
+    _root, log, env, _files, compose_dir = testing_host
+    del env["MESHLOOM_UPDATE_CHANNEL"]
+    _pin(compose_dir, "4.18.1")
+    assert _run(COMPOSE_UPDATE, env).returncode == 0
+    assert f"meshloom:4.18.2@{DIGEST}" in (compose_dir / ".env").read_text()
+    status = _status(compose_dir / "update-status/status.json")
+    assert set(status) == STATUS_KEYS
+    assert "channels/testing" not in log.read_text()
+
+
+def test_compose_stable_never_takes_an_rc_as_the_latest_release(testing_host, signers) -> None:
+    """releases/latest pointing at an rc (a mistake on GitHub) is still refused on stable."""
+    _root, _log, env, files, compose_dir = testing_host
+    del env["MESHLOOM_UPDATE_CHANNEL"]
+    (files / "location").write_text(f"{REPO_URL}/releases/tag/{RC}")
+    _pin(compose_dir)
+    assert _run(COMPOSE_UPDATE, env).returncode == 1
+    assert ":4.18.2@" in (compose_dir / ".env").read_text()
+
+
+def test_compose_nothing_the_container_writes_chooses_the_channel(testing_host) -> None:
+    """data/ is the container's. A file there, or in its environment file, changes nothing."""
+    _root, log, env, _files, compose_dir = testing_host
+    del env["MESHLOOM_UPDATE_CHANNEL"]
+    _pin(compose_dir, "4.18.1")
+    (compose_dir / "data/channel").write_text("testing\n")
+    (compose_dir / "data/compose-update.env").write_text("MESHLOOM_UPDATE_CHANNEL=testing\n")
+    (compose_dir / "data/request-update").write_text("testing\n")
+    with (compose_dir / ".env").open("a") as env_file:
+        env_file.write("MESHLOOM_UPDATE_CHANNEL=testing\n")
+    assert _run(COMPOSE_UPDATE, env).returncode == 0
+    assert f"meshloom:4.18.2@{DIGEST}" in (compose_dir / ".env").read_text()
+    assert "channels/testing" not in log.read_text()
+
+
+def test_apply_update_reports_an_rc_version(apt_host) -> None:
+    """The helper itself has no channel: it installs what the signed source offers."""
+    root, _log, env = apt_host
+    Path(env["STUB_PKG"]).write_text("4.18.2-1")
+    env["STUB_NEW_VERSION"] = "5.0.0~rc.1-1"
+    (root / "etc/apt/sources.list.d/meshloom.list").write_text(
+        f"deb [signed-by=/{KEYRING}] {OFFICIAL}/apt testing main\n"
+    )
+    assert _run(APPLY_UPDATE, env).returncode == 0
+    status = _status(root / "var/lib/meshloom-update/status.json")
+    assert status["state"] == "succeeded"
+    assert status["version"] == "5.0.0~rc.1-1"
+
+
+def test_apply_update_dnf_reports_an_rc_version(dnf_host) -> None:
+    root, _log, env = dnf_host
+    Path(env["STUB_PKG"]).write_text("4.18.2-1")
+    env["STUB_NEW_VERSION"] = "5.0.0~rc.1-1"
+    (root / "etc/yum.repos.d/meshloom.repo").write_text(
+        _GOOD_REPO.replace("/rpm/", "/rpm/testing/")
+    )
+    assert _run(APPLY_UPDATE, env).returncode == 0
+    assert _status(root / "var/lib/meshloom-update/status.json")["version"] == "5.0.0~rc.1-1"

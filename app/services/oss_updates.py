@@ -6,6 +6,10 @@ installs anything (``scripts/setup/helpers/compose-update``). Community
 (``GET /v1/meshloom/latest``) is only a mirror used when GitHub cannot be
 reached, so a Community outage never hides a security release.
 
+A machine on the pre-release channel (``services/update_channel.py``) also reads the
+signed channel file, and is offered whichever is newer. On the stable channel that file
+is never fetched, and nothing below changes.
+
 With Community on, the check runs every 300 s and falls back to the mirror.
 Opted out, it asks GitHub only (the mirror is never called) and only once
 every 6 h; turning Community back on wakes the loop at once.
@@ -28,7 +32,9 @@ from typing import Any
 import httpx
 from packaging.version import InvalidVersion, Version
 
+from app.services.install_kind import detect_install_kind
 from app.services.meshloom_community import fetch_meshloom_latest
+from app.services.update_channel import detect_update_channel, fetch_channel_release
 from app.services.update_window import in_window, next_window_start
 from app.version_info import get_app_build_info
 
@@ -101,7 +107,7 @@ async def fetch_github_latest() -> dict[str, Any] | None:
     return {"version": tag, "html_url": location.strip(), "source": "github"}
 
 
-async def fetch_latest_release() -> dict[str, Any] | None:
+async def _fetch_stable_release() -> dict[str, Any] | None:
     """GitHub first, Community mirror second. None when both fail.
 
     The mirror answers None without any request while Community is off
@@ -114,6 +120,29 @@ async def fetch_latest_release() -> dict[str, Any] | None:
     if mirror is None:
         return None
     return {**mirror, "source": "community"}
+
+
+def current_channel() -> str:
+    kind, _supported = detect_install_kind()
+    return detect_update_channel(kind, get_app_build_info().version)
+
+
+async def fetch_latest_release() -> dict[str, Any] | None:
+    """The newest release this machine's channel offers. None when nothing answers."""
+    payload = await _fetch_stable_release()
+    if current_channel() != "testing":
+        return payload
+    release = await fetch_channel_release()
+    if release is None:
+        return payload
+    stable_version = _payload_version(payload)
+    if stable_version is not None and not is_newer_release(release.version, stable_version):
+        return payload
+    return {
+        "version": release.version,
+        "html_url": f"{RELEASES_REPO_URL}/releases/tag/{release.version}",
+        "source": "channel",
+    }
 
 
 def _payload_version(payload: dict[str, Any] | None) -> str | None:
@@ -138,7 +167,7 @@ def _payload_source(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
     value = payload.get("source")
-    return value if value in {"github", "community"} else None
+    return value if value in {"github", "community", "channel"} else None
 
 
 def _env_latest_override() -> tuple[str | None, str | None]:
@@ -238,8 +267,12 @@ async def refresh_oss_update_cache() -> dict[str, Any] | None:
 def get_update_status() -> dict[str, Any]:
     current = get_app_build_info().version
     env_latest, env_html = _env_latest_override()
-    latest = env_latest or _payload_version(_latest_payload)
-    html_url = env_html or _payload_html_url(_latest_payload)
+    # After a move back to stable (or a failed check) a cached rc must not stay on offer.
+    cached = _latest_payload
+    if _payload_source(cached) == "channel" and current_channel() != "testing":
+        cached = None
+    latest = env_latest or _payload_version(cached)
+    html_url = env_html or _payload_html_url(cached)
     update_available = (
         latest is not None
         and not is_unknown_local_version(current)
@@ -251,7 +284,8 @@ def get_update_status() -> dict[str, Any]:
         "update_available": update_available,
         "html_url": html_url,
         "checked_at": _checked_at,
-        "source": "env" if env_latest else _payload_source(_latest_payload),
+        "source": "env" if env_latest else _payload_source(cached),
+        "channel": current_channel(),
     }
 
 

@@ -1691,18 +1691,27 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   (root-owned `StateDirectory`, 0644); the app only reads it. The app keeps its own
   memory in `update-attempt.json`, in its data directory.
 - **Compose installs** use `scripts/setup/helpers/compose-update` on the host, same
-  trigger model. The target is the latest GitHub release, pinned by digest from the
+  trigger model. The target is the latest GitHub release (or, with
+  `MESHLOOM_UPDATE_CHANNEL=testing` in its root-owned env file, what the signed channel
+  file names), pinned by digest from the
   signed `OCI-DIGESTS` (`gpgv` against the embedded keyring); downgrades are
   refused; its status is mounted read-only. The pre-4.18 helper read
   `update-job.json` from app data: the app deletes that file before triggering such
   a helper (`start_compose_helper`).
+- **Channel.** `services/update_channel.py` reads the machine's channel (`stable` or
+  `testing`) and never writes it: the apt or dnf source if root-owned and not group or
+  world writable, the root-written status of the compose helper, always `stable` for the
+  add-on, and the running version elsewhere. On `testing`, `oss_updates.py` also reads the
+  signed `channels/testing.txt` and offers what is newer, rc or final; on `stable` it never
+  fetches it. Nothing in the API or the settings moves a channel: see
+  `docs/dev/releasing.md`, "Channels".
 - **No apply support** for the Home Assistant add-on, plain containers and source
   installs: they only report the available version. `addon` is declared by
   `MESHLOOM_INSTALL_KIND`, never inferred; `MESHLOOM_UPDATE_HELPER=none` forces
   apply off (`services/install_kind.py`).
 - The browser never calls GitHub; `services/oss_updates.py` does, and uses the
   Community mirror only while Community is on.
-- Tests: `tests/test_update_apply.py`, `tests/test_install_kind.py`,
+- Tests: `tests/test_update_apply.py`, `tests/test_install_kind.py`, `tests/test_update_channel.py`,
   `tests/test_oss_updates.py`, `tests/test_update_helpers_exec.py` (runs the real
   helpers against hostile inputs).
 

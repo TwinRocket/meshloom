@@ -235,6 +235,13 @@ def read_helper_status() -> dict[str, Any] | None:
     return _normalize_record(_read_json_object(job_path()))
 
 
+def read_helper_channel() -> str | None:
+    """The channel the compose helper published, from its root-owned configuration."""
+    data = _read_json_object(status_path())
+    channel = data.get("channel") if data else None
+    return channel if isinstance(channel, str) else None
+
+
 def read_attempt() -> dict[str, Any] | None:
     return _normalize_record(_read_json_object(attempt_path()))
 

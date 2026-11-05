@@ -45,11 +45,19 @@ class UpdateStatusResponse(BaseModel):
     latest: str | None = Field(description="Latest published SemVer, or null if unknown")
     update_available: bool
     html_url: str | None = Field(description="GitHub release page of `latest`, or null")
-    latest_source: Literal["github", "community", "env"] | None = Field(
+    latest_source: Literal["github", "community", "channel", "env"] | None = Field(
         default=None,
         description=(
             "Where `latest` came from: GitHub releases/latest (primary), the "
-            "Community mirror (fallback), or the MESHLOOM_UPDATE_LATEST pin"
+            "Community mirror (fallback), the signed channel file (pre-release "
+            "channel), or the MESHLOOM_UPDATE_LATEST pin"
+        ),
+    )
+    channel: Literal["stable", "testing"] = Field(
+        default="stable",
+        description=(
+            "Release channel of this machine. Chosen on the system by the installer; "
+            "read here, and no route changes it"
         ),
     )
     install_kind: Literal["package", "compose", "addon", "container", "source"]
@@ -129,6 +137,7 @@ async def build_update_status() -> UpdateStatusResponse:
         update_available=catalogue["update_available"],
         html_url=catalogue["html_url"],
         latest_source=catalogue.get("source"),
+        channel=catalogue.get("channel", "stable"),
         install_kind=kind,
         apply_supported=supported,
         auto_update=settings.auto_update,
