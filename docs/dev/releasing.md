@@ -296,6 +296,13 @@ out, `get.meshloom.app` serves that older installer.
   database, the source and the service back when the package did not change, and otherwise
   says the state and that the same command repairs it.
 
+`install.sh` must stay under Linux's limit for one argument (128 KiB, `MAX_ARG_STRLEN`):
+`bash -c "$(curl ...)"` passes the whole file as one, and above it the command does not
+start, with `Argument list too long`. `tests/test_install_channel.py` holds it under
+126 000 bytes. What only a pre-release needs lives in `scripts/setup/helpers/prerelease.sh`,
+which `sync_installer_embeds.py` embeds gzipped and base64, and which is evaluated for
+`--channel` uses only.
+
 ### The channel file
 
 `channels/testing.txt` and `.asc` on the repository site, written by

@@ -18,6 +18,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 INSTALL_SH = REPO / "scripts" / "setup" / "install.sh"
+PRERELEASE_SH = REPO / "scripts" / "setup" / "helpers" / "prerelease.sh"
+SYNC = REPO / "scripts" / "setup" / "sync_installer_embeds.py"
 STAGE = REPO / "scripts" / "build" / "stage_install_sh.sh"
 BUILD_REPO = REPO / "scripts" / "build" / "build_linux_repo.sh"
 PUBLISH = REPO / ".github" / "workflows" / "publish-linux-repo.yml"
@@ -28,7 +30,7 @@ KEYRING_ASC = "/usr/share/keyrings/meshloom-archive-keyring.asc"
 
 
 def _fn(name: str) -> str:
-    text = INSTALL_SH.read_text(encoding="utf-8")
+    text = INSTALL_SH.read_text(encoding="utf-8") + PRERELEASE_SH.read_text(encoding="utf-8")
     start = re.search(rf"^{name}\(\) \{{", text, re.MULTILINE)
     assert start, name
     end = text.index("\n}\n", start.start())
@@ -56,6 +58,7 @@ NEXT_URL="https://get.meshloom.app/next"
 as_root() { "$@"; }
 ui_err() { printf '%s\\n' "$1" >&2; }
 t() { printf '%s' "$*"; }
+t_pre() { printf '%s' "$*"; }
 """
 
 
@@ -165,6 +168,110 @@ def test_every_hardcoded_stable_left_in_the_installer_is_known() -> None:
     assert "dists/stable" not in re.sub(
         r'.*http_ok "\$\{PAGES_BASE\}/apt/dists/stable/Release".*', "", text
     )
+
+
+# ── what `bash -c "$(curl ...)"` can carry ──────────────────────────────────
+
+
+def test_the_installer_fits_in_one_argument() -> None:
+    """Linux refuses one argument of 128 KiB (MAX_ARG_STRLEN): the one-liner would not start.
+
+    The limit below leaves room. When it is hit, compress or shorten, do not raise it past 131071.
+    """
+    assert len(INSTALL_SH.read_bytes()) < 126_000
+
+
+def test_the_installer_starts_through_the_one_liner_form(tmp_path: Path) -> None:
+    result = subprocess.run(
+        ["/bin/bash", "-c", INSTALL_SH.read_text(encoding="utf-8"), "install.sh", "--bad-option"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2, result.stderr
+
+
+def test_the_way_back_in_the_installer_is_the_helper() -> None:
+    out = _ok(
+        ("load_prerelease_code",),
+        INSTALL_SH.read_text(encoding="utf-8")[
+            INSTALL_SH.read_text(encoding="utf-8").index("_embed_prerelease() {") :
+        ].split("# <<< embed", 1)[0]
+        + """
+        _embed_prerelease | base64 -d | gzip -dc
+        """,
+    )
+    assert out == PRERELEASE_SH.read_text(encoding="utf-8")
+
+
+def test_the_embed_check_sees_a_changed_helper(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    (root / "scripts" / "setup" / "helpers").mkdir(parents=True)
+    shutil.copytree(REPO / "pkg", root / "pkg")
+    for rel in (
+        "scripts/setup/install.sh",
+        "scripts/setup/sync_installer_embeds.py",
+    ):
+        shutil.copy(REPO / rel, root / rel)
+    for helper in (REPO / "scripts" / "setup" / "helpers").iterdir():
+        shutil.copy(helper, root / "scripts" / "setup" / "helpers" / helper.name)
+    sync = ["python3", "-I", str(root / "scripts/setup/sync_installer_embeds.py")]
+    assert subprocess.run([*sync, "--check"], capture_output=True, check=False).returncode == 0
+    with (root / "scripts/setup/helpers/prerelease.sh").open("a") as helper:
+        helper.write("# changed\n")
+    assert subprocess.run([*sync, "--check"], capture_output=True, check=False).returncode == 1
+
+
+def test_the_helper_has_its_messages_in_both_languages() -> None:
+    text = PRERELEASE_SH.read_text(encoding="utf-8")
+    en = set(re.findall(r"en:([a-z_]+)\)", text))
+    fr = set(re.findall(r"fr:([a-z_]+)\)", text))
+    assert en and en == fr
+    used = set(re.findall(r"t_pre ([a-z_]+)", text))
+    assert used and used <= en
+
+
+def test_a_stable_install_runs_nothing_that_only_a_prerelease_loads() -> None:
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    code = text[: text.index("# >>> embed: scripts/setup/helpers/prerelease.sh")]
+    code += text[text.index("# <<< embed: scripts/setup/helpers/prerelease.sh") :]
+    for name in re.findall(r"^([a-z_]+)\(\) \{", PRERELEASE_SH.read_text(encoding="utf-8"), re.M):
+        for line in code.splitlines():
+            if re.search(rf"(^|[\s$(]){name}($|[\s)\"])", line) and name in line:
+                allowed = (
+                    name == "return_to_stable"
+                    or name == "prepare_prerelease"
+                    or name == "t_pre"
+                    or name == "print_way_back"
+                    or name == "install_prerelease_package"
+                    or name == "signed_image_digest"
+                )
+                assert allowed or line.lstrip().startswith("#"), f"{name}: {line}"
+
+
+def test_every_call_into_the_helper_from_the_installer_is_behind_the_channel() -> None:
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    main = text.split("# ── main", 1)[1]
+    assert re.search(r'if \[ "\$CHANNEL" = "testing" \]; then\n    prepare_prerelease\n', main)
+    assert re.search(
+        r'if \[ "\$CHANNEL" = "testing" \]; then\n        install_prerelease_package',
+        _fn("install_native_service"),
+    )
+    assert re.search(
+        r'\[ "\$CHANNEL" = "testing" \][^\n]*\n(?:[^\n]*\n){0,3}?\s+print_way_back',
+        _fn("install_docker_stack"),
+    )
+    assert re.search(
+        r'if \[ "\$CHANNEL" = "testing" \]; then\n(?:[^\n]*\n)?\s+if ! digest="\$\(signed_image_digest',
+        _fn("write_unmanaged_env"),
+    )
+
+
+def test_a_regular_install_does_not_load_the_way_back() -> None:
+    main = INSTALL_SH.read_text(encoding="utf-8").split("# ── main", 1)[1]
+    assert main.count("load_prerelease_code") == 1
+    gate = 'if [ "$CHANNEL" = "testing" ] || [ "$CHANNEL_REQUESTED" = "stable" ]; then'
+    assert main.index(gate) < main.index("load_prerelease_code") < main.index("choose_install_mode")
 
 
 # ── an rc's copy of the script ──────────────────────────────────────────────
@@ -966,8 +1073,7 @@ def test_going_back_by_hand_points_where_the_steps_are() -> None:
         _ok(("install_paths_docs_url",), "ML_LANG=fr; install_paths_docs_url")
         == "https://meshloom.app/docs/deep/install-paths/"
     )
-    text = INSTALL_SH.read_text(encoding="utf-8")
-    assert 'return_manual "$(prerelease_docs_url)"' not in text
+    assert 'return_manual "$(prerelease_docs_url)"' not in PRERELEASE_SH.read_text(encoding="utf-8")
     for page in ("en", "fr"):
         doc = REPO / "docs" / "user" / page / "deep" / "install-paths.md"
         assert "schema" in doc.read_text(encoding="utf-8")

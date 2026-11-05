@@ -92,58 +92,10 @@ t() {
         fr:channel_testing) echo "pré-version" ;;
         en:prerelease_note) echo "A copy of your database is made before the upgrade, and you can go back from it: $1" ;;
         fr:prerelease_note) echo "Une copie de votre base est faite avant la mise à jour, et vous pouvez revenir en arrière grâce à elle : $1" ;;
-        en:prerelease_none) echo "No pre-release is available right now. The stable version: /bin/bash -c \"\$(curl -fsSL https://get.meshloom.app)\"" ;;
-        fr:prerelease_none) echo "Aucune pré-version n'est disponible pour le moment. La version stable : /bin/bash -c \"\$(curl -fsSL https://get.meshloom.app)\"" ;;
-        en:prerelease_armhf) echo "Pre-releases have no 32-bit package, so nothing was changed here. Docker can run them: $1" ;;
-        fr:prerelease_armhf) echo "Les pré-versions n'ont pas de paquet 32 bits : rien n'a été modifié ici. Docker peut les faire tourner : $1" ;;
-        en:prerelease_no_package) echo "Pre-releases come as apt or dnf packages, or with Docker, so nothing was changed here: $1" ;;
-        fr:prerelease_no_package) echo "Les pré-versions existent en paquets apt ou dnf, ou avec Docker : rien n'a été modifié ici. $1" ;;
-        en:prerelease_following) echo "This machine now follows pre-releases. Settings > Updates offers the new ones." ;;
-        fr:prerelease_following) echo "Cette machine suit maintenant les pré-versions. Réglages > Mises à jour propose les nouvelles." ;;
-        en:prerelease_image_failed) echo "Could not verify the signed image of the pre-release. Nothing was changed." ;;
-        fr:prerelease_image_failed) echo "Impossible de vérifier l'image signée de la pré-version. Rien n'a été modifié." ;;
-        en:way_back_copy) echo "Copy of your database" ;;
-        fr:way_back_copy) echo "Copie de votre base" ;;
-        en:way_back_docs) echo "Going back, and returning to stable" ;;
-        fr:way_back_docs) echo "Revenir en arrière, et retrouver la version stable" ;;
-        en:step_return) echo "Back to stable" ;;
-        fr:step_return) echo "Retour à la version stable" ;;
-        en:return_switch_q) echo "Move this machine to the stable channel? Only stable versions are offered from now on." ;;
-        fr:return_switch_q) echo "Passer cette machine sur le canal stable ? Seules les versions stables seront proposées désormais." ;;
-        en:return_switch_done) echo "This machine now follows the stable channel." ;;
-        fr:return_switch_done) echo "Cette machine suit maintenant le canal stable." ;;
-        en:return_uses_copy) echo "Your database goes back to the copy $1. What changed since then is not kept, and the current database stays beside it as $2." ;;
-        fr:return_uses_copy) echo "Votre base revient à la copie $1. Ce qui a changé depuis n'est pas conservé, et la base actuelle reste à côté sous le nom $2." ;;
-        en:return_no_copy) echo "No copy of your database was found for this version, so $1 starts on an empty database. The current one stays beside it as $2." ;;
-        fr:return_no_copy) echo "Aucune copie de votre base n'existe pour cette version : la $1 démarre donc sur une base vide. La base actuelle reste à côté sous le nom $2." ;;
-        en:return_q) echo "Go back to version $1?" ;;
-        fr:return_q) echo "Revenir à la version $1 ?" ;;
-        en:return_done) echo "Meshloom $1 is back, on the stable channel." ;;
-        fr:return_done) echo "Meshloom $1 est de retour, sur le canal stable." ;;
         en:return_refuse_newer) echo "This machine runs the pre-release $1, newer than $2. Nothing was changed. To go back to stable, with the copy of your database: $3" ;;
         fr:return_refuse_newer) echo "Cette machine fait tourner la pré-version $1, plus récente que la $2. Rien n'a été modifié. Pour revenir au stable, avec la copie de votre base : $3" ;;
         en:prerelease_older) echo "This machine runs $1, newer than the pre-release $2. Nothing was changed." ;;
         fr:prerelease_older) echo "Cette machine fait tourner la $1, plus récente que la pré-version $2. Rien n'a été modifié." ;;
-        en:return_unsafe) echo "Something in the data folder is not what it should be: $1. Nothing was changed. Check that folder, then try again." ;;
-        fr:return_unsafe) echo "Un élément du dossier de données n'est pas ce qu'il devrait être : $1. Rien n'a été modifié. Vérifiez ce dossier, puis réessayez." ;;
-        en:return_copy_damaged) echo "The copy $1 is damaged, so it cannot be used. Nothing was changed, and your current database is still in place." ;;
-        fr:return_copy_damaged) echo "La copie $1 est endommagée et ne peut pas servir. Rien n'a été modifié, et votre base actuelle est toujours en place." ;;
-        en:return_source_failed) echo "The stable package source could not be reached. The source was put back and nothing else was changed. Try again shortly." ;;
-        fr:return_source_failed) echo "La source de paquets stable est injoignable. La source a été remise en place et rien d'autre n'a été modifié. Réessayez dans un instant." ;;
-        en:return_rolled_back) echo "The stable package could not be installed. Your database, the package source and the service are back as they were. Run the same command again." ;;
-        fr:return_rolled_back) echo "Le paquet stable n'a pas pu être installé. Votre base, la source de paquets et le service sont revenus comme avant. Relancez la même commande." ;;
-        en:return_midway) echo "The package step stopped part way. The service is stopped, the source is stable and the database is the copy. Running the same command again repairs this. Your previous database is $1." ;;
-        fr:return_midway) echo "L'étape du paquet s'est arrêtée en cours de route. Le service est arrêté, la source est stable et la base est la copie. Relancer la même commande répare cela. Votre base précédente est $1." ;;
-        en:return_image_unverified) echo "Could not verify the signed stable image. Nothing was changed. Try again shortly." ;;
-        fr:return_image_unverified) echo "Impossible de vérifier l'image stable signée. Rien n'a été modifié. Réessayez dans un instant." ;;
-        en:return_up_failed) echo "The stable version and the copy of your database are in place, but the stack did not start. Fix what the log says, then run: docker compose up -d, in $1. Your previous database is $2." ;;
-        fr:return_up_failed) echo "La version stable et la copie de votre base sont en place, mais la pile n'a pas démarré. Corrigez ce qu'indique le journal, puis lancez docker compose up -d dans $1. Votre base précédente est $2." ;;
-        en:return_manual) echo "This install cannot go back automatically. The steps: $1" ;;
-        fr:return_manual) echo "Cette installation ne peut pas revenir en arrière automatiquement. La marche à suivre : $1" ;;
-        en:return_stable_unknown) echo "Could not confirm the stable version. Nothing was changed. Try again shortly." ;;
-        fr:return_stable_unknown) echo "Impossible de confirmer la version stable. Rien n'a été modifié. Réessayez dans un instant." ;;
-        en:return_pull_failed) echo "Could not download the stable image. Nothing was changed." ;;
-        fr:return_pull_failed) echo "Impossible de télécharger l'image stable. Rien n'a été modifié." ;;
         en:bad_argument) echo "Unknown option: $1. Accepted: --channel testing, --channel stable." ;;
         fr:bad_argument) echo "Option inconnue : $1. Options acceptées : --channel testing, --channel stable." ;;
         en:title) echo "Meshloom installation" ;;
@@ -2217,31 +2169,6 @@ install_from_pages() {
     phase_ok
 }
 
-# Pre-release channel: from the signed `testing` suite and nothing else. No fallback to
-# a release asset or a source install, which would quietly be something else.
-install_prerelease_package() {
-    phase "$(t using_repo)"
-    add_signed_repo
-    if [ "$PKG_MGR" = "apt" ]; then
-        run_quiet as_root apt-get update
-        run_quiet as_root apt-get install -y meshloom
-    elif rpm -q meshloom >/dev/null 2>&1; then
-        # dnf install does nothing on an installed package (dnf5).
-        run_quiet as_root dnf -y --refresh upgrade meshloom
-    else
-        run_quiet as_root dnf -y --refresh install meshloom
-    fi
-    REPO_HAS_ARCH=1
-    write_meshloom_env /etc/meshloom/meshloom.env
-    start_meshloom_unit
-    persist_installer_state
-    ensure_update_helper
-    phase_ok
-    print_done_native
-    print_way_back "$(package_db_path)"
-    ui_dim "  $(t prerelease_following)"
-}
-
 # Signed release manifest: SHA256SUMS checked with gpgv against the embedded key.
 # Prints nothing and fails on any problem; never falls back to unsigned.
 fetch_signed_manifest() {
@@ -2515,7 +2442,7 @@ write_unmanaged_env() {
     # No moving tag for a pre-release: its version, pinned by its signed digest.
     if [ "$CHANNEL" = "testing" ]; then
         if ! digest="$(signed_image_digest "$PRERELEASE_VERSION")"; then
-            ui_err "$(t prerelease_image_failed)"
+            ui_err "$(t_pre prerelease_image_failed)"
             exit 1
         fi
         image="${GHCR_IMAGE}:${PRERELEASE_VERSION}@${digest}"
@@ -2896,396 +2823,6 @@ prerelease_docs_url() {
     printf '%s/docs/%s' "$NEXT_URL" "$ML_LANG"
 }
 
-# Going back by hand: the section of this page. Only reached with a stable newer than 4.18,
-# whose site has it.
-install_paths_docs_url() {
-    if [ "$ML_LANG" = "fr" ]; then
-        printf 'https://meshloom.app/docs/deep/install-paths/'
-    else
-        printf 'https://meshloom.app/en/docs/deep/install-paths/'
-    fi
-}
-
-# What the signed channel file says the testing suite serves. Fails on a download
-# error, a bad signature or anything unexpected in it.
-testing_channel_version() {
-    local dir version
-    dir="$(mktemp -d /tmp/meshloom-channel.XXXXXX)"
-    if ! run_soft curl -fsSL --proto '=https' --max-time 20 "$CHANNEL_FILE_URL" -o "${dir}/testing.txt" ||
-        ! run_soft curl -fsSL --proto '=https' --max-time 20 "${CHANNEL_FILE_URL}.asc" -o "${dir}/testing.txt.asc" ||
-        ! run_soft gpgv --keyring "${RELEASE_KEY_DIR}/meshloom.gpg" "${dir}/testing.txt.asc" "${dir}/testing.txt" ||
-        [ "$(sed -n 1p "${dir}/testing.txt")" != "schema=1" ] ||
-        [ "$(sed -n 2p "${dir}/testing.txt")" != "channel=testing" ]; then
-        rm -rf "$dir"
-        return 1
-    fi
-    version="$(sed -n 's/^version=//p' "${dir}/testing.txt" | head -n 1)"
-    rm -rf "$dir"
-    printf '%s\n' "$version" | grep -Eq '^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-rc\.[1-9][0-9]{0,5}$' || return 1
-    printf '%s' "$version"
-}
-
-# Digest of the image index for tag $1, from the release's signed OCI-DIGESTS.
-signed_image_digest() {
-    local tag="$1" dir base="https://github.com/${REPO}/releases/download/${1}" line
-    dir="$(mktemp -d /tmp/meshloom-digest.XXXXXX)"
-    if ! run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/OCI-DIGESTS" -o "${dir}/OCI-DIGESTS" ||
-        ! run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/OCI-DIGESTS.asc" -o "${dir}/OCI-DIGESTS.asc" ||
-        ! run_soft gpgv --keyring "${RELEASE_KEY_DIR}/meshloom.gpg" "${dir}/OCI-DIGESTS.asc" "${dir}/OCI-DIGESTS"; then
-        rm -rf "$dir"
-        return 1
-    fi
-    line="$(grep -xE "ghcr\.io/twinrocket/meshloom:${tag//./\\.} sha256:[0-9a-f]{64}" "${dir}/OCI-DIGESTS" || true)"
-    rm -rf "$dir"
-    [ -n "$line" ] || return 1
-    printf '%s' "${line##* }"
-}
-
-# Before anything is written: is there a pre-release, and can this machine run it?
-prepare_prerelease() {
-    [ "$CHANNEL" = "testing" ] || return 0
-    ensure_log
-    if [ "$INSTALL_MODE" = "service" ]; then
-        if [ "$(host_arch)" = "armhf" ]; then
-            ui_err "$(t prerelease_armhf "$(prerelease_docs_url)")"
-            exit 1
-        fi
-        if [ "$(host_arch)" = "unknown" ] || { [ "$PKG_MGR" != "apt" ] && [ "$PKG_MGR" != "dnf" ]; }; then
-            ui_err "$(t prerelease_no_package "$(prerelease_docs_url)")"
-            exit 1
-        fi
-    fi
-    ensure_cmd curl "curl"
-    ensure_gpgv
-    prepare_release_key
-    if ! PRERELEASE_VERSION="$(testing_channel_version)"; then
-        ui_err "$(t prerelease_none)"
-        exit 1
-    fi
-}
-
-package_db_path() {
-    local value=""
-    value="$(as_root sed -n 's/^MESHCORE_DATABASE_PATH=//p' /etc/meshloom/meshloom.env 2>/dev/null | tail -n 1 | tr -d "\"'")"
-    printf '%s' "${value:-/var/lib/meshloom/meshcore.db}"
-}
-
-find_database_copies() {
-    local db="$1"
-    as_root find "$(dirname "$db")" -maxdepth 1 -type f \
-        -name "$(basename "$db").schema*.before-*.db" 2>/dev/null || true
-}
-
-# The way back after an upgrade: the copy the server made, and the page about it.
-print_way_back() {
-    local db="$1" copy="" i=0
-    if [ "$UPGRADE_KIND" = "upgrade" ]; then
-        # The server makes it first thing at startup; a large database takes longer.
-        while [ "$i" -lt 15 ]; do
-            copy="$(find_database_copies "$db" | sort | head -n 1)"
-            [ -z "$copy" ] || break
-            i=$((i + 1))
-            sleep 1
-        done
-    fi
-    if [ -n "$copy" ]; then
-        ui_dim "  $(t way_back_copy): ${copy}"
-    fi
-    ui_dim "  $(t way_back_docs): $(prerelease_docs_url)"
-}
-
-# The stable version, from the same strict redirect the update helper reads.
-stable_release_tag() {
-    local location tag
-    location="$(curl -fsS --proto '=https' --max-time 20 -o /dev/null -w '%{redirect_url}' \
-        "https://github.com/${REPO}/releases/latest")" || return 1
-    tag="${location#"https://github.com/${REPO}/releases/tag/"}"
-    [ "$tag" != "$location" ] || return 1
-    printf '%s\n' "$tag" | grep -Eq '^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$' || return 1
-    printf '%s' "$tag"
-}
-
-# A real SQLite file holding schema $2: its header and its user_version (offset 60).
-copy_header_matches() {
-    local hex
-    hex="$(as_root od -An -v -tx1 -N 64 "$1" 2>/dev/null | tr -d '[:space:]')"
-    [ "${#hex}" -eq 128 ] || return 1
-    [ "${hex:0:32}" = "53514c69746520666f726d6174203300" ] || return 1
-    [ "$((16#${hex:120:8}))" = "$2" ]
-}
-
-# The schema in a database's header, empty when the file is absent or not SQLite. A database
-# still open with a WAL can be ahead of this: it only matters in the direction it can show.
-database_schema() {
-    local hex
-    hex="$(as_root od -An -v -tx1 -N 64 "$1" 2>/dev/null | tr -d '[:space:]')"
-    [ "${#hex}" -eq 128 ] || return 0
-    [ "${hex:0:32}" = "53514c69746520666f726d6174203300" ] || return 0
-    printf '%s' "$((16#${hex:120:8}))"
-}
-
-# The highest schema release $1 reads. Every 4.18 uses 87. Fails for any other: this script
-# does not know them, and the steps are in the docs.
-stable_schema() {
-    case "$1" in
-        4.18.*) printf '87' ;;
-        *) return 2 ;;
-    esac
-}
-
-# True when the stable version cannot read this database: it was already migrated, whatever
-# the version running says. The usual 4.18.2 command puts that image on a migrated database.
-database_above_stable() {
-    local target schema
-    target="$(stable_schema "$2")" || return 1
-    schema="$(database_schema "$1")"
-    [ -n "$schema" ] && [ "$schema" -gt "$target" ]
-}
-
-# The copy to go back to, chosen by schema number, never by the version in its name
-# (MSHL-460): the highest schema the stable version can read, the most recent of equals.
-# Returns 2 when this script does not know that schema for the stable version.
-select_way_back_copy() {
-    local db="$1" stable="$2" target entry n base best="" best_n=-1
-    target="$(stable_schema "$stable")" || return 2
-    base="$(basename "$db")"
-    while IFS= read -r entry; do
-        [ -n "$entry" ] || continue
-        n="${entry##*/}"
-        n="${n#"$base".schema}"
-        n="${n%%.*}"
-        case "$n" in
-            '' | *[!0-9]*) continue ;;
-        esac
-        [ "$n" -le "$target" ] || continue
-        [ "$n" -gt "$best_n" ] || { [ "$n" -eq "$best_n" ] && as_root test "$entry" -nt "$best"; } || continue
-        if copy_header_matches "$entry" "$n"; then
-            best="$entry"
-            best_n="$n"
-        fi
-    done <<<"$(find_database_copies "$db" | sort)"
-    printf '%s' "$best"
-}
-
-# Runs a command as uid $1, gid $2. The data folder belongs to the service, which an attacker
-# in the service controls: what happens inside it must carry no more rights than that.
-as_owner() {
-    local uid="$1" gid="$2"
-    shift 2
-    if [ "$uid" = "$(id -u)" ]; then
-        "$@"
-    elif command -v setpriv >/dev/null 2>&1; then
-        as_root setpriv --reuid="$uid" --regid="$gid" --clear-groups -- "$@"
-    else
-        return 127
-    fi
-}
-
-# "uid gid" of a real folder (no link), or nothing.
-data_dir_owner() {
-    local dir="$1" owner
-    as_root test -d "$dir" || return 1
-    if as_root test -L "$dir"; then
-        return 1
-    fi
-    owner="$(as_root stat -c '%u %g' "$dir" 2>/dev/null || as_root stat -f '%u %g' "$dir" 2>/dev/null)" || return 1
-    case "$owner" in
-        *[!0-9\ ]* | '') return 1 ;;
-    esac
-    printf '%s' "$owner"
-}
-
-# Every file the return touches is a regular file or absent. Prints the first that is not.
-return_paths_unsafe() {
-    local db="$1" copy="$2" aside="$3" dir f
-    dir="$(dirname "$db")"
-    for f in "$db" "${db}-wal" "${db}-shm" "${db}.migration-in-progress" "${dir}/secrets.key" \
-        "${copy:-$db}" "${copy:+${copy%.db}.secrets.key}"; do
-        [ -n "$f" ] || continue
-        if as_root test -L "$f" || { as_root test -e "$f" && ! as_root test -f "$f"; }; then
-            printf '%s' "$f"
-            return 0
-        fi
-    done
-    for f in "$aside" "${aside}-wal" "${aside}-shm" "${aside}.secrets.key"; do
-        if as_root test -L "$f" || as_root test -e "$f"; then
-            printf '%s' "$f"
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Refuses, with nothing changed, what is not a plain file where one is expected.
-check_return_paths() {
-    local bad
-    if ! data_dir_owner "$(dirname "$1")" >/dev/null; then
-        ui_err "$(t return_unsafe "$(dirname "$1")")"
-        exit 1
-    fi
-    if bad="$(return_paths_unsafe "$1" "$2" "$3")"; then
-        ui_err "$(t return_unsafe "$bad")"
-        exit 1
-    fi
-}
-
-# The header's page count against the size, then SQLite's own check where something on this
-# machine can run it (nothing guarantees a Docker host has one). The copy is read as its owner.
-copy_is_intact() {
-    local copy="$1" owner hex size page pages rc tool
-    owner="$(data_dir_owner "$(dirname "$copy")")" || return 1
-    hex="$(as_root od -An -v -tx1 -N 96 "$copy" 2>/dev/null | tr -d '[:space:]')"
-    [ "${#hex}" -eq 192 ] || return 1
-    page="$((16#${hex:32:4}))"
-    [ "$page" -ne 1 ] || page=65536
-    pages="$((16#${hex:56:8}))"
-    # The page count holds when the change counter (24) equals version-valid-for (92).
-    if [ "${hex:48:8}" = "${hex:184:8}" ] && [ "$pages" -gt 0 ]; then
-        size="$(as_root sh -c 'wc -c <"$1"' sh "$copy" 2>/dev/null | tr -d '[:space:]')" || return 1
-        [ "$size" = "$((page * pages))" ] || return 1
-    fi
-    # shellcheck disable=SC2086 # "uid gid"
-    for tool in /opt/meshloom/.venv/bin/python python3; do
-        command -v "$tool" >/dev/null 2>&1 || continue
-        rc=0
-        as_owner $owner "$tool" -I -c '
-import sys, urllib.parse
-try:
-    import sqlite3
-except ImportError:
-    sys.exit(3)
-try:
-    c = sqlite3.connect("file:" + urllib.parse.quote(sys.argv[1]) + "?mode=ro&immutable=1", uri=True)
-    sys.exit(0 if c.execute("PRAGMA quick_check(1)").fetchone()[0] == "ok" else 1)
-except sqlite3.Error:
-    sys.exit(1)
-' "$copy" >/dev/null 2>&1 || rc=$?
-        case "$rc" in
-            0) return 0 ;;
-            1) return 1 ;;
-        esac
-    done
-    if command -v sqlite3 >/dev/null 2>&1; then
-        # shellcheck disable=SC2086 # "uid gid"
-        [ "$(as_owner $owner sqlite3 "file:${copy}?mode=ro&immutable=1" 'PRAGMA quick_check(1)' 2>/dev/null)" = "ok" ]
-        return
-    fi
-    return 0
-}
-
-# Puts the copy in place of the database (MSHL-460): -wal, -shm and the migration marker go,
-# and the current database stays beside it. Without a copy, the next start is empty. Runs as
-# the owner of the folder, and refuses anything but plain files: a link planted there leads
-# nowhere that owner could not already reach. Nothing moves until the new files are written.
-restore_database() {
-    local db="$1" copy="$2" aside="$3" owner
-    owner="$(data_dir_owner "$(dirname "$db")")" || return 1
-    # shellcheck disable=SC2086 # "uid gid"
-    as_owner $owner sh -c '
-set -eu
-db=$1 copy=$2 aside=$3
-dir=$(dirname "$db")
-secrets=$dir/secrets.key
-plain() { [ ! -L "$1" ] && { [ ! -e "$1" ] || [ -f "$1" ]; }; }
-absent() { [ ! -L "$1" ] && [ ! -e "$1" ]; }
-real() { [ ! -L "$1" ] && [ -f "$1" ]; }
-for f in "$db" "$db-wal" "$db-shm" "$db.migration-in-progress" "$secrets"; do plain "$f"; done
-for f in "$aside" "$aside-wal" "$aside-shm" "$aside.secrets.key"; do absent "$f"; done
-umask 077
-new_db="" new_key=""
-trap "rm -f \"\$new_db\" \"\$new_key\"" EXIT
-if [ -n "$copy" ]; then
-    real "$copy"
-    new_db=$(mktemp "$db.restoring.XXXXXX")
-    cat "$copy" >"$new_db"
-    key=${copy%.db}.secrets.key
-    plain "$key"
-    if [ -f "$key" ]; then
-        new_key=$(mktemp "$db.restoring.XXXXXX")
-        cat "$key" >"$new_key"
-    fi
-fi
-for ext in "" -wal -shm; do
-    if [ -e "$db$ext" ]; then
-        mv -f "$db$ext" "$aside$ext"
-        [ -L "$aside$ext" ] || chmod 0600 "$aside$ext"
-    fi
-done
-rm -f "$db.migration-in-progress"
-if [ -n "$new_db" ]; then
-    mv -f "$new_db" "$db"
-    new_db=""
-fi
-if [ -n "$new_key" ]; then
-    if [ -e "$secrets" ]; then
-        mv -f "$secrets" "$aside.secrets.key"
-    fi
-    mv -f "$new_key" "$secrets"
-    new_key=""
-fi
-' sh "$db" "$copy" "$aside"
-}
-
-# The reverse, when the package step failed: the database that was running comes back.
-undo_restore_database() {
-    local db="$1" copy="$2" aside="$3" owner
-    owner="$(data_dir_owner "$(dirname "$db")")" || return 1
-    # shellcheck disable=SC2086 # "uid gid"
-    as_owner $owner sh -c '
-set -eu
-db=$1 copy=$2 aside=$3
-secrets=$(dirname "$db")/secrets.key
-# The swap never began: what is in place is what was running.
-[ -e "$aside" ] || exit 0
-rm -f "$db" "$db-wal" "$db-shm"
-for ext in "" -wal -shm; do
-    if [ -f "$aside$ext" ] && [ ! -L "$aside$ext" ]; then
-        mv -f "$aside$ext" "$db$ext"
-    fi
-done
-if [ -f "$aside.secrets.key" ] && [ ! -L "$aside.secrets.key" ]; then
-    mv -f "$aside.secrets.key" "$secrets"
-elif [ -n "$copy" ] && [ -f "${copy%.db}.secrets.key" ]; then
-    rm -f "$secrets"
-fi
-' sh "$db" "$copy" "$aside"
-}
-
-# Downloads the package of release $1 for this machine into $2, checked against the
-# release's signed SHA256SUMS. The repository holds one version only, the release
-# assets all of them. Prints the file.
-fetch_stable_package() {
-    local tag="$1" dir="$2" suffix ext name expected file
-    if [ "$PKG_MGR" = "apt" ]; then
-        suffix="_$(host_arch).deb"
-        ext="deb"
-    else
-        suffix=".$(rpm_arch).rpm"
-        ext="rpm"
-    fi
-    fetch_signed_manifest "$tag" "$dir" || return 1
-    name="$(awk -v s="$suffix" '{ f = $2; sub(/^\*/, "", f) } length(f) > length(s) && substr(f, length(f) - length(s) + 1) == s { print f }' \
-        "${dir}/SHA256SUMS" | head -n 1)"
-    case "$name" in
-        meshloom*) ;;
-        *) return 1 ;;
-    esac
-    case "$name" in
-        *[!A-Za-z0-9._+~-]*) return 1 ;;
-    esac
-    expected="$(awk -v f="$name" '$2 == f || $2 == "*" f { print $1 }' "${dir}/SHA256SUMS" | head -n 1)"
-    file="${dir}/meshloom.${ext}"
-    run_soft curl -fL --proto '=https' --max-time 300 \
-        "https://github.com/${REPO}/releases/download/${tag}/${name}" -o "$file" || return 1
-    pkg_file_is_valid "$file" "$ext" || return 1
-    [ "$(sha256_of "$file")" = "$expected" ] || return 1
-    printf '%s' "$file"
-}
-
-return_screen() {
-    STEP_TOTAL=1
-    ui_screen "$(t step_return)" 1
-}
 
 # The command that leaves a pre-release, from any installer that knows it.
 prerelease_return_command() {
@@ -3309,345 +2846,188 @@ refuse_going_below_a_prerelease() {
     esac
 }
 
-package_source_file() {
-    if [ "$PKG_MGR" = "apt" ]; then
-        printf '/etc/apt/sources.list.d/meshloom.list'
-    else
-        printf '/etc/yum.repos.d/meshloom.repo'
-    fi
+# What only a pre-release needs is a helper of its own (scripts/setup/helpers/prerelease.sh),
+# compressed here: `bash -c "$(curl ...)"` passes this whole file as one argument, and Linux caps that at
+# 128 KiB (tests/test_install_channel.py holds it under).
+# >>> embed: scripts/setup/helpers/prerelease.sh (generated by scripts/setup/sync_installer_embeds.py; do not edit)
+_embed_prerelease() {
+    cat <<'MESHLOOM_EMBED_EOF'
+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
+MESHLOOM_EMBED_EOF
 }
+# <<< embed: scripts/setup/helpers/prerelease.sh
 
-# The source as it is now, so that a failure can put it back.
-save_package_source() {
-    SAVED_SOURCE="$(mktemp /tmp/meshloom-source.XXXXXX)"
-    if ! as_root cat "$(package_source_file)" >"$SAVED_SOURCE" 2>/dev/null; then
-        rm -f "$SAVED_SOURCE"
-        SAVED_SOURCE=""
-    fi
-}
-
-restore_package_source() {
-    if [ -n "${SAVED_SOURCE:-}" ]; then
-        as_root sh -c 'cat "$1" > "$2"' sh "$SAVED_SOURCE" "$(package_source_file)"
-        rm -f "$SAVED_SOURCE"
-        SAVED_SOURCE=""
-        if [ "$PKG_MGR" = "apt" ]; then
-            run_soft as_root apt-get update || true
-        fi
-    fi
-}
-
-# Moves the source to stable and reads it. On failure the source is back as it was.
-switch_source_to_stable() {
-    save_package_source
-    add_signed_repo
-    if [ "$PKG_MGR" = "apt" ] && ! run_soft as_root apt-get update; then
-        restore_package_source
-        ui_err "$(t return_source_failed)"
-        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-        exit 1
-    fi
-}
-
-# Nothing to undo: the version is not newer than stable, only the channel moves.
-return_package_channel_only() {
-    local rc=0
-    if ! ui_yesno "$(t return_switch_q)" y; then
-        printf '\n%s\n' "$(t cancelled)"
-        exit 130
-    fi
-    phase "$(t using_repo)"
-    switch_source_to_stable
-    if [ "$PKG_MGR" = "apt" ]; then
-        run_soft as_root apt-get install -y --only-upgrade meshloom || rc=$?
-    else
-        run_soft as_root dnf -y --refresh upgrade meshloom || rc=$?
-    fi
-    if [ "$rc" -ne 0 ]; then
-        restore_package_source
-        ui_err "$(t return_source_failed)"
-        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-        exit 1
-    fi
-    rm -f "${SAVED_SOURCE:-}"
-    phase_ok
-    ui_ok "  $(t return_switch_done)"
-}
-
-return_package() {
-    local stable="$1" installed db copy="" rc=0 aside tmpdir="" file="" downgrade=0
-    installed="$(package_installed_version)"
-    db="$(package_db_path)"
-    return_screen
-    if version_gt "$installed" "$stable"; then
-        downgrade=1
-    elif ! database_above_stable "$db" "$stable"; then
-        return_package_channel_only
-        return
-    fi
-    copy="$(select_way_back_copy "$db" "$stable")" || rc=$?
-    if [ "$rc" -ne 0 ]; then
-        ui_err "$(t return_manual "$(install_paths_docs_url)")"
-        exit 1
-    fi
-    aside="${db}.aside-${installed}-$(date +%Y%m%d-%H%M%S)"
-    check_return_paths "$db" "$copy" "$aside"
-    if [ -n "$copy" ] && ! copy_is_intact "$copy"; then
-        ui_err "$(t return_copy_damaged "$(basename "$copy")")"
-        exit 1
-    fi
-    if [ "$downgrade" = 1 ]; then
-        ensure_gpgv
-        prepare_release_key
-        tmpdir="$(mktemp -d /tmp/meshloom-return.XXXXXX)"
-        if ! file="$(fetch_stable_package "$stable" "$tmpdir")"; then
-            ui_err "$(t sig_failed)"
-            printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-            rm -rf "$tmpdir"
-            exit 1
-        fi
-    fi
-    if [ -n "$copy" ]; then
-        ui_wrap 2 70 "$(t return_uses_copy "$(basename "$copy")" "$(basename "$aside")")"
-    else
-        ui_wrap 2 70 "$(t return_no_copy "$stable" "$(basename "$aside")")"
-    fi
-    printf '\n'
-    if ! ui_yesno "$(t return_q "$stable")" "$([ -n "$copy" ] && echo y || echo n)"; then
-        [ -z "$tmpdir" ] || rm -rf "$tmpdir"
-        printf '\n%s\n' "$(t cancelled)"
-        exit 130
-    fi
-    phase "$(t working)"
-    switch_source_to_stable
-    as_root systemctl stop meshloom 2>/dev/null || true
-    if ! restore_database "$db" "$copy" "$aside"; then
-        return_package_undo "$db" "$copy" "$aside" "$tmpdir"
-    fi
-    if [ "$downgrade" = 1 ]; then
-        # The package's own scripts restart the service: the database is ready by then.
-        rc=0
-        if [ "$PKG_MGR" = "apt" ]; then
-            run_soft as_root apt-get install -y --allow-downgrades "$file" || rc=$?
-        else
-            run_soft as_root dnf -y downgrade "$file" || rc=$?
-        fi
-        if [ "$rc" -ne 0 ]; then
-            if [ "$(package_installed_version)" = "$installed" ]; then
-                return_package_undo "$db" "$copy" "$aside" "$tmpdir"
-            fi
-            rm -rf "$tmpdir"
-            rm -f "${SAVED_SOURCE:-}"
-            ui_err "$(t return_midway "$(basename "$aside")")"
-            printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-            exit 1
-        fi
-        rm -rf "$tmpdir"
-    fi
-    rm -f "${SAVED_SOURCE:-}"
-    # The unit may be at its start limit (StartLimitBurst).
-    as_root systemctl reset-failed meshloom 2>/dev/null || true
-    start_meshloom_unit
-    TARGET_VERSION="$stable"
-    persist_installer_state
-    phase_ok
-    ui_ok "  $(t return_done "$stable")"
-}
-
-# Nothing is lost: the running database, the source and the service come back.
-return_package_undo() {
-    local db="$1" copy="$2" aside="$3" tmpdir="$4"
-    undo_restore_database "$db" "$copy" "$aside" || true
-    restore_package_source
-    [ -z "$tmpdir" ] || rm -rf "$tmpdir"
-    as_root systemctl reset-failed meshloom 2>/dev/null || true
-    as_root systemctl start meshloom 2>/dev/null || true
-    ui_err "$(t return_rolled_back)"
-    printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-    exit 1
-}
-
-# Writes MESHLOOM_IMAGE=$2 in the stack's .env, in one step, keeping the other lines.
-compose_pin_env() {
-    local env_file="${1}/.env" tmp
-    tmp="$(mktemp /tmp/meshloom-env-new.XXXXXX)"
-    {
-        printf 'MESHLOOM_IMAGE=%s\n' "$2"
-        as_root grep -v '^MESHLOOM_IMAGE=' "$env_file" 2>/dev/null || true
-    } >"$tmp"
-    as_root sh -c 'cat "$1" > "$2"' sh "$tmp" "$env_file"
-    rm -f "$tmp"
-}
-
-# The signed stable image, downloaded without touching the stack: the variable wins over .env.
-# Fails, with nothing changed and the reason said.
-compose_pull_stable() {
-    local stable="$1" dir="$2" dc="$3" digest
-    ensure_gpgv
-    prepare_release_key
-    if ! digest="$(signed_image_digest "$stable")"; then
-        ui_err "$(t return_image_unverified)"
-        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-        return 1
-    fi
-    RETURN_IMAGE="${GHCR_IMAGE}:${stable}@${digest}"
-    # shellcheck disable=SC2086 # "docker compose"
-    if ! (cd "$dir" && run_soft as_root env MESHLOOM_IMAGE="$RETURN_IMAGE" $dc pull); then
-        ui_err "$(t return_pull_failed)"
-        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-        return 1
-    fi
-}
-
-# .env, the helper's env and its status as they are, for compose_put_back.
-compose_save_state() {
-    local dir="$1" f name
-    COMPOSE_SAVED="$(mktemp -d /tmp/meshloom-compose-saved.XXXXXX)"
-    for f in "${dir}/.env" /etc/meshloom/compose-update.env "${dir}/update-status/status.json"; do
-        name="$(basename "$f")"
-        if as_root test -f "$f"; then
-            as_root cat "$f" >"${COMPOSE_SAVED}/${name}"
-        fi
-    done
-}
-
-compose_put_back() {
-    local dir="$1" managed="$2" f name
-    for f in "${dir}/.env" /etc/meshloom/compose-update.env "${dir}/update-status/status.json"; do
-        name="$(basename "$f")"
-        if [ -f "${COMPOSE_SAVED}/${name}" ]; then
-            as_root sh -c 'cat "$1" > "$2"' sh "${COMPOSE_SAVED}/${name}" "$f"
-        fi
-    done
-    rm -rf "$COMPOSE_SAVED"
-    if [ "$managed" = 1 ]; then
-        enable_compose_update_helper
-    fi
-}
-
-# Moves the stack to the stable image already pulled. On failure everything is put back.
-compose_commit_stable() {
-    local dir="$1" managed="$2" dc="$3"
-    compose_save_state "$dir"
-    if [ "$managed" = 1 ]; then
-        compose_pin_env "$dir" "$RETURN_IMAGE"
-        if ! COMPOSE_BOOTSTRAP_SOFT=1 install_compose_update_helper "$dir"; then
-            compose_put_back "$dir" "$managed"
-            ui_err "$(t return_image_unverified)"
-            return 1
-        fi
-        return 0
-    fi
-    write_unmanaged_env "$dir"
-    # shellcheck disable=SC2086 # "docker compose"
-    if ! (cd "$dir" && run_soft as_root $dc pull); then
-        compose_put_back "$dir" "$managed"
-        ui_err "$(t return_pull_failed)"
-        return 1
-    fi
-}
-
-return_compose() {
-    local stable="$1" dir="$2" installed="" db copy="" rc=0 aside managed=0 dc
-    INSTALL_DIR="$dir"
-    COMPOSE_DIR_SAVED="$dir"
-    dc="$(compose_cmd)"
-    installed="$(compose_image_version "${dir}/docker-compose.yml" || true)"
-    db="${dir}/data/meshcore.db"
-    if [ -f /etc/meshloom/compose-update.env ] && compose_helper_possible "$dir"; then
-        managed=1
-    fi
-    return_screen
-    # The pin alone does not say: the usual stable command of 4.18 pins it over a migrated database.
-    if { [ -z "$installed" ] || ! version_gt "$installed" "$stable"; } &&
-        ! database_above_stable "$db" "$stable"; then
-        if ! ui_yesno "$(t return_switch_q)" y; then
-            printf '\n%s\n' "$(t cancelled)"
-            exit 130
-        fi
-        phase "$(t compose_secure)"
-        compose_pull_stable "$stable" "$dir" "$dc" || exit 1
-        compose_commit_stable "$dir" "$managed" "$dc" || exit 1
-        rm -rf "$COMPOSE_SAVED"
-        # shellcheck disable=SC2086 # "docker compose"
-        (cd "$dir" && run_quiet as_root $dc up -d)
-        if [ "$managed" = 1 ]; then
-            enable_compose_update_helper
-        fi
-        phase_ok
-        ui_ok "  $(t return_switch_done)"
-        return
-    fi
-    copy="$(select_way_back_copy "$db" "$stable")" || rc=$?
-    if [ "$rc" -ne 0 ] || ! as_root test -e "$db"; then
-        ui_err "$(t return_manual "$(install_paths_docs_url)")"
-        exit 1
-    fi
-    aside="${db}.aside-${installed:-unknown}-$(date +%Y%m%d-%H%M%S)"
-    check_return_paths "$db" "$copy" "$aside"
-    if [ -n "$copy" ] && ! copy_is_intact "$copy"; then
-        ui_err "$(t return_copy_damaged "$(basename "$copy")")"
-        exit 1
-    fi
-    if [ -n "$copy" ]; then
-        ui_wrap 2 70 "$(t return_uses_copy "$(basename "$copy")" "$(basename "$aside")")"
-    else
-        ui_wrap 2 70 "$(t return_no_copy "$stable" "$(basename "$aside")")"
-    fi
-    printf '\n'
-    if ! ui_yesno "$(t return_q "$stable")" "$([ -n "$copy" ] && echo y || echo n)"; then
-        printf '\n%s\n' "$(t cancelled)"
-        exit 130
-    fi
-    phase "$(t working)"
-    # Nothing is written until the signed image is here.
-    compose_pull_stable "$stable" "$dir" "$dc" || exit 1
-    compose_commit_stable "$dir" "$managed" "$dc" || exit 1
-    # shellcheck disable=SC2086 # "docker compose"
-    if ! (cd "$dir" && run_soft as_root $dc stop) || ! restore_database "$db" "$copy" "$aside"; then
-        compose_put_back "$dir" "$managed"
-        # shellcheck disable=SC2086 # "docker compose"
-        (cd "$dir" && run_soft as_root $dc up -d) || true
-        ui_err "$(t return_unsafe "$db")"
-        exit 1
-    fi
-    rm -rf "$COMPOSE_SAVED"
-    # shellcheck disable=SC2086 # "docker compose"
-    if ! (cd "$dir" && run_soft as_root $dc up -d); then
-        ui_err "$(t return_up_failed "$dir" "$(basename "$aside")")"
-        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
-        exit 1
-    fi
-    if [ "$managed" = 1 ]; then
-        enable_compose_update_helper
-    fi
-    TARGET_VERSION="$stable"
-    persist_installer_state
-    phase_ok
-    ui_ok "  $(t return_done "$stable")"
-}
-
-# `--channel stable`: this machine leaves the pre-release channel. A version newer than
-# stable goes back through the copy made before the upgrade; otherwise only the channel moves.
-return_to_stable() {
-    local stable dir
-    ensure_log
-    ensure_cmd curl "curl"
-    if ! stable="$(stable_release_tag)"; then
-        ui_err "$(t return_stable_unknown)"
-        exit 1
-    fi
-    if package_installed_version >/dev/null; then
-        return_package "$stable"
-        return
-    fi
-    dir="$(saved_compose_dir)"
-    if [ -n "$dir" ] && [ -f "${dir}/docker-compose.yml" ]; then
-        return_compose "$stable" "$dir"
-        return
-    fi
-    ui_err "$(t return_manual "$(install_paths_docs_url)")"
-    exit 1
+load_prerelease_code() {
+    local code
+    code="$(_embed_prerelease | base64 -d | gzip -dc)"
+    [ -n "$code" ] || return 1
+    eval "$code"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -3659,6 +3039,9 @@ choose_language
 detect_os
 detect_docker
 detect_checkout
+if [ "$CHANNEL" = "testing" ] || [ "$CHANNEL_REQUESTED" = "stable" ]; then
+    load_prerelease_code
+fi
 if [ "$CHANNEL_REQUESTED" = "stable" ]; then
     return_to_stable
     exit 0
@@ -3670,7 +3053,9 @@ if [ "$INSTALL_MODE" = "browser" ]; then
     exit 0
 fi
 
-prepare_prerelease
+if [ "$CHANNEL" = "testing" ]; then
+    prepare_prerelease
+fi
 
 if [ "$INSTALL_MODE" = "service" ]; then
     STEP_TOTAL=2
