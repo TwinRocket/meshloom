@@ -21,7 +21,7 @@ from app.repository.plugins import PluginKvRepository, PluginRepository
 from app.services import backup_plugins
 from app.services.backup import export_backup_v2, export_document
 from app.services.backup_plugins import PLUGINS_SECTION, export_plugins
-from app.services.backup_sections import restore_sections
+from app.services.backup_sections import restore_sections, run_on_restore_hooks
 from tests import test_plugins_api as plugins_api
 from tests.test_plugins_api import ECHO_GRANT, ECHO_SRC, SECRET, code_of, install
 
@@ -254,8 +254,45 @@ async def test_the_hook_does_not_bring_back_a_bundled_plugin_with_a_revoked_inst
         "manifest": manifest,
     }
     await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": [entry]})})
+    await run_on_restore_hooks("json")
     row = await PluginRepository.get(entry["instance_id"])
     assert row is not None and row["attention"]["type"] == "reinstall"
+
+
+@pytest.mark.parametrize(
+    ("repository", "attention"),
+    [("acme/echo", "restored"), ("Acme/Echo", "restored"), ("other/echo", "reinstall")],
+)
+async def test_a_restored_instance_shares_code_only_within_its_repository(
+    backup_db, api, manager, repository, attention
+):
+    manifest = json.loads((ECHO_SRC / "manifest.json").read_text())
+    await PluginRepository.create(
+        plugin_id=manifest["id"],
+        label="Installed",
+        kind="custom",
+        version=manifest["version"],
+        manifest=manifest,
+        granted_permissions=ECHO_GRANT,
+        repository="acme/echo",
+    )
+    entry = {
+        "instance_id": str(uuid.uuid4()),
+        "plugin_id": manifest["id"],
+        "kind": "custom",
+        "label": "Echo",
+        "version": manifest["version"],
+        "enabled": True,
+        "manifest": manifest,
+        "granted_permissions": ECHO_GRANT,
+        "repository": repository,
+    }
+    await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": [entry]})})
+    row = await PluginRepository.get(entry["instance_id"])
+    assert row is not None and row["attention"]["type"] == attention
+    if attention == "reinstall":
+        response = await api.post(f"/api/plugins/{entry['instance_id']}/reinstall")
+        assert (response.status_code, code_of(response)) == (409, "plugin_repository_conflict")
 
 
 async def test_a_reinstall_row_never_starts(backup_db, api, manager):

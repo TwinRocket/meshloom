@@ -861,7 +861,8 @@ then `PreparedInstall.commit()` (or `discard()`).
   Meshloom). Any revoked instance of the plugin refuses it (409 `plugin_revoked`, like a
   new instance at `POST /install`). The row then takes the manifest, version and schema, keeps the
   config fields the schema still accepts and its secrets (the others are named in
-  `attention.config_dropped`, shown by the drawer until a PATCH saves the `config`), keeps its grants only when the
+  `attention.config_dropped`, shown by the drawer until a PATCH saves the `config`; accepting
+  without it turns the key into the `config_dropped` notice of a running instance), keeps its grants only when the
   manifest covers all of them (`granted_within`, otherwise none), keeps its label, scope,
   quotas and KV, stays disabled and reads `attention.type = restored` (the review before
   it starts, like a bundled restore), with `attention.previous_version` when the version
@@ -1266,7 +1267,7 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
   `attention: {type: "consent_required", permissions, privacy_widened, from_version,
   to_version}`, keeping only its still-valid grants; one missing a new required field is
   held with `config_required` and disabled. The usual `PATCH` (grants, config) releases
-  them. A kept config value the new schema rejects (a field it still declares, not
+  them; a `config_dropped` key not answered by that `PATCH` becomes the notice below. A kept config value the new schema rejects (a field it still declares, not
   required) is dropped and reported, never silently: an instance that is not held gets
   the notice `attention: {type: "config_dropped", fields, from_version, to_version}`
   with its `status` unchanged (it still runs; the next `PATCH` that saves `config`
@@ -1302,7 +1303,7 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
 | Route | Behaviour |
 |---|---|
 | `GET /store/updates?lang=` | admin. `[{plugin_id, kind, repository, from_version, to_version, name, changelog, permissions, config_schema, instances: [{instance_id, label, version, auto_update, hold, auto_hold, permissions, missing_fields, dropped_fields}]}]`. `hold` is what a manual update would hold; `auto_hold` (`consent_required`, `config_required`, `config_dropped` or null) is why an auto-update waits. No egress. |
-| `POST /plugins/{id}/update` | admin. `{version?, granted_permissions?, config?}`; answers the named instance. 409 `plugin_not_updatable` (not `custom`), 409 `plugin_reinstall_required`, 409 `plugin_up_to_date`, 409 `store_offline`, 409 `incompatible`, 400 `consent_required`, 400 `config_invalid`, 400 `archive_mismatch`, 500 `update_failed`, plus the install download errors. Audited `plugin.updated`. |
+| `POST /plugins/{id}/update` | admin. `{version?, granted_permissions?, config?}`; answers the named instance. 409 `plugin_not_updatable` (not `custom`), 409 `plugin_repository_conflict` (its instances do not share one repository), 409 `plugin_reinstall_required`, 409 `plugin_up_to_date`, 409 `store_offline`, 409 `incompatible`, 400 `consent_required`, 400 `config_invalid`, 400 `archive_mismatch`, 500 `update_failed`, plus the install download errors. Audited `plugin.updated`. |
 
 Audit (MSHL-215, `app/auth/audit.py`, `docs/dev/auth.md`): every successful or failed admin write
 records the actor, the target `plugin:<instance_id>` and `{plugin_id, kind, fields?}`, where

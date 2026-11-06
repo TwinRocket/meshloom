@@ -12,6 +12,7 @@ import sys
 from datetime import datetime
 
 import httpx
+from fastapi import HTTPException
 import pytest
 
 from app.plugins import custom_repos, installer, store_egress, updates
@@ -563,6 +564,45 @@ async def test_saving_the_config_clears_the_notice_of_a_running_instance(api, ne
     saved = await api.patch(f"/api/plugins/{only}", json={"config": {"greeting": 3}})
     assert saved.status_code == 200, saved.text
     assert saved.json()["attention"] is None
+
+
+async def test_accepting_a_hold_keeps_the_notice_until_the_config_is_saved(api, net, tmp_path):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, schema=SCHEMA_INT, permissions=WIDER)
+    assert (await api.post(f"/api/plugins/{only}/update", json={})).status_code == 200
+    accepted = await api.patch(f"/api/plugins/{only}", json={"granted_permissions": WIDER})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["attention"] == {"type": "config_dropped", "fields": ["greeting"]}
+    saved = await api.patch(f"/api/plugins/{only}", json={"config": {"greeting": 3}})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["attention"] is None
+
+
+async def test_an_update_needs_every_instance_on_one_repository(api, net, tmp_path):
+    [first] = await _setup(api, net, tmp_path)
+    stored = await _row(first)
+    other = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Other",
+        kind="custom",
+        version="1.0.0",
+        manifest=stored["manifest"],
+        config_schema=stored["config_schema"],
+        granted_permissions=GRANT,
+        repository="other/echo",
+    )
+    await _release(net, tmp_path)
+    before = len(net.requests)
+    for instance_id in (first, other["instance_id"]):
+        response = await api.post(f"/api/plugins/{instance_id}/update", json={})
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "plugin_repository_conflict"
+        with pytest.raises(HTTPException):
+            await updates.update_plugin(instance_id, auto=True)
+    assert net.requests[before:] == []
+    assert (await _row(first))["version"] == "1.0.0"
+    assert (await _row(first))["repository"] == "acme/echo"
+    assert (await _row(other["instance_id"]))["repository"] == "other/echo"
 
 
 # --- auto-update holds and the hourly evaluation (MSHL-393) -------------------------
