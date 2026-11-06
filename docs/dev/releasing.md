@@ -337,12 +337,18 @@ would create the environment unprotected.
 1. Settings > Environments > New environment: `release-signing`.
 2. Deployment branches and tags > Selected branches and tags. Add the branch `main`
    and the tag pattern `[0-9]*.[0-9]*.[0-9]*`.
-3. In that environment, add the secret `MESHLOOM_REPO_GPG_PRIVATE_KEY`: the same
-   value as the repository secret (GitHub does not show it, it comes from the offline
-   copy in `pkg/keys/README.md`).
-4. **Keep the repository secret.** The workflows on `main` have no `environment:` until
+3. **Keep the repository secret.** The workflows on `main` have no `environment:` until
    `preversion-5` merges: without it, a 4.18.x would be built with an empty key.
-5. Only once `preversion-5` is on `main`: delete the repository secret.
+   While the environment has no secret of that name, its jobs read the repository
+   secret.
+4. Only once `preversion-5` is on `main`: add the secret `MESHLOOM_REPO_GPG_PRIVATE_KEY`
+   to that environment, then delete the repository secret. Its value is the CI subkey,
+   rebuilt from the offline backup ("Rebuild the CI subkey" in `pkg/keys/README.md`).
+   Never `public/meshloom.asc`: a public key imports without error, and `preflight`
+   stops with an empty fingerprint in `CI secret key fingerprint ( ) does not match`.
+
+An environment secret takes over from a repository secret of the same name, so a wrong
+value there stops the release even with a good repository secret.
 
 Until then, `main` also runs its own `nfpm-armhf.yml`, which still builds the frontend
 next to the key.

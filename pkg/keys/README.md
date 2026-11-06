@@ -76,6 +76,31 @@ Difference with the manual procedure: the primary key itself has no passphrase
 inside the throwaway keyring; the offline backup is protected by symmetric
 AES-256 encryption with your passphrase instead.
 
+The script sends the CI subkey to the secret, then shreds it. It leaves a copy in
+`ci-subkey-A-SUPPRIMER.asc` only when the secret was not sent (`--no-gh`, `gh` missing
+or not signed in, or you answered no): delete that file once the secret is set.
+`public/` holds only public files, and `backup/` the encrypted primary key.
+
+### Rebuild the CI subkey
+
+GitHub does not show a secret back. To set it again, rebuild it from the backup, in
+memory, on a trusted machine. Only the subkey reaches GitHub. Point `BACKUP` at the
+backup folder, on its offline medium if you moved it there. This sets the environment
+secret; while `preversion-5` is not on `main`, drop `--env release-signing` to set the
+repository secret instead. Without `/dev/shm`, use another private directory that is
+not on a persistent disk.
+
+```bash
+BACKUP=~/meshloom-release-key-YYYYMMDD/backup
+FPR=D852F2F0892ABF379F52D110FB3EB7BBC43935C8
+W="$(mktemp -d -p /dev/shm)"; chmod 700 "$W"; mkdir -m 700 "$W/g"
+gpg --no-symkey-cache --decrypt "$BACKUP"/meshloom-key-backup-*.tar.gpg | tar -C "$W" -xf - ./meshloom-master-SECRET.asc
+GNUPGHOME="$W/g" gpg --batch --import "$W/meshloom-master-SECRET.asc"
+GNUPGHOME="$W/g" gpg --armor --export-secret-subkeys "$FPR" >"$W/ci-subkey.asc"
+if [ -s "$W/ci-subkey.asc" ]; then gh secret set MESHLOOM_REPO_GPG_PRIVATE_KEY --repo TwinRocket/meshloom --env release-signing <"$W/ci-subkey.asc"; else echo "Nothing exported: secret left unchanged." >&2; fi
+GNUPGHOME="$W/g" gpgconf --kill gpg-agent; find "$W" -type f -exec shred -u {} +; rm -rf "$W"
+```
+
 ## Create the key manually (once, on an offline-capable machine)
 
 > **Work OUTSIDE the repository checkout.** All secret material lives in a
@@ -129,9 +154,9 @@ cd / && find "$WORK" "$T" -type f -exec shred -u {} + && rm -rf "$WORK" "$T"
 ```
 
 
-Then, in GitHub (**by the owner only**), in the secrets of the environment
-`release-signing`, restricted first, and in the repository secrets as long as
-`preversion-5` is not on `main`. The exact order is in `docs/dev/releasing.md`,
+Then, in GitHub (**by the owner only**), in the repository secrets as long as
+`preversion-5` is not on `main`, and in the secrets of the environment
+`release-signing` after that. The exact order is in `docs/dev/releasing.md`,
 "Who can read the key":
 
 * `MESHLOOM_REPO_GPG_PRIVATE_KEY` = content of `meshloom-ci-subkey.asc`
