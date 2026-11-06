@@ -6,6 +6,7 @@ import { SessionProvider } from '../auth/SessionProvider';
 import type { AuthRole, AuthSessionInfo, AuthVia } from '../auth/types';
 import {
   REMOTE_STATUS_POLL_MS,
+  REMOTE_STATUS_SETTLING_POLL_MS,
   SettingsRemoteSection,
 } from '../components/settings/SettingsRemoteSection';
 import { ENROLL_POLL_MS } from '../components/settings/remote/RemoteEnrollDialog';
@@ -258,6 +259,62 @@ describe('SettingsRemoteSection', () => {
     expect(
       within(dialog).getByRole('button', { name: t('settings.remote.enable.confirm') })
     ).toBeEnabled();
+  });
+
+  it('follows the link while it settles, then goes back to the slow refresh', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const connecting = statusOf({ relay_connected: false, link_status: 'connecting' });
+    const getRemote = vi.spyOn(api, 'getRemote').mockResolvedValue(OFF);
+    vi.spyOn(api, 'enableRemote').mockResolvedValue(connecting);
+    vi.spyOn(api, 'listRemoteAccessRequests').mockResolvedValue([]);
+    await renderAs('admin');
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('settings.remote.actions.enable') })
+    );
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: t('settings.remote.enable.confirm'),
+      })
+    );
+    expect(await screen.findByText(t('settings.remote.requests.offline'))).toBeInTheDocument();
+    expect(screen.getByTestId('remote-badge')).toHaveAttribute('data-badge', 'connecting');
+
+    getRemote.mockResolvedValue(statusOf());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS);
+    });
+    expect(screen.getByTestId('remote-badge')).toHaveAttribute('data-badge', 'connected');
+    expect(screen.queryByText(t('settings.remote.requests.offline'))).toBeNull();
+
+    const settled = getRemote.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_POLL_MS - 1_000);
+    });
+    expect(getRemote.mock.calls.length).toBe(settled);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(getRemote.mock.calls.length).toBe(settled + 1);
+  });
+
+  it('follows a link that is coming back, without a tight poll', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getRemote = vi
+      .spyOn(api, 'getRemote')
+      .mockResolvedValue(statusOf({ relay_connected: false, link_status: 'reconnecting' }));
+    vi.spyOn(api, 'listRemoteAccessRequests').mockResolvedValue([]);
+    await renderAs('admin');
+    expect(await screen.findByTestId('remote-badge')).toHaveAttribute('data-badge', 'reconnecting');
+    expect(REMOTE_STATUS_SETTLING_POLL_MS).toBeGreaterThanOrEqual(2_000);
+    const before = getRemote.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS - 500);
+    });
+    expect(getRemote.mock.calls.length).toBe(before);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getRemote.mock.calls.length).toBe(before + 1);
   });
 
   it('enables, then enrols a phone by QR without a reload', async () => {

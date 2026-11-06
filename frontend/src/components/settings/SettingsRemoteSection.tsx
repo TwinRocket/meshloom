@@ -41,6 +41,11 @@ const KNOWN_ERROR_RE = /^remote_[a-z_]{1,48}$/;
 
 /** The link state changes on its own (reconnects, pauses): refresh while the section is open. */
 export const REMOTE_STATUS_POLL_MS = 15_000;
+/**
+ * While the link is on its way up (`connecting`, `reconnecting`), so the badge and the
+ * approve form follow it within seconds. Reads the instance only, never the relay.
+ */
+export const REMOTE_STATUS_SETTLING_POLL_MS = 3_000;
 
 type Confirm = 'disable' | 'unregister' | 'rotate' | null;
 
@@ -98,10 +103,16 @@ export function SettingsRemoteSection({
     };
   }, [version, t]);
 
+  const badge = status ? remoteBadge(status) : null;
+  const settling = badge?.id === 'connecting' || badge?.id === 'reconnecting';
+
   useEffect(() => {
-    const id = window.setInterval(reload, REMOTE_STATUS_POLL_MS);
+    const id = window.setInterval(
+      reload,
+      settling ? REMOTE_STATUS_SETTLING_POLL_MS : REMOTE_STATUS_POLL_MS
+    );
     return () => window.clearInterval(id);
-  }, [reload]);
+  }, [reload, settling]);
 
   // An administrator sees every account's devices: name their owners (best effort).
   useEffect(() => {
@@ -168,7 +179,6 @@ export function SettingsRemoteSection({
     }
   };
 
-  const badge = status ? remoteBadge(status) : null;
   const registered = status?.state === 'registered';
   const viaRelay = via === 'relay';
 
