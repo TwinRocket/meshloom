@@ -89,6 +89,8 @@
           "remote.disabled": "Accès à distance désactivé",
           "remote.unlinked": "Meshloom Remote quitté",
           "remote.rotated": "Clé de l'accès à distance remplacée",
+          "remote.alert_email_set": "E-mail d'alerte de l'accès à distance défini",
+          "remote.alert_email_cleared": "E-mail d'alerte de l'accès à distance retiré",
           "remote.enroll_issued": "QR code d'autorisation d'appareil émis (accès à distance)",
           "remote.device_enrolled": "Appareil autorisé pour l'accès à distance",
           "remote.device_revoked": "Appareil de l'accès à distance révoqué",

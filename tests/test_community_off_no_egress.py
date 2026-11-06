@@ -414,6 +414,7 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/remote/devices/client"): {"label": "sweep"},
     ("POST", "/api/remote/access-requests/approve"): {"code": "7K3QM-X9TZ2"},
     ("POST", "/api/remote/domain/test"): {"domain": "chat.example.org"},
+    ("PUT", "/api/remote/alert-email"): {"email": "me@example.org"},
 }
 _SWEPT_PREFIXES = (
     "/api/community",

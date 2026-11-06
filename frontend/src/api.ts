@@ -79,6 +79,7 @@ import { appBase } from './auth/oidc';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
 import type {
   RemoteAccessRequest,
+  RemoteAlertEmail,
   RemoteDevice,
   RemoteDomainTest,
   RemoteEnrollTicket,
@@ -657,6 +658,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ domain }),
     }),
+  getRemoteAlertEmail: () =>
+    fetchJson<RemoteAlertEmail>('/remote/alert-email', { cache: 'no-store' }),
+  setRemoteAlertEmail: (email: string) =>
+    fetchJson<RemoteAlertEmail>('/remote/alert-email', {
+      method: 'PUT',
+      body: JSON.stringify({ email }),
+    }),
+  clearRemoteAlertEmail: () =>
+    fetchJson<RemoteAlertEmail>('/remote/alert-email', { method: 'DELETE' }),
   issueRemoteEnroll: () => fetchJson<RemoteEnrollTicket>('/remote/enroll', { method: 'POST' }),
   revokeRemoteDevice: (id: string) =>
     fetchJson<RemoteGateResult>(`/remote/devices/${encodeURIComponent(id)}`, {

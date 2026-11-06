@@ -560,6 +560,13 @@ revoke-all is `own_account`, and those five (and the custom domain test) are sho
   the action is a button that opens the Community section (`onOpenSection('community')`). The
   Community leave dialog (`CommunityLeaveDialog`) says in its short intro that Remote and
   sharing pause too (`settings.community.optOut.intro`, slice `c`).
+- **Alert e-mail** (`RemoteAlertEmailPanel`, admin, registered, Community on): reads the state once on
+  mount (`GET /api/remote/alert-email`, a request to the relay, so outside the poll), `PUT` to set or
+  replace, `DELETE` to remove. The address is never read back: the field starts empty and empties
+  on success. A failed read shows no state and leaves the field usable; an action that succeeds cancels a read
+  still running. Its header says the relay keeps it (`storedOn="relay"`). Strings:
+  `settings.remote.alertEmail.*`, slice `remote`.
+- **Quota** (`quota_exceeded`, MSHL-467): its own link state and badge, from the relay's close reason.
 - **Custom domain** (`RemoteDomainPanel`, admin, registered): the domain input and the "Test"
   button (`POST /api/remote/domain/test`). The result and its reasons are
   `settings.remote.domain.result.<result>` / `.reason.<code>`; the host a domain redirects to is

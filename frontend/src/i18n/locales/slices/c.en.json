@@ -829,6 +829,7 @@
     },
     "common": {
       "storedOnRadio": "Written to the radio",
+      "storedOnRelay": "Kept on the relay",
       "storedInMeshloom": "Stored in Meshloom",
       "storedInBrowser": "This browser only",
       "appliesImmediately": "Applies immediately",

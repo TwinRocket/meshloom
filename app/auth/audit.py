@@ -113,6 +113,8 @@ AuditAction = Literal[
     "remote.disabled",
     "remote.unlinked",
     "remote.rotated",
+    "remote.alert_email_set",
+    "remote.alert_email_cleared",
     "remote.enroll_issued",
     "remote.device_enrolled",
     "remote.device_revoked",

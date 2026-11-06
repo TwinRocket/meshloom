@@ -380,7 +380,8 @@ Design and flows: `docs/dev/remote.md`.
   `Location` host with the registered hostname. It needs Remote on and registered, and never
   reaches the relay (`docs/dev/remote.md`, "Custom domain test").
 - **Routes** (`/api/remote`, `Cache-Control: no-store`): `admin` for enable, disable,
-  unregister (`DELETE`), rotate, revoke-all and `POST /domain/test`; `own_account()` for the rest (state,
+  unregister (`DELETE`), rotate, revoke-all, `POST /domain/test` and `/alert-email` (the address goes to
+  the relay only, never stored or logged, `docs/dev/remote.md`, "Alert e-mail"); `own_account()` for the rest (state,
   own devices, enrolment QR, client pass, access requests). `POST /enroll` is refused
   through the relay (`remote_lan_only`). Writes are audited (`remote.*`,
   `docs/dev/auth.md`).

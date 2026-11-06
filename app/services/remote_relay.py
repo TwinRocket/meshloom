@@ -31,8 +31,10 @@
   ``CANCEL`` and ``WS_CLOSE`` flush at once.
 - **Close codes.** 4001 mints a new token and reconnects (backoff if it repeats);
   4003 registers again and reconnects once, then ``not_registered``; 4004
-  ``paused`` (retry after 15 to 20 min); 4005 reconnects once, then ``replaced``;
-  4009 ``banned`` and 4010 ``update_required`` stop; 1013 and unknown 4xxx
+  ``quota_exceeded`` when that is the close reason, else ``paused`` (retry after 15 to
+  20 min either way); 4005 reconnects once, then ``replaced``, the count starting again
+  after a connection that lasted 15 min; 4009 ``banned`` and 4010 ``update_required``
+  stop; 1013 and unknown 4xxx
   ``relay_paused`` (5 to 15 min); anything else is an exponential backoff from 1 s to
   5 min with full jitter, reset after 60 s connected. A stopped state stays until
   Remote changes (enable, disable, register, rotate, restore) or Community is turned on
@@ -80,6 +82,10 @@ BACKOFF_INITIAL_S = 1.0
 BACKOFF_MAX_S = 300.0
 STABLE_AFTER_S = 60.0
 PAUSED_RETRY_S = (15 * 60.0, 20 * 60.0)
+CLOSE_QUOTA_EXCEEDED = "quota_exceeded"
+# Above the longest wait of a peer that cannot connect at once (BACKOFF_MAX_S plus the
+# open and HELLO timeouts), so a connection kicked by a slow peer does not reset the count.
+REPLACED_RESET_AFTER_S = 15 * 60.0
 RELAY_PAUSED_RETRY_S = (5 * 60.0, 15 * 60.0)
 RATE_LIMITED_MAX_S = 15 * 60.0
 
@@ -91,6 +97,7 @@ CONNECTED = "connected"
 RECONNECTING = "reconnecting"
 NOT_REGISTERED = "not_registered"
 PAUSED = "paused"
+QUOTA_EXCEEDED = "quota_exceeded"
 REPLACED = "replaced"
 BANNED = "banned"
 UPDATE_REQUIRED = "update_required"
@@ -103,6 +110,7 @@ LINK_STATES = (
     RECONNECTING,
     NOT_REGISTERED,
     PAUSED,
+    QUOTA_EXCEEDED,
     REPLACED,
     BANNED,
     UPDATE_REQUIRED,
@@ -1184,6 +1192,10 @@ class RelayClient:
                 registered_again = False
             if outcome.connected_s >= STABLE_AFTER_S:
                 delay = BACKOFF_INITIAL_S
+            # Not hello_ok: in a replace fight each install gets its HELLO, then is kicked
+            # when the other one is back, seconds later or one backoff later.
+            if outcome.connected_s >= REPLACED_RESET_AFTER_S:
+                replaced = 0
             code = outcome.code if outcome.http_status is None else None
             if code is not None and code != 1000:
                 logger.info("Remote relay closed (%s %s)", code, outcome.reason[:64])
@@ -1200,7 +1212,11 @@ class RelayClient:
                 remote.set_link_status(RECONNECTING)
                 continue
             elif code == 4004:
-                remote.set_link_status(PAUSED)
+                # The relay's reason is the source of truth, at connect and on a live
+                # socket: no registry lookup, so nothing here can fail or guess.
+                remote.set_link_status(
+                    QUOTA_EXCEEDED if outcome.reason == CLOSE_QUOTA_EXCEEDED else PAUSED
+                )
                 await asyncio.sleep(random.uniform(*PAUSED_RETRY_S))
                 continue
             elif code == 4005:

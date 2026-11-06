@@ -35,7 +35,8 @@ Quand Remote est activé, Meshloom indique aussi au relais sa version, son type 
 - son enregistrement : la clé, l’adresse, la version de Meshloom, le type d’installation, si des plugins tournent et avec quelle isolation ;
 - l’état des appareils autorisés (pas leurs noms) ;
 - des chiffres d’usage par instance et par mois : requêtes, trafic, durée de connexion de l’instance, erreurs. Ils ne contiennent aucun contenu, et le relais s’en sert pour appliquer la limite mensuelle ci-dessous et maîtriser ses propres coûts ;
-- une trace des actions de l’opérateur sur une instance (une pause, un bannissement, une clé retirée), avec la date.
+- une trace des actions de l’opérateur sur une instance (une pause, un bannissement, une clé retirée), avec la date ;
+- l’adresse de l’[e-mail d’alerte](#e-mail-dalerte), si vous en donnez une.
 
 Une demande d’accès vit 10 minutes et une connexion échouée est retenue 15 minutes, chacune sous une étiquette brouillée de l’adresse réseau, jamais l’adresse elle-même. Les journaux du relais ne contiennent ni message, ni adresse, ni adresse web, ni clé ; les chiffres d’usage sont gardés quelques mois. **Quitter Meshloom Remote** supprime du relais l’enregistrement et l’état des appareils ; la clé et l’adresse vous restent réservées 30 jours (voir plus bas), et les chiffres d’usage expirent d’eux-mêmes.
 
@@ -50,7 +51,8 @@ Le badge sous **État** dit où en est la liaison :
 | Connexion, Connectée | La liaison s’établit, ou est établie : les appareils autorisés ouvrent l’adresse affichée. |
 | Hors ligne | La liaison est coupée. Meshloom se reconnecte seul, en espaçant les essais (jusqu’à 5 minutes). Vérifiez la connexion internet de cette machine. |
 | Inconnue du relais | Le relais a oublié l’instance et le nouvel enregistrement a échoué. Désactivez puis réactivez Remote ; si cela ne suffit pas, remplacez la clé. |
-| En pause | L’instance est en pause : soit elle a dépassé son [quota mensuel](#limites), soit TwinRocket l’a mise en pause. Meshloom ne dit pas laquelle et réessaie seul après 15 à 20 minutes ; en cas de dépassement du quota, la pause dure jusqu’au 1er du mois suivant (UTC). Le réseau local n’est pas touché : Meshloom continue de fonctionner chez vous. |
+| Quota mensuel atteint | L’instance a dépassé son [quota mensuel](#limites). Remote revient le 1er du mois suivant (UTC) : Meshloom réessaie seul toutes les 15 à 20 minutes. Le réseau local n’est pas touché : Meshloom continue de fonctionner chez vous. |
+| En pause | TwinRocket a mis l’instance en pause. Meshloom réessaie seul après 15 à 20 minutes. Le réseau local n’est pas touché. |
 | Remplacée | Une autre installation utilise la clé de cette instance, souvent une copie restaurée depuis une sauvegarde. Une clé ne sert qu’à une installation : remplacez la clé ici, puis autorisez de nouveau chaque appareil. |
 | Bannie | TwinRocket a banni l’instance ; Meshloom n’essaie plus. Contactez TwinRocket si vous pensez que c’est une erreur. |
 | Mise à jour requise | Le relais n’accepte plus cette version : mettez Meshloom à jour, Remote se reconnecte ensuite. |
@@ -65,7 +67,7 @@ L’empreinte de la clé identifie l’instance auprès du relais ; elle ne chan
 | Trafic par instance et par mois | 5 Go, compté dans les deux sens (requêtes, réponses et connexions en direct) |
 | Requêtes par instance et par mois | 500 000 (la connexion en direct d’un navigateur compte pour une) |
 | Remise à zéro | Le 1er de chaque mois, en UTC |
-| Au-delà | L’instance est en pause jusqu’au mois suivant : toute requête est refusée, quel que soit l’appareil. Aucun avertissement n’est envoyé avant aujourd’hui : Meshloom affiche seulement **En pause**. Le réseau local continue de fonctionner |
+| Au-delà | L’instance est en pause jusqu’au mois suivant : toute requête est refusée, quel que soit l’appareil. Meshloom affiche **Quota mensuel atteint**, et un [e-mail d’alerte](#e-mail-dalerte) confirmé reçoit un avertissement à 80 % et un avis à la mise en pause. Le réseau local continue de fonctionner |
 | Requêtes par instance | 1 200 par minute ; au-delà, le relais répond « trop de requêtes » un instant |
 | Connexions échouées | Après quelques-unes depuis un même réseau, une page de vérification d’abord (voir plus haut) |
 | Demande d’accès | Valable 10 minutes ; 5 au plus en attente à la fois pour une instance |
@@ -74,6 +76,16 @@ L’empreinte de la clé identifie l’instance auprès du relais ; elle ne chan
 | Adresse après **Quitter** | Conservée 30 jours pour la même clé |
 
 Les limites sont les mêmes pour toutes les instances. L’usage normal de l’interface reste très en dessous ; un script qui interroge toutes les quelques secondes, ou de gros médias, sont ce qui les atteint.
+
+## E-mail d’alerte
+
+Un administrateur peut donner une adresse dans **Réglages → Accès à distance → E-mail d’alerte**. Elle reçoit au plus, chaque mois, un avertissement à 80 % du quota mensuel et un avis quand l’instance est mise en pause pour dépassement.
+
+- **Confirmer** : le relais envoie un e-mail avec un lien pour confirmer et un lien pour arrêter. Rien d’autre n’est envoyé tant que l’adresse n’est pas confirmée ; le lien est valable 24 heures.
+- **Changer ou retirer** : saisissez une autre adresse pour la remplacer (elle doit être confirmée à nouveau), appuyez sur **Retirer l’adresse**, ou suivez le lien d’arrêt de n’importe quel e-mail. Une adresse peut être définie 3 fois par jour au plus.
+- **Ce qui est conservé** : l’adresse reste sur le relais et ne sert qu’à ces e-mails. Meshloom ne la garde pas et le relais ne la réaffiche jamais : la page dit seulement si une adresse attend sa confirmation ou est confirmée. **Quitter Meshloom Remote** la supprime. Remplacer la clé la supprime aussi tant que Remote et Community sont activés et que le relais l’accepte, donc pas si TwinRocket a gelé ou banni l’instance. Sinon elle reste sur le relais, et seul un lien d’arrêt encore valable d’un e-mail reçu peut la retirer (24 heures dans l’e-mail de confirmation, 30 jours dans un e-mail d’alerte). Remote ou Community désactivé, activez-les et retirez l’adresse avant de remplacer la clé.
+
+Sans adresse confirmée, la pause a lieu quand même, sans e-mail.
 
 ## Désactiver, quitter, remplacer la clé
 

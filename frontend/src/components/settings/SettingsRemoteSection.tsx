@@ -22,6 +22,7 @@ import { AccessConfirmDialog } from './AccessConfirmDialog';
 import { formatEpoch } from './accessShared';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 import type { SettingsSection } from './settingsConstants';
+import { RemoteAlertEmailPanel } from './remote/RemoteAlertEmailPanel';
 import { RemoteDomainPanel } from './remote/RemoteDomainPanel';
 import { RemoteAccessRequestsPanel } from './remote/RemoteAccessRequestsPanel';
 import { RemoteDevicesPanel } from './remote/RemoteDevicesPanel';
@@ -377,6 +378,10 @@ export function SettingsRemoteSection({
 
       {isAdmin && status && registered && status.hostname && (
         <RemoteDomainPanel hostname={status.hostname} />
+      )}
+
+      {isAdmin && status && registered && status.community_enabled && status.slug && (
+        <RemoteAlertEmailPanel key={status.slug} />
       )}
 
       {status && registered && (

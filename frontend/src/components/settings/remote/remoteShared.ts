@@ -5,6 +5,8 @@ import { REMOTE_LINK_STATES, type RemoteLinkStatus, type RemoteStatus } from './
 export const ENROLL_LIFETIME_S = 15 * 60;
 /** `app/services/remote.py` `LABEL_MAX`. */
 export const REMOTE_LABEL_MAX = 64;
+/** `app/services/remote.py` `ALERT_EMAIL_MAX`. */
+export const REMOTE_ALERT_EMAIL_MAX = 254;
 /** The longest piece of a device's user agent shown on screen. */
 export const USER_AGENT_SHOWN_MAX = 160;
 
@@ -34,8 +36,10 @@ const LINK_BADGES: Record<RemoteLinkStatus, Omit<RemoteBadge, 'id'>> = {
   reconnecting: { tone: 'warn', action: null },
   // The relay no longer knows this instance and registering again failed.
   not_registered: { tone: 'danger', action: 'restart' },
-  // The operator paused this instance: retried in 15 to 20 min.
+  // Paused for another reason than the quota (the operator): retried in 15 to 20 min.
   paused: { tone: 'warn', action: null },
+  // Over the monthly quota: lifted on the 1st, retried in 15 to 20 min meanwhile.
+  quota_exceeded: { tone: 'warn', action: null },
   // Another install connected with the same key (a copied database or backup).
   replaced: { tone: 'danger', action: 'rotate' },
   banned: { tone: 'danger', action: null },
