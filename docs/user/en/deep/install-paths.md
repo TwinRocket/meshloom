@@ -33,7 +33,7 @@ A package installation creates:
 
 - a systemd service called `meshloom`, running as a dedicated `meshloom` user that can use serial and Bluetooth devices;
 - the program in `/opt/meshloom`, which the service can read but not change;
-- the settings file `/etc/meshloom/meshloom.env`, where `MESHCORE_DISABLE_PLUGINS=true` (commented out by default) locks every extension;
+- the settings file `/etc/meshloom/meshloom.env`, where `MESHCORE_DISABLE_PLUGINS=true` (commented out by default) locks every extension, kept as you left it when you upgrade or run the installer again;
 - the database and your data in `/var/lib/meshloom`.
 
 The package also recommends bubblewrap, which keeps plugins in a sandbox (see [Plugins](/en/docs/deep/plugins/)), and the service may run at most 512 processes and threads in total, plugins included.

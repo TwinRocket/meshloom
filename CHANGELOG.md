@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Installer.** Run by a sudo user, the installer no longer replaces `/etc/meshloom/meshloom.env`, and no longer stops without a word on a package question: your file is kept, on apt and on dnf. It can also pick up an install that was stopped midway.
+
+### Français
+
+#### Corrections
+
+- **Installeur.** Lancé par un utilisateur sudo, l'installeur ne remplace plus `/etc/meshloom/meshloom.env` et ne s'arrête plus sans rien dire sur une question du paquet : votre fichier est conservé, avec apt comme avec dnf. Il sait aussi reprendre une installation interrompue.
+
+---
+
 ## [5.0.0-rc.1] - 2026-11-06
 
 First release candidate of Meshloom 5.0, for people who accept to test. Meshloom now has accounts and everyone signs in; Python bots become sandboxed extensions; notifications go through channels you choose; the Feed puts everything in one timeline; Meshloom Remote and link and photo sharing arrive, both optional. It changes your database and there is no way back in place, so read *Before you try it* first.

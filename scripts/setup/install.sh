@@ -35,6 +35,35 @@ priv() {
     fi
 }
 
+# /etc/meshloom is 0750: without root, `test -f` and reads say "absent" for a file
+# that exists. Prints a root-only file, never asks for a password (this also runs
+# before the summary's sudo step), and fails when the file cannot be read.
+read_root_file() {
+    if is_root || [ -r "$1" ]; then
+        cat "$1" 2>/dev/null
+    else
+        command sudo -n cat "$1" 2>/dev/null
+    fi
+}
+
+# Every apt-get of this installer. Its output goes to the log, so a question would
+# be invisible: never ask, keep the user's config files (a changed conffile stays,
+# the packaged one lands next to it as .dpkg-dist), and give no terminal to read.
+apt_get() {
+    as_root env DEBIAN_FRONTEND=noninteractive apt-get \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@" </dev/null
+}
+
+# An install stopped midway leaves dpkg refusing every apt-get until it is finished.
+finish_interrupted_package() {
+    case "$(dpkg-query -W -f='${Status}' meshloom 2>/dev/null || true)" in
+        *unpacked* | *half-configured* | *half-installed* | *triggers-awaited* | *triggers-pending*)
+            run_quiet as_root env DEBIAN_FRONTEND=noninteractive dpkg \
+                --force-confdef --force-confold --configure -a </dev/null
+            ;;
+    esac
+}
+
 REPO="TwinRocket/meshloom"
 GIT_URL="https://github.com/${REPO}.git"
 PAGES_BASE="https://twinrocket.github.io/meshloom"
@@ -651,6 +680,15 @@ conf_get() {
     printf '%s' "$raw"
 }
 
+# conf_get for /etc/meshloom/installer.conf, which only root can reach.
+system_conf_get() {
+    local raw=""
+    raw="$(read_root_file "$(system_installer_conf)" | sed -n "s/^${1}=//p" | head -n 1 || true)"
+    raw="$(ui_norm "$raw")"
+    [ -n "$raw" ] || return 1
+    printf '%s' "$raw"
+}
+
 write_installer_conf() {
     local dest="$1" lang="$2" version="${3:-}" compose_dir="${4:-}"
     {
@@ -706,10 +744,8 @@ save_system_installer_conf() {
     local dest tmp prev_version="" prev_dir=""
     dest="$(system_installer_conf)"
     tmp="$(mktemp /tmp/meshloom-installer.XXXXXX)"
-    if [ -f "$dest" ]; then
-        prev_version="$(conf_get "$dest" version || true)"
-        prev_dir="$(conf_get "$dest" compose_dir || true)"
-    fi
+    prev_version="$(system_conf_get version || true)"
+    prev_dir="$(system_conf_get compose_dir || true)"
     write_installer_conf "$tmp" "$ML_LANG" "${TARGET_VERSION:-$prev_version}" "${COMPOSE_DIR_SAVED:-$prev_dir}"
     secure_etc_meshloom
     install_etc_file "$tmp" "$dest" 0644
@@ -725,6 +761,7 @@ load_saved_language() {
         LANG_SAVED="env"
         return 0
     fi
+    # No sudo here: the ARMv6 refusal comes through. A sudo user has the copy in their own conf.
     raw="$(conf_get "$(system_installer_conf)" lang || true)"
     raw="$(printf '%s' "$raw" | tr 'A-Z' 'a-z')"
     if is_installer_lang "$raw"; then
@@ -814,18 +851,16 @@ detect_installed_version() {
         INSTALLED_VERSION="$v"
         return 0
     fi
-    for conf in "$(system_installer_conf)" "$(user_installer_conf)"; do
-        v="$(normalize_version "$(conf_get "$conf" version || true)")"
-        if [ -n "$v" ]; then
-            INSTALLED_VERSION="$v"
-            return 0
-        fi
-    done
+    v="$(normalize_version "$(system_conf_get version || conf_get "$(user_installer_conf)" version || true)")"
+    if [ -n "$v" ]; then
+        INSTALLED_VERSION="$v"
+        return 0
+    fi
     if v="$(compose_image_version "${IN_CHECKOUT:+${IN_CHECKOUT}/docker-compose.yml}")"; then
         INSTALLED_VERSION="$v"
         return 0
     fi
-    wd="$(conf_get "$(system_installer_conf)" compose_dir || true)"
+    wd="$(system_conf_get compose_dir || true)"
     if [ -n "$wd" ] && v="$(compose_image_version "${wd}/docker-compose.yml")"; then
         INSTALLED_VERSION="$v"
         return 0
@@ -1001,9 +1036,9 @@ ensure_cmd() {
         yn="$(ui_ask "$(t offer_install) $(t hint_no)" "n")"
         case "$(printf '%s' "$yn" | tr 'A-Z' 'a-z')" in
             y | yes | o | oui)
-                as_root apt-get update
+                apt_get update
                 # shellcheck disable=SC2086
-                as_root apt-get install -y $packages
+                apt_get install -y $packages
                 ;;
         esac
     elif [ "$PKG_MGR" = "dnf" ]; then
@@ -1600,10 +1635,10 @@ _env_drop_key() {
 
 _restore_package_update_helper() {
     if [ "${PKG_MGR:-}" = "apt" ]; then
-        as_root apt-get update || true
-        as_root apt-get install -y --only-upgrade meshloom || true
+        apt_get update || true
+        apt_get install -y --only-upgrade meshloom || true
         if ! _package_update_helper_present; then
-            as_root apt-get install --reinstall -y meshloom || true
+            apt_get install --reinstall -y meshloom || true
         fi
     elif [ "${PKG_MGR:-}" = "dnf" ]; then
         as_root dnf install -y meshloom || true
@@ -2044,7 +2079,8 @@ enable_compose_update_helper() {
 write_meshloom_env() {
     local dest="$1" tmp
     secure_etc_meshloom
-    if [ ! -f "$dest" ]; then
+    # As root: /etc/meshloom is 0750, and this file is a conffile holding the user's lines.
+    if ! as_root test -f "$dest"; then
         tmp="$(mktemp /tmp/meshloom-env.XXXXXX)"
         {
             echo "# Generated by Meshloom install.sh"
@@ -2079,8 +2115,9 @@ install_from_pages() {
     phase "$(t using_repo)"
     add_signed_repo
     if [ "$PKG_MGR" = "apt" ]; then
-        run_quiet as_root apt-get update
-        run_quiet as_root apt-get install -y meshloom
+        run_quiet apt_get update
+        finish_interrupted_package
+        run_quiet apt_get install -y meshloom
     else
         run_quiet as_root dnf install -y meshloom
     fi
@@ -2163,7 +2200,8 @@ install_from_release_asset() {
         exit 1
     fi
     if [ "$PKG_MGR" = "apt" ]; then
-        run_quiet as_root apt-get install -y "$tmp"
+        finish_interrupted_package
+        run_quiet apt_get install -y "$tmp"
     else
         run_quiet as_root dnf install -y "$tmp"
     fi
@@ -2379,10 +2417,10 @@ write_unmanaged_env() {
 # also ask the old helper's config and a running Meshloom container.
 saved_compose_dir() {
     local dir="" p
-    dir="$(conf_get "$(system_installer_conf)" compose_dir 2>/dev/null ||
+    dir="$(system_conf_get compose_dir 2>/dev/null ||
         conf_get "$(user_installer_conf)" compose_dir 2>/dev/null || true)"
-    if [ -z "$dir" ] && [ -r /etc/meshloom/compose-update.env ]; then
-        dir="$(sed -n 's/^MESHLOOM_COMPOSE_DIR=//p' /etc/meshloom/compose-update.env | head -n 1)"
+    if [ -z "$dir" ]; then
+        dir="$(read_root_file /etc/meshloom/compose-update.env | sed -n 's/^MESHLOOM_COMPOSE_DIR=//p' | head -n 1 || true)"
     fi
     if [ -z "$dir" ] && command -v docker >/dev/null 2>&1; then
         dir="$({ docker ps -a --filter label=com.docker.compose.service=meshloom \
@@ -2820,8 +2858,9 @@ install_prerelease_package() {
     phase "$(t using_repo)"
     add_signed_repo
     if [ "$PKG_MGR" = "apt" ]; then
-        run_quiet as_root apt-get update
-        run_quiet as_root apt-get install -y meshloom
+        run_quiet apt_get update
+        finish_interrupted_package
+        run_quiet apt_get install -y meshloom
     elif rpm -q meshloom >/dev/null 2>&1; then
         # dnf install does nothing on an installed package (dnf5).
         run_quiet as_root dnf -y --refresh upgrade meshloom
