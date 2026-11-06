@@ -457,6 +457,82 @@ class TestFailureAndLogs:
         assert token not in repr(seen[0])
 
 
+class TestDeletedAccount:
+    async def test_a_device_of_a_deleted_account_stops_working(self, env):
+        """Even with no revocation recorded (a row older than this rule, or a crash right
+        after the deletion), and with another account signed in behind the edge lock."""
+        bob = await UserRepository.create("bob", "member")
+        owner, env.user = env.user, bob
+        device, token = await env.device()
+        env.clock.now += 2 * DAY
+        await UserRepository.delete(bob.id)
+        assert (await RemoteRepository.get_device(device.id)).revoked_at is None
+        conn = await env.connect(App(owner))
+        status, headers, _, _ = await conn.request("GET", "/api/x", pass_token=token)
+        assert status == 401 and _set_passes(headers) == []
+        stream = conn.new_stream()
+        await conn.send(
+            rf.encode_json(rf.WS_OPEN, stream, conn.head("WS", "/api/ws", pass_token=token))
+        )
+        accept = await conn.frame(stream)
+        assert accept.type == rf.WS_ACCEPT and json.loads(accept.payload)["status"] == 401
+
+    async def test_revoking_an_account_tells_the_relay(self, env):
+        bob = await UserRepository.create("bob", "member")
+        alice, env.user = env.user, bob
+        device, _ = await env.device()
+        spare, _ = await env.device()
+        env.user = alice
+        kept, kept_token = await env.device()
+        conn = await env.connect(App(alice))
+        await UserRepository.delete(bob.id)
+        assert await remote.revoke_account_devices(bob.id, SYSTEM_ACTOR) is True
+        gate = await conn.next_control()
+        assert gate["op"] == "gate" and set(gate["revoked"]) == {device.id, spare.id}
+        assert (await RemoteRepository.get_device(kept.id)).revoked_at is None
+        status, *_ = await conn.request("GET", "/api/x", pass_token=kept_token)
+        assert status == 200
+
+    async def test_no_device_no_gate(self, env):
+        conn = await env.connect(App(env.user))
+        assert await remote.revoke_account_devices(env.user.id, SYSTEM_ACTOR) is False
+        await asyncio.sleep(0.1)
+        assert conn.control.empty()
+
+    async def test_past_the_relay_limit_a_new_generation(self, env, monkeypatch):
+        monkeypatch.setattr(remote, "REVOKED_MAX", 1)
+        await env.device()
+        await env.device()
+        gen = (await RemoteRepository.get_state()).gate_gen
+        await remote.revoke_account_devices(env.user.id, SYSTEM_ACTOR)
+        assert (await RemoteRepository.get_state()).gate_gen == gen + 1
+
+    async def test_a_device_approved_for_someone_follows_its_approver(self, env):
+        """An approved device belongs to the approver, not to who signs in on it: deleting
+        the approver cuts it, deleting the person who used it does not."""
+        approver, guest = env.user, await UserRepository.create("guest", "member")
+        state = await RemoteRepository.get_state()
+        device, token = await remote._new_device(approver.id, "browser", "approval", None, state)
+        env.clock.now += 2 * DAY
+        app = App(guest)
+        conn = await env.connect(app)
+        _, headers, _, _ = await conn.request("GET", "/api/x", pass_token=token)
+        [token] = _set_passes(headers)
+
+        await UserRepository.delete(guest.id)
+        await remote.revoke_account_devices(guest.id, SYSTEM_ACTOR)
+        assert (await RemoteRepository.get_device(device.id)).revoked_at is None
+        app.user = None  # the guest's session is gone with the account
+        status, headers, _, _ = await conn.request("GET", "/api/x", pass_token=token)
+        assert status == 200 and _set_passes(headers) == []
+
+        await UserRepository.delete(approver.id)
+        await remote.revoke_account_devices(approver.id, SYSTEM_ACTOR)
+        assert (await RemoteRepository.get_device(device.id)).revoked_at is not None
+        status, *_ = await conn.request("GET", "/api/x", pass_token=token)
+        assert status == 401
+
+
 class TestRealApp:
     """Through the real app and its auth gate: signed in by a real session or not."""
 
@@ -503,3 +579,42 @@ class TestRealApp:
         assert status == 200 and json.loads(body)["authenticated"] is True
         [renewed] = _set_passes(headers)
         assert await _relay_accepts(token, renewed, int(env.clock.now))
+
+    async def test_the_delete_route_revokes_the_devices_of_the_account(self, env):
+        from app.main import app
+        from app.repository.auth import AuthAuditRepository
+        from tests.auth_helpers import PASSWORD, create_user
+
+        owner = await create_user("owner", PASSWORD, "admin")
+        bob = await create_user("bob", PASSWORD, "member")
+        env.user = owner
+        _, token = await env.device()
+        env.user = bob
+        device, bob_token = await env.device()
+        conn = await env.connect(app)
+        same_origin = [["content-type", "application/json"], ["origin", f"https://{HOST}"]]
+        status, headers, body, _ = await conn.request(
+            "POST",
+            "/api/auth/login",
+            json.dumps({"username": "owner", "password": PASSWORD}).encode(),
+            headers=same_origin,
+            pass_token=token,
+        )
+        assert status == 200, body
+        session = next(v for n, v in headers if v.startswith("__Host-meshloom_session="))
+        cookie = ["cookie", session.split(";", 1)[0]]
+        status, _, body, _ = await conn.request(
+            "DELETE",
+            f"/api/auth/users/{bob.id}",
+            headers=[["origin", f"https://{HOST}"], cookie],
+            pass_token=token,
+        )
+        assert status == 200, body
+        assert (await RemoteRepository.get_device(device.id)).revoked_at is not None
+        gate = await conn.next_control()
+        assert gate["op"] == "gate" and device.id in gate["revoked"]
+        status, *_ = await conn.request("GET", "/api/auth/session", pass_token=bob_token)
+        assert status == 401
+        rows = await AuthAuditRepository.list_recent(limit=50)
+        revoked = [row.target for row in rows if row.action == "remote.device_revoked"]
+        assert revoked == [f"device:{device.id}"]

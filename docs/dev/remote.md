@@ -121,7 +121,7 @@ id the device belongs to, `gen` the current generation. Every device is a row of
 
 `verify_device_pass(token, slot)` is the third check of the edge lock, for the relay
 client to run on `x-meshloom-pass`: the contract verdict, then the device must exist,
-not be revoked and belong to the pass's `uid`.
+not be revoked, belong to the pass's `uid`, and that account must still exist.
 
 ### Renewal of a browser pass
 
@@ -185,6 +185,11 @@ same `sub`), sets `__Host-mlgate` and removes the header. The relay's side is co
   revoked. The revoked list of the generation holds the devices whose pass may still be
   presented (until `pass_expires_at` + 60 s, which follows the renewals). Past 1024 ids (the relay's limit), the
   generation is bumped instead.
+- `DELETE /api/auth/users/{id}` revokes the account's devices the same way
+  (`revoke_account_devices`), and a device approved through an access request goes with its
+  approver, even if someone else signs in on it. Deleting that other person's account does
+  not touch it. `verify_device_pass` refuses a device whose account is gone anyway, which
+  covers a row left by a deletion before this rule and any other deletion path.
 - `POST /api/remote/devices/revoke-all` (admin) bumps `gate_gen`: every pass dies.
 - `gate_state()` is `{gen, revoked}`. Each change is pushed at once as CONTROL `gate`
   when a relay link is up (`gate_pushed` in the answer); otherwise the next HELLO
@@ -439,9 +444,7 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
   device: the relay cancels those streams after a `gate`, and every new request checks
   the pass again.
 - A custom relay URL (MSHL-99); the remaining relay-aware hardening (MSHL-84).
-- Guest enrolment links (up to 7 days), pass renewal through `x-meshloom-set-pass`.
-- A device of a deleted account keeps a valid pass until it is revoked; the sign-in
-  behind the edge lock still refuses it.
+- Guest enrolment links (up to 7 days).
 
 ## Tests
 

@@ -61,6 +61,8 @@ _LOCAL = {
     "_sign",
     "verify_device_pass",
     "renew_browser_pass",
+    "revoke_account_devices",
+    "_keep_revoked_list_in_limit",
     "_require_registered",
     "_new_device",
     "issue_enroll_token",

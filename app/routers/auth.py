@@ -1735,8 +1735,8 @@ async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserVie
 )
 @_audits_refusals("user.deleted")
 async def delete_user(user_id: int, request: Request) -> OkResponse:
-    """Delete an account and its sessions, closing its sockets. A Home
-    Assistant identity comes back on its next visit, with the default role:
+    """Delete an account and its sessions, closing its sockets and revoking its Remote
+    devices. A Home Assistant identity comes back on its next visit, with the default role:
     disable it to keep it out. 409 ``auth_last_admin`` for the last enabled admin."""
     _require(request)
     target = await _target_user(user_id)
@@ -1756,6 +1756,9 @@ async def delete_user(user_id: int, request: Request) -> OkResponse:
         target=audit.user_target(user_id),
         details={"role": target.role, "provider": target.provider},
     )
+    from app.services import remote
+
+    await remote.revoke_account_devices(user_id, audit.actor_from_request(request))
     return OkResponse()
 
 

@@ -359,7 +359,8 @@ Design and flows: `docs/dev/remote.md`.
   `docs/dev/remote.md`; any restore leaves Remote off, unregistered and without devices.
 - **Passes.** `remote_passes.verify_pass` is the contract's verifier (checked on every
   vector case); `remote.verify_device_pass` adds the instance's own device table
-  (the third check of the edge lock). `remote.renew_browser_pass` renews a browser pass
+  and the device's account (the third check of the edge lock). Deleting an account revokes
+  its devices (`remote.revoke_account_devices`). `remote.renew_browser_pass` renews a browser pass
   through `x-meshloom-set-pass`, which only `HttpStream` adds (`docs/dev/remote.md`, "Renewal
   of a browser pass"). Never log a pass, a token, an enrolment URL or an access code.
 - **Relay link.** The relay client (`services/remote_relay.py`, codec

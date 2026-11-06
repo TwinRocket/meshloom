@@ -792,7 +792,8 @@ def _uid(user_id: int) -> str:
 
 async def verify_device_pass(token: str, slot: PassSlot) -> tuple[str, dict[str, Any] | None]:
     """The third check of the edge lock (``x-meshloom-pass``): the contract's verdict,
-    then the device must be one of ours, not revoked, owned by the pass's ``uid``."""
+    then the device must be one of ours, not revoked, owned by the pass's ``uid``, and
+    that account must still exist, whoever signs in behind the edge lock."""
     state = await pass_state()
     if state is None:
         return "pass_issuer", None
@@ -801,6 +802,8 @@ async def verify_device_pass(token: str, slot: PassSlot) -> tuple[str, dict[str,
         return verdict, claims
     device = await RemoteRepository.get_device(claims["sub"])
     if device is None or device.revoked_at is not None or _uid(device.user_id) != claims["uid"]:
+        return "pass_revoked", None
+    if await UserRepository.get(device.user_id) is None:
         return "pass_revoked", None
     return verdict, claims
 
@@ -1074,15 +1077,39 @@ async def revoke_device(device_id: str, actor: AuditActor, *, owner_id: int | No
         raise RemoteError("remote_device_not_found")
     async with _lock():
         await RemoteRepository.revoke_device(device_id, _now())
-        state = await RemoteRepository.get_state()
-        revoked = await RemoteRepository.revoked_ids(
-            state.gate_gen, _now(), grace=remote_passes.CLOCK_SKEW_S
-        )
-        if len(revoked) > REVOKED_MAX:
-            # The relay keeps at most 1024 ids: past that, every device enrols again.
-            logger.warning("Remote: more than %d revoked devices, new pass generation", REVOKED_MAX)
-            await RemoteRepository.bump_generation(_now())
+        await _keep_revoked_list_in_limit()
     await record("remote.device_revoked", "success", actor=actor, target=f"device:{device_id}")
+    return await push_gate()
+
+
+async def _keep_revoked_list_in_limit() -> None:
+    """Under ``_lock``. The relay keeps at most 1024 ids: past that, every device enrols again."""
+    state = await RemoteRepository.get_state()
+    revoked = await RemoteRepository.revoked_ids(
+        state.gate_gen, _now(), grace=remote_passes.CLOCK_SKEW_S
+    )
+    if len(revoked) > REVOKED_MAX:
+        logger.warning("Remote: more than %d revoked devices, new pass generation", REVOKED_MAX)
+        await RemoteRepository.bump_generation(_now())
+
+
+async def revoke_account_devices(user_id: int, actor: AuditActor) -> bool:
+    """Revoke the devices of an account that was just deleted, those it approved for
+    someone else included (they belong to it). Returns whether the relay was told; False
+    with nothing to revoke. ``verify_device_pass`` already refuses them either way."""
+    devices = [
+        device
+        for device in await RemoteRepository.list_devices(user_id)
+        if device.revoked_at is None
+    ]
+    if not devices:
+        return False
+    async with _lock():
+        for device in devices:
+            await RemoteRepository.revoke_device(device.id, _now())
+        await _keep_revoked_list_in_limit()
+    for device in devices:
+        await record("remote.device_revoked", "success", actor=actor, target=f"device:{device.id}")
     return await push_gate()
 
 
