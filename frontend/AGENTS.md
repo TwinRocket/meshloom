@@ -854,8 +854,9 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
   The base still holds stale copies of many slice keys: a slice value wins, but a key
   deleted from a slice falls back to the base copy, so delete it from
   `locales/{en,fr}.json` too.
-  After adding a slice, delete `node_modules/.vitest-cache` if `i18nParity`
-  misses its keys: the cached transform keeps the old `import.meta.glob` list.
+  After adding or merging a slice, delete `node_modules/.vitest-cache` if `i18nParity` or any
+  test misses its keys: the cached transform of `bundle.*.ts` keeps the old `import.meta.glob`
+  list.
 - Tests default to `fr` (`src/test/setup.ts`): query copy with `i18n.t('key')`,
   never a literal string.
 - Format numbers with `utils/formatNumber.ts` or `{{count, number}}`. Never call
@@ -871,11 +872,18 @@ and a request beyond them gets 503 `relay_busy` (`remote-relay.md`; the relay do
 A refusal that still happens must not end on an error screen:
 
 - `fetchJson` (`src/api.ts`) retries `relay_busy` up to 4 times, for every method, since the
-  request never reached the instance. The instance's own 503 answers are not retried.
-- `src/utils/chunkReload.ts` reloads with a growing delay, 3 times in a session, when the language
-  file or a lazy chunk fails. A successful boot resets the count.
-- The boot guard, inline in `index.html`, does the same with the same count when a module script
-  or the stylesheet fails, since no app code runs then. It stops once the app has rendered.
+  request never reached the instance, waiting 5 s at most between tries whatever `Retry-After`
+  asks. The instance's own 503 answers are not retried.
+- `src/utils/chunkReload.ts` reloads after 1, 2, then 4 s when the language file or a lazy chunk
+  fails, then stops and lets the caller show its error. A boot does not clear the count, since a
+  file that stays refused fails again after every boot: it starts over only when a failure comes
+  over a minute after the last reload. So a lasting failure gives 3 reloads, and can never
+  reload faster than once a minute after that. Without `sessionStorage` nothing can be counted,
+  so nothing reloads by itself.
+- The boot guard, inline in `index.html`, follows the same rule with the same key when a module
+  script or the stylesheet fails, since the app code may not run. It stops once the app has
+  rendered. Its last message sets its own colours and background inline, in EN and FR, and the
+  app does not render over it (`data-boot-failed`).
 
 ### UI copy
 

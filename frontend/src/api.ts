@@ -290,6 +290,8 @@ function reportApiFailure(error: ApiError, url: string, method: string): void {
 
 /** Retries of a request the relay refused with `relay_busy`, up to about 10 s in all. */
 const RELAY_BUSY_RETRIES = 4;
+/** The longest wait between two tries, whatever `Retry-After` asks. */
+const RELAY_BUSY_MAX_WAIT_MS = 5000;
 
 /** The relay's own refusal (JSON `{"detail","code"}`): the request never reached the instance. */
 async function isRelayBusy(res: Response): Promise<boolean> {
@@ -325,9 +327,10 @@ async function fetchPastRelayBusy(input: string, init: RequestInit): Promise<Res
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(input, init);
     if (attempt >= RELAY_BUSY_RETRIES || !(await isRelayBusy(res))) return res;
-    const seconds = Number(res.headers.get('Retry-After')) || 1;
+    const seconds = Math.max(Number(res.headers.get('Retry-After')) || 1, 1);
     // A growing wait with some jitter, so a page's refused requests do not all come back at once.
-    await waitOrAbort(seconds * 1000 * (attempt + 1) + Math.random() * 500, init.signal);
+    const wait = Math.min(seconds * 1000 * (attempt + 1), RELAY_BUSY_MAX_WAIT_MS);
+    await waitOrAbort(wait + Math.random() * 500, init.signal);
   }
 }
 

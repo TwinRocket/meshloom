@@ -21,12 +21,9 @@ const dist = resolve(process.argv[2] ?? 'dist');
 const html = readFileSync(join(dist, 'index.html'), 'utf8');
 const assets = join(dist, 'assets');
 
-const tags = html.match(/<(?:script|link)\b[^>]*>/g) ?? [];
-const pending = tags.flatMap((tag) => {
-  const loaded = /type="module"|rel="(?:modulepreload|stylesheet)"/.test(tag);
-  const url = /(?:src|href)="\.\/assets\/([^"]+)"/.exec(tag)?.[1];
-  return loaded && url ? [url] : [];
-});
+// Everything index.html names under assets/ loads with the page: the entry script, its
+// preloads and the stylesheet. Icons and the manifest sit outside assets/.
+const pending = [...html.matchAll(/\.\/assets\/([^"'\s]+)/g)].map((match) => match[1]);
 
 const entryFiles = new Set();
 while (pending.length > 0) {

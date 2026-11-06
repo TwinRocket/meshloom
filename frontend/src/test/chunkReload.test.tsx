@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LazyBoundary } from '../components/LazyBoundary';
 import i18n from '../i18n';
 import {
-  clearReloadFlag,
   installPreloadErrorHandler,
   resetPendingReload,
   scheduleReload,
@@ -22,7 +21,7 @@ describe('chunk reload guard', () => {
     vi.restoreAllMocks();
   });
 
-  it('waits longer before each reload, then refuses until the count is cleared', () => {
+  it('waits longer before each reload, then refuses', () => {
     const reload = vi.fn();
     for (const [attempt, delay] of [1000, 2000, 4000].entries()) {
       expect(scheduleReload(reload)).toBe(true);
@@ -34,8 +33,39 @@ describe('chunk reload guard', () => {
       resetPendingReload();
     }
     expect(scheduleReload(reload)).toBe(false);
-    clearReloadFlag();
+    vi.advanceTimersByTime(50000);
+    expect(scheduleReload(reload)).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(3);
+  });
+
+  it('gets its attempts again only a minute after the last reload', () => {
+    const reload = vi.fn();
+    sessionStorage.setItem('meshloom-boot-reloads', `3:${Date.now()}`);
+    vi.advanceTimersByTime(60000);
+    expect(scheduleReload(reload)).toBe(false);
+    vi.advanceTimersByTime(1);
     expect(scheduleReload(reload)).toBe(true);
+    expect(sessionStorage.getItem('meshloom-boot-reloads')?.startsWith('1:')).toBe(true);
+  });
+
+  it('never reloads by itself when sessionStorage is unavailable', () => {
+    const reload = vi.fn();
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    expect(scheduleReload(reload)).toBe(false);
+    vi.advanceTimersByTime(10000);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('never reloads by itself when the attempt cannot be recorded', () => {
+    const reload = vi.fn();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('full');
+    });
+    expect(scheduleReload(reload)).toBe(false);
+    vi.advanceTimersByTime(10000);
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('counts several failures of one page as one attempt', () => {
@@ -45,7 +75,7 @@ describe('chunk reload guard', () => {
     expect(scheduleReload(reload)).toBe(true);
     vi.advanceTimersByTime(1000);
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(sessionStorage.getItem('meshloom-boot-reloads')).toBe('1');
+    expect(sessionStorage.getItem('meshloom-boot-reloads')?.startsWith('1:')).toBe(true);
   });
 
   it('handles vite:preloadError with one delayed reload, and stops when attempts run out', () => {
@@ -67,7 +97,7 @@ describe('chunk reload guard', () => {
     expect(second.defaultPrevented).toBe(true);
 
     resetPendingReload();
-    sessionStorage.setItem('meshloom-boot-reloads', '3');
+    sessionStorage.setItem('meshloom-boot-reloads', `3:${Date.now()}`);
     const last = new Event('vite:preloadError', { cancelable: true });
     target.dispatchEvent(last);
     Object.defineProperty(window, 'location', { configurable: true, value: original });

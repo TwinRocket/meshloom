@@ -1017,6 +1017,24 @@ describe('relay busy retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
+  it('caps the wait whatever Retry-After says', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: 'relay_busy' }), {
+          status: 503,
+          headers: { 'Retry-After': '3600' },
+        })
+      )
+      .mockResolvedValueOnce(ok());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getChannels();
+    await vi.advanceTimersByTimeAsync(5500);
+    await expect(result).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves the instance's own 503 alone", async () => {
     const fetchMock = vi
       .fn()
