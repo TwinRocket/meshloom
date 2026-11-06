@@ -192,7 +192,7 @@ Started by hand without `--host`, Meshloom answers only on the machine itself, a
 
 ### The copy made before an upgrade
 
-When an upgrade has to change the structure of your database, Meshloom first makes a copy of it, in the same folder, under a name that says which structure it holds and which version made it: for example `meshcore.db.schema87.before-5.0.0.db` (schema 87 is what every 4.18 uses). When a `secrets.key` file exists, it is copied too, as `meshcore.db.schema144.before-5.1.0.secrets.key`. A new installation, or a start with nothing to upgrade, makes no copy.
+When an upgrade has to change the structure of your database, Meshloom first makes a copy of it, in the same folder, under a name that says which structure it holds and which version made it: for example `meshcore.db.schema87.before-5.0.0.db`, or `meshcore.db.schema87.before-5.0.0-rc.1.db` on a release candidate (schema 87 is what every 4.18 uses). When a `secrets.key` file exists, it is copied too, as `meshcore.db.schema144.before-5.1.0.secrets.key`. A new installation, or a start with nothing to upgrade, makes no copy.
 
 - **Size.** The copy is as large as the database, and takes up to a few minutes on a Raspberry Pi with a large database (the log shows its progress). Meshloom asks for the size of the database plus a quarter of it, 64 MB at least, free in that folder.
 - **If the copy fails.** Meshloom does not upgrade and does not start, and the log says why and how much space it needs. Your database is left as it was. Free some space and start again. An upgrade cannot be undone, so Meshloom prefers a start that waits to an upgrade with no way back.
@@ -207,7 +207,7 @@ Meshloom refuses to start on a database made by a newer version, and leaves it u
 2. In the data folder, put the copy in place of the database and remove the files that go with the old one (`sudo` if the files are not yours):
 
    ```bash
-   cp -p meshcore.db.schema87.before-5.0.0.db meshcore.db
+   cp -p meshcore.db.schema87.before-*.db meshcore.db
    rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
 

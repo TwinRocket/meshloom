@@ -9,7 +9,7 @@ A pre-release (a release candidate, `5.0.0-rc.1` for example) is the next versio
 
 ## Before you start
 
-Copy your data first, or try the pre-release on a new instance. Coming from 4.18, read [Upgrading from 4.18](/en/docs/upgrade-4-18/).
+Copy your data first, or try the pre-release on a new instance. Coming from 4.18, read [Upgrading from 4.18](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/en/upgrade-4-18.md). What changed and the known limits are in the [release notes](https://github.com/TwinRocket/meshloom/releases).
 
 ## Install or move to the pre-release
 
@@ -21,7 +21,7 @@ Paste this into a terminal:
 
 It is the normal installer, with the same questions. When no pre-release is open, it says so and changes nothing.
 
-It works with the `apt` and `dnf` packages on 64-bit machines, and with Docker. 32-bit machines have no package: use Docker there.
+It works with the `apt` and `dnf` packages on 64-bit machines, and with Docker. 32-bit machines have no package: Docker covers ARMv7 there. ARMv6 and 32-bit x86 have no image.
 
 ## Get a newer pre-release
 
@@ -45,6 +45,6 @@ So with a package, run the usual install command once the final is out. It goes 
 Two ways:
 
 - Use a new instance, and keep this one as it is.
-- Restore your own copy of the data on a fresh 4.18 install: the steps are in [Going back to 4.18](/en/docs/upgrade-4-18/#going-back-to-418).
+- Restore your own copy of the data on a fresh 4.18 install: the steps are in [Going back to 4.18](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/en/upgrade-4-18.md#going-back-to-418).
 
 Never run the 4.18 install script on a machine running a pre-release. It does not know pre-releases, and can start 4.18 on a database it cannot read. Later versions of the installer refuse and change nothing.

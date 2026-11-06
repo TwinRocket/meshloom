@@ -192,7 +192,7 @@ Lancé à la main sans `--host`, Meshloom ne répond que sur la machine elle-mê
 
 ### La copie faite avant une mise à niveau
 
-Quand une mise à niveau doit changer la structure de votre base, Meshloom en fait d’abord une copie, dans le même dossier, sous un nom qui dit quelle structure elle contient et quelle version l’a faite : par exemple `meshcore.db.schema87.before-5.0.0.db` (le schéma 87 est celui de toutes les 4.18). Quand un fichier `secrets.key` existe, il est copié aussi, sous le nom `meshcore.db.schema144.before-5.1.0.secrets.key`. Une nouvelle installation, ou un démarrage sans rien à mettre à niveau, ne fait pas de copie.
+Quand une mise à niveau doit changer la structure de votre base, Meshloom en fait d’abord une copie, dans le même dossier, sous un nom qui dit quelle structure elle contient et quelle version l’a faite : par exemple `meshcore.db.schema87.before-5.0.0.db`, ou `meshcore.db.schema87.before-5.0.0-rc.1.db` sur une version candidate (le schéma 87 est celui de toutes les 4.18). Quand un fichier `secrets.key` existe, il est copié aussi, sous le nom `meshcore.db.schema144.before-5.1.0.secrets.key`. Une nouvelle installation, ou un démarrage sans rien à mettre à niveau, ne fait pas de copie.
 
 - **Taille.** La copie est aussi grande que la base, et prend jusqu’à quelques minutes sur un Raspberry Pi avec une grosse base (le journal montre sa progression). Meshloom demande de la place libre dans ce dossier : la taille de la base plus un quart, 64 Mo au minimum.
 - **Si la copie échoue.** Meshloom ne met pas à niveau et ne démarre pas, et le journal dit pourquoi et combien de place il lui faut. Votre base reste telle quelle. Libérez de la place et redémarrez. Une mise à niveau ne s’annule pas : Meshloom préfère un démarrage qui attend à une mise à niveau sans retour.
@@ -207,7 +207,7 @@ Meshloom refuse de démarrer sur une base faite par une version plus récente, e
 2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les fichiers qui accompagnent l’ancienne (avec `sudo` si les fichiers ne sont pas à vous) :
 
    ```bash
-   cp -p meshcore.db.schema87.before-5.0.0.db meshcore.db
+   cp -p meshcore.db.schema87.before-*.db meshcore.db
    rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
 
