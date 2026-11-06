@@ -25,7 +25,8 @@ export function RemoteAlertEmailPanel() {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Set by any action: a slow first read must not overwrite what the action answered.
+  // Set by an action that succeeded: a slow first read must not overwrite its answer. A
+  // refused action changes nothing, so that read still counts.
   const acted = useRef(false);
 
   useEffect(() => {
@@ -42,11 +43,12 @@ export function RemoteAlertEmailPanel() {
   }, []);
 
   const act = async (action: () => Promise<{ state: RemoteAlertEmailState }>, done: string) => {
-    acted.current = true;
     setBusy(true);
     setError(null);
     try {
-      setState((await action()).state);
+      const next = await action();
+      acted.current = true;
+      setState(next.state);
       setEmail('');
       toast.success(t(done));
     } catch (err) {

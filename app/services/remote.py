@@ -156,6 +156,8 @@ _REGISTRY_CODES = frozenset(
         "token_replayed",
         "instance_banned",
         "instance_retired",
+        "instance_paused",
+        "instance_frozen",
         "instance_unknown",
         "payload_too_large",
         "rate_limited",
@@ -483,7 +485,7 @@ async def _register_locked(actor: AuditActor) -> RemoteState:
             raise RemoteError("remote_unavailable", status=response.status_code)
     except RemoteError as exc:
         await RemoteRepository.update_state(last_error=exc.params.get("registry_code") or exc.code)
-        await record("remote.linked", "failure", actor=actor, details={"code": exc.code})
+        await record("remote.linked", "failure", actor=actor, details={"error": exc.code})
         raise
     await RemoteRepository.update_state(
         slug=slug, hostname=hostname, relay_url=relay_url, registered_at=_now(), last_error=None
@@ -552,7 +554,7 @@ async def unregister(actor: AuditActor) -> RemoteState:
             if response.status_code != 204 and payload.get("code") != "instance_unknown":
                 raise _registry_error(response)
         except RemoteError as exc:
-            await record("remote.unlinked", "failure", actor=actor, details={"code": exc.code})
+            await record("remote.unlinked", "failure", actor=actor, details={"error": exc.code})
             raise
         await RemoteRepository.update_state(
             enabled=False, slug="", hostname="", relay_url="", registered_at=None, last_error=None
@@ -577,8 +579,8 @@ async def rotate(actor: AuditActor) -> RemoteState:
                 await clear_alert_email(actor)
             except RemoteError as exc:
                 logger.warning("Remote: the alert e-mail could not be removed: %s", exc.code)
-            # While the old key still signs; a failure only leaves an orphan the
-            # registry forgets on its own.
+            # While the old key still signs. A failure (a pause or a freeze refuses it, no
+            # network) leaves the old registration on the relay, unreachable from here.
             try:
                 await _registry("DELETE", "/v1/instances/self")
             except RemoteError:

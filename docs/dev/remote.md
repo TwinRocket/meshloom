@@ -98,7 +98,7 @@ socket carry it.
 | `register` | (relay client) | The same registration, idempotent: after a close `4003` |
 | `disable` | `POST /api/remote/disable` | Turns Remote off and withdraws the hostname; registration and devices are kept |
 | `unregister` | `DELETE /api/remote` | `DELETE /v1/instances/self` (a 404 `instance_unknown` counts as done), forgets slug and hostname, turns Remote off, **keeps the key** (the registry holds the slug 30 days for it). 409 `remote_disabled` while off |
-| `rotate` | `POST /api/remote/rotate` | Deletes the old registration while the old key still signs (best effort), replaces the key, forgets every device, enrolment token and access request, resets the generation, and registers again when Remote is on (a new slug) |
+| `rotate` | `POST /api/remote/rotate` | Removes the alert e-mail, then deletes the old registration, while the old key still signs (best effort: a refusal such as a pause leaves the registration on the relay), replaces the key, forgets every device, enrolment token and access request, resets the generation, and registers again when Remote is on (a new slug) |
 | on_restore `remote` | any restore | The `instance_identity` hook replaced the key; this one forgets registration, devices and tokens and turns Remote off. A database copy also empties the three tables (`SNAPSHOT_EMPTIED_TABLES`) |
 
 `GET /api/remote` returns `state`: `disabled`, `unregistered` (on, no slug) or
@@ -281,8 +281,13 @@ never the quota.
 within seconds of its HELLO. A peer that cannot connect at once waits at most one backoff
 (5 min) plus the timeouts, so 15 min covers that slow fight too. `hello_ok` is no reset: every
 connection of a fight has it. A single late takeover (a restored copy started and stopped) is
-not a fight and never stops Remote. Known limit: a peer that kicks this install less often than
-every 15 min is never counted as a fight; each side then stays up that long between kicks.
+not a fight and never stops Remote; a copy that is rarely restarted is detected, since the
+ejected install comes back at once and kicks it. Known limits:
+
+- A fight where each side takes over 15 min to come back never ends: every connection is then
+  long enough to reset the count.
+- What is left of BUG-12: on a link where every connection lasts under 15 min, two `4005` far
+  apart still stop Remote. It takes a real second install on the key to get a `4005` at all.
 
 ## Alert e-mail (MSHL-467)
 
@@ -305,9 +310,11 @@ contract is not sent yet by meshloom-remote (`src/alertEmail.ts`). All three rou
   A pause does not block these routes.
 - `rotate` calls the same `DELETE` first when Remote is on, because the old key is the only way
   to reach the address and the relay has no purge. The relay allows it during a pause, unlike
-  `DELETE /v1/instances/self`, and refuses it during a freeze; a failure never blocks the
-  rotation. With Remote or Community off nothing may leave, so the address stays on the relay
-  (the user docs say so).
+  `DELETE /v1/instances/self`, and refuses it during a freeze or a ban (an operator ban does not
+  clear the address either); a failure never blocks the rotation. With Remote or Community off
+  nothing may leave. In all these cases the address stays on the relay under a key this instance
+  no longer has, and only a still-valid stop link removes it (`TOKEN_TTL_S` 24 h in the
+  confirmation mail, `STOP_LINK_TTL_S` 30 days in an alert mail). The user docs say so.
 - The address is never stored here, logged or put in the audit. The relay never returns it,
   so there is no read of it. Audit: `remote.alert_email_set`, `remote.alert_email_cleared`,
   with `details.error` on a failure.

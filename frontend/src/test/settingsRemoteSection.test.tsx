@@ -674,6 +674,30 @@ describe('SettingsRemoteSection', () => {
       expect(shown).toHaveTextContent(t('settings.remote.alertEmail.state.pending'));
     });
 
+    it('a refused action keeps a first read still running', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      let finishRead: (value: { state: 'confirmed' }) => void = () => undefined;
+      vi.spyOn(api, 'getRemoteAlertEmail').mockReturnValue(
+        new Promise((resolve) => {
+          finishRead = resolve;
+        })
+      );
+      vi.spyOn(api, 'setRemoteAlertEmail').mockRejectedValue(
+        new ApiError('x', 400, { code: 'remote_alert_email_invalid', message: 'x' })
+      );
+      await renderAs('admin');
+      fireEvent.change(await field(), { target: { value: 'nope' } });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.remote.alertEmail.save') }));
+      await screen.findByRole('alert');
+      await act(async () => finishRead({ state: 'confirmed' }));
+      expect(screen.getByTestId('remote-alert-email-state')).toHaveTextContent(
+        t('settings.remote.alertEmail.state.confirmed')
+      );
+      expect(
+        screen.getByRole('button', { name: t('settings.remote.alertEmail.remove') })
+      ).toBeInTheDocument();
+    });
+
     it('removes a confirmed address', async () => {
       vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
       vi.spyOn(api, 'getRemoteAlertEmail').mockResolvedValue({ state: 'confirmed' });

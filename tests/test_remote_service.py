@@ -581,6 +581,30 @@ class TestAlertEmail:
         assert ALERT_ADDRESS not in str(events)
 
 
+class TestRegistryFailuresAreAudited:
+    @staticmethod
+    async def _failures(action: str) -> list[dict[str, Any]]:
+        rows = await AuthAuditRepository.list_recent(limit=50)
+        return [r.details for r in rows if r.action == action and r.outcome == "failure"]
+
+    async def test_a_refused_registration(self, relay, admin):
+        relay.fail_with = json_response(403, {"code": "instance_banned", "detail": "x"})
+        await remote.enable(SYSTEM_ACTOR)
+        assert await self._failures("remote.linked") == [{"error": "remote_registry_error"}]
+
+    @pytest.mark.parametrize("code", ["instance_paused", "instance_frozen"])
+    async def test_leaving_during_a_pause_says_refused(self, relay, admin, client, code):
+        await remote.enable(SYSTEM_ACTOR)
+        relay.fail_with = json_response(403, {"code": code, "detail": "x"})
+        response = await client.delete("/api/remote")
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert detail["code"] == "remote_registry_error"
+        assert detail["params"]["registry_code"] == code
+        assert await self._failures("remote.unlinked") == [{"error": "remote_registry_error"}]
+        assert (await RemoteRepository.get_state()).enabled  # still registered and on
+
+
 class TestOtherControlOps:
     async def test_status_updates_the_name_and_unknown_ops_are_ignored(self, relay, admin):
         await remote.enable(SYSTEM_ACTOR)
