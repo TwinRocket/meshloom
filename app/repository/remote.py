@@ -196,6 +196,18 @@ class RemoteRepository:
         return int(row[0]) if row else 0
 
     @staticmethod
+    async def extend_device_pass(device_id: str, expires_at: int) -> bool:
+        """A renewed pass (never earlier than the stored expiry). False when the device
+        is gone or revoked: that pass must not be handed out."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE remote_devices SET pass_expires_at = MAX(pass_expires_at, ?)"
+                " WHERE id = ? AND revoked_at IS NULL",
+                (expires_at, device_id),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
     async def touch_device(device_id: str, now: int) -> None:
         async with db.tx() as conn:
             await conn.execute(

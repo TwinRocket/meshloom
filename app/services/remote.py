@@ -36,7 +36,8 @@ passes this instance signs (``app/services/remote_passes.py``).
   (JSON or SQLite) runs the ``remote`` on_restore hook: registration, devices and
   tokens are forgotten and Remote is off (the ``instance_identity`` hook replaced the key).
 - **Devices and the gate.** A device holds a ``browser`` pass (QR enrolment or an
-  approved access request, 90 days) or a ``client`` pass (365 days). Revoking one adds
+  approved access request, 90 days, renewed while used: ``renew_browser_pass``) or a
+  ``client`` pass (365 days). Revoking one adds
   its id to the revoked list of the current generation; revoking every device bumps
   ``gate_gen``. ``gate_state()`` is ``{gen, revoked}`` (the HELLO's ``gate`` and the
   CONTROL ``gate`` op), pushed at once to the relay link when there is one.
@@ -68,8 +69,9 @@ import json
 import logging
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -129,6 +131,13 @@ REGISTRY_MAX_RESPONSE_BYTES = 16384
 ENROLL_TOKEN_LIFETIME_S = 15 * 60
 BROWSER_PASS_LIFETIME_S = remote_passes.MAX_LIFETIME_S["browser"]
 CLIENT_PASS_LIFETIME_S = remote_passes.MAX_LIFETIME_S["client"]
+# A browser pass older than this is renewed by the next signed-in request.
+BROWSER_PASS_RENEW_AFTER_S = 86400
+# Per device, between two attempts: concurrent requests of a browser renew once, and a
+# renewal the browser never received (or refused) is tried again without a surge.
+BROWSER_PASS_RENEW_RETRY_S = 600
+# Attempts kept in memory: forgetting one costs at most one more renewal.
+RENEWAL_ATTEMPTS_MAX = 4096
 # remote-relay.md: the instance answers ``enroll`` within 10 s; keep a margin.
 ENROLL_ANSWER_TIMEOUT_S = 8.0
 ACCESS_REQUEST_TTL_S = 600
@@ -237,6 +246,8 @@ class _Runtime:
     listeners: list[Callable[[], Any]] | None = None
     lock: asyncio.Lock | None = None
     clock: Callable[[], float] = time.time
+    # Device id -> monotonic time of its last renewal attempt, oldest first.
+    renewal_attempts: OrderedDict[str, float] = field(default_factory=OrderedDict)
 
 
 _rt = _Runtime(access={}, listeners=[])
@@ -781,7 +792,8 @@ def _uid(user_id: int) -> str:
 
 async def verify_device_pass(token: str, slot: PassSlot) -> tuple[str, dict[str, Any] | None]:
     """The third check of the edge lock (``x-meshloom-pass``): the contract's verdict,
-    then the device must be one of ours, not revoked, owned by the pass's ``uid``."""
+    then the device must be one of ours, not revoked, owned by the pass's ``uid``, and
+    that account must still exist, whoever signs in behind the edge lock."""
     state = await pass_state()
     if state is None:
         return "pass_issuer", None
@@ -791,7 +803,57 @@ async def verify_device_pass(token: str, slot: PassSlot) -> tuple[str, dict[str,
     device = await RemoteRepository.get_device(claims["sub"])
     if device is None or device.revoked_at is not None or _uid(device.user_id) != claims["uid"]:
         return "pass_revoked", None
+    if await UserRepository.get(device.user_id) is None:
+        return "pass_revoked", None
     return verdict, claims
+
+
+def _renewal_due(token: str) -> bool:
+    """Whether to try renewing this already accepted pass, and record the attempt. No
+    ``await``, so concurrent requests of one browser get a single attempt; nothing
+    here reads the database or signs, so a pass that is not due costs next to nothing."""
+    claims = remote_passes.decode_pass(token)
+    if claims is None or claims["kind"] != "browser":
+        return False
+    if _now() - claims["iat"] < BROWSER_PASS_RENEW_AFTER_S:
+        return False
+    attempts, sub, moment = _rt.renewal_attempts, claims["sub"], time.monotonic()
+    last = attempts.get(sub)
+    if last is not None and moment - last < BROWSER_PASS_RENEW_RETRY_S:
+        return False
+    attempts[sub] = moment
+    attempts.move_to_end(sub)
+    while len(attempts) > RENEWAL_ATTEMPTS_MAX:
+        attempts.popitem(last=False)
+    return True
+
+
+async def renew_browser_pass(token: str) -> str | None:
+    """A new 90-day browser pass for the device holding ``token``, or None (contract
+    "Renewal"). The relay client calls it when a signed-in request succeeded; the rate
+    is ``_renewal_due``'s.
+
+    The pass is checked again here, since the request may have revoked the device. A
+    pass past its own ``exp``, which the verifier still accepts for clock skew, gets no
+    second life. The new expiry is stored before the pass exists for anyone: the revoked
+    list keeps a device until ``pass_expires_at``, and a device revoked meanwhile matches
+    no row, so a revocation always wins."""
+    if not _renewal_due(token):
+        return None
+    verdict, claims = await verify_device_pass(token, "cookie")
+    if verdict != "accept" or claims is None or claims["exp"] <= _now():
+        return None
+    renewed, exp = await _sign(
+        "browser",
+        slug=claims["iss"],
+        sub=claims["sub"],
+        uid=claims["uid"],
+        gen=claims["gen"],
+        lifetime=BROWSER_PASS_LIFETIME_S,
+    )
+    if not await RemoteRepository.extend_device_pass(claims["sub"], exp):
+        return None
+    return renewed
 
 
 async def _require_registered() -> RemoteState:
@@ -1015,15 +1077,39 @@ async def revoke_device(device_id: str, actor: AuditActor, *, owner_id: int | No
         raise RemoteError("remote_device_not_found")
     async with _lock():
         await RemoteRepository.revoke_device(device_id, _now())
-        state = await RemoteRepository.get_state()
-        revoked = await RemoteRepository.revoked_ids(
-            state.gate_gen, _now(), grace=remote_passes.CLOCK_SKEW_S
-        )
-        if len(revoked) > REVOKED_MAX:
-            # The relay keeps at most 1024 ids: past that, every device enrols again.
-            logger.warning("Remote: more than %d revoked devices, new pass generation", REVOKED_MAX)
-            await RemoteRepository.bump_generation(_now())
+        await _keep_revoked_list_in_limit()
     await record("remote.device_revoked", "success", actor=actor, target=f"device:{device_id}")
+    return await push_gate()
+
+
+async def _keep_revoked_list_in_limit() -> None:
+    """Under ``_lock``. The relay keeps at most 1024 ids: past that, every device enrols again."""
+    state = await RemoteRepository.get_state()
+    revoked = await RemoteRepository.revoked_ids(
+        state.gate_gen, _now(), grace=remote_passes.CLOCK_SKEW_S
+    )
+    if len(revoked) > REVOKED_MAX:
+        logger.warning("Remote: more than %d revoked devices, new pass generation", REVOKED_MAX)
+        await RemoteRepository.bump_generation(_now())
+
+
+async def revoke_account_devices(user_id: int, actor: AuditActor) -> bool:
+    """Revoke the devices of an account that was just deleted, those it approved for
+    someone else included (they belong to it). Returns whether the relay was told; False
+    with nothing to revoke. ``verify_device_pass`` already refuses them either way."""
+    devices = [
+        device
+        for device in await RemoteRepository.list_devices(user_id)
+        if device.revoked_at is None
+    ]
+    if not devices:
+        return False
+    async with _lock():
+        for device in devices:
+            await RemoteRepository.revoke_device(device.id, _now())
+        await _keep_revoked_list_in_limit()
+    for device in devices:
+        await record("remote.device_revoked", "success", actor=actor, target=f"device:{device.id}")
     return await push_gate()
 
 

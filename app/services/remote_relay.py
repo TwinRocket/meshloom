@@ -24,6 +24,11 @@
   headers are dropped. Before dispatch the device pass in ``x-meshloom-pass`` is
   verified again (``remote.verify_device_pass``, the third check of the edge lock):
   without a valid one the answer is 401 ``remote_pass_required``.
+- **Pass renewal.** The ``RESP_HEAD`` of a 2xx answer to a signed-in ``/api/*`` request
+  with a browser pass may carry ``x-meshloom-set-pass`` (``remote.renew_browser_pass``,
+  at most once a day per device); the relay turns it into ``__Host-mlgate``. Only this
+  module adds the header: the same name from the app is dropped, and the relay reads it
+  on HTTP answers only, so a WebSocket never has it.
 - **Flow control.** Per stream and direction credits (grant once half the window is
   consumed, ``CANCEL credit_exceeded`` on overrun), at most ``max_streams`` streams,
   bodies and messages cut at ``max_chunk``. Outbound frames are batched over a 50 ms
@@ -58,14 +63,16 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
+from app.auth.principal import principal_from_scope
 from app.services import remote
 from app.services import remote_frames as rf
-from app.services.remote_passes import PassSlot, decode_pass
+from app.services.remote_passes import MAX_PASS_BYTES, PassSlot, decode_pass
 
 logger = logging.getLogger(__name__)
 
 CONNECT_PATH = "/v1/connect"
 PROTOCOL_HEADER = "X-Meshloom-Relay-Protocol"
+SET_PASS_HEADER = "x-meshloom-set-pass"
 OFFERED_PROTOCOLS = "1"
 
 OPEN_TIMEOUT_S = 15.0
@@ -132,12 +139,13 @@ _STRIP_IN = frozenset(
         "x-ingress-path",
         "x-meshloom-relay",
         "x-meshloom-pass",
-        "x-meshloom-set-pass",
+        SET_PASS_HEADER,
     }
 )
 _STRIP_IN_PREFIXES = ("x-forwarded-", "x-remote-user-", "cf-", "proxy-", "sec-websocket-")
-# Outbound: the relay owns HSTS for the whole domain; a pass never goes back.
-_STRIP_OUT = frozenset({"strict-transport-security", "x-meshloom-pass"})
+# Outbound: the relay owns HSTS for the whole domain; a pass never comes from the app
+# (a renewal is added after this filter, by HttpStream).
+_STRIP_OUT = frozenset({"strict-transport-security", "x-meshloom-pass", SET_PASS_HEADER})
 _METHOD_RE = re.compile(r"[A-Z]{1,16}")
 _JSON = [("content-type", "application/json")]
 
@@ -249,10 +257,14 @@ def parse_relay_hello(value: Any) -> dict[str, Any] | None:
     return value
 
 
+def _pass_tokens(pairs: Any) -> list[str]:
+    return [value for name, value in pairs or () if name.lower() == "x-meshloom-pass"]
+
+
 async def check_pass(pairs: Any) -> dict[str, Any] | None:
     """The claims of the request's ``x-meshloom-pass`` when it is one valid browser
     (cookie slot) or client (header slot) pass of a known, unrevoked device."""
-    tokens = [value for name, value in pairs or () if name.lower() == "x-meshloom-pass"]
+    tokens = _pass_tokens(pairs)
     if len(tokens) != 1:
         return None
     claims = decode_pass(tokens[0])
@@ -416,6 +428,10 @@ class HttpStream(_Stream):
         self.headers: list[list[str]] = []
         self.head_sent = False
         self.done = asyncio.Event()
+        # The accepted browser pass and the scope of the request it let through; kept
+        # here, never in the scope the app sees.
+        self.browser_pass: str | None = None
+        self.scope: dict[str, Any] | None = None
 
     def abort(self) -> None:
         super().abort()
@@ -475,6 +491,12 @@ class HttpStream(_Stream):
             if len(payload) > rf.MAX_HEADER_BYTES:
                 await self.link.cancel(self.id, "frame_too_large")
                 return
+            renewed = await self._renewed_pass(len(payload))
+            if self.aborted:
+                return
+            if renewed is not None:
+                headers = [*self.headers, [SET_PASS_HEADER, renewed]]
+                payload = rf.json_payload({"status": self.status, "headers": headers})
             await self.link.emit(
                 rf.encode_frame(rf.RESP_HEAD, self.id, rf.END if final else 0, payload),
                 urgent=final,
@@ -503,6 +525,27 @@ class HttpStream(_Stream):
         if not more:
             self._finish()
 
+    async def _renewed_pass(self, head_size: int) -> str | None:
+        """A new pass for this answer's head, when the request shows the device in use:
+        it succeeded, on the API (never a response a cache may keep) and signed in, by
+        any account: a device approved for someone else belongs to its approver. Never
+        fails the request."""
+        token, scope = self.browser_pass, self.scope
+        if (
+            token is None
+            or scope is None
+            or not 200 <= self.status <= 299
+            or not scope["path"].startswith("/api/")
+            or principal_from_scope(scope) is None
+            or head_size + len(SET_PASS_HEADER) + MAX_PASS_BYTES + 16 > rf.MAX_HEADER_BYTES
+        ):
+            return None
+        try:
+            return await remote.renew_browser_pass(token)
+        except Exception as exc:
+            logger.warning("Remote: browser pass renewal failed (%s)", type(exc).__name__)
+            return None
+
     def _finish(self) -> None:
         self.done.set()
         self.link.forget(self.id)
@@ -521,6 +564,8 @@ class HttpStream(_Stream):
                 status, message = _REFUSALS[refusal or "remote_request_invalid"]
                 await self.respond(status, _coded(refusal or "remote_request_invalid", message))
                 return
+            if scope["state"]["remote_device"]["kind"] == "browser":
+                self.browser_pass, self.scope = _pass_tokens(head.get("headers"))[0], scope
             try:
                 await self.link.app(scope, self.receive, self.send)
             except Exception:

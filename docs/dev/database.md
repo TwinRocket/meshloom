@@ -487,7 +487,8 @@ device"), `last_error` (the last registry error code). `RemoteRepository`
 Devices holding a Remote pass (migration 138): PK `id` (the pass `sub`, 22 base64url
 characters), `user_id` (the account the device belongs to, the pass `uid`), `kind`
 (`browser` or `client`), `label`, `origin` (`qr`, `approval`, `client`), `gen` (the
-generation its pass was signed in), `created_at`, `pass_expires_at`, `last_seen_at`,
+generation its pass was signed in), `created_at`, `pass_expires_at` (of its latest pass, moved
+by a renewal), `last_seen_at`,
 `revoked_at`. A revoked row of the current generation is in the relay's revoked list
 while its pass may still be presented. `RemoteRepository` (`remote.py`). Excluded from
 backups, emptied in a database copy and by every restore.

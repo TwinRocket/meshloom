@@ -22,7 +22,7 @@ Each device is allowed once, for your own account:
 
 Then sign in on the device as usual. Through the relay you must **always sign in**: login-free on the local network and trusted networks never apply ([Accounts and access](/en/docs/deep/access/#trusted-networks)). After several failed sign-ins from one network the relay shows a short check page first ([Sign-in delays](/en/docs/deep/access/#sign-in-delays)).
 
-**Allowed devices** lists your devices (an administrator sees every account's). Revoke a lost or unused device; **Revoke every device** cuts them all at once. A browser keeps its access 90 days, an app or script 365 days.
+**Allowed devices** lists your devices (an administrator sees every account's). Revoke a lost or unused device; **Revoke every device** cuts them all at once. A browser keeps its access as long as you sign in and use it at least once every 90 days; after that it must be allowed again. An app or script keeps its access 365 days.
 
 ## What the relay sees
 
@@ -72,7 +72,7 @@ The key fingerprint identifies the instance to the relay; it only changes when y
 | Failed sign-ins | After a few from one network, a check page first (see above) |
 | Access request | Valid 10 minutes; at most 5 waiting at once for an instance |
 | QR code | One use, 15 minutes |
-| Allowed device | 90 days for a browser, 365 days for an app or script |
+| Allowed device | 90 days after its last use for a browser, 365 days for an app or script |
 | Address after **Leave** | Kept 30 days for the same key |
 
 The limits are the same for every instance. Ordinary use of the interface stays far below them; a script that polls every few seconds, or large media, is what reaches them.

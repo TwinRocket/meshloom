@@ -22,7 +22,7 @@ On autorise chaque appareil une seule fois, pour son propre compte :
 
 Connectez-vous ensuite sur l’appareil comme d’habitude. Par le relais, il faut **toujours se connecter** : l’accès sans connexion sur le réseau local et les réseaux de confiance ne s’appliquent jamais ([Comptes et accès](/docs/deep/access/#les-réseaux-de-confiance)). Après plusieurs connexions échouées depuis un même réseau, le relais affiche d’abord une courte page de vérification ([Délais de connexion](/docs/deep/access/#les-délais-de-connexion)).
 
-**Appareils autorisés** liste vos appareils (un administrateur voit ceux de tous les comptes). Révoquez un appareil perdu ou inutilisé ; **Révoquer tous les appareils** les coupe tous d’un coup. Un navigateur garde son accès 90 jours, une application ou un script 365 jours.
+**Appareils autorisés** liste vos appareils (un administrateur voit ceux de tous les comptes). Révoquez un appareil perdu ou inutilisé ; **Révoquer tous les appareils** les coupe tous d’un coup. Un navigateur garde son accès tant que vous vous y connectez et l’utilisez au moins une fois tous les 90 jours ; passé ce délai, il faut l’autoriser de nouveau. Une application ou un script garde son accès 365 jours.
 
 ## Ce que voit le relais
 
@@ -72,7 +72,7 @@ L’empreinte de la clé identifie l’instance auprès du relais ; elle ne chan
 | Connexions échouées | Après quelques-unes depuis un même réseau, une page de vérification d’abord (voir plus haut) |
 | Demande d’accès | Valable 10 minutes ; 5 au plus en attente à la fois pour une instance |
 | QR code | Un seul usage, 15 minutes |
-| Appareil autorisé | 90 jours pour un navigateur, 365 jours pour une application ou un script |
+| Appareil autorisé | 90 jours après sa dernière utilisation pour un navigateur, 365 jours pour une application ou un script |
 | Adresse après **Quitter** | Conservée 30 jours pour la même clé |
 
 Les limites sont les mêmes pour toutes les instances. L’usage normal de l’interface reste très en dessous ; un script qui interroge toutes les quelques secondes, ou de gros médias, sont ce qui les atteint.
