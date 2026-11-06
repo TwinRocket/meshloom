@@ -179,6 +179,28 @@ Versions order correctly everywhere: `4.18.2-1 < 5.0.0~rc.1-1 < 5.0.0~rc.2-1 <
 5.0.0-1` for dpkg and rpm, and PEP 440 reads `5.0.0-rc.1` as a pre-release of
 `5.0.0`.
 
+### The rc's notes
+
+`[X.Y.Z-rc.N]` in `CHANGELOG.md` becomes the body of the GitHub release
+(`create_github_release.sh`) and the annotation of the tag (`publish.sh`,
+`git tag -F`, whose default cleanup drops every line starting with `#`, so the tag
+has no headings; the GitHub release keeps them). `release_extract_changelog_section`
+takes everything from the line starting `## [X.Y.Z-rc.N]` up to the next `## [`.
+
+- Write it for a tester: `### Known limits of this pre-release` near the top, then what a
+  user notices, then a `### Français` part with the same content, as in stable sections.
+- Keep it well under GitHub's limit of 125,000 characters for a release body. Past it,
+  `gh release create` fails after the tag is pushed, with the assets built.
+- Links are absolute, to the tag (`.../blob/X.Y.Z-rc.N/docs/...`): a release body does not
+  resolve a relative path, and the site is not rebuilt for an rc.
+- `publish.sh` leaves an existing section as it is, date included: fix the date before
+  running it. The section may already be committed.
+- `## [Unreleased]` stays on top for what lands next. `rc.2` gets its own section, and the
+  final `X.Y.Z` gets a rewritten one, without the pre-release parts.
+- 5.0.0-rc.1's section replaced the development log of the cycle. That log, per feature,
+  is `CHANGELOG.md` at commit `3003b5511ef5450762fa3369ddc00637f922b066`: not revised, so
+  some entries were superseded later. Check any of it against the code.
+
 ### How a tester gets an rc
 
 `get.meshloom.app/next` redirects to the `install.sh` of the rc that the `testing`
