@@ -1590,6 +1590,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  reinstallPlugin: (id: string) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/reinstall`, { method: 'POST' }),
   restartPlugin: (id: string) =>
     fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   getPluginLogs: (id: string, limit = 200) =>

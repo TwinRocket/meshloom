@@ -27,6 +27,7 @@ import {
   formatDiagnostic,
   isFrozen,
   lastErrorText,
+  needsReinstall,
   sendQuotaState,
 } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
@@ -114,7 +115,8 @@ export function InstanceDrawer({
       <SheetContent side="right" className="w-full overflow-y-auto p-0 sm:max-w-lg">
         {instance && (
           <DrawerBody
-            key={instance.instance_id}
+            // Reinstalling changes the manifest and the grants: the drawer starts over from them.
+            key={`${instance.instance_id}:${needsReinstall(instance)}`}
             instance={instance}
             locked={locked}
             canManage={canManage}
@@ -154,6 +156,7 @@ function DrawerBody({
   const [perHour, setPerHour] = useState(String(quota.perHour));
   const [perDay, setPerDay] = useState(String(quota.perDay));
   const [busy, setBusy] = useState(false);
+  const [reinstalling, setReinstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uninstallOpen, setUninstallOpen] = useState(false);
   const [keepData, setKeepData] = useState(false);
@@ -220,6 +223,15 @@ function DrawerBody({
       return api.patchPlugin(instance.instance_id, { enabled: true });
     }, t('settings.extensions.drawer.accepted'));
 
+  const reinstall = async () => {
+    setReinstalling(true);
+    await run(
+      () => api.reinstallPlugin(instance.instance_id),
+      t('settings.extensions.drawer.reinstalled')
+    );
+    setReinstalling(false);
+  };
+
   const copyDiagnostic = async () => {
     setError(null);
     try {
@@ -248,6 +260,7 @@ function DrawerBody({
   };
 
   const canRestart = instance.enabled && !frozen && instance.status !== 'needs_attention';
+  const reinstallBlocked = needsReinstall(instance) && !instance.reinstallable;
 
   return (
     <div className="space-y-5 p-4 pt-12">
@@ -320,10 +333,29 @@ function DrawerBody({
         {instance.status === 'needs_attention' && (
           <div className="space-y-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
             <p>
-              {t(`settings.extensions.attention.${reasonText ?? 'other'}.text`, {
-                defaultValue: t('settings.extensions.attention.other.text'),
-              })}
+              {reinstallBlocked
+                ? t('settings.extensions.attention.reinstall.unavailable')
+                : t(`settings.extensions.attention.${reasonText ?? 'other'}.text`, {
+                    defaultValue: t('settings.extensions.attention.other.text'),
+                  })}
             </p>
+            {canManage && needsReinstall(instance) && instance.reinstallable && (
+              <Button size="sm" onClick={reinstall} disabled={readOnly}>
+                {reinstalling
+                  ? t('settings.extensions.drawer.reinstalling')
+                  : t('settings.extensions.drawer.reinstall')}
+              </Button>
+            )}
+            {canManage && reinstallBlocked && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setUninstallOpen(true)}
+              >
+                {t('settings.extensions.drawer.uninstall')}
+              </Button>
+            )}
             {reason === 'config_required' && (
               <Button
                 size="sm"

@@ -482,6 +482,7 @@ describe('re-consent, reorder and admin gate', () => {
       enabled: false,
       status: 'needs_attention',
       attention: { type: 'reinstall', was_enabled: true, secrets_missing: false },
+      reinstallable: true,
     });
     vi.spyOn(api, 'getPlugins').mockResolvedValue([row]);
     vi.spyOn(api, 'getPluginLogs').mockResolvedValue({ lines: [], truncated: false });
@@ -498,6 +499,113 @@ describe('re-consent, reorder and admin gate', () => {
       screen.queryByRole('button', { name: t('settings.extensions.drawer.acceptAndEnable') })
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId('plugin-exfiltration-warning')).not.toBeInTheDocument();
+  });
+
+  describe('reinstalling an instance restored without its code', () => {
+    const toReinstall = (overrides: Partial<PluginInstance> = {}) =>
+      instance({
+        kind: 'custom',
+        enabled: false,
+        status: 'needs_attention',
+        attention: { type: 'reinstall', was_enabled: true, secrets_missing: [] },
+        reinstallable: true,
+        ...overrides,
+      });
+    const reinstallName = () => t('settings.extensions.drawer.reinstall');
+
+    const openDrawer = async (row: PluginInstance) => {
+      vi.spyOn(api, 'getPlugins').mockResolvedValue([row]);
+      vi.spyOn(api, 'getPluginLogs').mockResolvedValue({ lines: [], truncated: false });
+      render(<SettingsExtensionsSection health={health()} />);
+      fireEvent.click(
+        await screen.findByRole('button', {
+          name: t('settings.extensions.openDetails', { name: 'Weather' }),
+        })
+      );
+    };
+
+    it('shows the button only in that state', async () => {
+      await openDrawer(
+        toReinstall({
+          status: 'needs_attention',
+          attention: { type: 'restored', was_enabled: true, secrets_missing: [] },
+          reinstallable: false,
+        })
+      );
+      await screen.findByText(t('settings.extensions.attention.restored.text'));
+      expect(screen.queryByRole('button', { name: reinstallName() })).not.toBeInTheDocument();
+    });
+
+    it('shows the pending state, then refreshes the instance and asks for the review', async () => {
+      let answer: (value: PluginInstance) => void = () => undefined;
+      const reinstallPlugin = vi.spyOn(api, 'reinstallPlugin').mockImplementation(
+        () =>
+          new Promise<PluginInstance>((resolve) => {
+            answer = resolve;
+          })
+      );
+      await openDrawer(toReinstall());
+      fireEvent.click(await screen.findByRole('button', { name: reinstallName() }));
+      expect(reinstallPlugin).toHaveBeenCalledWith('aaaaaaaa-0000-4000-8000-000000000001');
+      expect(
+        await screen.findByRole('button', { name: t('settings.extensions.drawer.reinstalling') })
+      ).toBeDisabled();
+
+      answer(
+        toReinstall({
+          version: '1.1.0',
+          attention: { type: 'restored', was_enabled: true, secrets_missing: [] },
+          reinstallable: false,
+          granted_permissions: {},
+        })
+      );
+
+      await screen.findByText(t('settings.extensions.attention.restored.text'));
+      expect(screen.queryByRole('button', { name: reinstallName() })).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: t('settings.extensions.drawer.acceptAndEnable') })
+      ).toBeEnabled();
+      expect(screen.getByText(/v1\.1\.0/)).toBeVisible();
+      expect(toastMocks.success).toHaveBeenCalledWith(t('settings.extensions.drawer.reinstalled'));
+      // The drawer starts over from the new grants: nothing looks edited.
+      expect(
+        screen.queryByRole('button', { name: t('settings.extensions.drawer.save') })
+      ).not.toBeInTheDocument();
+    });
+
+    it('says why it failed and lets the admin try again', async () => {
+      vi.spyOn(api, 'reinstallPlugin').mockRejectedValue(
+        new ApiError('x', 409, { code: 'store_offline', message: 'x' })
+      );
+      await openDrawer(toReinstall());
+      fireEvent.click(await screen.findByRole('button', { name: reinstallName() }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(t('errors.store_offline'));
+      expect(screen.getByRole('button', { name: reinstallName() })).toBeEnabled();
+      expect(toastMocks.success).not.toHaveBeenCalled();
+    });
+
+    it('offers uninstalling, not a button that cannot work, when the source is not here', async () => {
+      const reinstallPlugin = vi.spyOn(api, 'reinstallPlugin');
+      await openDrawer(toReinstall({ kind: 'store', reinstallable: false }));
+      await screen.findByText(t('settings.extensions.attention.reinstall.unavailable'));
+      expect(screen.queryByRole('button', { name: reinstallName() })).not.toBeInTheDocument();
+      expect(
+        screen.getByText(t('settings.extensions.enableBlocked.reinstall_unavailable'))
+      ).toBeVisible();
+      const uninstall = screen.getAllByRole('button', {
+        name: t('settings.extensions.drawer.uninstall'),
+      });
+      fireEvent.click(uninstall[0]);
+      await screen.findByText(t('settings.extensions.uninstall.keepData'));
+      expect(reinstallPlugin).not.toHaveBeenCalled();
+    });
+
+    it('offers nothing to a member', async () => {
+      roleRef.current = 'member';
+      await openDrawer(toReinstall({ attention: null, reinstallable: false }));
+      await screen.findByTestId('plugin-drawer-member-readonly');
+      expect(screen.queryByRole('button', { name: reinstallName() })).not.toBeInTheDocument();
+    });
   });
 
   it('says when a bundled update is held only because its privacy declaration widened', async () => {

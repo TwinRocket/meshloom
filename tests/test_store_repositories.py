@@ -437,6 +437,42 @@ async def test_install_from_a_repository(api, manager, net, online, tmp_path, mo
     assert source is not None and source.repository == "acme/echo"
 
 
+async def test_reinstall_takes_the_latest_release_when_a_newer_one_exists(
+    api, manager, net, online, tmp_path, monkeypatch
+):
+    """MSHL-469: a repository only serves its latest release, so an instance restored at an
+    older version still comes back, through the real resolver, its grants kept for the review."""
+    set_version(monkeypatch, "5.0.0")
+    data = build_archive(tmp_path, version="1.1.0")
+    publish(net, data, tag="v1.1.0")
+    # The instance keeps the lowercase key; GitHub answers any case (the mock does not).
+    for url in [u for u in net.routes if u.startswith(BASE)]:
+        net.routes[url.replace(BASE, BASE.lower())] = net.routes[url]
+    row = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Restored",
+        kind="custom",
+        version="1.0.0",
+        manifest=entry_of(build_archive(tmp_path)),
+        granted_permissions=GRANT,
+        status="needs_attention",
+        attention={"type": "reinstall", "was_enabled": True},
+        repository="acme/echo",
+    )
+
+    response = await api.post(f"/api/plugins/{row['instance_id']}/reinstall")
+
+    assert response.status_code == 200, response.text
+    view = response.json()
+    assert view["version"] == "1.1.0"
+    assert view["enabled"] is False
+    assert view["attention"] == {"type": "restored", "was_enabled": True}
+    assert view["granted_permissions"] == GRANT
+    stored = await PluginRepository.get(row["instance_id"])
+    assert stored is not None
+    assert stored["archive_sha256"] == hashlib.sha256(data).hexdigest()
+
+
 async def test_resolver_checks_the_version(net, online, tmp_path):
     publish(net, build_archive(tmp_path))
     await custom_repos.add_repository(REPO)

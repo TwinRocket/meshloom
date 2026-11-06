@@ -189,6 +189,11 @@ class PluginInstanceView(BaseModel):
     )
     restarts: int = 0
     dropped_events: int = 0
+    reinstallable: bool = Field(
+        default=False,
+        description="Admin only. An instance restored without its code whose source exists "
+        "here, so ``POST /reinstall`` can try it. Reaches no network.",
+    )
 
 
 class BundledPluginView(BaseModel):
@@ -394,7 +399,27 @@ async def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
         else [],
         restarts=live.get("restarts", 0),
         dropped_events=live.get("dropped_events", 0),
+        reinstallable=admin and await _reinstallable(row),
     )
+
+
+async def _reinstallable(row: dict[str, Any]) -> bool:
+    """Whether ``POST /reinstall`` has a source for this row, so the UI does not offer an
+    action that can only fail. A bundled plugin must ship with this release (the restore
+    hook brought back the ones that do, unless it failed), a custom one needs a valid
+    repository, and no resolver serves ``store`` yet. What only the network can tell
+    (Store off, release gone) is the route's answer."""
+    if (row["attention"] or {}).get("type") != "reinstall":
+        return False
+    kind = row["kind"]
+    if kind == "bundled":
+        return row["plugin_id"] in await asyncio.to_thread(installer.list_bundled)
+    if kind == "custom":
+        try:
+            custom_repos.parse_repository(row["repository"])
+        except installer.InstallError:
+            return False
+    return kind != "local" and installer.has_resolver(kind)
 
 
 def _is_admin(request: Request) -> bool:
@@ -921,9 +946,11 @@ async def reinstall_plugin(
 ) -> PluginInstanceView:
     """Bring back the code of an instance restored from a backup without it
     (``attention.type = "reinstall"``, 409 ``plugin_not_reinstallable`` otherwise): the
-    same source and version, checked like an install. The instance stays disabled with
-    ``attention.type = "restored"``, its grants kept only when the manifest covers them,
-    for the admin to review before it starts."""
+    same source, checked like an install. A custom repository only serves its latest
+    release, which can be newer than the restored version; an instance of the plugin
+    already running here gives its code and version instead, nothing is downloaded. The
+    instance stays disabled with ``attention.type = "restored"``, its grants kept only
+    when the manifest covers them, for the admin to review before it starts."""
     row = await _row(instance_id)
     async with audit.audited(
         actor,
@@ -954,7 +981,50 @@ async def _reinstall(instance_id: str) -> None:
     ]
     if any(r["kind"] != row["kind"] for r in siblings):
         raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
-    version = None if row["kind"] == "bundled" else row["version"]
+    shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
+    if row["kind"] != "bundled" and shared is not None:
+        # The code directory is shared: replacing it would pull it from under that instance.
+        if _repository_key(row["repository"] or "") != shared["repository"]:
+            raise _error(
+                409,
+                "plugin_repository_conflict",
+                "This plugin is installed from another repository",
+                repository=shared["repository"],
+            )
+        if not installer.code_installed(
+            plugin_manager.plugins_root(), row["plugin_id"], shared["version"]
+        ):
+            raise _error(409, "plugin_code_missing", "The installed code of this plugin is missing")
+        manifest, schema = shared["manifest"], shared["config_schema"]
+        archive_sha256, repository = shared["archive_sha256"], shared["repository"]
+    else:
+        manifest, schema, archive_sha256, repository = await _fetch_code(row)
+    try:
+        await PluginRepository.update(
+            instance_id,
+            manifest=manifest,
+            version=manifest["version"],
+            config_schema=schema,
+            config=config_for_schema(schema, public_config(row)),
+            granted_permissions=granted_within(manifest, row["granted_permissions"]),
+            attention={**(row["attention"] or {}), "type": RESTORED},
+            archive_sha256=archive_sha256,
+            repository=repository,
+        )
+    except PluginStoreError as exc:
+        raise _store_error(exc) from None
+    plugin_manager.announce(instance_id)
+
+
+async def _fetch_code(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str | None, str | None]:
+    """Install the code of a restored row from its source (caller holds the lock):
+    ``(manifest, config schema, archive sha256, repository)``."""
+    # A bundled plugin is what this release ships, and a custom repository only serves its
+    # latest release (`resolve_custom`): asking for the restored version would refuse every
+    # instance whose repository moved on. No sha256 pins it: a backup does not hold one.
+    version = row["version"] if row["kind"] == "store" else None
     source = await _source(row["kind"], row["plugin_id"], version, row["repository"])
     prepared = await _prepare(source, row["plugin_id"])
     try:
@@ -968,22 +1038,8 @@ async def _reinstall(instance_id: str) -> None:
         raise _error(500, "install_failed", "The plugin could not be installed") from None
     finally:
         await asyncio.to_thread(prepared.discard)
-    manifest, schema = prepared.manifest, prepared.config_schema
-    try:
-        await PluginRepository.update(
-            instance_id,
-            manifest=manifest,
-            version=manifest["version"],
-            config_schema=schema,
-            config=config_for_schema(schema, public_config(row)),
-            granted_permissions=granted_within(manifest, row["granted_permissions"]),
-            attention={**(row["attention"] or {}), "type": RESTORED},
-            archive_sha256=prepared.archive_sha256 if row["kind"] != "bundled" else None,
-            repository=prepared.repository,
-        )
-    except PluginStoreError as exc:
-        raise _store_error(exc) from None
-    plugin_manager.announce(instance_id)
+    archive_sha256 = prepared.archive_sha256 if row["kind"] != "bundled" else None
+    return prepared.manifest, prepared.config_schema, archive_sha256, prepared.repository
 
 
 @router.post(

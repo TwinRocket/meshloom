@@ -892,7 +892,8 @@ async def test_reinstall_brings_back_the_code_of_a_restored_instance(
     response = await api.post(f"/api/plugins/{iid}/reinstall")
     assert response.status_code == 200, response.text
     assert response.json()["attention"]["type"] == "restored"
-    assert asked[-1] == ("acme.echo", "1.0.0", "acme/echo")
+    # A custom repository only serves its latest release: no version is asked for.
+    assert asked[-1] == ("acme.echo", None, "acme/echo")
     assert (manager.plugins_root() / "acme.echo" / "manifest.json").is_file()
     stored = await PluginRepository.get(iid)
     assert stored is not None
@@ -900,6 +901,133 @@ async def test_reinstall_brings_back_the_code_of_a_restored_instance(
 
     again = await api.post(f"/api/plugins/{iid}/reinstall")
     assert (again.status_code, code_of(again)) == (409, "plugin_not_reinstallable")
+
+
+async def test_reinstall_keeps_grants_settings_and_data(api, manager, catalog, tmp_path):
+    """MSHL-469: through the real route, the code comes back and nothing the admin set moves."""
+    sources, _ = catalog
+    data = build_archive(tmp_path, schema=SCHEMA)
+    sources["acme.echo"] = data
+    manifest = entry_of(data)
+    scope = {"channels": "all", "contacts": "none"}
+    quotas = {"messages.send": {"per_hour": 3, "per_day": 9}}
+    row = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Restored",
+        kind="custom",
+        version="1.0.0",
+        manifest=manifest,
+        config_schema=SCHEMA,
+        config={"greeting": "Bonjour", "token": SECRET},
+        scope=scope,
+        granted_permissions=GRANT,
+        quotas=quotas,
+        auto_update=True,
+        status="needs_attention",
+        attention={"type": "reinstall", "was_enabled": True, "secrets_missing": []},
+        repository="acme/echo",
+    )
+    iid = row["instance_id"]
+    await PluginKvRepository.set(iid, "state", {"n": 1})
+
+    response = await api.post(f"/api/plugins/{iid}/reinstall")
+
+    assert response.status_code == 200, response.text
+    view = response.json()
+    assert view["reinstallable"] is False
+    assert (view["enabled"], view["status"]) == (False, "needs_attention")
+    assert view["attention"] == {"type": "restored", "was_enabled": True, "secrets_missing": []}
+    assert view["label"] == "Restored"
+    assert view["granted_permissions"] == GRANT
+    assert view["scope"] == scope
+    assert view["quotas"] == quotas
+    assert view["auto_update"] is True
+    assert view["config"]["greeting"] == "Bonjour"
+    assert await PluginRepository.config_for_init(iid) == {"greeting": "Bonjour", "token": SECRET}
+    assert await PluginKvRepository.get(iid, "state") == {"n": 1}
+
+
+async def test_reinstall_never_replaces_the_code_of_another_instance(
+    api, manager, catalog, tmp_path
+):
+    """The code directory is shared: a sibling keeps its tree, and the restored instance
+    takes its version, whatever the repository's latest release is by now."""
+    sources, asked = catalog
+    sources["acme.echo"] = build_archive(tmp_path)
+    first = await install(api)
+    assert first.status_code == 201, first.text
+    sources["acme.echo"] = build_archive(tmp_path, version="2.0.0")
+    asked.clear()
+    row = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Restored",
+        kind="custom",
+        version="0.9.0",
+        manifest=entry_of(sources["acme.echo"]),
+        granted_permissions=GRANT,
+        status="needs_attention",
+        attention={"type": "reinstall"},
+        repository="acme/echo",
+    )
+
+    response = await api.post(f"/api/plugins/{row['instance_id']}/reinstall")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["version"] == "1.0.0"
+    assert response.json()["attention"]["type"] == "restored"
+    assert asked == []
+    assert installer.code_installed(manager.plugins_root(), "acme.echo", "1.0.0")
+
+
+async def test_reinstall_refuses_a_sibling_from_another_repository(api, manager, catalog, tmp_path):
+    sources, _ = catalog
+    sources["acme.echo"] = build_archive(tmp_path)
+    assert (await install(api)).status_code == 201
+    row = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Restored",
+        kind="custom",
+        version="1.0.0",
+        manifest=entry_of(sources["acme.echo"]),
+        status="needs_attention",
+        attention={"type": "reinstall"},
+        repository="other/echo",
+    )
+    response = await api.post(f"/api/plugins/{row['instance_id']}/reinstall")
+    assert (response.status_code, code_of(response)) == (409, "plugin_repository_conflict")
+    stored = await PluginRepository.get(row["instance_id"])
+    assert stored is not None and stored["attention"]["type"] == "reinstall"
+
+
+@pytest.mark.parametrize(
+    ("kind", "repository", "attention", "expected"),
+    [
+        ("custom", "acme/echo", "reinstall", True),
+        ("custom", None, "reinstall", False),
+        ("custom", "not a repository", "reinstall", False),
+        # No resolver serves the store kind yet.
+        ("store", "acme/echo", "reinstall", False),
+        # BUNDLED_ROOT is empty in these tests: this release does not ship it.
+        ("bundled", None, "reinstall", False),
+        ("custom", "acme/echo", "restored", False),
+    ],
+)
+async def test_reinstallable_says_whether_the_route_has_a_source(
+    api, manager, catalog, kind, repository, attention, expected
+):
+    row = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Restored",
+        kind=kind,
+        version="1.0.0",
+        manifest={},
+        status="needs_attention",
+        attention={"type": attention},
+        repository=repository,
+    )
+    listed = (await api.get("/api/plugins")).json()
+    view = next(v for v in listed if v["instance_id"] == row["instance_id"])
+    assert view["reinstallable"] is expected
 
 
 async def test_conflicting_kind_or_version_is_refused(api, manager, catalog, tmp_path):
