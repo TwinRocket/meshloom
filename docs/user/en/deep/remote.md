@@ -11,7 +11,7 @@ Meshloom Remote opens your instance from anywhere, from any device (phone, table
 
 An administrator presses **Turn on Meshloom Remote**. The instance registers its own key with the relay, with a proof from Meshloom Community that another station heard your radio recently (see [Proof for Remote and sharing](/en/docs/deep/community/#proof-for-remote-and-sharing)), and gets its own address, such as `https://k3xwq2m7ta.meshloom.link`. Nobody can open that address until you allow a device.
 
-If plugins run without a sandbox on this machine (hooks only), the dialog asks you to confirm first: once the instance is reachable from the internet, anyone who gets into an administrator account could install or configure a plugin that runs code on the machine. Protect every administrator with a passkey or two-factor authentication, and remove the plugins you do not use (**Settings → Extensions**). The **Access security notice** at the top of **Users & Access** repeats this while Remote is on.
+If plugins run without a sandbox on this machine (hooks only), the dialog asks you to confirm first: once the instance is reachable from the internet, anyone who gets into an administrator account could install or configure a plugin that runs code on the machine. Protect every administrator with two-factor authentication, and remove the plugins you do not use (**Settings → Extensions**). The **Access security notice** at the top of **Users & Access** repeats this while Remote is on.
 
 ## Allowing a device
 
@@ -30,7 +30,7 @@ A device belongs to the account that allowed it. Deleting an account cuts all it
 
 The relay is run by TwinRocket. It ends the encrypted connection before passing the traffic on to your instance: it could therefore technically read everything, including your password when you sign in, your messages and your settings. It blocks every device you have not allowed.
 
-So that a password seen by the relay is not enough to get in, use a passkey or turn on two-factor authentication (**Settings → Users & Access**, see [Passkeys](/en/docs/deep/access/#passkeys) and [Two-factor authentication](/en/docs/deep/access/#two-factor-authentication)).
+Only two-factor authentication stops a password seen by the relay from being enough to get in (**Settings → Users & Access**, see [Two-factor authentication](/en/docs/deep/access/#two-factor-authentication)). A [passkey](/en/docs/deep/access/#passkeys) avoids typing the password, but the password stays valid.
 
 While Remote is on, Meshloom also tells the relay its version, its kind of install, and whether it runs plugins and with which isolation. While Remote is off, nothing is sent. There is no relay account. For each instance the relay keeps:
 
@@ -49,15 +49,15 @@ Every instance's address ends in `meshloom.link`, and browsers treat all these a
 Isolated:
 
 - **Access to your instance.** A page on another instance can link to yours, nothing more: anything else it tries from the browser is refused.
-- **Cookies.** Your session and your device's access use cookies tied to the exact address. The relay passes on only those, whatever a page on another instance leaves in your browser, and drops any cookie an instance tries to set for the others.
+- **Cookies.** Your session and your device's access use cookies tied to the exact address. A page on another instance can still leave cookies for the whole domain in your browser, but the relay passes on only the ones tied to the address, so those never reach your instance. The relay also removes from an instance's responses any cookie meant for the others.
 - **Passkeys.** A passkey created through Remote works only on that address. After **Replace the key**, the address changes: create a new one.
 
 Not isolated:
 
-- **Password managers.** Some treat all of `meshloom.link` as one site, so they can offer your password on another instance's page. Check the address before filling it in and, if your manager allows it, make the saved entry match the exact address. With a passkey or two-factor authentication, a password alone is not enough to get in.
-- **The browser's room for cookies.** A page on another instance can fill the room your browser gives to `meshloom.link`. At worst you are signed out, the browser loses its access, or pages show **Request too large**. It gives that page no access to your instance.
+- **Password managers.** Some treat all of `meshloom.link` as one site, so they can offer your password on another instance's page. Check the address before filling it in and, if your manager allows it, make the saved entry match the exact address. Only two-factor authentication stops a password alone from being enough; a passkey avoids typing it, but it stays valid.
+- **The browser's room for cookies.** A page on another instance can fill the room your browser gives to `meshloom.link`. At worst you are signed out, the browser loses its access, or pages refuse to load because the request is too large. It gives that page no access to your instance.
 
-To reset the cookies, delete those of `meshloom.link` and its subdomains in your browser's settings, then allow the device again and revoke the old entry in **Allowed devices**. This applies to every Meshloom Remote instance opened in that browser. For one instance only, the page shown to a browser without access has a **Forget this device** button.
+To reset the cookies, delete those of `meshloom.link` and its subdomains in your browser's settings, then allow the device again and revoke the old entry in **Allowed devices**. This applies to every Meshloom Remote instance opened in that browser. For one instance only, the page shown to a browser without access has a **Forget this device** button. It only removes that browser's access to the instance, not your Meshloom session.
 
 ## Status
 
@@ -113,7 +113,7 @@ Without a confirmed address the pause happens all the same, without a mail. No m
 - **Leave Meshloom Remote** (administrators): the relay deletes the instance's registration and Remote turns off. The key stays on this machine and the address stays reserved for 30 days: turn Remote on again within that time to get the same address back, after it a new one is given. Remote and Community must be on, since Meshloom has to reach the relay. The relay refuses it while the instance is paused (monthly quota included), frozen or banned: turn Remote off instead, and leave once a pause is over.
 - **Replace the key**: a new key and a new address; every allowed device and pending request is forgotten, so each device must be allowed again.
 
-To make your own domain lead to the address, set a URL redirect on your side to `https://<your address>.meshloom.link`: a real `CNAME` cannot work (error 1014). See [Your own domain for Meshloom Remote](/en/docs/deep/remote-domain/). To reach Meshloom with your own tools instead, see [Remote access on your own](/en/docs/deep/remote-self-hosted/).
+To make your own domain lead to the address, set a URL redirect on your side to `https://<name>.meshloom.link`: a real `CNAME` cannot work (error 1014). See [Your own domain for Meshloom Remote](/en/docs/deep/remote-domain/). To reach Meshloom with your own tools instead, see [Remote access on your own](/en/docs/deep/remote-self-hosted/).
 
 ## Backups and the Remote key
 

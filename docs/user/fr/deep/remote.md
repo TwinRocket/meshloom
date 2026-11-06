@@ -11,7 +11,7 @@ Meshloom Remote ouvre votre instance de n’importe où, depuis n’importe quel
 
 Un administrateur appuie sur **Activer Meshloom Remote**. L’instance enregistre sa propre clé auprès du relais, avec une preuve de Meshloom Community qu’une autre station a entendu votre radio récemment (voir [Preuve pour Remote et le partage](/docs/deep/community/#preuve-pour-remote-et-le-partage)), et reçoit sa propre adresse, comme `https://k3xwq2m7ta.meshloom.link`. Personne ne peut ouvrir cette adresse tant que vous n’avez pas autorisé un appareil.
 
-Si les plugins tournent sans bac à sable sur cette machine (hooks seulement), la fenêtre demande d’abord de confirmer : une fois l’instance joignable depuis internet, quelqu’un qui entre dans un compte administrateur pourrait installer ou régler un plugin qui exécute du code sur la machine. Protégez chaque administrateur par une clé d’accès (passkey) ou la double authentification, et supprimez les plugins inutiles (**Réglages → Extensions**). L’**avis de sécurité des accès**, en haut de **Utilisateurs et accès**, le rappelle tant que Remote est activé.
+Si les plugins tournent sans bac à sable sur cette machine (hooks seulement), la fenêtre demande d’abord de confirmer : une fois l’instance joignable depuis internet, quelqu’un qui entre dans un compte administrateur pourrait installer ou régler un plugin qui exécute du code sur la machine. Protégez chaque administrateur par la double authentification, et supprimez les plugins inutiles (**Réglages → Extensions**). L’**avis de sécurité des accès**, en haut de **Utilisateurs et accès**, le rappelle tant que Remote est activé.
 
 ## Autoriser un appareil
 
@@ -30,7 +30,7 @@ Un appareil appartient au compte qui l’a autorisé. Supprimer un compte coupe 
 
 Le relais est exploité par TwinRocket. Il termine la connexion chiffrée avant de transmettre le trafic à votre instance : il pourrait donc techniquement tout lire, y compris votre mot de passe quand vous vous connectez, vos messages et vos réglages. Il bloque tout appareil que vous n’avez pas autorisé.
 
-Pour qu’un mot de passe vu par le relais ne suffise pas à entrer, utilisez une clé d’accès (passkey) ou activez la double authentification (**Réglages → Utilisateurs et accès**, voir [Passkeys](/docs/deep/access/#les-passkeys) et [Double authentification](/docs/deep/access/#la-double-authentification)).
+Seule la double authentification empêche qu’un mot de passe vu par le relais suffise à entrer (**Réglages → Utilisateurs et accès**, voir [Double authentification](/docs/deep/access/#la-double-authentification)). Une [clé d’accès (passkey)](/docs/deep/access/#les-passkeys) évite de saisir le mot de passe, mais celui-ci reste valable.
 
 Quand Remote est activé, Meshloom indique aussi au relais sa version, son type d’installation, et s’il fait tourner des plugins avec quel niveau d’isolation. Tant que Remote est désactivé, rien n’est envoyé. Il n’y a pas de compte sur le relais. Pour chaque instance, il conserve :
 
@@ -49,15 +49,15 @@ L’adresse de chaque instance se termine par `meshloom.link`, et les navigateur
 Ce qui est isolé :
 
 - **L’accès à votre instance.** Une page d’une autre instance peut faire un lien vers la vôtre, rien de plus : tout ce qu’elle tente d’autre depuis le navigateur est refusé.
-- **Les cookies.** Votre session et l’accès de votre appareil utilisent des cookies liés à l’adresse exacte. Le relais ne transmet que ceux-là, quoi qu’une page d’une autre instance laisse dans votre navigateur, et écarte tout cookie qu’une instance tente de poser pour les autres.
+- **Les cookies.** Votre session et l’accès de votre appareil utilisent des cookies liés à l’adresse exacte. Une page d’une autre instance peut quand même laisser dans votre navigateur des cookies pour tout le domaine, mais le relais ne transmet que ceux liés à l’adresse : ils n’atteignent donc jamais votre instance. Le relais retire aussi des réponses d’une instance tout cookie destiné aux autres.
 - **Les passkeys.** Une clé d’accès créée par Remote ne fonctionne qu’à cette adresse. Après **Remplacer la clé**, l’adresse change : créez-en une nouvelle.
 
 Ce qui ne l’est pas :
 
-- **Les gestionnaires de mots de passe.** Certains traitent tout `meshloom.link` comme un seul site et peuvent donc proposer votre mot de passe sur la page d’une autre instance. Vérifiez l’adresse avant de le remplir et, si votre gestionnaire le permet, faites correspondre l’entrée enregistrée à l’adresse exacte. Avec une clé d’accès ou la double authentification, un mot de passe seul ne suffit pas à entrer.
-- **La place pour les cookies dans le navigateur.** Une page d’une autre instance peut remplir la place que votre navigateur accorde à `meshloom.link`. Au pire, vous êtes déconnecté, le navigateur perd son accès, ou les pages affichent **Requête trop volumineuse**. Cela ne donne à cette page aucun accès à votre instance.
+- **Les gestionnaires de mots de passe.** Certains traitent tout `meshloom.link` comme un seul site et peuvent donc proposer votre mot de passe sur la page d’une autre instance. Vérifiez l’adresse avant de le remplir et, si votre gestionnaire le permet, faites correspondre l’entrée enregistrée à l’adresse exacte. Seule la double authentification empêche qu’un mot de passe seul suffise ; une clé d’accès évite de le saisir, mais il reste valable.
+- **La place pour les cookies dans le navigateur.** Une page d’une autre instance peut remplir la place que votre navigateur accorde à `meshloom.link`. Au pire, vous êtes déconnecté, le navigateur perd son accès, ou les pages refusent de se charger parce que la requête est trop volumineuse. Cela ne donne à cette page aucun accès à votre instance.
 
-Pour remettre les cookies à zéro, supprimez ceux de `meshloom.link` et de ses sous-domaines dans les réglages du navigateur, puis autorisez de nouveau l’appareil et révoquez l’ancienne entrée dans **Appareils autorisés**. Cela vaut pour toutes les instances Meshloom Remote ouvertes dans ce navigateur. Pour une seule instance, la page affichée à un navigateur sans accès a un bouton **Oublier cet appareil**.
+Pour remettre les cookies à zéro, supprimez ceux de `meshloom.link` et de ses sous-domaines dans les réglages du navigateur, puis autorisez de nouveau l’appareil et révoquez l’ancienne entrée dans **Appareils autorisés**. Cela vaut pour toutes les instances Meshloom Remote ouvertes dans ce navigateur. Pour une seule instance, la page affichée à un navigateur sans accès a un bouton **Oublier cet appareil**. Il retire seulement à ce navigateur son accès à l’instance, pas votre session Meshloom.
 
 ## États
 
@@ -113,7 +113,7 @@ Sans adresse confirmée, la pause a lieu quand même, sans e-mail. Aucun e-mail 
 - **Quitter Meshloom Remote** (administrateurs) : le relais supprime l’enregistrement de l’instance et Remote se désactive. La clé reste sur cette machine et l’adresse vous reste réservée 30 jours : réactivez Remote dans ce délai pour retrouver la même adresse, passé ce délai une nouvelle est attribuée. Remote et Community doivent être activés, car Meshloom doit joindre le relais. Le relais refuse tant que l’instance est en pause (quota mensuel compris), gelée ou bannie : désactivez plutôt Remote, et quittez une fois la pause terminée.
 - **Remplacer la clé** : une nouvelle clé et une nouvelle adresse ; tous les appareils autorisés et les demandes en attente sont oubliés, il faut autoriser de nouveau chaque appareil.
 
-Pour faire mener votre propre domaine à l’adresse, créez de votre côté une redirection d’URL vers `https://<votre adresse>.meshloom.link` : un vrai `CNAME` ne peut pas fonctionner (erreur 1014). Voir [Votre propre domaine pour Meshloom Remote](/docs/deep/remote-domain/). Pour joindre Meshloom avec vos propres outils, voir [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/).
+Pour faire mener votre propre domaine à l’adresse, créez de votre côté une redirection d’URL vers `https://<nom>.meshloom.link` : un vrai `CNAME` ne peut pas fonctionner (erreur 1014). Voir [Votre propre domaine pour Meshloom Remote](/docs/deep/remote-domain/). Pour joindre Meshloom avec vos propres outils, voir [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/).
 
 ## Les sauvegardes et la clé Remote
 
