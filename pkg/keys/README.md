@@ -76,6 +76,23 @@ Difference with the manual procedure: the primary key itself has no passphrase
 inside the throwaway keyring; the offline backup is protected by symmetric
 AES-256 encryption with your passphrase instead.
 
+The script keeps no copy of the CI subkey unless you pass `--no-gh`: `public/` holds
+only public files, and `backup/` the encrypted primary key.
+
+### Rebuild the CI subkey
+
+GitHub does not show a secret back. To set it again, rebuild it from the backup, in
+memory, on a trusted machine. Only the subkey reaches GitHub:
+
+```bash
+FPR="$(cat ~/meshloom-release-key-YYYYMMDD/public/FINGERPRINT)"
+W="$(mktemp -d -p /dev/shm)"; chmod 700 "$W"; mkdir -m 700 "$W/g"
+gpg --decrypt ~/meshloom-release-key-YYYYMMDD/backup/meshloom-key-backup-*.tar.gpg | tar -C "$W" -xf - ./meshloom-master-SECRET.asc
+GNUPGHOME="$W/g" gpg --batch --import "$W/meshloom-master-SECRET.asc"
+GNUPGHOME="$W/g" gpg --armor --export-secret-subkeys "$FPR" | gh secret set MESHLOOM_REPO_GPG_PRIVATE_KEY --repo TwinRocket/meshloom --env release-signing
+GNUPGHOME="$W/g" gpgconf --kill gpg-agent; find "$W" -type f -exec shred -u {} +; rm -rf "$W"
+```
+
 ## Create the key manually (once, on an offline-capable machine)
 
 > **Work OUTSIDE the repository checkout.** All secret material lives in a
