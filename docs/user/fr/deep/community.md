@@ -82,6 +82,8 @@ Ces fonctions passent par les serveurs de TwinRocket : elles ne marchent que tan
 
 Tant que Community est désactivé, Meshloom Remote et le partage ne peuvent pas être activés : leurs réglages l’indiquent et proposent un bouton vers les réglages Community. Si vous désactivez Community alors qu’ils sont activés, ils se **mettent en pause** : Meshloom cesse aussitôt de contacter le relais et le service de partage, vos appareils ne peuvent plus ouvrir l’instance de l’extérieur, aucun nouveau lien ni fichier ne peut être partagé, et les liens et photos partagés ne s’affichent plus. Rien n’est supprimé : l’adresse Remote, les appareils autorisés, le choix de partage et les conditions acceptées sont conservés, et les deux reprennent dès que vous réactivez Community. La fenêtre qui confirme le départ de Community le rappelle.
 
+Community a lui-même besoin que ce Meshloom **détienne la clé privée de la radio**, pour signer ce qu’il envoie. Sans elle, rejoindre et tout ce qui précède s’arrêtent avec **la clé de cette radio n’est pas disponible ici** : la radio est atteinte par un [proxy radio](/docs/deep/radio/#proxy-radio), ou son firmware ou un proxy intermédiaire ne donne pas la clé. Branchez la radio directement, ou utilisez le Meshloom qui détient la clé.
+
 ## Preuve pour Remote et le partage
 
 Le relais et le service de partage n’acceptent une nouvelle inscription, ou un nouveau lien ou fichier, que d’une instance dont Community connaît la radio et qu’**une autre station a entendue récemment**. Votre serveur demande à Community une courte preuve (une *attestation*) pour la clé de Remote et une autre pour la clé de partage, et la présente à ce service. Le navigateur ne le fait jamais.

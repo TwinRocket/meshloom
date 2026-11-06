@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../../api';
@@ -25,6 +25,7 @@ import type { SettingsSection } from './settingsConstants';
 import { RemoteAlertEmailPanel } from './remote/RemoteAlertEmailPanel';
 import { RemoteDomainPanel } from './remote/RemoteDomainPanel';
 import { RemoteAccessRequestsPanel } from './remote/RemoteAccessRequestsPanel';
+import { LearnMoreLink } from './LearnMoreLink';
 import { RemoteDevicesPanel } from './remote/RemoteDevicesPanel';
 import { RemoteEnrollDialog } from './remote/RemoteEnrollDialog';
 import {
@@ -41,6 +42,13 @@ const KNOWN_ERROR_RE = /^remote_[a-z_]{1,48}$/;
 
 /** The link state changes on its own (reconnects, pauses): refresh while the section is open. */
 export const REMOTE_STATUS_POLL_MS = 15_000;
+/**
+ * While the link is on its way up (`connecting`, `reconnecting`), so the badge and the
+ * approve form follow it within seconds. Reads the instance only, never the relay.
+ */
+export const REMOTE_STATUS_SETTLING_POLL_MS = 3_000;
+/** A refresh waits for the request in flight, unless it has hung for this long. */
+export const REMOTE_STATUS_STUCK_MS = 30_000;
 
 type Confirm = 'disable' | 'unregister' | 'rotate' | null;
 
@@ -80,28 +88,46 @@ export function SettingsRemoteSection({
   const [userNames, setUserNames] = useState<ReadonlyMap<number, string>>(new Map());
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((value) => value + 1), []);
+  // When the request in flight started: a new one would discard its answer.
+  const requestStarted = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    requestStarted.current = Date.now();
     api
       .getRemote()
       .then((next) => {
         if (cancelled) return;
+        requestStarted.current = null;
         setStatus(next);
         setLoadError(null);
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(formatAccessError(err, t));
+        if (cancelled) return;
+        requestStarted.current = null;
+        setLoadError(formatAccessError(err, t));
       });
     return () => {
       cancelled = true;
     };
   }, [version, t]);
 
+  const badge = status ? remoteBadge(status) : null;
+  const settling = badge?.id === 'connecting' || badge?.id === 'reconnecting';
+
   useEffect(() => {
-    const id = window.setInterval(reload, REMOTE_STATUS_POLL_MS);
+    const tick = () => {
+      if (settling && document.hidden) return;
+      const started = requestStarted.current;
+      if (started !== null && Date.now() - started < REMOTE_STATUS_STUCK_MS) return;
+      reload();
+    };
+    const id = window.setInterval(
+      tick,
+      settling ? REMOTE_STATUS_SETTLING_POLL_MS : REMOTE_STATUS_POLL_MS
+    );
     return () => window.clearInterval(id);
-  }, [reload]);
+  }, [reload, settling]);
 
   // An administrator sees every account's devices: name their owners (best effort).
   useEffect(() => {
@@ -168,7 +194,6 @@ export function SettingsRemoteSection({
     }
   };
 
-  const badge = status ? remoteBadge(status) : null;
   const registered = status?.state === 'registered';
   const viaRelay = via === 'relay';
 
@@ -229,7 +254,10 @@ export function SettingsRemoteSection({
                   className="text-[0.8125rem] text-muted-foreground"
                   data-testid="remote-last-error"
                 >
-                  {t(`errors.${status.last_error}`)}
+                  {t(`errors.${status.last_error}`)}{' '}
+                  {status.last_error === 'remote_attestation_unavailable' && (
+                    <LearnMoreLink page="deep/remote" />
+                  )}
                 </p>
               ) : (
                 <p

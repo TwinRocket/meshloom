@@ -35,7 +35,7 @@
         "encrypted": "Encrypted",
         "publicHint": "Anyone with the link can open the photo.",
         "encryptedHint": "Sealed for this conversation: only its members can open the photo.",
-        "dmUnavailable": "The radio's key has not been read yet: only public sending is possible for now.",
+        "dmUnavailable": "The radio's key isn't available here: only public sending is possible.",
         "noConversationId": "This Meshloom did not give this channel a sharing id: only public sending is possible.",
         "clear": {
           "public": "The Public channel's key is known to everyone: files are published in clear.",

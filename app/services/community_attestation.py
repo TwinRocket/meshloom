@@ -56,6 +56,7 @@ from typing import Any, Literal
 import httpx
 from fastapi import HTTPException
 
+from app.keystore import RADIO_KEY_ERRORS
 from app.repository.community_attestations import (
     CommunityAttestationRepository,
     StoredAttestation,
@@ -93,10 +94,15 @@ Reason = Literal["radio_not_heard", "opted_out", "banned", "unavailable"]
 class AttestationUnavailable(Exception):
     """No usable attestation now. ``reason`` is what the user is told."""
 
-    def __init__(self, reason: Reason, retry_after: int | None = None) -> None:
+    def __init__(
+        self, reason: Reason, retry_after: int | None = None, radio_key_code: str | None = None
+    ) -> None:
         super().__init__(reason)
         self.reason: Reason = reason
         self.retry_after = retry_after
+        # ``keystore.RADIO_KEY_ERRORS`` code when the radio key is what is missing (reason
+        # ``unavailable``): a caller may report it instead of "try again later".
+        self.radio_key_code = radio_key_code
 
 
 @dataclass
@@ -225,6 +231,12 @@ async def _fetch(audience: Audience, key: str) -> StoredAttestation:
     try:
         response = await _request_attestation(key, audience)
     except HTTPException as exc:
+        code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
+        if code in RADIO_KEY_ERRORS:
+            # No radio key, no request: nothing to hold or count, and a radio connected
+            # directly gets its attestation at once.
+            _state.fetches[audience].pop()
+            raise AttestationUnavailable("unavailable", radio_key_code=code) from None
         raise _local_refusal(audience, exc) from None
     attestation = _parse(response, audience, key, _state.clock())
     if attestation is None:

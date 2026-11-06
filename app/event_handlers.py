@@ -72,7 +72,8 @@ async def on_contact_message(event: "Event") -> None:
     NOTE: DMs are primarily handled by the packet processor via RX_LOG_DATA,
     which decrypts using our exported private key. This handler exists as a
     fallback for cases where:
-    1. The private key couldn't be exported (firmware without ENABLE_PRIVATE_KEY_EXPORT)
+    1. The private key couldn't be exported (firmware without ENABLE_PRIVATE_KEY_EXPORT,
+       or a radio proxy)
     2. The packet processor couldn't match the sender to a known contact
 
     The packet processor handles: decryption, storage, broadcast, bot trigger.

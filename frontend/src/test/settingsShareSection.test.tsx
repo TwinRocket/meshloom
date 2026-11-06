@@ -312,6 +312,47 @@ describe('SettingsShareSection', () => {
     expect(api.listShareMine).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the identity as ready once the upload list has created it', async () => {
+    // `GET /api/share/mine` signs with the instance key, created on its first use: the
+    // status read just before it still says "not yet".
+    current = { ...offStatus, enabled: true };
+    vi.mocked(api.listShareMine).mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve));
+      current = { ...current, identity_ready: true };
+      return { objects: [], next_cursor: null };
+    });
+    renderSection();
+    await screen.findByTestId('share-uploads-empty');
+    await waitFor(() =>
+      expect(screen.getByTestId('share-status')).not.toHaveTextContent(
+        i18n.t('settings.share.status.identityPending')
+      )
+    );
+  });
+
+  it('reads the status again when the upload list fails, since the key exists by then', async () => {
+    current = { ...offStatus, enabled: true };
+    vi.mocked(api.listShareMine).mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve));
+      current = { ...current, identity_ready: true };
+      throw new Error('service down');
+    });
+    renderSection();
+    await waitFor(() =>
+      expect(screen.getByTestId('share-status')).not.toHaveTextContent(
+        i18n.t('settings.share.status.identityPending')
+      )
+    );
+  });
+
+  it('does not read the status again once the identity is ready', async () => {
+    current = { ...offStatus, enabled: true, identity_ready: true };
+    renderSection();
+    await screen.findByTestId('share-uploads-empty');
+    await act(async () => {});
+    expect(api.getShareStatus).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a member only the upload list, never the settings or the cache', async () => {
     roleRef.current = 'member';
     current = { ...offStatus, enabled: true };

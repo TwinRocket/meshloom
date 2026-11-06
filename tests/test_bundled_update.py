@@ -494,3 +494,95 @@ async def test_startup_sweeps_the_staging_directory(env, monkeypatch):
     monkeypatch.setattr(manager, "load_from_db", load)
     await lifecycle.start()
     assert not (manager.plugins_root() / "_staging").exists()
+
+
+# --- the real Auto-responder: the schema that stops prefilling its rules (MSHL-472) ------
+
+AUTO_RESPONDER = "meshloom.auto-responder"
+PREFILLED_RULES = ["keyword: hello => Hello {sender}!", "prefix: !ping => Pong!"]
+
+
+def _auto_responder_before_the_fix(root: Path) -> None:
+    """The real package as version 1.0.0 shipped it: the schema prefilled two rules."""
+    target = root / "auto_responder"
+    shutil.copytree(installer.BUNDLED_ROOT / "auto_responder", target)
+    manifest = json.loads((target / "manifest.json").read_text("utf-8"))
+    manifest["version"] = "1.0.0"
+    (target / "manifest.json").write_text(json.dumps(manifest), "utf-8")
+    schema = json.loads((target / "config.schema.json").read_text("utf-8"))
+    schema["properties"]["rules"]["default"] = PREFILLED_RULES
+    (target / "config.schema.json").write_text(json.dumps(schema), "utf-8")
+
+
+async def _install_auto_responder(manager: PluginManager, label: str, config: dict) -> dict:
+    bundled = installer.list_bundled()[AUTO_RESPONDER]
+    installer.install_bundled(bundled, manager.plugins_root())
+    manifest = bundled.package.manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
+    manifest["permissions"] = bundled.package.manifest.permissions.declared()
+    return await PluginRepository.create(
+        plugin_id=AUTO_RESPONDER,
+        label=label,
+        kind="bundled",
+        version=manifest["version"],
+        manifest=manifest,
+        config_schema=bundled.config_schema,
+        config=config,
+        scope={"messages": "all"},
+        granted_permissions=manifest["permissions"],
+        enabled=True,
+    )
+
+
+@pytest.fixture
+def old_auto_responder(test_db, tmp_path, monkeypatch):
+    """A manager with the old package installable; the caller then points at the real one."""
+    real = installer.BUNDLED_ROOT
+    old = tmp_path / "old"
+    old.mkdir()
+    _auto_responder_before_the_fix(old)
+    monkeypatch.setattr(installer, "BUNDLED_ROOT", old)
+    manager = PluginManager(
+        Budgets(stagger=0.01), plugins_root=tmp_path / "plugins", cpu_reader=None
+    )
+    monkeypatch.setattr("app.plugins.bundled_update.plugin_manager", manager)
+
+    def ship_the_real_package() -> None:
+        monkeypatch.setattr(installer, "BUNDLED_ROOT", real)
+
+    return manager, ship_the_real_package
+
+
+async def test_auto_responder_update_stops_prefilling_and_keeps_the_instance(old_auto_responder):
+    manager, ship_the_real_package = old_auto_responder
+    saved = {"rules": ["prefix: !hours => Open 9 to 5"], "max_replies_per_hour": 7}
+    untouched = await _install_auto_responder(manager, "Never saved", {})
+    mine = await _install_auto_responder(manager, "My rules", saved)
+    chose_them = await _install_auto_responder(
+        manager, "Saved the old form", {"rules": PREFILLED_RULES}
+    )
+    await PluginKvRepository.set(mine["instance_id"], "sent", [1.0])
+    assert "default" in untouched["config_schema"]["properties"]["rules"]
+
+    ship_the_real_package()
+    await update_bundled()
+
+    for row in (untouched, mine, chose_them):
+        after = await PluginRepository.get(row["instance_id"])
+        assert after["version"] == "1.0.1" and after["manifest"]["version"] == "1.0.1"
+        assert "default" not in after["config_schema"]["properties"]["rules"]
+        # No hold: same permissions and privacy, so a running plugin stays as it was.
+        assert after["enabled"] and after["status"] == row["status"]
+        assert after["attention"] is None
+        assert after["granted_permissions"] == row["granted_permissions"]
+        assert after["scope"] == row["scope"] and after["label"] == row["label"]
+
+    # A config with no saved rule stays empty: the update never writes the old defaults.
+    assert (await PluginRepository.get(untouched["instance_id"]))["config"] == {}
+    assert await PluginRepository.config_for_init(untouched["instance_id"]) == {}
+    # Saved rules are the user's, the prefilled ones included.
+    assert (await PluginRepository.get(mine["instance_id"]))["config"] == saved
+    assert await PluginKvRepository.get(mine["instance_id"], "sent") == [1.0]
+    assert (await PluginRepository.get(chose_them["instance_id"]))["config"] == {
+        "rules": PREFILLED_RULES
+    }
+    assert manager.code_matches(await PluginRepository.get(mine["instance_id"]))

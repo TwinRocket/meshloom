@@ -624,7 +624,7 @@ async def get_private_key() -> dict:
 
     Always readable by whoever reaches this interface (the full backup in
     Settings > Database carries it too); see SECURITY.md "Known limits".
-    404 when the firmware did not export it.
+    404 when the radio link did not give it (firmware without key export, a radio proxy).
     """
     from app.keystore import get_private_key as ks_get
 

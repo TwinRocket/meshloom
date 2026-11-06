@@ -243,6 +243,6 @@
     "remote_radio_not_heard": "Aucune autre station n’a entendu cette radio récemment : envoyez une annonce flood, puis réessayez.",
     "remote_community_opted_out": "Cette radio a quitté Meshloom Community : rejoignez-la depuis les réglages Community.",
     "remote_community_banned": "Meshloom Community a bloqué cette radio ; s’il s’agit d’une erreur, écrivez à ban@meshloom.app.",
-    "remote_attestation_unavailable": "Meshloom Community ne peut pas se porter garant de cette radio pour le moment. Réessayez plus tard."
+    "remote_attestation_unavailable": "Meshloom Community ne peut pas garantir cette radio pour l’instant. Réessayez plus tard, ou branchez-la sans proxy."
   }
 }

@@ -419,6 +419,27 @@ class TestDryRun:
         await mod.stop()
 
     @pytest.mark.asyncio
+    async def test_no_key_warns_once_and_never_blames_only_the_firmware(self, caplog):
+        """MSHL-471: this runs for every advert to upload."""
+        from app import keystore
+
+        keystore.clear_keys()
+        keystore._last_export_disabled = True
+        keystore._export_refused_by = "meshloom_proxy"
+        mod = _make_module({"dry_run": True})
+        await mod.start()
+        try:
+            for _ in range(5):
+                await mod._upload("ab" * 32, 1000, 2, "aabb", 0.0, 0.0)
+            warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+            assert len(warnings) == 1
+            assert "radio proxy" in warnings[0].getMessage()
+            assert "firmware" not in warnings[0].getMessage().lower()
+        finally:
+            await mod.stop()
+            keystore.clear_keys()
+
+    @pytest.mark.asyncio
     async def test_dry_run_no_key_logs_warning_and_returns(self):
         """If private key is missing, upload should log a warning and not crash."""
         mod = _make_module({"dry_run": True})

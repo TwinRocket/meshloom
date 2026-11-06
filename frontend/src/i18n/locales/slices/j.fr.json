@@ -16,7 +16,7 @@
       "failed": "Échec de la sauvegarde complète",
       "warningsTitle": "À propos de cette sauvegarde",
       "warningNoIdentity": "Sans identité : la radio n’a pas donné sa clé privée.",
-      "warningIdentityDisabled": "Sans identité : le firmware de la radio n’exporte pas sa clé privée.",
+      "warningIdentityDisabled": "Sans identité : la clé privée de la radio n’est pas donnée ici, par son firmware ou par un proxy intermédiaire.",
       "warningRadioDisconnected": "Radio non connectée : seules les données de Meshloom sont sauvegardées.",
       "warningRadioNotReady": "La radio démarre encore : cette sauvegarde ne contient que les données de Meshloom. Réessayez dans un instant.",
       "warningWifiNotStored": "La radio ne stocke aucun mot de passe Wi-Fi : la sauvegarde n’en contient pas.",
@@ -151,7 +151,7 @@
       "pushTargetFirstAdmin": "{{target}}, pour le premier administrateur",
       "fileWarningsTitle": "À propos de ce fichier",
       "fileWarnings": {
-        "private_key_export_disabled": "Sans identité : le firmware de la radio n’exportait pas sa clé privée.",
+        "private_key_export_disabled": "Sans identité : la clé privée de la radio n’a pas été donnée, par son firmware ou par un proxy intermédiaire.",
         "private_key_unavailable": "La radio n’a pas donné sa clé privée : cette sauvegarde ne contient pas d’identité.",
         "radio_not_connected": "Radio non connectée lors de la sauvegarde : seules les données de Meshloom.",
         "radio_not_ready": "La radio démarrait encore quand cette sauvegarde a été faite : elle ne contient que les données de Meshloom.",

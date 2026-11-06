@@ -72,7 +72,8 @@ Since MSHL-445 the relay registers a key only with a Community attestation of it
 (`remote-registration.md` § *Attestation*). `_register_locked` (enable, `register` after a
 close `4003`, rotate) asks `community_attestation.attestation_for("remote")` and sends it as
 `X-Meshloom-Attestation` on `POST /v1/instances`; no other registry route and not the relay
-socket carry it.
+socket carry it. Without the radio key (`community-client.md`, "HTTP") the refusal reads as
+`unavailable`.
 
 - No attestation (Community refused, a hold, unreachable): the registration is sent
   without the header. The relay lets a key registered before 2026-11-10 register without
@@ -122,6 +123,18 @@ id the device belongs to, `gen` the current generation. Every device is a row of
 `verify_device_pass(token, slot)` is the third check of the edge lock, for the relay
 client to run on `x-meshloom-pass`: the contract verdict, then the device must exist,
 not be revoked, belong to the pass's `uid`, and that account must still exist.
+
+### Last seen
+
+`remote_devices.last_seen_at` is the time of the device's last relayed use, shown in the
+devices list. `relayed_scope` calls `remote.note_device_seen` once the pass is accepted, for a
+request or at the opening of a WebSocket (not for its frames), on the login page and static
+files too: a device is seen when its pass is used, signed in or not. At most one write per
+device every 5 minutes (`DEVICE_SEEN_INTERVAL_S`, kept in memory, taken before any `await`, so
+a page's burst writes once; a restart writes once more). The write runs in the background
+(`spawn`): a failure only logs its type, and neither it nor a slow database reaches the
+request. Nothing is written while Remote is off, as there is no relay link to carry a request.
+The edge lock, the revoked list and the renewal never read this field.
 
 ### Renewal of a browser pass
 

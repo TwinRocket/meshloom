@@ -80,6 +80,8 @@ These features run on TwinRocket's servers, so they work only while Community is
 
 While Community is off, Meshloom Remote and sharing cannot be turned on: their settings say so and offer a button to the Community settings. If you turn Community off while they are on, they **pause**: Meshloom stops contacting the relay and the share service at once, your devices can no longer open the instance from outside, new links and files cannot be shared, and shared links and photos no longer load. Nothing is deleted: the Remote address, the allowed devices, the sharing choice and the accepted terms are kept, and both resume as soon as you turn Community on again. The window that confirms leaving Community says so.
 
+Community itself needs this Meshloom to **hold the radio's private key**, to sign what it sends. Without it, joining and everything above stop with **this radio's key isn't available here**: the radio is reached through a [radio proxy](/en/docs/deep/radio/#radio-proxy), or its firmware or a proxy in between does not give the key. Connect the radio directly, or use the Meshloom that holds the key.
+
 ## Proof for Remote and sharing
 
 The relay and the share service accept a new registration or a new link or file only from an instance whose radio Community knows and that **another station heard recently**. Your server asks Community for a short proof (an *attestation*) for the Remote key and another for the sharing key, and shows it to that service. The browser never does.

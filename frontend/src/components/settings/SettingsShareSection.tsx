@@ -11,7 +11,12 @@ import type {
 } from '../../types';
 import { shareTermsStale } from '../../utils/shareTerms';
 import { userDocsUrl } from '../../utils/userDocsUrl';
-import { loadShareStatus, refreshShareStatus, useShareStatus } from '../../stores/shareStatusStore';
+import {
+  getShareStatusSnapshot,
+  loadShareStatus,
+  refreshShareStatus,
+  useShareStatus,
+} from '../../stores/shareStatusStore';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import {
@@ -23,6 +28,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Label } from '../ui/label';
+import { LearnMoreLink } from './LearnMoreLink';
 import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { SettingsGroupHeader } from './settingsPrimitives';
@@ -193,6 +199,15 @@ function ShareCacheControl() {
   );
 }
 
+/**
+ * The upload list is what creates the sharing identity on an instance that has none (its
+ * request signs with the key, `ensure_instance_key`), after the status was read: read it
+ * again, or "identity ready" stays on "not yet". No request once it is ready.
+ */
+function refreshUntilIdentityReady(): void {
+  if (!getShareStatusSnapshot().status?.identity_ready) void refreshShareStatus();
+}
+
 /** "My uploads" while sharing is on; off, why there is no list. */
 function ShareUploads({ status }: { status: ShareStatus }) {
   const { t } = useTranslation();
@@ -204,7 +219,7 @@ function ShareUploads({ status }: { status: ShareStatus }) {
       </section>
     );
   }
-  return <ShareUploadsList host={status.host} />;
+  return <ShareUploadsList host={status.host} onSettled={refreshUntilIdentityReady} />;
 }
 
 function StatusLine({ status }: { status: ShareStatus }) {
@@ -227,7 +242,7 @@ function StatusLine({ status }: { status: ShareStatus }) {
       </ul>
       {!status.dm_encryption_available && (
         <p data-testid="share-dm-unavailable" className="text-[0.8125rem] text-muted-foreground">
-          {t('settings.share.status.dmUnavailable')}
+          {t('settings.share.status.dmUnavailable')} <LearnMoreLink page="deep/radio" />
         </p>
       )}
     </div>

@@ -14,6 +14,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import { isRadioKeyError } from '../../utils/radioKeyError';
 import { LearnMoreLink } from './LearnMoreLink';
 import { formatNumber } from '../../utils/formatNumber';
 import {
@@ -225,6 +226,9 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   const [meStats, setMeStats] = useState<CommunityMeStats | null>(null);
   const [communityStats, setCommunityStats] = useState<CommunityPublicStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const [statsNeedKey, setStatsNeedKey] = useState(false);
+  // The radio key is not on this instance: stays on screen, with the docs link.
+  const [radioKeyError, setRadioKeyError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'join' | 'bind' | 'override' | null>(null);
   const [retrying, setRetrying] = useState(false);
   const { requestLeave, leaveDialog } = useCommunityLeave(() => setBindResult(null));
@@ -279,6 +283,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
         })
         .catch((err: unknown) => {
           setStatsError(formatApiError(err, t));
+          setStatsNeedKey(isRadioKeyError(err));
         }),
     [t]
   );
@@ -306,6 +311,10 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   }, [status, loadStats]);
 
   const handleCommunityError = (err: unknown, joining = false) => {
+    if (isRadioKeyError(err)) {
+      setRadioKeyError(formatApiError(err, t));
+      return;
+    }
     if (err instanceof ApiError && err.status === 429 && err.message.includes('IATA')) {
       toast.error(
         t(joining ? 'settings.community.joinIataChangeCap' : 'settings.community.iataChangeCap')
@@ -322,6 +331,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
       return;
     }
     setBusy('join');
+    setRadioKeyError(null);
     try {
       // One call: the backend binds the IATA with Community first (a token for
       // this IATA), and only then turns Community on, saves the IATA and starts
@@ -351,11 +361,12 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   // Manual only: the backend never retries an unconfirmed opt-out on its own.
   const handleRetryOptOut = async () => {
     setRetrying(true);
+    setRadioKeyError(null);
     try {
       setCommunityStatus(await api.retryCommunityOptOut());
       toast.success(t('settings.community.optOut.retryDone'));
     } catch (err) {
-      toast.error(formatApiError(err, t));
+      handleCommunityError(err);
       await loadStatus();
     } finally {
       setRetrying(false);
@@ -369,6 +380,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
       return;
     }
     setBusy('bind');
+    setRadioKeyError(null);
     try {
       // One call: the backend clears the old region's status, binds the new
       // IATA with Community, then saves it and reconnects (in that order).
@@ -387,6 +399,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
 
   const handleOverride = async () => {
     setBusy('override');
+    setRadioKeyError(null);
     try {
       const result = await api.overrideCommunityIata();
       setBindResult(result);
@@ -429,6 +442,16 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
           {t('settings.community.intro')} <LearnMoreLink page="deep/community" />
         </p>
       </div>
+
+      {radioKeyError && (
+        <p
+          role="status"
+          data-testid="community-radio-key"
+          className="mt-4 rounded-md border border-border/60 p-3 text-[0.8125rem] text-muted-foreground"
+        >
+          {radioKeyError} <LearnMoreLink page="deep/radio" />
+        </p>
+      )}
 
       {status.enabled && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-border/60 p-3">
@@ -637,7 +660,9 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
               instant
             />
             {statsError && !meStats ? (
-              <p className="text-[0.8125rem] text-muted-foreground">{statsError}</p>
+              <p className="text-[0.8125rem] text-muted-foreground">
+                {statsError} {statsNeedKey && <LearnMoreLink page="deep/radio" />}
+              </p>
             ) : meStats ? (
               <div className="space-y-2">
                 <StatRow

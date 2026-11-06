@@ -15,7 +15,7 @@ Do this before a **full install** with the flasher, or before any flash that era
 2. Open Meshloom, then **Settings → Database** (see [Where the backup is](#where-the-backup-is)).
 3. In **Backup & Restore**, under **Full backup (radio and Meshloom)**, click **Download the full backup**.
 4. Read the notes Meshloom shows after the download. If it says **this backup has no identity**, read why:
-   - **the radio firmware does not allow exporting its private key**: no backup can carry this node's identity. The file holds the settings, contacts and channels, but restoring it will not bring the identity back.
+   - **the radio's private key is not given here, by its firmware or by a proxy in between**: no backup made this way can carry this node's identity. Through a [radio proxy](/en/docs/deep/radio/#radio-proxy), make the backup on the Meshloom the radio is plugged into. The file holds the settings, contacts and channels, but restoring it will not bring the identity back.
    - **the radio did not give its private key**: the radio was probably not ready. Check that the status bar shows **Radio OK**, then download the backup again. If the note comes back, press **Disconnect** then **Reconnect** in **Settings → Radio**, wait for **Radio OK**, and download it once more. Do not reflash with a backup that has no identity.
 5. Keep the file somewhere safe, away from the radio's machine if possible. It contains secrets: see [Encryption](#encryption).
 
@@ -65,7 +65,7 @@ Note that anyone who can reach your Meshloom can download this backup: keep Mesh
 
 **From the radio:**
 
-- Its identity (private key), when the firmware allows exporting it.
+- Its identity (private key), when the firmware allows exporting it and no radio proxy stands in between.
 - Its name, position, transmit power and radio parameters (frequency, bandwidth, spreading factor, coding rate), with the client repeat flag.
 - Its other settings: telemetry sharing, advert location policy, extra acknowledgements, manual contact adding, timing parameters, path hash mode, auto-add rules, the default flood scope (region), the Bluetooth PIN, firmware custom variables (GPS and its interval when the board has them) and, on firmware 1.18 and later, the time zone and the radio tuning settings only the command line reaches.
 - Whether the radio's Wi-Fi is on or off, and the Wi-Fi network name and password when the radio stores a password. An open network is saved when it was stored from Meshloom (with **Open network**, or by an earlier restore), since the radio cannot tell it from "nothing stored"; a restore stores it again. Credentials only built into the firmware are not saved (the on/off setting is). When the radio stores a password but no network name, the radio reports the network name built into the firmware: the backup pairs those two, and a restore stores both (the radio then uses them).

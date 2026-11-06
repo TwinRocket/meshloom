@@ -50,6 +50,7 @@ _NETWORK |= {"_probe_domain", "check_custom_domain"}
 # Coroutine functions that never connect.
 _LOCAL = {
     "_notify",
+    "_write_device_seen",
     "take_domain_test_slot",
     "load",
     "send_control",

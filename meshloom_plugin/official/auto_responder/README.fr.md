@@ -8,7 +8,7 @@ Répond aux messages avec des réponses écrites sous forme de règles simples. 
 
 ## Règles
 
-Une règle par ligne dans **Règles** :
+Il démarre sans règle : il ne répond donc à rien tant que vous n'en ajoutez pas. Une règle par ligne dans **Règles** :
 
 ```
 déclencheur[,option=valeur]: texte à chercher => réponse   (une espace de chaque côté de =>)

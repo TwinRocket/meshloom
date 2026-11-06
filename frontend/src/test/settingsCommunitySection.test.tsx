@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -483,6 +483,29 @@ describe('SettingsCommunitySection', () => {
       expect(toastMocks.error).toHaveBeenCalledWith(i18n.t('errors.community_banned'));
     });
   });
+
+  it.each(['radio_key_behind_proxy', 'radio_key_export_disabled', 'radio_key_unavailable'])(
+    'a join refused for %s stays on screen, translated, with the docs link',
+    async (code) => {
+      vi.mocked(api.bindCommunityIata).mockRejectedValue(
+        new ApiError('Backend sentence', 503, { code, message: 'Backend sentence' })
+      );
+      render(<SettingsCommunitySection />);
+
+      fireEvent.change(await screen.findByLabelText(i18n.t('settings.community.iata')), {
+        target: { value: 'CDG' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.community.joinCta') }));
+
+      const notice = await screen.findByTestId('community-radio-key');
+      expect(notice).toHaveTextContent(i18n.t(`errors.${code}`));
+      expect(notice).not.toHaveTextContent('Backend sentence');
+      expect(
+        within(notice).getByRole('link', { name: i18n.t('settings.common.learnMore') })
+      ).toHaveAttribute('href', expect.stringContaining('docs/deep/radio/'));
+      expect(toastMocks.error).not.toHaveBeenCalled();
+    }
+  );
 
   it('shows why the status could not be loaded', async () => {
     vi.mocked(api.getCommunity).mockRejectedValue(new ApiError('Radio key is not available', 503));

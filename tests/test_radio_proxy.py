@@ -871,3 +871,27 @@ async def test_a_real_client_connects_after_a_foreign_connection_was_refused(tes
             assert device.type == EventType.DEVICE_INFO
         finally:
             await mc.disconnect()
+
+
+async def test_an_instance_behind_the_proxy_gets_the_proxy_error(test_db, caplog):
+    """MSHL-471, over the wire: refused export, then the Community token says why."""
+    from fastapi import HTTPException
+
+    from app import keystore
+    from app.services.meshloom_community import mint_stats_jwt
+
+    keystore.clear_keys()
+    async with _started_proxy(test_db) as (_manager, port):
+        mc = await _connect_client(port)
+        try:
+            assert await keystore.export_and_store_private_key(mc) is False
+        finally:
+            await mc.disconnect()
+    try:
+        with pytest.raises(HTTPException) as exc:
+            mint_stats_jwt(audience="stats", iata="CDG", require_iata=True)
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "radio_key_behind_proxy"
+        assert "firmware" not in caplog.text.lower()
+    finally:
+        keystore.clear_keys()

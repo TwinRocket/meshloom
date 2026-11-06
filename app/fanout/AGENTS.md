@@ -136,7 +136,8 @@ reach every module.
 - **`mqtt_community`** (user raw-packet uplink) follows the meshcore-packet-capture
   format: `raw` is upper-case hex, and direct-route `path` is the hop identifiers
   joined by commas, so the token width follows the path hash mode. Token auth is an
-  Ed25519 JWT signed with the radio key.
+  Ed25519 JWT signed with the radio key. With no key once the radio is set up, `last_error`
+  is a `keystore.RADIO_KEY_ERRORS` code, translated by the fanout settings.
 - **Converted bots** (`bot` rows of 4.18, migration 122) live in `plugins` as local
   instances running `bot.py` through the fixed `compat.py` wrapper
   (`meshloom_plugin/compat.py`, `legacy_bot`; `analyze_bot_signature` lives there too),

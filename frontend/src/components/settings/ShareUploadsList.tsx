@@ -44,8 +44,11 @@ function contactUrl(host: string, language: string): string {
  * (`DELETE /api/share/{id}`, which also evicts this instance's cached copy).
  * The parent renders it only while sharing is on: off, the server never contacts the
  * service and would answer `share_disabled`.
+ *
+ * `onSettled` runs after each page, answered or refused: the request signs with the
+ * sharing identity, which is created on its first use.
  */
-export function ShareUploadsList({ host }: { host: string }) {
+export function ShareUploadsList({ host, onSettled }: { host: string; onSettled?: () => void }) {
   const { t, i18n } = useTranslation();
   const [objects, setObjects] = useState<ShareMineObject[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -69,15 +72,17 @@ export function ShareUploadsList({ host }: { host: string }) {
           setNextCursor(page.next_cursor);
           setError(null);
           setLoading(false);
+          onSettled?.();
         },
         (err) => {
           if (mine !== generation.current) return;
           setError(formatApiError(err, t));
           setLoading(false);
+          onSettled?.();
         }
       );
     },
-    [t]
+    [t, onSettled]
   );
 
   const load = (cursor?: string) => {

@@ -104,6 +104,7 @@ from aiolimiter import AsyncLimiter
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from app.keystore import RADIO_KEY_ERRORS
 from app.net.breaker import CircuitBreaker
 from app.net.egress_guard import (
     CheckedResponse,
@@ -206,7 +207,8 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_mode_not_allowed": (422, "Encrypted sharing is not possible in this conversation"),
     "share_radio_key_unavailable": (
         503,
-        "The radio private key is not available yet, encrypted sharing is impossible",
+        "The radio private key is not available here (not read yet, or behind a proxy): "
+        "send in public mode or connect the radio directly",
     ),
     "share_undecryptable": (422, "This file cannot be decrypted here"),
     "share_id_taken": (409, "The proposed share id is already in use"),
@@ -230,6 +232,8 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
         "Meshloom Community could not vouch for this radio: try again later",
     ),
     "share_attestation_rejected": (403, "The share service refused the Community attestation"),
+    # No radio key on this instance, so no attestation (MSHL-471): same codes as Community.
+    **{code: (503, message) for code, message in RADIO_KEY_ERRORS.items()},
 }
 
 # Attestation refusal reason -> local code.
@@ -622,7 +626,7 @@ async def share_request(
             else:
                 token = await community_attestation.renew_after_rejection(AUDIENCE_LINKS, token)
         except AttestationUnavailable as exc:
-            raise ShareError(_ATTESTATION_CODES[exc.reason]) from None
+            raise ShareError(exc.radio_key_code or _ATTESTATION_CODES[exc.reason]) from None
         try:
             return await _share_request_once(method, path, attestation=token, **kwargs)
         except ShareError as exc:
