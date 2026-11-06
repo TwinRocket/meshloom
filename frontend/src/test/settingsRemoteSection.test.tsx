@@ -480,6 +480,19 @@ describe('SettingsRemoteSection', () => {
     );
   });
 
+  it('links the docs when Community cannot vouch for the radio', async () => {
+    vi.spyOn(api, 'getRemote').mockResolvedValue(
+      statusOf({ state: 'unregistered', slug: null, last_error: 'remote_attestation_unavailable' })
+    );
+    await renderAs('admin');
+    const shown = await screen.findByTestId('remote-last-error');
+    expect(shown).toHaveTextContent(t('errors.remote_attestation_unavailable'));
+    expect(within(shown).getByRole('link')).toHaveAttribute(
+      'href',
+      expect.stringContaining('docs/deep/remote/')
+    );
+  });
+
   it('shows another registry error as its raw code', async () => {
     vi.spyOn(api, 'getRemote').mockResolvedValue(
       statusOf({ state: 'unregistered', slug: null, last_error: 'registration_paused' })

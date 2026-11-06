@@ -207,7 +207,8 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_mode_not_allowed": (422, "Encrypted sharing is not possible in this conversation"),
     "share_radio_key_unavailable": (
         503,
-        "The radio private key is not available yet, encrypted sharing is impossible",
+        "The radio private key is not available here (not read yet, or behind a proxy): "
+        "send in public mode or connect the radio directly",
     ),
     "share_undecryptable": (422, "This file cannot be decrypted here"),
     "share_id_taken": (409, "The proposed share id is already in use"),

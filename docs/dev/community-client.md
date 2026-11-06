@@ -34,7 +34,11 @@ hypothesis: check it against the code. Constants are named so you can grep them.
   without `ENABLE_PRIVATE_KEY_EXPORT`, or a third-party proxy, which reports the model behind it,
   so the copy names both) or `radio_key_unavailable` (no refusal known, or the model could not be
   read). No host name is ever read. The proxy's refusal is by design
-  (`app/radio_proxy/policy.py`). FR and EN copy: slice `radiokey`, `errors.<code>`.
+  (`app/radio_proxy/policy.py`). FR and EN copy: slice `radiokey`, `errors.<code>`. Outside
+  Community: the historical DM toast carries the code in `params.radio_key_code`, which
+  `useRealtimeAppState` shows as its details; what runs on every advert (that toast when
+  automatic, the map upload warning) reports once per connection and cause
+  (`first_missing_key_notice`).
 - Upstream mapping: transport error, timeout or 5xx gives 503; 429 gives 429; 400
   gives 400; 401 gives 502 (with a clock hint when `classify_auth_rejection` reports
   `clock_skew`); 403 `code: banned` gives 403 `community_banned` (see Banned key);

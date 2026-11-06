@@ -2,7 +2,9 @@ import { lazy, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Crosshair } from 'lucide-react';
 
-import { api, ApiError } from '../api';
+import { api, ApiError, formatApiError } from '../api';
+import { isRadioKeyError } from '../utils/radioKeyError';
+import { LearnMoreLink } from './settings/LearnMoreLink';
 import type {
   Contact,
   Conversation,
@@ -78,6 +80,7 @@ export function LocatePane({
   const [communityPending, setCommunityPending] = useState(false);
   const [communityError, setCommunityError] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorNeedsKey, setErrorNeedsKey] = useState(false);
   const [result, setResult] = useState<LocateResponse | null>(null);
   const [candidates, setCandidates] = useState<LocateCandidate[]>([]);
   const [directoryHits, setDirectoryHits] = useState<LocateCandidate[]>([]);
@@ -123,6 +126,7 @@ export function LocatePane({
     } else {
       setLoading(true);
       setError(null);
+      setErrorNeedsKey(false);
       setCandidates([]);
       setRadiusOverrides({});
       setCommunityPending(false);
@@ -175,7 +179,8 @@ export function LocatePane({
           return;
         }
         setResult(null);
-        setError(err instanceof Error ? err.message : t('locate.loadFailed'));
+        setError(err instanceof Error ? formatApiError(err, t) : t('locate.loadFailed'));
+        setErrorNeedsKey(isRadioKeyError(err));
       });
     return () => {
       cancelled = true;
@@ -272,6 +277,7 @@ export function LocatePane({
   const calibrateAnchor = async (anchor: LocateAnchor, mode: 'directory' | 'radio') => {
     if (!anchor.public_key) return;
     setCalibratingKey(anchor.public_key);
+    setErrorNeedsKey(false);
     try {
       const distances: number[] = [];
       if (mode === 'directory') {
@@ -309,7 +315,8 @@ export function LocatePane({
       setRadiusOverrides((prev) => ({ ...prev, [anchor.public_key!]: nextRadius }));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('locate.calibrateFailed'));
+      setError(err instanceof Error ? formatApiError(err, t) : t('locate.calibrateFailed'));
+      setErrorNeedsKey(isRadioKeyError(err));
     } finally {
       setCalibratingKey(null);
     }
@@ -365,7 +372,7 @@ export function LocatePane({
           )}
           {error && (
             <p className="text-sm text-destructive" data-testid="locate-error">
-              {error}
+              {error} {errorNeedsKey && <LearnMoreLink page="deep/radio" />}
             </p>
           )}
 

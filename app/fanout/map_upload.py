@@ -42,7 +42,14 @@ import httpx
 
 from app.decoder import parse_advertisement, parse_packet
 from app.fanout.base import FanoutModule
-from app.keystore import ed25519_sign_expanded, get_private_key, get_public_key
+from app.keystore import (
+    RADIO_KEY_ERRORS,
+    ed25519_sign_expanded,
+    first_missing_key_notice,
+    get_private_key,
+    get_public_key,
+    radio_key_unavailable_code,
+)
 from app.net.egress_guard import (
     EgressBlocked,
     error_code,
@@ -234,11 +241,14 @@ class MapUploadModule(FanoutModule):
         public_key = get_public_key()
 
         if private_key is None or public_key is None:
-            logger.warning(
-                "MapUpload: private key not available — cannot sign upload for %s. "
-                "Ensure radio firmware has ENABLE_PRIVATE_KEY_EXPORT=1.",
-                pubkey[:12],
-            )
+            # Runs for every advert to upload: one warning per connection.
+            if first_missing_key_notice("map_upload"):
+                logger.warning(
+                    "MapUpload: cannot sign uploads: %s",
+                    RADIO_KEY_ERRORS[radio_key_unavailable_code()],
+                )
+            else:
+                logger.debug("MapUpload: no radio key, skipping %s", pubkey[:12])
             return
 
         api_url = str(self.config.get("api_url", "") or _DEFAULT_API_URL).strip()

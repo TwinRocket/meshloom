@@ -99,8 +99,8 @@ async def upload_secret(conversation_type: str, conversation: str) -> bytes:
     Malformed or unknown is 400 ``share_invalid_request`` (a raw channel key
     included); a public channel or
     hashtag, a room or an unusable contact key is 422 ``share_mode_not_allowed``;
-    a DM before the radio private key was read is 503
-    ``share_radio_key_unavailable``.
+    a DM without the radio private key (not read yet, or never: behind a radio proxy) is
+    503 ``share_radio_key_unavailable``.
     """
     if conversation_type == "channel":
         if not CONVERSATION_ID_RE.fullmatch(conversation):

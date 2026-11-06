@@ -10,6 +10,7 @@ import { api } from '../api';
 import type { UseWebSocketOptions } from '../useWebSocket';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
+import { isRadioKeyCode, radioKeyDocsAction } from '../utils/radioKeyError';
 import { RADIO_REBOOTING_TOAST_ID } from '../types';
 import { getStateKey } from '../utils/conversationState';
 import { mergeContactIntoList } from '../utils/contactMerge';
@@ -253,7 +254,17 @@ export function useRealtimeAppState({
         // `errors.<code>Detail`, when defined, replaces the backend's English details.
         const detailKey = key ? `${key}Detail` : '';
         const translatedDetail = detailKey ? i18n.t(detailKey, error.params) : '';
-        toast.error(key && translated !== key ? translated : error.message, {
+        const title = key && translated !== key ? translated : error.message;
+        // A feature that needs the radio key says why it is missing, in `params`.
+        const radioKeyCode = error.params?.radio_key_code;
+        if (typeof radioKeyCode === 'string' && isRadioKeyCode(radioKeyCode)) {
+          toast.error(title, {
+            description: i18n.t(`errors.${radioKeyCode}`),
+            ...radioKeyDocsAction(i18n.t, i18n.language),
+          });
+          return;
+        }
+        toast.error(title, {
           description:
             detailKey && translatedDetail !== detailKey ? translatedDetail : error.details,
         });

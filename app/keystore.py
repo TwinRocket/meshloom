@@ -42,6 +42,8 @@ _public_key: bytes | None = None
 _last_export_disabled: bool = False
 # Why it refused, from the DEVICE_INFO asked right after the refusal; None when unknown.
 _export_refused_by: Literal["meshloom_proxy", "radio_link"] | None = None
+# (topic, code) already reported on this connection: see first_missing_key_notice.
+_missing_key_notices: set[tuple[str, str]] = set()
 
 # Local API errors of a feature that needs the key (503, ``detail = {code, message}``),
 # translated by the UI as ``errors.<code>``. Behind a Meshloom radio proxy the peer says
@@ -84,6 +86,7 @@ def clear_keys() -> None:
     _public_key = None
     _last_export_disabled = False
     _export_refused_by = None
+    _missing_key_notices.clear()
     if had_key:
         logger.info("Cleared in-memory keystore")
 
@@ -136,6 +139,19 @@ def radio_key_unavailable_code() -> str:
     if _last_export_disabled and _export_refused_by == "radio_link":
         return "radio_key_export_disabled"
     return "radio_key_unavailable"
+
+
+def first_missing_key_notice(topic: str) -> bool:
+    """True the first time ``topic`` meets this cause on this connection.
+
+    For what runs on every advert: one log line or toast, not one per packet. A cause
+    learned later (the export answers after the first advert) is reported once more.
+    """
+    notice = (topic, radio_key_unavailable_code())
+    if notice in _missing_key_notices:
+        return False
+    _missing_key_notices.add(notice)
+    return True
 
 
 async def _who_refused_the_export(mc: "MeshCore") -> Literal["meshloom_proxy", "radio_link"] | None:

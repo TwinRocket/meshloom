@@ -579,7 +579,9 @@ Community guard, and it needs Community on (MSHL-445).
   `#hashtag` renamed locally without its `#` both count, MSHL-385), a room (`CONTACT_TYPE_ROOM`: each
   member has a different secret with it) or an unusable/low-order contact key is 422
   `share_mode_not_allowed`; a DM without the radio private key is 503
-  `share_radio_key_unavailable` (public mode and private channels keep working). On the
+  `share_radio_key_unavailable` (public mode and private channels keep working; its own code
+  because that remedy differs from `radio_key_*`, and its copy covers a key not read yet and
+  a radio proxy, where it never comes). On the
   read side `message_secret(message)` resolves the secret from the message row only
   (`CHAN` → its channel key, `PRIV` → the shared secret with its contact), never from the
   client; None makes the file `share_undecryptable`. A secret is never logged, returned

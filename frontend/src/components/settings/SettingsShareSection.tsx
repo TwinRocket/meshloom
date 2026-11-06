@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Label } from '../ui/label';
+import { LearnMoreLink } from './LearnMoreLink';
 import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { SettingsGroupHeader } from './settingsPrimitives';
@@ -227,7 +228,7 @@ function StatusLine({ status }: { status: ShareStatus }) {
       </ul>
       {!status.dm_encryption_available && (
         <p data-testid="share-dm-unavailable" className="text-[0.8125rem] text-muted-foreground">
-          {t('settings.share.status.dmUnavailable')}
+          {t('settings.share.status.dmUnavailable')} <LearnMoreLink page="deep/radio" />
         </p>
       )}
     </div>

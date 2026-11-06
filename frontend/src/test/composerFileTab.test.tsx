@@ -252,6 +252,25 @@ describe('Composer File tab', () => {
     );
   });
 
+  it('never promises a later retry for the DM key, and links the docs', async () => {
+    upload.mockRejectedValue(
+      new ApiError('raw', 503, { code: 'share_radio_key_unavailable', params: {} })
+    );
+    setup();
+    pick(jpeg());
+    await screen.findByTestId('file-tab-summary');
+    fireEvent.click(screen.getByTestId('file-tab-send'));
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith(
+        i18n.t('errors.share_radio_key_unavailable'),
+        expect.objectContaining({ action: expect.anything() })
+      )
+    );
+    for (const lng of ['en', 'fr']) {
+      expect(i18n.t('errors.share_radio_key_unavailable', { lng })).not.toMatch(/later|plus tard/i);
+    }
+  });
+
   it('shows a coded toast when the upload is refused', async () => {
     upload.mockRejectedValue(
       new ApiError('busy', 429, { code: 'share_rate_limited', params: {} }, 5)

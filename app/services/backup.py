@@ -875,8 +875,8 @@ async def _ensure_keystore_key(mc, live_public_key: str | None) -> None:
 
     The keystore is filled once per connection by the post-connect setup; one
     export that timed out there would otherwise leave every full backup without
-    the identity until the next reconnect. A firmware that refused the export
-    (DISABLED) is not asked again, and a keystore key for another radio is left
+    the identity until the next reconnect. A radio link that refused the export
+    (DISABLED: firmware or proxy) is not asked again, and a keystore key for another radio is left
     alone (the identity is then reported unavailable).
     """
     from app import keystore

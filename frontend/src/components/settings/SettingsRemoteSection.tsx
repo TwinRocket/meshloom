@@ -25,6 +25,7 @@ import type { SettingsSection } from './settingsConstants';
 import { RemoteAlertEmailPanel } from './remote/RemoteAlertEmailPanel';
 import { RemoteDomainPanel } from './remote/RemoteDomainPanel';
 import { RemoteAccessRequestsPanel } from './remote/RemoteAccessRequestsPanel';
+import { LearnMoreLink } from './LearnMoreLink';
 import { RemoteDevicesPanel } from './remote/RemoteDevicesPanel';
 import { RemoteEnrollDialog } from './remote/RemoteEnrollDialog';
 import {
@@ -229,7 +230,10 @@ export function SettingsRemoteSection({
                   className="text-[0.8125rem] text-muted-foreground"
                   data-testid="remote-last-error"
                 >
-                  {t(`errors.${status.last_error}`)}
+                  {t(`errors.${status.last_error}`)}{' '}
+                  {status.last_error === 'remote_attestation_unavailable' && (
+                    <LearnMoreLink page="deep/remote" />
+                  )}
                 </p>
               ) : (
                 <p

@@ -21,7 +21,7 @@ Après l’envoi, le message montre l’avancement de sa livraison :
 
 Un accusé prend du temps. Le message doit traverser tous les répéteurs à l’aller, et la confirmation doit revenir. Sur plusieurs sauts, quelques dizaines de secondes sont normales.
 
-Meshloom déchiffre les messages directs entrants sur le serveur, avec la clé privée qu’il lit dans la radio à la connexion. Cela marche même quand le contact n’est plus chargé dans la mémoire de la radio. Il faut pour cela un firmware de radio qui autorise la lecture de la clé.
+Meshloom déchiffre les messages directs entrants sur le serveur, avec la clé privée qu’il lit dans la radio à la connexion. Cela marche même quand le contact n’est plus chargé dans la mémoire de la radio. Il faut pour cela un firmware de radio qui autorise la lecture de la clé, et une radio qui n’est pas atteinte par un [proxy radio](/docs/deep/radio/#proxy-radio), lequel ne la donne jamais.
 
 ## Canaux
 

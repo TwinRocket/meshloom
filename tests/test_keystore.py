@@ -250,3 +250,31 @@ class TestWhyTheKeyIsMissing:
         mc.commands.export_private_key = AsyncMock(return_value=good)
         await export_and_store_private_key(mc)
         assert radio_key_unavailable_code() == "radio_key_unavailable"
+
+
+class TestMissingKeyNotice:
+    """MSHL-471: what runs on every advert says it once per connection and cause."""
+
+    def test_once_per_topic(self):
+        from app.keystore import first_missing_key_notice
+
+        assert first_missing_key_notice("a") is True
+        assert first_missing_key_notice("a") is False
+        assert first_missing_key_notice("b") is True
+
+    @pytest.mark.asyncio
+    async def test_again_when_the_cause_becomes_known(self):
+        from app.keystore import first_missing_key_notice
+
+        assert first_missing_key_notice("a") is True
+        mc = _refusing_mc(AsyncMock(return_value=_device_info("MeshloomProxy/0123456789ab")))
+        await export_and_store_private_key(mc)
+        assert first_missing_key_notice("a") is True
+        assert first_missing_key_notice("a") is False
+
+    def test_again_after_a_disconnect(self):
+        from app.keystore import first_missing_key_notice
+
+        assert first_missing_key_notice("a") is True
+        clear_keys()
+        assert first_missing_key_notice("a") is True
