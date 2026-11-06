@@ -109,16 +109,25 @@ export function needsReinstall(instance: Pick<PluginInstance, 'status' | 'attent
   return instance.status === 'needs_attention' && attentionType(instance) === 'reinstall';
 }
 
+/** The version a reinstall replaced, while the instance waits for its review. */
+export function previousVersion(instance: Pick<PluginInstance, 'attention'>): string | null {
+  const previous = instance.attention?.previous_version;
+  return attentionType(instance) === 'restored' && typeof previous === 'string' ? previous : null;
+}
+
 /**
  * Why the toggle cannot enable the instance from the list, or null when it can.
- * `review` means the drawer's explicit acknowledgement is needed first.
+ * `review` means the drawer's explicit acknowledgement is needed first;
+ * `reinstall_unavailable` that its source does not exist here, so only uninstalling is left.
  */
 export function enableBlock(
   instance: PluginInstance
-): 'frozen' | 'config_required' | 'reinstall' | 'review' | null {
+): 'frozen' | 'config_required' | 'reinstall' | 'reinstall_unavailable' | 'review' | null {
   if (isFrozen(instance)) return 'frozen';
   if (instance.status !== 'needs_attention') return null;
-  if (needsReinstall(instance)) return 'reinstall';
+  if (needsReinstall(instance)) {
+    return instance.reinstallable ? 'reinstall' : 'reinstall_unavailable';
+  }
   return attentionType(instance) === 'config_required' ? 'config_required' : 'review';
 }
 

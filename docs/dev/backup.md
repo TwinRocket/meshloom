@@ -407,8 +407,10 @@ by `services/backup.py`.
   grants = its declared permissions). Any other kind comes back as a
   **to reinstall** row (`attention.type = "reinstall"`): its code is not in the
   file, and `_status_block` refuses every start with 409
-  `plugin_reinstall_required`; the user can only uninstall it until the store
-  reinstall action exists (T20). When an instance of the same plugin and kind
+  `plugin_reinstall_required`. The drawer's **Reinstall** (`POST
+  /plugins/{id}/reinstall`, `docs/dev/plugins.md`, "Reinstall") brings the code back;
+  when its source does not exist here (`reinstallable` false in the instance view) it
+  offers **Uninstall** instead. When an instance of the same plugin and kind
   is installed here, the row shares its manifest, version and schema and is
   `restored` instead. Every restored row is **disabled**, `needs_attention`
   (`restored`, accepted like any other attention by sending

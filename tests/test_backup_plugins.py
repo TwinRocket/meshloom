@@ -157,6 +157,36 @@ async def test_round_trip_restores_local_whole_and_the_others_to_reinstall(
             assert (await cursor.fetchone())[0] == 0
 
 
+async def test_a_bundled_reinstall_row_is_offered_only_when_this_release_ships_it(
+    backup_db, api, manager
+):
+    """MSHL-469. The restore hook normally brings a shipped one back by itself; a row left
+    behind (the hook failed) can still be reinstalled, one this release lacks cannot."""
+    rows = {
+        plugin_id: await PluginRepository.create(
+            plugin_id=plugin_id,
+            label=plugin_id,
+            kind="bundled",
+            version="0.0.1",
+            manifest={},
+            granted_permissions={},
+            status="needs_attention",
+            attention={"type": "reinstall"},
+        )
+        for plugin_id in ("meshloom.greeter", "meshloom.gone")
+    }
+    views = {v["plugin_id"]: v for v in (await api.get("/api/plugins")).json()}
+    assert views["meshloom.greeter"]["reinstallable"] is True
+    assert views["meshloom.gone"]["reinstallable"] is False
+
+    gone = await api.post(f"/api/plugins/{rows['meshloom.gone']['instance_id']}/reinstall")
+    assert (gone.status_code, code_of(gone)) == (404, "plugin_not_bundled")
+    shipped = await api.post(f"/api/plugins/{rows['meshloom.greeter']['instance_id']}/reinstall")
+    assert shipped.status_code == 200, shipped.text
+    assert shipped.json()["attention"]["type"] == "restored"
+    assert shipped.json()["version"] != "0.0.1"
+
+
 async def test_a_reinstall_row_never_starts(backup_db, api, manager):
     manifest = json.loads((ECHO_SRC / "manifest.json").read_text())
     entry = {

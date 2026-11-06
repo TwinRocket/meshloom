@@ -598,7 +598,7 @@ reorder (`InstalledTab canManage`), and a drawer (`InstanceDrawer canManage`) wi
 quotas, settings, code, logs, diagnostic, restart or uninstall, so no admin-only route is called.
 Over `/api/plugins` (`api.getPlugins`,
 `getBundledPlugins`, `installPlugin`, `createLocalPlugin`, `patchPlugin`, `putPluginSource`,
-`checkPlugin`, `testPlugin`, `restartPlugin`, `getPluginLogs`, `getPluginDiagnostic`,
+`checkPlugin`, `testPlugin`, `reinstallPlugin`, `restartPlugin`, `getPluginLogs`, `getPluginDiagnostic`,
 `deletePlugin`, `getPluginsPause`, `setPluginsPause`; types in `extensions/pluginsTypes.ts`,
 `PluginInstance` stays in `types.ts`). Global pause: `GET /plugins/pause` read on mount and on
 each health change; a banner (`plugins-paused-banner`: since when, by whom, **Resume** for admins)
@@ -610,8 +610,11 @@ reloads the list whenever `health.plugin_statuses` changes (the server announces
 and a health refresh follows, so no extra WebSocket handler). Rules: `enableBlock()`
 (`pluginsShared.ts`) keeps `revoked`/`incompatible` from being enabled (the toggle is disabled
 and `toggle()` refuses too); `needs_attention` for a reason other than `config_required` is
-enabled only through the drawer's **Accept and enable** (resends `granted_permissions`, then
-`enabled: true`); with `plugins_disabled_source` set to anything but `paused` every write is off but
+enabled only through the drawer's **Accept and enable** (`granted_permissions` and
+`enabled: true` in one PATCH, since on a stopped row a grant alone leaves the attention); a row restored without its code (`needsReinstall()`) shows **Reinstall**
+(`reinstallPlugin`, `reinstallable` true in the view: the source exists here) or **Uninstall**
+(`reinstall_unavailable`), and the drawer remounts when it leaves that state, since the manifest
+and grants changed; with `plugins_disabled_source` set to anything but `paused` every write is off but
 Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissions and shows
 `plugins.permissions.http.private_messages_warning` when `messages.read` (direct or all channels)
 meets `http`. `ScopeEditor` is a small own editor (not the fanout `ScopeSelector`, which is private

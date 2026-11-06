@@ -173,6 +173,15 @@ Quand l'actualisation du Store voit une nouvelle version d'un dépôt depuis leq
 
 L'onglet **Mises à jour** les liste sans contacter personne (il montre ce que la dernière actualisation a trouvé) : le changement de version, le journal des changements quand la source en fournit un (un dépôt GitHub n'en fournit pas, et l'onglet le dit), les permissions ajoutées, modifiées ou plus demandées, et les réglages ajoutés, supprimés ou devenus obligatoires. **Examiner et mettre à jour** montre tout cela de nouveau, liste chaque permission de la nouvelle release quand une copie a besoin de votre consentement, demande les nouveaux réglages quand une copie en a besoin, puis applique la mise à jour. L'onglet porte aussi l'interrupteur de mise à jour automatique de chaque copie, et un lien vers la section **Mises à jour** de Meshloom (qui renvoie ici). La mise à jour n'est pas proposée tant que l'interrupteur du Store est éteint.
 
+### Extensions restaurées depuis une sauvegarde
+
+Une extension qui revient d'une sauvegarde sans son code affiche **À réinstaller**. Ouvrez-la et choisissez **Réinstaller** : Meshloom récupère son code depuis la même source. Pour une extension venue d'un dépôt, le Store doit être en ligne.
+
+- Elle garde les réglages que le nouveau code accepte encore (le tiroir nomme ceux qu'il a réinitialisés), ses données enregistrées s'il y en a, ses conversations choisies et ses limites d'envoi. Les secrets ne sont pas dans une sauvegarde : saisissez-les de nouveau. Ses permissions restent cochées tant que le code les demande toutes ; sinon, cochez-les de nouveau.
+- Un dépôt ne propose que sa dernière version : l'extension peut donc revenir dans une version plus récente ou plus ancienne que celle de la sauvegarde ; le tiroir indique la source avant que vous choisissiez, et les deux versions après. Quand une autre copie est déjà installée ici, elle prend la version de cette copie.
+- Elle reste arrêtée : vérifiez-la, puis choisissez **Accepter et activer**.
+- Quand sa source n'est pas disponible ici (une extension que cette version de Meshloom ne fournit pas, par exemple), le tiroir propose **Désinstaller** à la place.
+
 ## Les bots de la 4.18 et avant
 
 Meshloom 5.0.0 retire les bots Python de **MQTT & Automation**. Au premier démarrage, il transforme chaque bot en **extension locale** portant son nom. Votre code est conservé tel quel (vous pouvez le lire et le modifier dans l’onglet **Code** de l’extension), ainsi que les conversations auxquelles le bot était limité et son interrupteur. Une petite couche de compatibilité appelle la fonction de votre bot, qui tourne donc désormais dans les mêmes murs que n’importe quelle extension : son propre processus, ses permissions, ses limites, la pause et le verrou ci-dessus.

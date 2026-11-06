@@ -173,6 +173,15 @@ When the Store refresh sees a newer release of a repository you installed from, 
 
 The **Updates** tab lists them without contacting anyone (it shows what the last refresh found): the version change, the changelog when the source provides one (a GitHub repository does not, and the tab says so), the permissions added, changed or no longer asked, and the settings added, removed or newly required. **Review and update** shows all that again, lists every permission of the new release when a copy needs your consent, asks for the new settings when a copy needs them, and applies the update. The tab also has the automatic-update switch of each copy, and a link to Meshloom's own **Updates** section (which links back here). The update is not offered while the Store switch is off.
 
+### Extensions restored from a backup
+
+An extension that comes back from a backup without its code shows **To reinstall**. Open it and choose **Reinstall**: Meshloom fetches its code again from the same source. For an extension from a repository, the Store must be online.
+
+- It keeps its settings the new code still accepts (the drawer names the ones it reset), its stored data if any, its chosen conversations and its sending limits. Secrets are not in a backup: type them again. Its permissions stay ticked as long as the code still asks for all of them; otherwise tick them again.
+- A repository only offers its latest release, so the extension can come back at a newer or older version than the one in the backup; the drawer shows the source before you choose and both versions after. When another copy of it is already installed here, it takes the version of that copy.
+- It stays off: check it, then choose **Accept and enable**.
+- When its source is not available here (an extension this version of Meshloom does not ship, for example), the drawer offers **Uninstall** instead.
+
 ## Bots from 4.18 and earlier
 
 Meshloom 5.0.0 removes the Python bots of **MQTT & Automation**. At its first start, it turns each bot into a **local extension** named after the bot. Your code is kept as it was (you can read and edit it in the extension's **Code** tab), and so are the conversations the bot was limited to and its on/off setting. A small compatibility layer calls your bot function, so it now runs in the same walls as any extension: its own process, permissions, limits, and the pause and the lock above.

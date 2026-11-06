@@ -586,6 +586,11 @@ def register_resolver(kind: Literal["custom", "store"], resolver: SourceResolver
         _resolvers[kind] = resolver
 
 
+def has_resolver(kind: Literal["custom", "store"]) -> bool:
+    """Whether a resolver serves ``kind`` here (``store`` has none yet)."""
+    return kind in _resolvers
+
+
 async def resolve_source(
     kind: Tier, plugin_id: str, version: str | None = None, repository: str | None = None
 ) -> ArchiveSource | None:

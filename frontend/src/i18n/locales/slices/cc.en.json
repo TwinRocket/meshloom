@@ -66,11 +66,13 @@
         },
         "restored": {
           "badge": "Restored",
-          "text": "Restored extension, turned off. Check it below, then accept to start it."
+          "text": "Restored extension, turned off. Check it below, then accept to start it.",
+          "versionChanged": "Version {{version}} installed; the backup had {{previous}}."
         },
         "reinstall": {
           "badge": "To reinstall",
-          "text": "Restored without its code: reinstall or uninstall it."
+          "text": "Restored without its code: reinstall or uninstall it.",
+          "unavailable": "Restored without its code, and its source is not available here. You can uninstall it."
         },
         "config_dropped": {
           "badge": "Settings reset",
@@ -89,7 +91,8 @@
         "frozen": "Cannot be enabled",
         "config_required": "Setup required first",
         "review": "Open it to review and accept",
-        "reinstall": "Reinstall it first"
+        "reinstall": "Reinstall it first",
+        "reinstall_unavailable": "Source not available"
       },
       "isolation": {
         "title": "Isolation level",
@@ -167,6 +170,10 @@
         "accepted": "Accepted and enabled.",
         "restart": "Restart",
         "restarted": "Restarted.",
+        "reinstall": "Reinstall",
+        "reinstallSource": "Source: {{repository}}",
+        "reinstalling": "Reinstalling...",
+        "reinstalled": "Reinstalled. Check it, then accept to start it.",
         "copyDiagnostic": "Copy diagnostic",
         "diagnosticCopied": "Diagnostic copied.",
         "uninstall": "Uninstall",
@@ -272,6 +279,11 @@
     "quota_invalid": "A sending limit is out of range. It can only be lowered.",
     "scope_invalid": "The conversations selection is not valid.",
     "secret_required": "A secret value is missing.",
+    "plugin_not_reinstallable": "This extension does not need reinstalling.",
+    "plugin_kind_conflict": "This extension is already installed from another source.",
+    "plugin_code_missing": "The code of this extension is missing: uninstall its other copies, then try again.",
+    "incompatible": "This release does not support this version of Meshloom.",
+    "archive_too_large": "The extension's archive is too large.",
     "plugin_reinstall_required": "This extension was restored without its code: reinstall it before starting it.",
     "plugin_code_mismatch": "An update of this extension did not finish: restart Meshloom to complete it.",
     "plugin_not_updatable": "This extension does not update from a repository.",

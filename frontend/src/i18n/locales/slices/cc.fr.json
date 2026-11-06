@@ -66,11 +66,13 @@
         },
         "restored": {
           "badge": "Restaurée",
-          "text": "Extension restaurée, désactivée. Vérifiez-la ci-dessous, puis acceptez pour la démarrer."
+          "text": "Extension restaurée, désactivée. Vérifiez-la ci-dessous, puis acceptez pour la démarrer.",
+          "versionChanged": "Version {{version}} installée ; la sauvegarde avait la {{previous}}."
         },
         "reinstall": {
           "badge": "À réinstaller",
-          "text": "Restaurée sans son code : réinstallez-la ou désinstallez-la."
+          "text": "Restaurée sans son code : réinstallez-la ou désinstallez-la.",
+          "unavailable": "Restaurée sans son code, et sa source n'est pas disponible ici. Vous pouvez la désinstaller."
         },
         "config_dropped": {
           "badge": "Réglages réinitialisés",
@@ -89,7 +91,8 @@
         "frozen": "Ne peut pas être activée",
         "config_required": "Réglages requis d'abord",
         "review": "Ouvrez-la pour l'examiner et l'accepter",
-        "reinstall": "À réinstaller d'abord"
+        "reinstall": "À réinstaller d'abord",
+        "reinstall_unavailable": "Source non disponible"
       },
       "isolation": {
         "title": "Niveau d'isolation",
@@ -167,6 +170,10 @@
         "accepted": "Acceptée et activée.",
         "restart": "Redémarrer",
         "restarted": "Redémarrée.",
+        "reinstall": "Réinstaller",
+        "reinstallSource": "Source : {{repository}}",
+        "reinstalling": "Réinstallation...",
+        "reinstalled": "Réinstallée. Vérifiez-la, puis acceptez pour la démarrer.",
         "copyDiagnostic": "Copier le diagnostic",
         "diagnosticCopied": "Diagnostic copié.",
         "uninstall": "Désinstaller",
@@ -272,6 +279,11 @@
     "quota_invalid": "Une limite d'envoi est hors plage. Elle ne peut que baisser.",
     "scope_invalid": "La sélection de conversations n'est pas valide.",
     "secret_required": "Une valeur secrète est manquante.",
+    "plugin_not_reinstallable": "Cette extension n'a pas besoin d'être réinstallée.",
+    "plugin_kind_conflict": "Cette extension est déjà installée depuis une autre source.",
+    "plugin_code_missing": "Le code de cette extension est absent : désinstallez ses autres copies, puis réessayez.",
+    "incompatible": "Cette version de l'extension ne prend pas en charge cette version de Meshloom.",
+    "archive_too_large": "L'archive de l'extension est trop volumineuse.",
     "plugin_reinstall_required": "Cette extension a été restaurée sans son code : réinstallez-la avant de la démarrer.",
     "plugin_code_mismatch": "Une mise à jour de cette extension est inachevée : redémarrez Meshloom pour la terminer.",
     "plugin_not_updatable": "Cette extension ne se met pas à jour depuis un dépôt.",

@@ -11,6 +11,7 @@ import sys
 import pytest
 
 from app.repository.auth import AuthAuditRepository
+from app.repository.plugins import PluginRepository
 from tests.test_plugins_api import (  # noqa: F401 (fixtures)
     ECHO_GRANT,
     SECRET,
@@ -96,3 +97,26 @@ async def test_member_writes_are_refused_before_any_plugin_change(api, manager, 
     assert response.status_code == 403
     # The permission gate answers before the route: no plugin row, no change.
     assert all(r.action != "plugin.disabled" for r in await _plugin_rows())
+
+
+async def test_a_reinstall_says_which_version_it_replaced(api, manager):
+    row = await PluginRepository.create(
+        plugin_id="meshloom.greeter",
+        label="Restored",
+        kind="bundled",
+        version="0.0.1",
+        manifest={},
+        config={"greeting": "kept-value-7f3a"},
+        config_schema={"type": "object", "properties": {"greeting": {"type": "integer"}}},
+        status="needs_attention",
+        attention={"type": "reinstall"},
+    )
+    response = await api.post(f"/api/plugins/{row['instance_id']}/reinstall")
+    assert response.status_code == 200, response.text
+
+    rows = await _plugin_rows()
+    assert rows[-1].action == "plugin.installed"
+    assert rows[-1].details["reinstall"] is True
+    assert rows[-1].details["from_version"] == "0.0.1"
+    assert rows[-1].details["to_version"] == response.json()["version"]
+    assert "kept-value-7f3a" not in _dump(rows)
