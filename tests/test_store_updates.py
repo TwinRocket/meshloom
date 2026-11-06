@@ -536,6 +536,35 @@ async def test_a_held_instance_reports_the_dropped_value_on_its_hold(api, net, t
     assert attention["config_dropped"] == ["greeting"]
 
 
+async def test_saving_the_config_clears_the_dropped_fields_of_a_hold_not_the_hold(
+    api, net, tmp_path
+):
+    """MSHL-469 follow-up: the notice says "check them and save", in both of its forms."""
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, schema=SCHEMA_INT, permissions=WIDER)
+    assert (await api.post(f"/api/plugins/{only}/update", json={})).status_code == 200
+    # A hold on a running row refuses a save until accepted, which clears everything anyway.
+    stopped = await api.patch(f"/api/plugins/{only}", json={"enabled": False})
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["attention"]["config_dropped"] == ["greeting"]
+    saved = await api.patch(f"/api/plugins/{only}", json={"config": {"greeting": 3}})
+    assert saved.status_code == 200, saved.text
+    attention = saved.json()["attention"]
+    assert attention["type"] == "consent_required"
+    assert "config_dropped" not in attention
+    assert saved.json()["status"] == "needs_attention"
+
+
+async def test_saving_the_config_clears_the_notice_of_a_running_instance(api, net, tmp_path):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, schema=SCHEMA_INT)
+    assert (await api.post(f"/api/plugins/{only}/update", json={})).status_code == 200
+    assert (await _row(only))["attention"]["type"] == "config_dropped"
+    saved = await api.patch(f"/api/plugins/{only}", json={"config": {"greeting": 3}})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["attention"] is None
+
+
 # --- auto-update holds and the hourly evaluation (MSHL-393) -------------------------
 
 # Like SCHEMA_INT, and the secret's declaration changes too: a secret is never reported.

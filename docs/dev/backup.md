@@ -409,10 +409,11 @@ by `services/backup.py`.
   file, and `_status_block` refuses every start with 409
   `plugin_reinstall_required`. The drawer's **Reinstall** (`POST
   /plugins/{id}/reinstall`, `docs/dev/plugins.md`, "Reinstall") brings the code back;
-  when its source does not exist here (`reinstallable` false in the instance view) it
+  when it cannot work here (`reinstallable` false in the instance view) it
   offers **Uninstall** instead. When an instance of the same plugin and kind
   is installed here, the row shares its manifest, version and schema and is
-  `restored` instead. Every restored row is **disabled**, `needs_attention`
+  `restored` instead, unless one of them is `revoked` or `incompatible`: it stays
+  **to reinstall**, and the route refuses until that changes. Every restored row is **disabled**, `needs_attention`
   (`restored`, accepted like any other attention by sending
   `granted_permissions` again, or `reinstall`), with `was_enabled` and
   `secrets_missing` (the omitted write-only names) in `attention`. Grants are
@@ -441,7 +442,8 @@ by `services/backup.py`.
   `plugins_restored:<n>`, `plugins_to_reinstall:<n>`,
   `plugin_secrets_missing:<n>`.
 - **Hook.** `on_restore("plugins")` writes out the code of each bundled
-  `reinstall` row this release ships (`installer.install_bundled`) and makes it
+  `reinstall` row this release ships (`installer.install_bundled`, not while an instance
+  of that plugin is `revoked`) and makes it
   `restored` with the shipped manifest and schema, then announces every row to
   the UI. Rows stay disabled.
 - **Older files** (4.18.x, and 5.0 files written before the section) have no

@@ -408,12 +408,17 @@ async def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
 
 
 async def _reinstallable(row: dict[str, Any]) -> bool:
-    """Whether ``POST /reinstall`` has a source for this row, so the UI does not offer an
-    action that can only fail. A bundled plugin must ship with this release (the restore
-    hook brought back the ones that do, unless it failed), a custom one needs a valid
-    repository, and no resolver serves ``store`` yet. What only the network can tell
-    (Store off, release gone) is the route's answer."""
+    """Whether ``POST /reinstall`` can work for this row, so the UI does not offer an action
+    that can only fail: no sibling rules it out (``_check_reinstall``), a bundled plugin
+    ships with this release (the restore hook brought back the ones that do, unless it
+    failed), a custom one has a valid repository, and no resolver serves ``store`` yet. What
+    only the network can tell (Store off, release gone, a latest release that does not fit
+    this Meshloom) is the route's answer."""
     if (row["attention"] or {}).get("type") != "reinstall":
+        return False
+    try:
+        _check_reinstall(row, await _others(row))
+    except HTTPException:
         return False
     kind = row["kind"]
     if kind == "bundled":
@@ -594,6 +599,10 @@ def _status_changes(
         return {"attention": None}
     if will_run and acknowledged and status == "needs_attention":
         return cleared
+    if config_changed and "config_dropped" in (row["attention"] or {}):
+        # The same notice on a hold (an update's, a reinstall's): the hold stays.
+        kept = {k: v for k, v in row["attention"].items() if k != "config_dropped"}
+        return {"attention": kept}
     if not will_run and missing and config_changed and status != "needs_attention":
         # Cleared a required field on a stopped instance: it waits for its config.
         return {
@@ -970,13 +979,52 @@ async def reinstall_plugin(
         actor,
         "plugin.installed",
         target=_target(row["instance_id"]),
-        details=_audit_details(row, reinstall=True, from_version=row["version"]),
+        details=_audit_details(
+            row, reinstall=True, from_version=row["version"], repository=row["repository"]
+        ),
     ) as scope:
         async with installer.plugin_lock(row["plugin_id"]):
             version, dropped = await _reinstall(row["instance_id"])
         scope.details["to_version"] = version
         scope.details["config_dropped"] = dropped
     return await _view(await _row(row["instance_id"]), True)
+
+
+async def _others(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """The other instances of the row's plugin."""
+    rows = await PluginRepository.get_by_plugin_id(row["plugin_id"])
+    return [r for r in rows if r["instance_id"] != row["instance_id"]]
+
+
+def _check_reinstall(row: dict[str, Any], siblings: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Raise what the other instances of the plugin rule out for a reinstall (no network).
+    Returns the sibling whose code a remote plugin shares, nothing being downloaded then."""
+    if any(r["kind"] != row["kind"] for r in siblings):
+        raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
+    _refuse_revoked(siblings)
+    shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
+    if row["kind"] == "bundled" or shared is None:
+        return None
+    # The code directory is shared: replacing it would pull it from under that instance.
+    if row["kind"] == "custom" and _repository_key(row["repository"] or "") != shared["repository"]:
+        raise _error(
+            409,
+            "plugin_repository_conflict",
+            "This plugin is installed from another repository",
+            repository=shared["repository"],
+        )
+    if not installer.code_installed(
+        plugin_manager.plugins_root(), row["plugin_id"], shared["version"]
+    ):
+        raise _error(409, "plugin_code_missing", "The installed code of this plugin is missing")
+    if not installer.compatible(shared["manifest"]):
+        raise _error(
+            409,
+            "incompatible",
+            "This plugin does not support this version of Meshloom",
+            compat=(shared["manifest"].get("compat") or {}).get("meshloom"),
+        )
+    return shared
 
 
 async def _reinstall(instance_id: str) -> tuple[str, list[str]]:
@@ -992,40 +1040,10 @@ async def _reinstall(instance_id: str) -> tuple[str, list[str]]:
     row = await _row(instance_id)
     if row["kind"] == "local" or (row["attention"] or {}).get("type") != "reinstall":
         raise _error(409, "plugin_not_reinstallable", "The instance has its code")
-    siblings = [
-        r
-        for r in await PluginRepository.get_by_plugin_id(row["plugin_id"])
-        if r["instance_id"] != instance_id
-    ]
-    if any(r["kind"] != row["kind"] for r in siblings):
-        raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
-    _refuse_revoked(siblings)
-    shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
-    if row["kind"] != "bundled" and shared is not None:
-        # The code directory is shared: replacing it would pull it from under that instance.
-        if (
-            row["kind"] == "custom"
-            and _repository_key(row["repository"] or "") != shared["repository"]
-        ):
-            raise _error(
-                409,
-                "plugin_repository_conflict",
-                "This plugin is installed from another repository",
-                repository=shared["repository"],
-            )
-        if not installer.code_installed(
-            plugin_manager.plugins_root(), row["plugin_id"], shared["version"]
-        ):
-            raise _error(409, "plugin_code_missing", "The installed code of this plugin is missing")
+    shared = _check_reinstall(row, await _others(row))
+    if shared is not None:
         manifest, schema = shared["manifest"], shared["config_schema"]
         archive_sha256, repository = shared["archive_sha256"], shared["repository"]
-        if not installer.compatible(manifest):
-            raise _error(
-                409,
-                "incompatible",
-                "This plugin does not support this version of Meshloom",
-                compat=(manifest.get("compat") or {}).get("meshloom"),
-            )
     else:
         manifest, schema, archive_sha256, repository = await _fetch_code(row)
     version = manifest["version"]

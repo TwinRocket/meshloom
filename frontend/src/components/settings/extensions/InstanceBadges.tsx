@@ -4,7 +4,7 @@ import { Badge, StatusBadge } from './StatusBadge';
 import { attentionTextKey, droppedFields } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
 
-/** Status, typed attention reason, settings an update reset, kind (tier) and the revoked/incompatible flags. */
+/** Status, typed attention reason, settings that were reset, kind (tier) and the revoked/incompatible flags. */
 export function InstanceBadges({ instance }: { instance: PluginInstance }) {
   const { t } = useTranslation();
   const reason = attentionTextKey(instance);

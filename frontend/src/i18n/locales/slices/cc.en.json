@@ -72,11 +72,11 @@
         "reinstall": {
           "badge": "To reinstall",
           "text": "Restored without its code: reinstall or uninstall it.",
-          "unavailable": "Restored without its code, and its source is not available here. You can uninstall it."
+          "unavailable": "Restored without its code, and it cannot be reinstalled here. You can uninstall it."
         },
         "config_dropped": {
           "badge": "Settings reset",
-          "text": "The update reset some settings: {{fields}}. Check them and save."
+          "text": "Some settings were reset: {{fields}}. Check them and save."
         },
         "other": {
           "badge": "Needs review",
@@ -92,7 +92,7 @@
         "config_required": "Setup required first",
         "review": "Open it to review and accept",
         "reinstall": "Reinstall it first",
-        "reinstall_unavailable": "Source not available"
+        "reinstall_unavailable": "Cannot be reinstalled here"
       },
       "isolation": {
         "title": "Isolation level",
