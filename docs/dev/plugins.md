@@ -779,7 +779,9 @@ two-host simulation.
   `{sender}`, `{channel}`, `{text}` (substituted, never `format`ted). `rules` has no schema
   default on purpose: `SchemaForm` shows a default as if it were saved while the plugin only
   reads the saved config, and a default that did run would answer strangers right after the
-  install. It starts with 0 rules and answers nothing. Other settings:
+  install. It starts with 0 rules and answers nothing. Version 1.0.1 is what carries this schema
+  to existing instances (`bundled_update.py`): their config is untouched, so rules saved from the
+  old prefilled form stay, as the user's own. Other settings:
   `case_sensitive`, `answer_direct_messages`, `cooldown_seconds` (default 120),
   `max_replies_per_hour` (default 20, below the instance's 30). The first rule that
   matches decides, even when its cooldown keeps it silent. Cooldowns are per rule and
