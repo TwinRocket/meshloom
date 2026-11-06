@@ -12,8 +12,8 @@ import sys
 from datetime import datetime
 
 import httpx
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from app.plugins import custom_repos, installer, store_egress, updates
 from app.repository import AppSettingsRepository
