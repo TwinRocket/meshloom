@@ -329,8 +329,9 @@ ejected install comes back at once and kicks it. Known limits:
 ## Alert e-mail (MSHL-467)
 
 The relay's alert e-mail (`remote-registration.md`, `PUT /v1/instances/self/alert-email`).
-Today it mails the quota warning at 80 % and the pause notice; the offline alert of the
-contract is not sent yet by meshloom-remote (`src/alertEmail.ts`). All three routes are
+Today it mails the quota warning at 80 % and the pause notice; the offline alert is only
+planned in the contract and not sent by meshloom-remote (`src/alertEmail.ts`), so the UI, the
+relay's pages and the user docs do not promise it. All three routes are
 `admin` and answer `{state}`, `none`, `pending` or `confirmed`:
 
 | Route | Registry | Notes |
@@ -399,7 +400,7 @@ enrolment URL or an access code.
 Settings → Remote access (section `remote`, lazy-loaded, every account role but the kiosk:
 `ACCOUNT_SETTINGS_SECTIONS`). Details in `frontend/AGENTS.md`, "Remote access section".
 
-- One actionable line (passkey or 2FA) and a "Learn more" link to the user docs
+- One actionable line (turn on 2FA; a passkey does not stop a password alone) and a "Learn more" link to the user docs
   (`docs/user/<lang>/deep/remote.md`, URL from `utils/userDocsUrl.ts`). What the relay sees (TLS
   ends at the relay, so it could read the traffic, the password at sign-in included; what the
   registration sends; a relayed request is never the local network) lives in that page and
@@ -437,8 +438,7 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 
 ## Not done here
 
-- The main user page (MSHL-83; it should link to `remote-domain.md`). Issuing a client pass
-  (`POST /api/remote/devices/client`) has no UI yet.
+- Issuing a client pass (`POST /api/remote/devices/client`) has no UI yet.
 - CONTROL `instance_update` when the plugin settings change without a reconnect: the
   next HELLO carries them. Closing the instance's own open WebSockets of a revoked
   device: the relay cancels those streams after a `gate`, and every new request checks

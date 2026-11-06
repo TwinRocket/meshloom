@@ -209,6 +209,26 @@ describe('SettingsRemoteSection', () => {
     vi.restoreAllMocks();
   });
 
+  it('asks for two-factor authentication, never a passkey, to protect an account', () => {
+    // A passkey leaves the password valid on its own: only two-factor stops a password alone.
+    const cases = [
+      [en, /two-factor authentication/],
+      [fr, /double authentification/],
+    ] as const;
+    for (const [slice, expected] of cases) {
+      const remote = slice.settings.remote;
+      const notices = slice.settings.access.securityNotice;
+      for (const line of [
+        remote.about.secure,
+        remote.enable.isolationWarning,
+        notices.remote_reduced_plugin_isolation,
+      ]) {
+        expect(line).toMatch(expected);
+        expect(line).not.toMatch(/passkey|clé d.accès/i);
+      }
+    }
+  });
+
   it('shows one actionable line and links the Remote docs for the details', async () => {
     vi.spyOn(api, 'getRemote').mockResolvedValue(OFF);
     await renderAs('admin');

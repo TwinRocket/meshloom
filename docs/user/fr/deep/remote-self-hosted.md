@@ -7,7 +7,7 @@ order: 24
 
 Meshloom écoute sur le port 8000 de la machine qui l’exécute, et rien de plus. Pour le joindre depuis l’extérieur de chez vous ou de votre bureau, ne redirigez pas ce port sur votre box : placez devant lui un élément que vous contrôlez. Cette page présente trois voies, toutes sur votre propre compte ou vos propres machines, sans rien demander au projet Meshloom. L’add-on Home Assistant a [sa propre note](#add-on-home-assistant). Deux pages d’entrée courtes couvrent les cas les plus courants : [Tailscale serve](/docs/deep/self-host-tailscale/) et [votre reverse-proxy existant](/docs/deep/self-host-proxy/) (Caddy, nginx, Traefik).
 
-Depuis la 5.0, chaque page et chaque route d’API demande un compte, quelle que soit la voie : un tunnel ou un proxy n’ouvre donc jamais Meshloom sans connexion. Lisez d’abord [Comptes et accès](/docs/deep/access/), et donnez à chaque administrateur un mot de passe solide, la [double authentification](/docs/deep/access/#la-double-authentification) ou une [passkey](/docs/deep/access/#les-passkeys).
+Depuis la 5.0, chaque page et chaque route d’API demande un compte, quelle que soit la voie : un tunnel ou un proxy n’ouvre donc jamais Meshloom sans connexion. Lisez d’abord [Comptes et accès](/docs/deep/access/), et donnez à chaque administrateur un mot de passe solide et la [double authentification](/docs/deep/access/#la-double-authentification). Une [passkey](/docs/deep/access/#les-passkeys) évite de saisir le mot de passe, qui reste valable.
 
 > **Ce qui a été testé.** Le côté Meshloom de chaque voie (quel réglage changer, ce que Meshloom fait des en-têtes reçus) a été vérifié dans le code de cette version. Les extraits Caddy et nginx ci-dessous, et la forme « fournisseur de fichiers » de Traefik, ont été exécutés devant Meshloom 5.0 lors d’un essai local (connexion, cookie sécurisé, WebSocket en direct). Les configurations Cloudflare, Tailscale et WireGuard, et les labels Docker de Traefik, sont les méthodes documentées par ces produits et n’ont **pas** été exécutées de bout en bout par l’auteur de cette page : elles sont marquées *non testé* là où elles apparaissent. Dites-nous ce que vous constatez.
 
@@ -146,7 +146,7 @@ Avec un proxy sur votre propre machine, ou Meshloom exposé sur Internet, [fail2
 
 ## Liste de contrôle
 
-- Les comptes existent, les administrateurs ont un mot de passe solide et un second facteur ou une passkey.
+- Les comptes existent, les administrateurs ont un mot de passe solide et un second facteur.
 - La page est servie en HTTPS par celui qui transmet, et la page de connexion n’avertit pas d’un HTTP simple.
 - Le nom public est dans **Adresses publiques** ; l’adresse propre de celui qui transmet, et rien de plus large, est dans **Proxies de confiance**.
 - **Accès sans connexion sur le réseau local** est désactivé, ou **Réseaux de confiance** ne contient que des appareils locaux joints par adresse IP.

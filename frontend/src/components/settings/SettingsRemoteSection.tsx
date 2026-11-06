@@ -50,7 +50,7 @@ type Confirm = 'disable' | 'unregister' | 'rotate' | null;
  * registers its own key and gets a name), then every user enrols their phone or
  * browser with a QR code shown here on the local network, or approves an access
  * request by typing the code the new device shows. On screen: one actionable line
- * (passkey or 2FA) and a link to docs/user/<lang>/deep/remote.md, which says what the
+ * (turn on 2FA) and a link to docs/user/<lang>/deep/remote.md, which says what the
  * relay sees (MSHL-449: the details live in the docs and the terms, not in the UI).
  *
  * Every account role but the kiosk opens it (`ACCOUNT_SETTINGS_SECTIONS`): enable,

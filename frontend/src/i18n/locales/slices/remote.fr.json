@@ -8,7 +8,7 @@
       "about": {
         "title": "Meshloom Remote",
         "intro": "Ouvrez ce Meshloom de partout, sans ouvrir de port sur votre box. Seuls les appareils que vous autorisez y ont accès.",
-        "secure": "Protégez l’accès : activez une passkey ou la double authentification.",
+        "secure": "Protégez l’accès : activez la double authentification.",
         "learnMore": "En savoir plus"
       },
       "status": {
@@ -75,7 +75,7 @@
       "enable": {
         "title": "Activer Meshloom Remote ?",
         "help": "Cette instance reçoit une adresse en meshloom.link. Vous autoriserez ensuite chaque appareil.",
-        "isolationWarning": "Les plugins tournent sans bac à sable : protégez chaque administrateur par une passkey ou la double authentification.",
+        "isolationWarning": "Les plugins tournent sans bac à sable : protégez chaque administrateur par la double authentification.",
         "isolationAck": "J’ai compris, activer quand même.",
         "confirm": "Activer"
       },
@@ -219,7 +219,7 @@
     },
     "access": {
       "securityNotice": {
-        "remote_reduced_plugin_isolation": "Remote est activé et les plugins tournent sans bac à sable : protégez chaque administrateur par une passkey ou la double authentification."
+        "remote_reduced_plugin_isolation": "Remote est activé et les plugins tournent sans bac à sable : protégez chaque administrateur par la double authentification."
       }
     }
   },

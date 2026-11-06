@@ -91,7 +91,7 @@ Newer versions of Meshloom add more parts to this file. A part the running versi
 - Meshloom Community participation and its region code: joining is your choice, made again.
 - The link and file sharing consent: a backup restored on another machine would otherwise switch on a service nobody agreed to there, so sharing stays off (or as it is) after a restore. How links are shortened and when previews load are restored.
 - The radio's clock (Meshloom sets it) and a few settings no command reaches (buzzer and vibration).
-- The keys Meshloom uses to identify itself to online services (remote access, link sharing). They never leave the server, not even in a full backup that holds the radio's private key, nor in a `meshcore.db` download: Meshloom creates new ones after every restore, including a `meshcore.db` copy put back in place (made by this version or a later one), so those services need linking again.
+- The keys Meshloom uses to identify itself to online services (remote access, link sharing). They never leave the server, not even in a full backup that holds the radio's private key, nor in a `meshcore.db` download: Meshloom creates new ones after every restore, including a `meshcore.db` copy put back in place (made by this version or a later one), so those services need linking again. A copy of the data folder made outside Meshloom does hold them ([Backups and the Remote key](/en/docs/deep/remote/#backups-and-the-remote-key)).
 
 Channels are written into the radio's slots by the restore, and the slots above them are emptied. What happens next depends on **Keep channels on the radio** (**Settings → Radio → Messaging**), as the restore screen says before you start:
 
