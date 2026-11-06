@@ -28,6 +28,7 @@ import {
   applyTextReplacements,
 } from '../utils/textReplace';
 import { loadConversationDraft, saveConversationDraft } from '../utils/conversationDrafts';
+import { radioKeyToastAction } from '../utils/radioKeyError';
 import { getDesktopEnterSends, subscribeDesktopEnterSends } from '../utils/composerEnterKey';
 import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
 import {
@@ -111,7 +112,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   },
   ref
 ) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [text, setText] = useState('');
   const [replyQuote, setReplyQuote] = useState<{ sender: string; quote: string } | null>(null);
   const [sending, setSending] = useState(false);
@@ -297,13 +298,14 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         if (!silent) {
           toast.error(t('chat.shortenFailed'), {
             description: err instanceof Error ? formatApiError(err, t) : undefined,
+            ...radioKeyToastAction(err, t, i18n.language),
           });
         }
         return null;
       }
       return rewriteUrls(source, mapping);
     },
-    [shareHosts, shortenMinBytes, t]
+    [shareHosts, shortenMinBytes, t, i18n.language]
   );
 
   /** Put a rewritten text in the textarea, saving the draft; Undo restores `original`. */

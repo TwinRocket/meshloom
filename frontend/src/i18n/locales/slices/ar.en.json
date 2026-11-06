@@ -23,7 +23,7 @@
         "identity": "Sharing identity ready",
         "identityPending": "not yet (created the first time you share)",
         "dm": "Encrypted files for direct messages available",
-        "dmUnavailable": "Available once the radio is connected."
+        "dmUnavailable": "Available once this Meshloom holds the radio's key: the radio connected, and no radio proxy in between."
       },
       "consent": {
         "title": "Turn on link and file sharing?",

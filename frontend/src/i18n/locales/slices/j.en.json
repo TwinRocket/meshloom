@@ -16,7 +16,7 @@
       "failed": "Full backup failed",
       "warningsTitle": "About this backup",
       "warningNoIdentity": "No identity: the radio did not give its private key.",
-      "warningIdentityDisabled": "No identity: the radio's firmware does not export its private key.",
+      "warningIdentityDisabled": "No identity: the radio's private key is not given here, by its firmware or by a proxy in between.",
       "warningRadioDisconnected": "Radio not connected: only Meshloom's data is backed up.",
       "warningRadioNotReady": "The radio is still starting: this backup holds the Meshloom data only. Try again in a moment.",
       "warningWifiNotStored": "The radio stores no Wi-Fi password: the backup holds none.",
@@ -151,7 +151,7 @@
       "pushTargetFirstAdmin": "{{target}}, for the first administrator",
       "fileWarningsTitle": "About this file",
       "fileWarnings": {
-        "private_key_export_disabled": "No identity: the radio's firmware did not export its private key.",
+        "private_key_export_disabled": "No identity: the radio's private key was not given, by its firmware or by a proxy in between.",
         "private_key_unavailable": "The radio did not give its private key: this backup has no identity.",
         "radio_not_connected": "Radio not connected at backup time: Meshloom's data only.",
         "radio_not_ready": "The radio was still starting when this backup was made: it holds the Meshloom data only.",

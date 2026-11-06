@@ -25,7 +25,7 @@
     "share_not_owner": "This link or file was not shared from this Meshloom, so it cannot be deleted here.",
     "share_object_blocked": "The share service blocked this link or file. It cannot be deleted; contact the service if you disagree.",
     "share_mode_not_allowed": "Encrypted files are not possible in this conversation: send the photo in public mode.",
-    "share_radio_key_unavailable": "The radio's key has not been read yet. Try again later or send in public mode.",
+    "share_radio_key_unavailable": "The radio's key isn't available here: not read yet, or out of reach through a proxy. Send in public mode, or connect the radio directly.",
     "share_undecryptable": "This encrypted file cannot be decrypted in this conversation.",
     "share_radio_not_heard": "No other station has heard this radio lately: send a flood advertisement, then try again.",
     "share_community_opted_out": "This radio has left Meshloom Community: join it again in the Community settings.",

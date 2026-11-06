@@ -438,7 +438,9 @@ Community guard, and it needs Community on (MSHL-445).
   (`services/community_attestation.py`, audience `links`). `share_request` gets it after
   the opt-in and banned checks; without one the creation does not leave and answers
   `share_radio_not_heard`, `share_community_opted_out`, `share_community_banned` or
-  `share_attestation_unavailable` (503). A service `attestation_*` refusal (internal
+  `share_attestation_unavailable` (503), or a `radio_key_*` code (503,
+  `keystore.RADIO_KEY_ERRORS`) when this instance does not hold the radio key. A service
+  `attestation_*` refusal (internal
   `share_attestation_rejected`) renews it once and resends once (a streamed upload body
   is opened again); refused again: `share_attestation_unavailable`. The single request
   is `_share_request_once`. Tests: `tests/test_community_attestation.py`; every other
@@ -577,7 +579,9 @@ Community guard, and it needs Community on (MSHL-445).
   `#hashtag` renamed locally without its `#` both count, MSHL-385), a room (`CONTACT_TYPE_ROOM`: each
   member has a different secret with it) or an unusable/low-order contact key is 422
   `share_mode_not_allowed`; a DM without the radio private key is 503
-  `share_radio_key_unavailable` (public mode and private channels keep working). On the
+  `share_radio_key_unavailable` (public mode and private channels keep working; its own code
+  because that remedy differs from `radio_key_*`, and its copy covers a key not read yet and
+  a radio proxy, where it never comes). On the
   read side `message_secret(message)` resolves the secret from the message row only
   (`CHAN` → its channel key, `PRIV` → the shared secret with its contact), never from the
   client; None makes the file `share_undecryptable`. A secret is never logged, returned

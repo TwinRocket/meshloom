@@ -66,7 +66,7 @@ The badge under **Status** says where the link stands:
 | Badge | Meaning and what to do |
 |---|---|
 | Off | Remote is off; the instance is only reachable on the local network. |
-| Not registered | Remote is on but the relay did not register the instance. Press **Retry**; if it keeps failing, this machine may not reach the relay. When Community could not give its proof, the reason shows under the badge: for **No other station has heard this radio lately**, send a flood advertisement, then retry a few minutes later. |
+| Not registered | Remote is on but the relay did not register the instance. Press **Retry**; if it keeps failing, this machine may not reach the relay. When Community could not give its proof, the reason shows under the badge: for **No other station has heard this radio lately**, send a flood advertisement, then retry a few minutes later; for **Meshloom Community cannot vouch for this radio now**, retry later, and if this Meshloom reaches the radio through a [radio proxy](/en/docs/deep/radio/#radio-proxy), connect the radio directly: Community needs the radio's key on this instance. |
 | Connecting, Connected | The link is coming up, or up: allowed devices open the address shown. |
 | Offline | The link dropped. Meshloom reconnects by itself, waiting longer between tries (up to 5 minutes). Check this machine's internet connection. |
 | Unknown to the relay | The relay forgot the instance and registering again failed. Turn Remote off and on again; if that is not enough, replace the key. |

@@ -359,7 +359,7 @@
       "regionsAdded_other": "Added {{count}} regions — review and Save Messaging Settings",
       "exportWithKey": "Export generated with the private key",
       "exportWithoutKey": "Export generated without the private key",
-      "exportWithoutKeyHelp": "The radio firmware did not export its private key",
+      "exportWithoutKeyHelp": "The radio did not give its private key (firmware without key export, or a proxy in between)",
       "invalidConfig": "Invalid config file",
       "invalidConfigHelp": "File must contain name and radio parameters (freq, bw, sf, cr)",
       "importKeyRebooting": "Config + private key imported, saving & rebooting...",

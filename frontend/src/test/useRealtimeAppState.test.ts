@@ -594,6 +594,28 @@ describe('useRealtimeAppState', () => {
     });
   });
 
+  it('explains a missing radio key in the details, with the docs link', () => {
+    const { args } = createRealtimeArgs();
+    const { result } = renderHook(() => useRealtimeAppState(args));
+
+    act(() => {
+      result.current.onError?.({
+        message: 'Cannot decrypt historical DMs',
+        details: 'Backend sentence',
+        code: 'cannot_decrypt_historical_dms',
+        params: { name: 'Bob', radio_key_code: 'radio_key_behind_proxy' },
+      });
+    });
+
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      i18n.t('errors.cannot_decrypt_historical_dms'),
+      expect.objectContaining({
+        description: i18n.t('errors.radio_key_behind_proxy'),
+        action: expect.objectContaining({ label: i18n.t('settings.common.learnMore') }),
+      })
+    );
+  });
+
   it('routes message_deleted to removeMessage', () => {
     const { args } = createRealtimeArgs();
     const { result } = renderHook(() => useRealtimeAppState(args));

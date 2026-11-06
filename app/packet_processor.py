@@ -30,7 +30,14 @@ from app.decoder import (
     try_decrypt_path,
     verify_advert_signature,
 )
-from app.keystore import get_private_key, get_public_key, has_private_key
+from app.keystore import (
+    RADIO_KEY_ERRORS,
+    first_missing_key_notice,
+    get_private_key,
+    get_public_key,
+    has_private_key,
+    radio_key_unavailable_code,
+)
 from app.models import (
     CONTACT_TYPE_REPEATER,
     Contact,
@@ -255,17 +262,27 @@ async def start_historical_dm_decryption(
     background_tasks,
     contact_public_key_hex: str,
     display_name: str | None = None,
+    *,
+    automatic: bool = False,
 ) -> None:
-    """Start historical DM decryption using the stored private key."""
+    """Start historical DM decryption using the stored private key.
+
+    ``automatic``: not asked by anyone (a new contact's advert). Without the key it then
+    reports once per connection, since every new contact would otherwise raise a toast.
+    """
     if not has_private_key():
-        logger.warning(
-            "Cannot start historical DM decryption: private key not available. "
-            "Ensure radio firmware has ENABLE_PRIVATE_KEY_EXPORT=1."
-        )
-        params = {"name": display_name} if display_name else None
+        if automatic and not first_missing_key_notice("historical_dm"):
+            logger.debug("Historical DM decryption skipped: no radio key")
+            return
+        code = radio_key_unavailable_code()
+        reason = RADIO_KEY_ERRORS[code]
+        logger.warning("Cannot start historical DM decryption: %s", reason)
+        params = {"radio_key_code": code}
+        if display_name:
+            params["name"] = display_name
         broadcast_error(
             "Cannot decrypt historical DMs",
-            "Private key not available. Radio firmware may need ENABLE_PRIVATE_KEY_EXPORT=1.",
+            reason,
             code="cannot_decrypt_historical_dms",
             params=params,
         )
@@ -724,7 +741,9 @@ async def _process_advertisement(
 
         settings = await AppSettingsRepository.get()
         if settings.auto_decrypt_dm_on_advert:
-            await start_historical_dm_decryption(None, advert.public_key.lower(), advert.name)
+            await start_historical_dm_decryption(
+                None, advert.public_key.lower(), advert.name, automatic=True
+            )
 
 
 async def _process_direct_message(

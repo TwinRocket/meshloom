@@ -54,7 +54,7 @@ This is a different thing from the official [Meshloom Community](/en/docs/deep/c
 
 ### Map Upload
 
-It sends the adverts of repeaters and room servers that share a position to map.meshcore.io. It needs the radio's private key to sign them, so the radio firmware must allow key export. A given node is sent at most once per hour.
+It sends the adverts of repeaters and room servers that share a position to map.meshcore.io. It needs the radio's private key to sign them, so the radio firmware must allow key export and the radio must not be reached through a [radio proxy](/en/docs/deep/radio/#radio-proxy). A given node is sent at most once per hour.
 
 **It starts in dry-run mode.** In dry-run, Meshloom only writes what it would send to its log. Nothing reaches the map until you untick **Dry Run (log only, no uploads)** in the form. An optional geofence restricts uploads to nodes within a radius of your own radio.
 

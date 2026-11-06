@@ -29,11 +29,11 @@ If room sends appear to be using the wrong channel slot or another client is cha
 
 ### Private Key and Full Backup
 
-`GET /api/radio/private-key` returns the in-memory private key as hex (404 when the firmware did not export it). The key is held in memory only (exported from the radio on connect) and is never written to the database. It is always readable by anyone who reaches the interface: `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (a leftover value is ignored with a startup warning).
+`GET /api/radio/private-key` returns the in-memory private key as hex (404 when the radio link did not give it: firmware without key export, or a radio proxy). The key is held in memory only (exported from the radio on connect) and is never written to the database. It is always readable by anyone who reaches the interface: `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (a leftover value is ignored with a startup warning).
 
 The full backup (**Settings → Database**, `POST /api/settings/backup/export`) carries the key, every radio setting, the Wi-Fi credentials the radio stores and the Meshloom settings; it can be encrypted with a passphrase. Restoring it pushes everything back to the radio. See `docs/user/en/backup.md`.
 
-Import via `PUT /api/radio/private-key` is write-only and does not expose key material. The radio profile export in **Settings → Radio** includes the key when the firmware exported it.
+Import via `PUT /api/radio/private-key` is write-only and does not expose key material. The radio profile export in **Settings → Radio** includes the key when the radio gave it.
 
 ## ModuleNotFoundError: No module named 'meshcore'
 

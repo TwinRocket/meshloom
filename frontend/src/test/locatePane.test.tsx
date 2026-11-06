@@ -203,6 +203,28 @@ describe('LocatePane', () => {
     expect(locate).not.toHaveBeenCalled();
   });
 
+  it('translates a missing radio key, with the docs link, instead of the backend sentence', async () => {
+    locate.mockRejectedValue(
+      new ApiError('Backend sentence', 503, { code: 'radio_key_behind_proxy', message: 'x' })
+    );
+    render(
+      <LocatePane
+        contacts={[]}
+        locateKey={'aa'.repeat(32)}
+        directoryEnabled
+        onSelectLocate={vi.fn()}
+      />
+    );
+
+    const shown = await screen.findByTestId('locate-error');
+    expect(shown).toHaveTextContent(i18n.t('errors.radio_key_behind_proxy'));
+    expect(shown).not.toHaveTextContent('Backend sentence');
+    expect(screen.getByRole('link', { name: i18n.t('settings.common.learnMore') })).toHaveAttribute(
+      'href',
+      expect.stringContaining('docs/deep/radio/')
+    );
+  });
+
   it('keeps the local result when Community reach fails', async () => {
     locate.mockResolvedValue(
       emptyLocate({

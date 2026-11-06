@@ -302,7 +302,9 @@ class TestAdvertisementPipeline:
             ) as mock_start:
                 await process_raw_packet(packet_bytes, timestamp=1700000000)
 
-        mock_start.assert_awaited_once_with(None, expected["public_key"], expected["name"])
+        mock_start.assert_awaited_once_with(
+            None, expected["public_key"], expected["name"], automatic=True
+        )
 
     @pytest.mark.asyncio
     async def test_advertisement_skips_historical_decrypt_for_existing_contact(
@@ -3004,3 +3006,44 @@ class TestHistoricalChannelDecryptIntegration:
 
         # All packets now decrypted
         assert len([p async for p in RawPacketRepository.stream_all_undecrypted()]) == 0
+
+
+class TestHistoricalDecryptionWithoutTheKey:
+    """MSHL-471: the reason follows the real cause, and adverts cannot flood the toasts."""
+
+    @pytest.fixture(autouse=True)
+    def behind_proxy(self):
+        from app import keystore
+
+        keystore.clear_keys()
+        keystore._last_export_disabled = True
+        keystore._export_refused_by = "meshloom_proxy"
+        yield
+        keystore.clear_keys()
+
+    @pytest.mark.asyncio
+    async def test_a_request_gets_the_coded_reason_each_time(self, caplog):
+        from app.packet_processor import start_historical_dm_decryption
+
+        with patch("app.packet_processor.broadcast_error") as toast:
+            await start_historical_dm_decryption(None, "ab" * 32, "Bob")
+            await start_historical_dm_decryption(None, "ab" * 32, "Bob")
+
+        assert toast.call_count == 2
+        kwargs = toast.call_args.kwargs
+        assert kwargs["code"] == "cannot_decrypt_historical_dms"
+        assert kwargs["params"] == {"name": "Bob", "radio_key_code": "radio_key_behind_proxy"}
+        assert "firmware" not in " ".join(map(str, toast.call_args.args)).lower()
+        assert "firmware" not in caplog.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_adverts_toast_once(self):
+        from app.packet_processor import start_historical_dm_decryption
+
+        with patch("app.packet_processor.broadcast_error") as toast:
+            for index in range(5):
+                await start_historical_dm_decryption(
+                    None, f"{index:02x}" * 32, "Bob", automatic=True
+                )
+
+        assert toast.call_count == 1

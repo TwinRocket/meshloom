@@ -2,6 +2,8 @@
 
 The server now enforces the radio's message size limit for every way of sending.
 
+A Meshloom connected through a radio proxy now says why Community, Remote and sharing cannot start: the proxy never gives the radio's key, so connect the radio directly or use the instance that holds it.
+
 ### Before you upgrade
 
 Release 5.0.0 changes your database in ways an older version cannot undo. **Meshloom now copies the database next to itself before changing it** (`meshcore.db.schema87.before-5.0.0.db`): it needs the size of the database and a quarter more free on disk, and does not start without it. [Going back to 4.18](docs/user/en/deep/install-paths.md#going-back-to-an-older-version) means putting that copy back. A backup file made on 5.0.0 is not fully understood by 4.18 either (see below). **Settings → Database → Download meshcore.db** gives a copy you can take elsewhere. That download is scrubbed: no account password or two-factor secret, no extension secret, no sign-in session, and the sharing and Store consents are reset. Restoring it on 5.0.0 keeps the accounts but nobody can sign in with a password until you run `meshloom-admin`, and extensions ask for their secrets again. For a complete restore, also keep a full backup (**Settings → Database → Backup & Restore**), which carries the accounts and the extensions (secrets still excluded).

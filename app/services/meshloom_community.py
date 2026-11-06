@@ -795,7 +795,7 @@ async def retry_opt_out() -> None:
             )
         current = _current_pubkey_hex()
         if not current:
-            raise HTTPException(status_code=503, detail="Radio key is not available")
+            raise radio_key_http_exception()
         if left_with != current:
             raise HTTPException(
                 status_code=409,
@@ -1159,6 +1159,14 @@ async def schedule_hashtag_names_publish(
     spawn(_put_hashtag_names(cleaned))
 
 
+def radio_key_http_exception() -> HTTPException:
+    """503 for a call that needs the radio key: the code says why it is missing."""
+    from app.keystore import RADIO_KEY_ERRORS, radio_key_unavailable_code
+
+    code = radio_key_unavailable_code()
+    return HTTPException(status_code=503, detail={"code": code, "message": RADIO_KEY_ERRORS[code]})
+
+
 def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False) -> str:
     from app.fanout.community_mqtt import _generate_jwt_token
     from app.keystore import get_private_key, get_public_key
@@ -1166,7 +1174,7 @@ def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False)
     private_key = get_private_key()
     public_key = get_public_key()
     if private_key is None or public_key is None:
-        raise HTTPException(status_code=503, detail="Radio key is not available")
+        raise radio_key_http_exception()
     if require_iata and not iata:
         raise HTTPException(status_code=400, detail="IATA is required for Community tokens")
     return _generate_jwt_token(private_key, public_key, audience=audience, iata=iata)

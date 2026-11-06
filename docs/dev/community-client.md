@@ -26,6 +26,19 @@ hypothesis: check it against the code. Constants are named so you can grep them.
 
 ## HTTP (`stats_request`)
 
+- No radio key: a call that needs a token (`mint_stats_jwt`) or the key to opt out answers 503
+  with a local code, `keystore.RADIO_KEY_ERRORS`, chosen by `radio_key_unavailable_code()`:
+  `radio_key_behind_proxy` (the export was refused and the peer's `DEVICE_INFO` model is
+  `MeshloomProxy/<id>`, what `app/radio_proxy` always answers; `export_and_store_private_key`
+  asks it right after a refusal), `radio_key_export_disabled` (refused, any other model: firmware
+  without `ENABLE_PRIVATE_KEY_EXPORT`, or a third-party proxy, which reports the model behind it,
+  so the copy names both) or `radio_key_unavailable` (no refusal known, or the model could not be
+  read). No host name is ever read. The proxy's refusal is by design
+  (`app/radio_proxy/policy.py`). FR and EN copy: slice `radiokey`, `errors.<code>`. Outside
+  Community: the historical DM toast carries the code in `params.radio_key_code`, which
+  `useRealtimeAppState` shows as its details; what runs on every advert (that toast when
+  automatic, the map upload warning) reports once per connection and cause
+  (`first_missing_key_notice`).
 - Upstream mapping: transport error, timeout or 5xx gives 503; 429 gives 429; 400
   gives 400; 401 gives 502 (with a clock hint when `classify_auth_rejection` reports
   `clock_skew`); 403 `code: banned` gives 403 `community_banned` (see Banned key);
@@ -264,6 +277,9 @@ one per service key, from the backend only:
   `unavailable`. Links maps them to `share_radio_not_heard`, `share_community_opted_out`,
   `share_community_banned`, `share_attestation_unavailable`; Remote to the `remote_` codes of
   the same names. FR and EN copy: the `ah` and `remote` i18n slices, `errors.<code>`.
+  With no radio key the reason is `unavailable` and `radio_key_code` holds the local code: no
+  hold and no budget spent, since no request left. Links reports that code (503); Remote keeps
+  `remote_attestation_unavailable`, whose copy mentions a proxy.
 - **Community off, restore.** The `add_enabled_change_listener` hook forgets every token and
   hold when Community is turned off; the `community_attestation` on_restore hook does the same
   after any restore, and a database copy empties the table (`SNAPSHOT_EMPTIED_TABLES`).

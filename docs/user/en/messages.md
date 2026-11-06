@@ -21,7 +21,7 @@ After you send, the message shows how its delivery is going:
 
 A receipt takes time. The message has to cross every repeater on the way, and the confirmation has to come back. Over several hops, a few tens of seconds is normal.
 
-Meshloom decrypts incoming direct messages on the server, with the private key it reads from the radio when it connects. This works even when the contact is no longer loaded in the radio's memory. It needs a radio firmware that allows reading the key.
+Meshloom decrypts incoming direct messages on the server, with the private key it reads from the radio when it connects. This works even when the contact is no longer loaded in the radio's memory. It needs a radio firmware that allows reading the key, and a radio that is not reached through a [radio proxy](/en/docs/deep/radio/#radio-proxy), which never gives it.
 
 ## Channels
 

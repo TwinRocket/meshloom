@@ -35,7 +35,7 @@
         "encrypted": "Chiffré",
         "publicHint": "Toute personne ayant le lien peut ouvrir la photo.",
         "encryptedHint": "Scellée pour cette conversation : seuls ses membres peuvent ouvrir la photo.",
-        "dmUnavailable": "La clé de la radio n'est pas encore lue : seul l'envoi public est possible pour l'instant.",
+        "dmUnavailable": "La clé de la radio n'est pas disponible ici : seul l'envoi public est possible.",
         "noConversationId": "Ce Meshloom n'a pas donné d'identifiant de partage à ce canal : seul l'envoi public est possible.",
         "clear": {
           "public": "La clé du canal Public est connue de tous : les fichiers sont publiés en clair.",

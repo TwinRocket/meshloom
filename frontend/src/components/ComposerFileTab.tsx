@@ -3,6 +3,7 @@ import { Globe, Image as ImageIcon, Loader2, Lock, ShieldAlert } from 'lucide-re
 import { useDropzone, type FileRejection } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 import { api, formatApiError, isAbortError } from '../api';
+import { radioKeyToastAction } from '../utils/radioKeyError';
 import {
   refreshShareStatus,
   useShareStatus,
@@ -77,7 +78,7 @@ export function ComposerFileTab({
   disabled,
   target = null,
 }: ComposerFileTabProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const status = useShareStatus();
   const statusError = useShareStatusError();
   const [phase, setPhase] = useState<Phase>('idle');
@@ -228,11 +229,16 @@ export function ComposerFileTab({
         abortRef.current = null;
         setPhase('ready');
         if (isAbortError(err)) return;
-        toast.error(
-          err instanceof Error && err.name !== 'ApiError'
-            ? t('chat.fileTab.uploadFailed')
-            : formatApiError(err, t)
-        );
+        const docsLink = radioKeyToastAction(err, t, i18n.language);
+        if (docsLink) {
+          toast.error(formatApiError(err, t), docsLink);
+        } else {
+          toast.error(
+            err instanceof Error && err.name !== 'ApiError'
+              ? t('chat.fileTab.uploadFailed')
+              : formatApiError(err, t)
+          );
+        }
         // A refused write may mean sharing was switched off or banned meanwhile.
         void refreshShareStatus();
         return;

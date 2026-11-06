@@ -1,0 +1,7 @@
+{
+  "errors": {
+    "radio_key_behind_proxy": "This radio's key isn't available here: it goes through a radio proxy. Connect it directly, or use the Meshloom instance that holds it.",
+    "radio_key_export_disabled": "This radio's key isn't available here: its firmware or a proxy doesn't give it. Connect it directly with key export allowed, or use the Meshloom instance that holds it.",
+    "radio_key_unavailable": "This radio's key isn't available here yet. Check the radio connection; through a proxy, connect it directly or use the Meshloom instance that holds it."
+  }
+}

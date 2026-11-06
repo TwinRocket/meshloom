@@ -15,7 +15,7 @@ Meshloom peut enregistrer dans un seul fichier tout ce qui fait de votre nœud l
 2. Ouvrez Meshloom, puis **Réglages → Base de données** (voir [Trouver la sauvegarde](#trouver-la-sauvegarde)).
 3. Dans **Sauvegarde et restauration**, sous **Sauvegarde complète (radio et Meshloom)**, cliquez sur **Télécharger la sauvegarde complète**.
 4. Lisez les remarques que Meshloom affiche après le téléchargement. S’il indique que **cette sauvegarde ne contient pas d’identité**, regardez pourquoi :
-   - **le firmware de la radio n’autorise pas l’export de sa clé privée** : aucune sauvegarde ne peut contenir l’identité de ce nœud. Le fichier contient les réglages, les contacts et les canaux, mais sa restauration ne rendra pas l’identité.
+   - **la clé privée de la radio n’est pas donnée ici, par son firmware ou par un proxy intermédiaire** : aucune sauvegarde faite ainsi ne peut contenir l’identité de ce nœud. À travers un [proxy radio](/docs/deep/radio/#proxy-radio), faites la sauvegarde sur le Meshloom sur lequel la radio est branchée. Le fichier contient les réglages, les contacts et les canaux, mais sa restauration ne rendra pas l’identité.
    - **la radio n’a pas donné sa clé privée** : la radio n’était sans doute pas prête. Vérifiez que la barre d’état affiche **Radio OK**, puis téléchargez de nouveau la sauvegarde. Si la note revient, appuyez sur **Déconnecter** puis **Reconnecter** dans **Réglages → Radio**, attendez **Radio OK**, et téléchargez-la encore une fois. Ne reflashez pas avec une sauvegarde sans identité.
 5. Rangez le fichier en lieu sûr, si possible ailleurs que sur la machine de la radio. Il contient des secrets : voir [Chiffrement](#chiffrement).
 
@@ -65,7 +65,7 @@ Notez que quiconque atteint votre Meshloom peut télécharger cette sauvegarde :
 
 **Depuis la radio :**
 
-- Son identité (clé privée), quand le firmware permet de l’exporter.
+- Son identité (clé privée), quand le firmware permet de l’exporter et qu’aucun proxy radio ne s’interpose.
 - Son nom, sa position, sa puissance d’émission et ses paramètres radio (fréquence, bande passante, facteur d’étalement, taux de codage), avec l’indicateur de répétition client.
 - Ses autres réglages : partage de télémétrie, politique de position dans les annonces, accusés de réception supplémentaires, ajout manuel des contacts, paramètres de temporisation, mode de hachage des chemins, règles d’ajout automatique, portée de flood par défaut (région), code PIN Bluetooth, variables personnalisées du firmware (le GPS et son intervalle quand la carte en a) et, à partir du firmware 1.18, le fuseau horaire et les réglages radio que seule la ligne de commande atteint.
 - L’état activé ou non du Wi-Fi de la radio, et le nom et le mot de passe du réseau Wi-Fi quand la radio stocke un mot de passe. Un réseau ouvert est enregistré s’il a été enregistré depuis Meshloom (avec **Réseau ouvert**, ou par une restauration précédente), car la radio ne sait pas le distinguer de « rien d’enregistré » ; une restauration l’enregistre de nouveau. Des identifiants seulement compilés dans le firmware ne sont pas enregistrés (l’état activé ou non l’est). Quand la radio stocke un mot de passe mais pas de nom de réseau, la radio annonce le nom de réseau compilé dans le firmware : la sauvegarde associe les deux, et une restauration les enregistre tous les deux (la radio les utilise alors).
