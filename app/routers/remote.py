@@ -5,14 +5,14 @@ The browser never talks to the registry or the relay: these routes do, through
 no request.
 
 Roles (``docs/dev/auth.md``, "Permissions"): turning Remote on or off, unregistering,
-replacing the key, revoking every device and testing a custom domain are ``admin``. Every account role but
+replacing the key, revoking every device, testing a custom domain and the alert e-mail are ``admin``. Every account role but
 ``kiosk`` (``own_account``) reads the state, lists and revokes its own devices, issues
 an enrolment QR code for itself (never through the relay: ``remote_lan_only``), issues
 a client pass, and approves (the new device is the approver's) or denies an access
 request. An administrator sees and revokes every device.
 Remote needs Community on (MSHL-445, ``remote_community_off``). Every write is audited (``remote.*``). Responses are ``Cache-Control: no-store``
 (``app/middleware/security_headers.py``); a pass or an enrolment URL is returned once
-and never logged.
+and never logged; an alert address goes to the relay only, never logged or stored here.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ class RemoteStatus(BaseModel):
         default=None,
         description=(
             "The relay client's state (app/services/remote_relay.py LINK_STATES): "
-            "connecting, connected, reconnecting, not_registered, paused, replaced, "
+            "connecting, connected, reconnecting, not_registered, paused, quota_exceeded, replaced, "
             "banned, update_required, relay_paused or community_off; null while Remote is off"
         ),
     )
@@ -120,6 +120,17 @@ class RemoteDomainTestResponse(BaseModel):
     )
     detail: str | None = Field(
         default=None, description="With unreachable: an egress/transport error code"
+    )
+
+
+class RemoteAlertEmailRequest(BaseModel):
+    # No length limit here: the service answers one coded error for every bad address.
+    email: str = Field(description="At most 254 characters; never logged or returned")
+
+
+class RemoteAlertEmailResponse(BaseModel):
+    state: Literal["none", "pending", "confirmed"] = Field(
+        description="`pending` until the link in the relay's mail is followed"
     )
 
 
@@ -239,6 +250,45 @@ async def test_custom_domain(body: RemoteDomainTestRequest) -> RemoteDomainTestR
         target_host=check.target_host,
         detail=check.detail,
     )
+
+
+@router.get(
+    "/alert-email",
+    response_model=RemoteAlertEmailResponse,
+    dependencies=[Depends(require("admin"))],
+)
+async def get_alert_email() -> RemoteAlertEmailResponse:
+    """The state of the relay's alert e-mail (the relay never returns the address). One
+    request to the registry. 409 ``remote_disabled`` / ``remote_not_registered``."""
+    return RemoteAlertEmailResponse(state=await remote.alert_email_state())  # type: ignore[arg-type]
+
+
+@router.put(
+    "/alert-email",
+    response_model=RemoteAlertEmailResponse,
+    dependencies=[Depends(require("admin"))],
+)
+async def set_alert_email(
+    body: RemoteAlertEmailRequest, request: Request, actor: RequestActor = SYSTEM_ACTOR
+) -> RemoteAlertEmailResponse:
+    """Set or replace the address; the relay mails a confirmation link. 400
+    ``remote_alert_email_invalid``, 403 ``remote_alert_email_frozen``, 429
+    ``remote_rate_limited`` (3 a day), 503 ``remote_alert_email_paused``."""
+    state = await remote.set_alert_email(
+        body.email, actor, accept_language=request.headers.get("accept-language")
+    )
+    return RemoteAlertEmailResponse(state=state)  # type: ignore[arg-type]
+
+
+@router.delete(
+    "/alert-email",
+    response_model=RemoteAlertEmailResponse,
+    dependencies=[Depends(require("admin"))],
+)
+async def clear_alert_email(actor: RequestActor = SYSTEM_ACTOR) -> RemoteAlertEmailResponse:
+    """Make the relay forget the address. 403 ``remote_alert_email_frozen``."""
+    await remote.clear_alert_email(actor)
+    return RemoteAlertEmailResponse(state="none")
 
 
 @router.post("/enroll", response_model=RemoteEnrollResponse, dependencies=[Depends(own_account())])

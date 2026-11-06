@@ -231,6 +231,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `ip.banned` | The built-in ban ("IP ban"), actor `system`, target `ip:<key>`, `details = {failures, route, minutes}` |
   | `ip.unbanned`, `ip.whitelisted`, `ip.unwhitelisted` | `DELETE /auth/bans`, `POST`/`DELETE /auth/ban-whitelist`, `meshloom-admin unban` / `whitelist add` / `whitelist remove`; target `ip:<key or network>` (none for `unban --all`, `details = {scope: all, count}`) |
   | `remote.enabled`, `remote.disabled`, `remote.linked`, `remote.unlinked`, `remote.rotated` | `/api/remote` (`app/services/remote.py`, `docs/dev/remote.md`): `enable`/`disable` when the state changes; `remote.linked` for a registration (target `remote:<slug>`; `failure` with `details.code` when the registry refused or did not answer), `remote.unlinked` for `DELETE /remote`, `remote.rotated` for `POST /remote/rotate`, no target |
+  | `remote.alert_email_set`, `remote.alert_email_cleared` | `PUT`/`DELETE /api/remote/alert-email`, no target and never the address; `failure` with `details.error` when the registry refused or did not answer |
   | `remote.enroll_issued`, `remote.device_enrolled`, `remote.device_revoked`, `remote.devices_revoked`, `remote.access_granted`, `remote.access_denied` | `POST /remote/enroll` (target `user:<id>`), a QR enrolment answered to the relay (actor `relay` with the token's user) or `POST /remote/devices/client` (`details.origin`), `DELETE /remote/devices/{id}`, `POST /remote/devices/revoke-all` (`details.gen`), `POST /remote/access-requests/approve`, `.../{id}/deny`; device targets `device:<id>`. Never a pass, a token, an enrolment URL or an access code |
   | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
@@ -648,8 +649,8 @@ are `admin`; status and object reads are `read`. An object read tied to a non-ch
 message (`message_id`) needs `read_private`: a `kiosk` gets 403 `share_role_forbidden`
 before any cache read or request to the service.
 
-**Meshloom Remote (`/api/remote`, MSHL-79).** Enable, disable, unregister, rotate and
-revoke every device are `admin`; the state, one's own devices (an administrator sees and
+**Meshloom Remote (`/api/remote`, MSHL-79).** Enable, disable, unregister, rotate,
+revoke every device and the alert e-mail are `admin`; the state, one's own devices (an administrator sees and
 revokes every one), the enrolment QR code (refused through the relay), client passes and
 access requests are `own_account()` (every role but `kiosk`, never a scoped token).
 `docs/dev/remote.md`.

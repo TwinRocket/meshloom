@@ -52,8 +52,11 @@ passes this instance signs (``app/services/remote_passes.py``).
   user-chosen destination, so private addresses are refused), HTTPS then HTTP. The route
   takes ``take_domain_test_slot()`` first: one test per 5 s and 6 per minute for the
   whole instance (429 ``rate_limited`` with ``Retry-After``).
+- **Alert e-mail.** ``alert_email_state``, ``set_alert_email`` and ``clear_alert_email``
+  call the registry's ``/v1/instances/self`` and ``/alert-email``. The address only goes
+  to the relay: it is never stored here, never logged, never read back (only its state).
 
-Never log a token, a pass, an enrolment URL or an access code.
+Never log a token, a pass, an enrolment URL, an access code or an alert address.
 """
 
 from __future__ import annotations
@@ -133,6 +136,13 @@ REVOKED_MAX = 1024
 USER_AGENT_MAX = 256
 LABEL_MAX = 64
 
+# meshloom-remote src/alertEmail.ts (MAX_EMAIL_CHARS, EMAIL): the confirmation mail does
+# the real check, this only spares the relay a call.
+ALERT_EMAIL_MAX = 254
+_ALERT_EMAIL_RE = re.compile(
+    r'[^\s@\x00-\x1f\x7f"<>]{1,64}@[^\s@\x00-\x1f\x7f"<>]+\.[^\s@\x00-\x1f\x7f"<>]+'
+)
+
 SLUG_RE = re.compile(r"[a-z2-7]{10}")
 _REGISTRY_CODES = frozenset(
     {
@@ -163,6 +173,9 @@ REMOTE_ERRORS: dict[str, tuple[int, str]] = {
     "remote_access_request_not_found": (404, "No pending access request matches"),
     "remote_offline": (503, "The relay link is not connected"),
     "remote_community_off": (409, "Meshloom Remote needs Community: turn Community on first"),
+    "remote_alert_email_invalid": (400, "This is not a valid e-mail address"),
+    "remote_alert_email_frozen": (403, "This address cannot be changed for now"),
+    "remote_alert_email_paused": (503, "Alert e-mails cannot be changed right now"),
     # Community attestation of the Remote key (MSHL-445, services/community_attestation.py).
     "remote_radio_not_heard": (
         403,
@@ -355,9 +368,11 @@ async def _registry(
     *,
     json_body: dict[str, Any] | None = None,
     attestation: str | None = None,
+    language: str | None = None,
 ) -> CheckedResponse:
     """One request to the registry, only while Remote is on. ``attestation`` is the
-    Community attestation of the Remote key (``POST /v1/instances`` only)."""
+    Community attestation of the Remote key (``POST /v1/instances`` only), ``language``
+    the language first in the mail it may send (``PUT /alert-email`` only)."""
     state = await RemoteRepository.get_state()
     if not state.enabled:
         raise RemoteError("remote_disabled")
@@ -371,6 +386,8 @@ async def _registry(
     }
     if attestation is not None:
         headers[ATTESTATION_HEADER] = attestation
+    if language is not None:
+        headers["Accept-Language"] = language
     content: bytes | None = None
     if json_body is not None:
         content = json.dumps(json_body, separators=(",", ":")).encode()
@@ -607,6 +624,87 @@ def _listen_to_community() -> None:
 
 
 _listen_to_community()
+
+
+# ---------------------------------------------------------------- alert e-mail
+
+
+def _alert_email_error(response: CheckedResponse) -> RemoteError:
+    code = (_json(response) or {}).get("code")
+    if code == "invalid_request":
+        return RemoteError("remote_alert_email_invalid")
+    if code == "instance_frozen":
+        return RemoteError("remote_alert_email_frozen")
+    if code == "registration_paused":
+        return RemoteError("remote_alert_email_paused")
+    if code == "instance_unknown":
+        return RemoteError("remote_not_registered")
+    return _registry_error(response)
+
+
+def _alert_email_state_of(response: CheckedResponse) -> str:
+    alert = (_json(response) or {}).get("alert_email")
+    state = alert.get("state") if isinstance(alert, dict) else None
+    if state not in ("none", "pending", "confirmed"):
+        raise RemoteError("remote_unavailable", status=response.status_code)
+    return state
+
+
+def _mail_language(accept_language: str | None) -> str | None:
+    """The relay's mail is bilingual: only which language comes first."""
+    first = (accept_language or "").split(",")[0].strip().lower()
+    return next((lang for lang in ("fr", "en") if first.startswith(lang)), None)
+
+
+async def alert_email_state() -> str:
+    """``none``, ``pending`` or ``confirmed`` (``GET /v1/instances/self``). The registry
+    never returns the address."""
+    await _require_registered()
+    response = await _registry("GET", "/v1/instances/self")
+    if response.status_code != 200:
+        raise _alert_email_error(response)
+    return _alert_email_state_of(response)
+
+
+async def set_alert_email(
+    email: str, actor: AuditActor, *, accept_language: str | None = None
+) -> str:
+    """Send the address to the relay, which mails a confirmation link: the state is
+    ``pending`` until it is followed. Replaces any previous address."""
+    address = email.strip()
+    if len(address) > ALERT_EMAIL_MAX or not _ALERT_EMAIL_RE.fullmatch(address):
+        raise RemoteError("remote_alert_email_invalid")
+    await _require_registered()
+    try:
+        response = await _registry(
+            "PUT",
+            "/v1/instances/self/alert-email",
+            json_body={"email": address},
+            language=_mail_language(accept_language),
+        )
+        if response.status_code != 202:
+            raise _alert_email_error(response)
+        state = _alert_email_state_of(response)
+    except RemoteError as exc:
+        await record("remote.alert_email_set", "failure", actor=actor, details={"error": exc.code})
+        raise
+    await record("remote.alert_email_set", "success", actor=actor)
+    return state
+
+
+async def clear_alert_email(actor: AuditActor) -> None:
+    """Make the relay forget the address (``DELETE``, a no-op when there is none)."""
+    await _require_registered()
+    try:
+        response = await _registry("DELETE", "/v1/instances/self/alert-email")
+        if response.status_code != 204:
+            raise _alert_email_error(response)
+    except RemoteError as exc:
+        await record(
+            "remote.alert_email_cleared", "failure", actor=actor, details={"error": exc.code}
+        )
+        raise
+    await record("remote.alert_email_cleared", "success", actor=actor)
 
 
 # ---------------------------------------------------------------- gate and passes

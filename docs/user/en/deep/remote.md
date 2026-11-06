@@ -35,7 +35,8 @@ While Remote is on, Meshloom also tells the relay its version, its kind of insta
 - its registration: the key, the address, the Meshloom version, the kind of install, whether plugins run and with which isolation;
 - the state of the allowed devices (not their names);
 - usage figures per instance and month: requests, traffic, how long the instance was connected, errors. They hold no content, and the relay uses them to apply the monthly limit below and to keep its own costs in check;
-- a record of the actions the operator takes on an instance (a pause, a ban, a key withdrawn), with the date.
+- a record of the actions the operator takes on an instance (a pause, a ban, a key withdrawn), with the date;
+- the [alert e-mail](#alert-e-mail) address, if you give one.
 
 An access request lives 10 minutes and a failed sign-in is remembered for 15 minutes, each under a scrambled tag of the network address, never the address itself. The relay's logs hold no message, address, web address or key; the usage figures are kept for a few months. **Leave Meshloom Remote** deletes the registration and the device state from the relay; the key and the address stay reserved for you for 30 days (see below), and the usage figures expire on their own.
 
@@ -50,7 +51,8 @@ The badge under **Status** says where the link stands:
 | Connecting, Connected | The link is coming up, or up: allowed devices open the address shown. |
 | Offline | The link dropped. Meshloom reconnects by itself, waiting longer between tries (up to 5 minutes). Check this machine's internet connection. |
 | Unknown to the relay | The relay forgot the instance and registering again failed. Turn Remote off and on again; if that is not enough, replace the key. |
-| Paused | The instance is paused: either it went over its [monthly quota](#limits), or TwinRocket paused it. Meshloom does not say which and tries again by itself after 15 to 20 minutes; over the quota, the pause lasts until the 1st of the next month (UTC). The local network is not affected: Meshloom keeps working at home. |
+| Monthly quota reached | The instance went over its [monthly quota](#limits). Remote comes back on the 1st of the next month (UTC): Meshloom tries again by itself every 15 to 20 minutes. The local network is not affected: Meshloom keeps working at home. |
+| Paused | TwinRocket paused the instance. Meshloom tries again by itself after 15 to 20 minutes. The local network is not affected. |
 | Replaced | Another install uses this instance's key, often a copy restored from a backup. A key serves one install only: replace the key here, then allow every device again. |
 | Banned | TwinRocket banned the instance; Meshloom stops trying. Contact TwinRocket if you think it is a mistake. |
 | Update required | The relay no longer accepts this version: update Meshloom, Remote then reconnects. |
@@ -65,7 +67,7 @@ The key fingerprint identifies the instance to the relay; it only changes when y
 | Traffic per instance and month | 5 GB, counted both ways (requests, responses and live connections) |
 | Requests per instance and month | 500,000 (a browser's live connection counts as one) |
 | Reset | On the 1st of each month, UTC |
-| Past the limit | The instance is paused until the next month: every request is refused, whoever asks. No warning is sent beforehand today: Meshloom only shows **Paused**. The local network keeps working |
+| Past the limit | The instance is paused until the next month: every request is refused, whoever asks. Meshloom shows **Monthly quota reached**, and a confirmed [alert e-mail](#alert-e-mail) gets a warning at 80 % and a notice at the pause. The local network keeps working |
 | Requests per instance | 1,200 per minute; beyond that the relay answers "too many requests" for a moment |
 | Failed sign-ins | After a few from one network, a check page first (see above) |
 | Access request | Valid 10 minutes; at most 5 waiting at once for an instance |
@@ -74,6 +76,16 @@ The key fingerprint identifies the instance to the relay; it only changes when y
 | Address after **Leave** | Kept 30 days for the same key |
 
 The limits are the same for every instance. Ordinary use of the interface stays far below them; a script that polls every few seconds, or large media, is what reaches them.
+
+## Alert e-mail
+
+An administrator can give an address in **Settings → Remote access → Alert e-mail**. It gets at most one warning at 80 % of the monthly quota and one notice when the instance is paused over it, each month.
+
+- **Confirming**: the relay sends a mail with a link to confirm and a link to stop. Nothing else is sent until the address is confirmed; the link is valid 24 hours.
+- **Changing or removing**: type another address to replace it (it must be confirmed again), press **Remove the address**, or follow the stop link in any mail. An address can be set at most 3 times a day.
+- **What is kept**: the address stays on the relay and is used for these mails only. Meshloom does not keep it and the relay never shows it back, so the page only says whether one is waiting for confirmation or confirmed. **Leave Meshloom Remote** and replacing the key delete it.
+
+Without a confirmed address the pause happens all the same, without a mail.
 
 ## Turning it off, leaving, replacing the key
 

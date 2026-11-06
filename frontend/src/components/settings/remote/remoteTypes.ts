@@ -12,6 +12,7 @@ export const REMOTE_LINK_STATES = [
   'reconnecting',
   'not_registered',
   'paused',
+  'quota_exceeded',
   'replaced',
   'banned',
   'update_required',
@@ -67,6 +68,13 @@ export interface RemoteAccessRequest {
   user_agent: string;
   created_at: number;
   expires_at: number;
+}
+
+/** `GET`, `PUT` and `DELETE /api/remote/alert-email`; the address is never read back. */
+export type RemoteAlertEmailState = 'none' | 'pending' | 'confirmed';
+
+export interface RemoteAlertEmail {
+  state: RemoteAlertEmailState;
 }
 
 export interface RemoteGateResult {

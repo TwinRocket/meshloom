@@ -31,6 +31,7 @@
         "reconnecting": "Offline",
         "not_registered": "Unknown to the relay",
         "paused": "Paused",
+        "quota_exceeded": "Monthly quota reached",
         "replaced": "Replaced",
         "banned": "Banned",
         "update_required": "Update required",
@@ -47,6 +48,7 @@
         "reconnecting": "The link to the relay is down and Meshloom reconnects on its own. Check this machine's internet connection.",
         "not_registered": "The relay no longer knows this instance. Turn Remote off and on again.",
         "paused": "The relay paused this instance. Meshloom tries again on its own within 20 minutes.",
+        "quota_exceeded": "Remote is back on the 1st of next month. Meshloom keeps working on your local network.",
         "replaced": "Another install uses this instance's key, often a restored backup. Replace the key here.",
         "banned": "The relay banned this instance. Contact TwinRocket if this is a mistake.",
         "update_required": "Update Meshloom to use Remote.",
@@ -161,6 +163,22 @@
         "revokedAll": "Every device was revoked.",
         "notPushed": "The relay is out of reach: this change applies once it reconnects."
       },
+      "alertEmail": {
+        "title": "Alert e-mail",
+        "help": "Get an e-mail when this instance nears or reaches its monthly quota. Only the relay keeps the address.",
+        "learnMore": "Learn more",
+        "label": "E-mail address",
+        "save": "Save",
+        "saving": "Saving…",
+        "remove": "Remove the address",
+        "savedToast": "Confirmation e-mail on its way.",
+        "removedToast": "Address removed.",
+        "state": {
+          "none": "No address set.",
+          "pending": "Open the link in the confirmation e-mail to turn on alerts.",
+          "confirmed": "An address is confirmed. It is not shown here: type a new one to replace it."
+        }
+      },
       "domain": {
         "title": "Your own domain",
         "help": "Create a URL redirect from your domain to https://{{hostname}}, then test it here.",
@@ -218,6 +236,9 @@
     "remote_pass_required": "This device is not allowed with Meshloom Remote.",
     "remote_host_mismatch": "This request is not for this instance's Remote address.",
     "remote_request_invalid": "The relay sent an invalid request.",
+    "remote_alert_email_invalid": "This is not a valid e-mail address.",
+    "remote_alert_email_frozen": "This address cannot be changed for now.",
+    "remote_alert_email_paused": "Alert e-mails cannot be changed right now. Try again later.",
     "remote_community_off": "Remote needs Meshloom Community. Turn Community on first.",
     "remote_radio_not_heard": "No other station has heard this radio lately: send a flood advertisement, then try again.",
     "remote_community_opted_out": "This radio has left Meshloom Community: join it again in the Community settings.",

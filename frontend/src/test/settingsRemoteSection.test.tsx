@@ -129,6 +129,17 @@ describe('remoteBadge', () => {
     }
   });
 
+  it('tells the monthly quota apart, in both languages', () => {
+    expect(remoteBadge(statusOf({ link_status: 'quota_exceeded' }))).toEqual({
+      id: 'quota_exceeded',
+      tone: 'warn',
+      action: null,
+    });
+    expect(en.settings.remote.badgeHelp.quota_exceeded).toContain('1st');
+    expect(fr.settings.remote.badgeHelp.quota_exceeded).toContain('1er');
+    expect(en.settings.remote.badgeHelp.paused).not.toMatch(/quota/i);
+  });
+
   it('offers the right action', () => {
     expect(remoteBadge(OFF).action).toBe('enable');
     expect(remoteBadge(statusOf({ state: 'unregistered' })).action).toBe('enable');
@@ -191,6 +202,7 @@ describe('SettingsRemoteSection', () => {
   beforeEach(() => {
     vi.spyOn(api, 'listAuthUsers').mockResolvedValue([]);
     vi.spyOn(api, 'listRemoteAccessRequests').mockResolvedValue([]);
+    vi.spyOn(api, 'getRemoteAlertEmail').mockResolvedValue({ state: 'none' });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -606,6 +618,76 @@ describe('SettingsRemoteSection', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       t('errors.remote_access_request_not_found')
     );
+  });
+
+  describe('alert e-mail', () => {
+    const field = () => screen.findByLabelText(t('settings.remote.alertEmail.label'));
+
+    it('shows the state, never an address, and sets a new one', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      vi.spyOn(api, 'getRemoteAlertEmail').mockResolvedValue({ state: 'none' });
+      const set = vi.spyOn(api, 'setRemoteAlertEmail').mockResolvedValue({ state: 'pending' });
+      await renderAs('admin');
+      expect(await screen.findByTestId('remote-alert-email-state')).toHaveTextContent(
+        t('settings.remote.alertEmail.state.none')
+      );
+      expect(
+        screen.queryByRole('button', { name: t('settings.remote.alertEmail.remove') })
+      ).toBeNull();
+      const input = await field();
+      expect(input).toHaveValue('');
+      fireEvent.change(input, { target: { value: ' me@example.org ' } });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.remote.alertEmail.save') }));
+      await waitFor(() => expect(set).toHaveBeenCalledWith('me@example.org'));
+      expect(await screen.findByTestId('remote-alert-email-state')).toHaveTextContent(
+        t('settings.remote.alertEmail.state.pending')
+      );
+      expect(input).toHaveValue('');
+    });
+
+    it('removes a confirmed address', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      vi.spyOn(api, 'getRemoteAlertEmail').mockResolvedValue({ state: 'confirmed' });
+      const clear = vi.spyOn(api, 'clearRemoteAlertEmail').mockResolvedValue({ state: 'none' });
+      await renderAs('admin');
+      fireEvent.click(
+        await screen.findByRole('button', { name: t('settings.remote.alertEmail.remove') })
+      );
+      await waitFor(() => expect(clear).toHaveBeenCalled());
+      expect(await screen.findByTestId('remote-alert-email-state')).toHaveTextContent(
+        t('settings.remote.alertEmail.state.none')
+      );
+    });
+
+    it('a failed read shows no state and keeps the field; a refusal shows its copy', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      vi.spyOn(api, 'getRemoteAlertEmail').mockRejectedValue(new ApiError('x', 502));
+      vi.spyOn(api, 'setRemoteAlertEmail').mockRejectedValue(
+        new ApiError('x', 400, { code: 'remote_alert_email_invalid', message: 'x' })
+      );
+      await renderAs('admin');
+      fireEvent.change(await field(), { target: { value: 'nope' } });
+      expect(screen.queryByTestId('remote-alert-email-state')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: t('settings.remote.alertEmail.save') }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        t('errors.remote_alert_email_invalid')
+      );
+      expect(await field()).toHaveValue('nope');
+    });
+
+    it('is for administrators, while Community is on, and never reads for others', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      const read = vi.spyOn(api, 'getRemoteAlertEmail').mockResolvedValue({ state: 'none' });
+      await renderAs('member');
+      await screen.findByTestId('remote-badge');
+      expect(screen.queryByLabelText(t('settings.remote.alertEmail.label'))).toBeNull();
+      expect(read).not.toHaveBeenCalled();
+      cleanup();
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf({ community_enabled: false }));
+      await renderAs('admin');
+      await screen.findByTestId('remote-badge');
+      expect(screen.queryByLabelText(t('settings.remote.alertEmail.label'))).toBeNull();
+    });
   });
 
   describe('custom domain test', () => {

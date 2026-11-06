@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ import pytest
 
 from app.auth.audit import SYSTEM_ACTOR
 from app.middleware import host_guard
-from app.repository.auth import UserRepository
+from app.repository.auth import AuthAuditRepository, UserRepository
 from app.repository.remote import RemoteRepository
 from app.services import remote, remote_passes
 from app.services.backup_sections import run_on_restore_hooks
@@ -58,6 +59,7 @@ class FakeRelay:
         self.gate: dict[str, Any] | None = None
         self.next_slugs = [SLUG, SLUG2]
         self.fail_with: httpx.Response | None = None
+        self.alert = "none"
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         token = request.headers["authorization"].removeprefix("Bearer ")
@@ -83,6 +85,15 @@ class FakeRelay:
             if self.registered.pop(key, None) is None:
                 return json_response(404, {"code": "instance_unknown", "detail": "x"})
             return httpx.Response(204)
+        if request.method == "GET" and request.url.path == "/v1/instances/self":
+            return json_response(200, {"status": "active", "alert_email": {"state": self.alert}})
+        if request.url.path == "/v1/instances/self/alert-email":
+            if request.method == "PUT":
+                self.alert = "pending"
+                return json_response(202, {"alert_email": {"state": "pending"}})
+            if request.method == "DELETE":
+                self.alert = "none"
+                return httpx.Response(204)
         return json_response(404, {"code": "invalid_request", "detail": "x"})
 
     async def sender(self, frame: dict[str, Any]) -> bool:
@@ -392,6 +403,151 @@ class TestRoutes:
         assert (await client.post("/api/remote/devices/revoke-all")).status_code == 403
         sign_in_as("kiosk")
         assert (await client.get("/api/remote")).status_code == 403
+
+
+ALERT_ADDRESS = "someone.private@example.org"
+
+
+class TestAlertEmail:
+    async def test_set_read_and_clear_through_the_routes(self, relay, admin, client):
+        await remote.enable(SYSTEM_ACTOR)
+        relay.recorder.requests.clear()
+        response = await client.get("/api/remote/alert-email")
+        assert response.status_code == 200 and response.json() == {"state": "none"}
+        assert response.headers["cache-control"] == "no-store"
+
+        response = await client.put(
+            "/api/remote/alert-email",
+            json={"email": f"  {ALERT_ADDRESS} "},
+            headers={"Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"},
+        )
+        assert response.status_code == 200 and response.json() == {"state": "pending"}
+        sent = relay.recorder.requests[-1]
+        assert (sent.method, sent.headers["host"]) == ("PUT", remote.RELAY_HOST)
+        assert sent.url.path == "/v1/instances/self/alert-email"
+        assert json.loads(sent.content) == {"email": ALERT_ADDRESS}
+        assert sent.headers["accept-language"] == "fr"
+        assert ALERT_ADDRESS not in str(sent.url)
+        assert (await client.get("/api/remote/alert-email")).json() == {"state": "pending"}
+
+        response = await client.delete("/api/remote/alert-email")
+        assert response.status_code == 200 and response.json() == {"state": "none"}
+        assert relay.recorder.requests[-1].method == "DELETE"
+        assert relay.recorder.requests[-1].url.path == "/v1/instances/self/alert-email"
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            "",
+            "nope",
+            "a@b",
+            "a b@example.org",
+            "<a@example.org>",
+            "a@@example.org",
+            "x" * 65 + "@e.org",
+        ]
+        + ["a@" + "e" * 250 + ".org"],
+    )
+    async def test_a_bad_address_never_reaches_the_relay(self, relay, admin, client, email):
+        await remote.enable(SYSTEM_ACTOR)
+        relay.recorder.requests.clear()
+        response = await client.put("/api/remote/alert-email", json={"email": email})
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "remote_alert_email_invalid"
+        assert relay.recorder.requests == []
+
+    @pytest.mark.parametrize(
+        ("status", "body", "code"),
+        [
+            (400, {"code": "invalid_request"}, "remote_alert_email_invalid"),
+            (403, {"code": "instance_frozen"}, "remote_alert_email_frozen"),
+            (503, {"code": "registration_paused"}, "remote_alert_email_paused"),
+            (404, {"code": "instance_unknown"}, "remote_not_registered"),
+            (403, {"code": "instance_banned"}, "remote_registry_error"),
+            (500, {}, "remote_unavailable"),
+        ],
+    )
+    async def test_relay_refusals_become_short_codes(
+        self, relay, admin, client, status, body, code
+    ):
+        await remote.enable(SYSTEM_ACTOR)
+        relay.fail_with = json_response(status, {**body, "detail": "x"})
+        for response in (
+            await client.put("/api/remote/alert-email", json={"email": ALERT_ADDRESS}),
+            await client.delete("/api/remote/alert-email"),
+        ):
+            assert response.json()["detail"]["code"] == code
+
+    async def test_rate_limit_carries_retry_after(self, relay, admin, client):
+        await remote.enable(SYSTEM_ACTOR)
+        relay.fail_with = httpx.Response(
+            429, json={"code": "rate_limited"}, headers={"Retry-After": "3600"}
+        )
+        response = await client.put("/api/remote/alert-email", json={"email": ALERT_ADDRESS})
+        assert response.status_code == 429
+        assert response.json()["detail"]["code"] == "remote_rate_limited"
+        assert response.json()["detail"]["params"]["retry_after"] == 3600
+
+    async def test_an_unexpected_answer_is_not_a_state(self, relay, admin, client):
+        await remote.enable(SYSTEM_ACTOR)
+        for body in ({}, {"alert_email": "none"}, {"alert_email": {"state": ["none"]}}):
+            relay.fail_with = json_response(200, body)
+            response = await client.get("/api/remote/alert-email")
+            assert response.json()["detail"]["code"] == "remote_unavailable"
+
+    async def test_a_network_failure_is_a_coded_error(self, relay, admin, client):
+        await remote.enable(SYSTEM_ACTOR)
+
+        def fail(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("down")
+
+        relay.recorder.handler = fail
+        response = await client.get("/api/remote/alert-email")
+        assert response.status_code == 502
+        assert response.json()["detail"]["code"] == "remote_unavailable"
+
+    async def test_off_or_unregistered_sends_nothing(self, relay, admin, client):
+        for method in ("get", "delete"):
+            response = await getattr(client, method)("/api/remote/alert-email")
+            assert response.json()["detail"]["code"] == "remote_disabled"
+        await RemoteRepository.update_state(enabled=True)
+        response = await client.put("/api/remote/alert-email", json={"email": ALERT_ADDRESS})
+        assert response.json()["detail"]["code"] == "remote_not_registered"
+        assert relay.recorder.requests == []
+
+    async def test_administrators_only(self, relay, admin, client, sign_in_as):
+        await remote.enable(SYSTEM_ACTOR)
+        relay.recorder.requests.clear()
+        for role in ("member", "kiosk"):
+            sign_in_as(role)
+            assert (await client.get("/api/remote/alert-email")).status_code == 403
+            response = await client.put("/api/remote/alert-email", json={"email": ALERT_ADDRESS})
+            assert response.status_code == 403
+            assert (await client.delete("/api/remote/alert-email")).status_code == 403
+        assert relay.recorder.requests == []
+
+    async def test_the_address_stays_out_of_logs_and_audit(self, relay, admin, client, caplog):
+        caplog.set_level(logging.DEBUG)
+        await remote.enable(SYSTEM_ACTOR)
+        await client.put("/api/remote/alert-email", json={"email": ALERT_ADDRESS})
+        relay.fail_with = json_response(403, {"code": "instance_frozen", "detail": "x"})
+        await client.put("/api/remote/alert-email", json={"email": ALERT_ADDRESS})
+        relay.fail_with = None
+        await client.delete("/api/remote/alert-email")
+        assert ALERT_ADDRESS not in caplog.text
+        assert ALERT_ADDRESS.split("@")[0] not in caplog.text
+        events = [
+            row.model_dump()
+            for row in await AuthAuditRepository.list_recent(limit=50)
+            if row.action.startswith("remote.alert")
+        ]
+        assert sorted((row["action"], row["outcome"]) for row in events) == [
+            ("remote.alert_email_cleared", "success"),
+            ("remote.alert_email_set", "failure"),
+            ("remote.alert_email_set", "success"),
+        ]
+        assert any(row["details"] == {"error": "remote_alert_email_frozen"} for row in events)
+        assert ALERT_ADDRESS not in str(events)
 
 
 class TestOtherControlOps:

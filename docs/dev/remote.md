@@ -257,8 +257,9 @@ drops, every stream ends at once and the app tasks get 5 s before they are cance
 | HELLO done | | `connected` |
 | `4001` | New token and reconnect at once; backoff if it repeats | `reconnecting` |
 | `4003` | `register()` again (idempotent), reconnect once; a second `4003` or a failed registration stops | `not_registered` |
-| `4004` | Retry after 15 to 20 min (or when Remote changes) | `paused` |
-| `4005` | Reconnect once; replaced again stops (two installs share a key) | `replaced` |
+| `4004 quota_exceeded` | Retry after 15 to 20 min (or when Remote changes); the relay lifts it on the 1st (UTC) | `quota_exceeded` |
+| `4004`, any other reason (`instance_paused`, `instance_frozen`) | Retry after 15 to 20 min (or when Remote changes) | `paused` |
+| `4005` | Reconnect once; replaced again stops (two installs share a key). A connection that lasted 60 s (`STABLE_AFTER_S`) starts the count again, also when it is the one that was replaced | `replaced` |
 | `4009` | Stop, never retried on its own | `banned` |
 | `4010` | Stop until Meshloom is updated | `update_required` |
 | `1013`, unknown `4xxx` | Retry after 5 to 15 min | `relay_paused` |
@@ -269,6 +270,40 @@ drops, every stream ends at once and the app tasks get 5 s before they are cance
 off, and `not_registered` while it is on without a slug. A stopped state stays until
 Remote changes (enable, disable, register, rotate, unregister, restore) or Community is
 turned on or off, which restarts the loop.
+
+**Why the close reason.** meshloom-remote sends `4004 quota_exceeded` at connect and on a
+live socket, and `instance_paused` or `instance_frozen` otherwise (`src/hosts/relay.ts`,
+`closeFor` in `src/relay/instanceRelay.ts`). It says as much as `paused_reason` in
+`GET /v1/instances/self`, so the client makes no lookup. Any other reason shows `paused`,
+never the quota.
+
+**Why 60 s for `4005`.** Two installs on one key both reconnect at once, so each is kicked
+within seconds of its HELLO and a fight reaches two closes quickly. `hello_ok` is no reset:
+every connection of a fight has it. A single late takeover (a restored copy started and
+stopped) is not a fight and never stops Remote.
+
+## Alert e-mail (MSHL-467)
+
+The relay's alert e-mail (`remote-registration.md`, `PUT /v1/instances/self/alert-email`).
+Today it mails the quota warning at 80 % and the pause notice; the offline alert of the
+contract is not sent yet by meshloom-remote (`src/alertEmail.ts`). All three routes are
+`admin` and answer `{state}`, `none`, `pending` or `confirmed`:
+
+| Route | Registry | Notes |
+|---|---|---|
+| `GET /api/remote/alert-email` | `GET /v1/instances/self` | Reads `alert_email.state`. The settings call it once per panel mount, not in the 15 s poll: `GET /api/remote` stays free of requests |
+| `PUT /api/remote/alert-email {email}` | `PUT .../alert-email` | Trimmed, then checked like the relay's `EMAIL` (at most 254 characters): 400 `remote_alert_email_invalid` before any request. The first tag of `Accept-Language` (`fr`, `en`) picks the mail's first language |
+| `DELETE /api/remote/alert-email` | `DELETE .../alert-email` | Forgets the address |
+
+- 409 `remote_disabled`, `remote_not_registered`, `remote_community_off`: nothing leaves.
+- Relay refusals: `invalid_request` as above; `instance_frozen` 403
+  `remote_alert_email_frozen`; `registration_paused` 503 `remote_alert_email_paused`;
+  `instance_unknown` 409 `remote_not_registered`; 429 `remote_rate_limited` with
+  `retry_after` (3 `PUT` a day per key, 3 mails a day per address, 100 for the registry).
+  A pause does not block these routes.
+- The address is never stored here, logged or put in the audit. The relay never returns it,
+  so there is no read of it. Audit: `remote.alert_email_set`, `remote.alert_email_cleared`,
+  with `details.error` on a failure.
 
 ## Custom domain test (MSHL-428)
 
@@ -358,8 +393,7 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
   device: the relay cancels those streams after a `gate`, and every new request checks
   the pass again.
 - A custom relay URL (MSHL-99); the remaining relay-aware hardening (MSHL-84).
-- Guest enrolment links (up to 7 days), pass renewal through `x-meshloom-set-pass`, the
-  alert e-mail routes of the registry.
+- Guest enrolment links (up to 7 days), pass renewal through `x-meshloom-set-pass`.
 - A device of a deleted account keeps a valid pass until it is revoked; the sign-in
   behind the edge lock still refuses it.
 
@@ -368,7 +402,7 @@ Settings → Remote access (section `remote`, lazy-loaded, every account role bu
 `tests/test_remote_identity.py` (vectors: passes, access codes, a local re-implementation
 of the registry's JWT checks proved on every case, then the minted tokens),
 `tests/test_remote_service.py` (fake registry, fake relay and edge: registration,
-enrolment, access requests, revocation, rotation, restore, routes),
+enrolment, access requests, revocation, rotation, restore, routes, alert e-mail),
 `tests/test_remote_off_no_egress.py`, `tests/test_community_attestation.py` (the
 attestation header, renewal, grace fallback and errors against a fake registry),
 `tests/test_community_required.py` (Community off:

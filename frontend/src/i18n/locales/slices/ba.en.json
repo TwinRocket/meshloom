@@ -89,6 +89,8 @@
           "remote.disabled": "Remote access disabled",
           "remote.unlinked": "Meshloom Remote left",
           "remote.rotated": "Remote key replaced",
+          "remote.alert_email_set": "Remote alert e-mail set",
+          "remote.alert_email_cleared": "Remote alert e-mail removed",
           "remote.enroll_issued": "Remote device QR code issued",
           "remote.device_enrolled": "Remote device allowed",
           "remote.device_revoked": "Remote device revoked",

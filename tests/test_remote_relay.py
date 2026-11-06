@@ -488,6 +488,24 @@ class TestCloseCodes:
         await asyncio.sleep(0.1)
         assert len(env.fake.attempts) == 1 and env.client.running()
 
+    async def test_4004_quota_exceeded_is_told_apart(self, env):
+        # meshloom-remote closes a quota pause with this reason at connect and live.
+        await self._run(env, [(4004, "quota_exceeded")])
+        await _until(lambda: remote.link_status() == "quota_exceeded")
+        await asyncio.sleep(0.1)
+        assert len(env.fake.attempts) == 1 and env.client.running()
+
+    @pytest.mark.parametrize("reason", ["instance_frozen", "something_new", ""])
+    async def test_4004_any_other_reason_never_claims_the_quota(self, env, reason):
+        await self._run(env, [(4004, reason)])
+        await _until(lambda: remote.link_status() == remote_relay.PAUSED)
+
+    async def test_a_lifted_quota_pause_reconnects(self, env, monkeypatch):
+        monkeypatch.setattr(remote_relay, "PAUSED_RETRY_S", (0.01, 0.01))
+        await self._run(env, [(4004, "quota_exceeded")])
+        await env.fake.connection()
+        await _until(lambda: remote.link_status() == remote_relay.CONNECTED)
+
     async def test_1013_is_a_long_backoff(self, env):
         await self._run(env, [(1013, "relay_paused")])
         await _until(lambda: remote.link_status() == remote_relay.RELAY_PAUSED)
@@ -509,6 +527,43 @@ class TestCloseCodes:
         await env.fake.connection()
         await _until(lambda: remote.link_status() == remote_relay.CONNECTED)
         assert len(env.fake.attempts) == 2
+
+    async def test_4005_far_apart_never_stops_remote(self, env, monkeypatch):
+        """BUG-12: a stable connection in between starts the count again."""
+        monkeypatch.setattr(remote_relay, "STABLE_AFTER_S", 0.05)
+        await env.client.start(EchoApp())
+        for _ in range(3):
+            conn = await env.fake.connection()
+            await _until(lambda: remote.link_status() == remote_relay.CONNECTED)
+            await asyncio.sleep(0.1)
+            await conn.ws.close(4005, "replaced")
+        await env.fake.connection()
+        await _until(lambda: remote.link_status() == remote_relay.CONNECTED)
+        assert env.client.running()
+
+    async def test_4005_fight_after_hello_is_still_detected(self, env):
+        """Two installs on one key: each kicks the other seconds after its HELLO."""
+        await env.client.start(EchoApp())
+        for _ in range(2):
+            conn = await env.fake.connection()
+            await _until(lambda: remote.relay_connected())
+            await conn.ws.close(4005, "replaced")
+            await asyncio.sleep(0.05)
+        await _until(lambda: remote.link_status() == remote_relay.REPLACED)
+        await asyncio.sleep(0.1)
+        assert len(env.fake.attempts) == 2 and not env.client.running()
+
+    async def test_4005_right_after_a_stable_connection_counts_once(self, env, monkeypatch):
+        """Replaced after a long run: one reconnect; replaced again at once stops."""
+        monkeypatch.setattr(remote_relay, "STABLE_AFTER_S", 0.05)
+        await env.client.start(EchoApp())
+        conn = await env.fake.connection()
+        await _until(lambda: remote.relay_connected())
+        await asyncio.sleep(0.1)
+        env.fake.close_plan = [(4005, "replaced")]
+        await conn.ws.close(4005, "replaced")
+        await _until(lambda: remote.link_status() == remote_relay.REPLACED)
+        assert len(env.fake.attempts) == 2 and not env.client.running()
 
     async def test_4001_mints_a_new_token(self, env):
         await self._run(env, [(4001, "token_expired"), (4001, "token_replayed")])
