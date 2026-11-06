@@ -438,7 +438,9 @@ Community guard, and it needs Community on (MSHL-445).
   (`services/community_attestation.py`, audience `links`). `share_request` gets it after
   the opt-in and banned checks; without one the creation does not leave and answers
   `share_radio_not_heard`, `share_community_opted_out`, `share_community_banned` or
-  `share_attestation_unavailable` (503). A service `attestation_*` refusal (internal
+  `share_attestation_unavailable` (503), or a `radio_key_*` code (503,
+  `keystore.RADIO_KEY_ERRORS`) when this instance does not hold the radio key. A service
+  `attestation_*` refusal (internal
   `share_attestation_rejected`) renews it once and resends once (a streamed upload body
   is opened again); refused again: `share_attestation_unavailable`. The single request
   is `_share_request_once`. Tests: `tests/test_community_attestation.py`; every other

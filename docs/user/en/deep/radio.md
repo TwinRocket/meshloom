@@ -208,8 +208,10 @@ The radio restarts and Meshloom reconnects by itself. It then asks whether to ad
 
 The MeshCore protocol has no password: only enable the proxy on a network you trust. A connection that does not start like a MeshCore client, such as a web page or a port scan, is closed. A second Meshloom must use a new database (or explicitly adopt this identity), and Meshloom refuses to point its own radio connection at its own proxy. When the host sets the published port (the Home Assistant add-on, for example), change it in the host's network settings.
 
+The proxy never gives out the radio's private key, by design. A Meshloom connected through it therefore does not hold that key, and what needs the key stays off there: **Meshloom Community**, and with it Meshloom Remote, link and file sharing and Live; decrypting direct messages on the server; the LetsMesh pass and the map upload; the identity in the full backup. Meshloom says **this radio's key isn't available here** when you try. To use these features, connect the radio directly to that Meshloom, or use them on the Meshloom that holds the key, the one the radio is plugged into. Reading and sending through the proxy are not affected.
+
 ## The private key
 
 When it connects, Meshloom asks the radio for its private key and keeps it **in memory only**. It is never written to its database. With it, Meshloom can decrypt direct messages itself, even when the contact is not loaded on the radio, and can read old messages once a key becomes known.
 
-Anyone who reaches the interface can read the key back, through `GET /api/radio/private-key` and in the full backup of **Settings → Database**, which is how you keep the radio's identity across a reflash (see [Back up your radio](/en/docs/backup/)). Firmware built without key export gives no key, and its backups hold no identity. See [Security](/en/docs/deep/security/#the-nodes-private-key).
+Anyone who reaches the interface can read the key back, through `GET /api/radio/private-key` and in the full backup of **Settings → Database**, which is how you keep the radio's identity across a reflash (see [Back up your radio](/en/docs/backup/)). Firmware built without key export gives no key, nor does a [radio proxy](#radio-proxy), and the backups made that way hold no identity. See [Security](/en/docs/deep/security/#the-nodes-private-key).

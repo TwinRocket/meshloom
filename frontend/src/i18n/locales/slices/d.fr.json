@@ -191,7 +191,7 @@
         "email": "E-mail"
       },
       "map": {
-        "help": "Place les répéteurs et salons que vous entendez sur <map>map.meshcore.io</map>. Le firmware de la radio doit autoriser l’export de la clé privée.",
+        "help": "Place les répéteurs et salons que vous entendez sur <map>map.meshcore.io</map>. Ce Meshloom doit détenir la clé privée de la radio : firmware qui autorise l’export de la clé, et pas de proxy radio entre les deux.",
         "dryRunStatusOn": "<strong>Simulation activée :</strong> rien n’est envoyé, tout va dans le journal.",
         "dryRunStatusOff": "<strong>Simulation désactivée :</strong> les envois sont réels.",
         "dryRunLabel": "Mode simulation (journal uniquement, pas d’envoi)",

@@ -18,6 +18,7 @@ import { toast } from '../ui/sonner';
 import { cn } from '@/lib/utils';
 import { api, formatApiError } from '../../api';
 import { SECRET_REDACTED } from '../../types';
+import { isRadioKeyCode } from '../../utils/radioKeyError';
 import { userDocsUrl } from '../../utils/userDocsUrl';
 import type { Channel, Contact, FanoutConfig, HealthStatus } from '../../types';
 
@@ -2794,6 +2795,7 @@ export function SettingsFanoutSection({
   const [errorDialogState, setErrorDialogState] = useState<{
     integrationName: string;
     error: string;
+    radioKey: boolean;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const { t } = useTranslation();
@@ -3274,6 +3276,18 @@ export function SettingsFanoutSection({
             <p className="whitespace-pre-wrap wrap-break-word font-mono text-foreground">
               {errorDialogState?.error}
             </p>
+            {errorDialogState?.radioKey && (
+              <p className="mt-2">
+                <a
+                  href={userDocsUrl(i18n.language, 'deep/radio')}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2 hover:text-primary transition-colors"
+                >
+                  {t('settings.common.learnMore')}
+                </a>
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -3296,7 +3310,9 @@ export function SettingsFanoutSection({
                   const lastError =
                     rawLastError === 'secret_unreadable'
                       ? t('settings.fanout.list.secretUnreadable')
-                      : rawLastError;
+                      : isRadioKeyCode(rawLastError)
+                        ? t(`errors.${rawLastError}`)
+                        : rawLastError;
                   const communityConfig = cfg.config as Record<string, unknown>;
                   return (
                     <div
@@ -3390,6 +3406,7 @@ export function SettingsFanoutSection({
                               setErrorDialogState({
                                 integrationName: cfg.name,
                                 error: lastError,
+                                radioKey: isRadioKeyCode(rawLastError),
                               })
                             }
                             aria-label={t('settings.fanout.list.viewErrorAria', { name: cfg.name })}

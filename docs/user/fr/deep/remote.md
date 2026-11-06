@@ -66,7 +66,7 @@ Le badge sous **État** dit où en est la liaison :
 | Badge | Sens et quoi faire |
 |---|---|
 | Désactivé | Remote est désactivé ; l’instance n’est joignable que sur le réseau local. |
-| Non enregistrée | Remote est activé mais le relais n’a pas enregistré l’instance. Appuyez sur **Réessayer** ; si l’échec se répète, cette machine n’arrive peut-être pas à joindre le relais. Quand Community n’a pas pu donner sa preuve, la raison s’affiche sous le badge : pour **Aucune autre station n’a entendu cette radio récemment**, envoyez une annonce flood, puis réessayez quelques minutes plus tard. |
+| Non enregistrée | Remote est activé mais le relais n’a pas enregistré l’instance. Appuyez sur **Réessayer** ; si l’échec se répète, cette machine n’arrive peut-être pas à joindre le relais. Quand Community n’a pas pu donner sa preuve, la raison s’affiche sous le badge : pour **Aucune autre station n’a entendu cette radio récemment**, envoyez une annonce flood, puis réessayez quelques minutes plus tard ; pour **Meshloom Community ne peut pas garantir cette radio pour l’instant**, réessayez plus tard, et si ce Meshloom atteint la radio par un [proxy radio](/docs/deep/radio/#proxy-radio), branchez la radio directement : Community a besoin de la clé de la radio sur cette instance. |
 | Connexion, Connectée | La liaison s’établit, ou est établie : les appareils autorisés ouvrent l’adresse affichée. |
 | Hors ligne | La liaison est coupée. Meshloom se reconnecte seul, en espaçant les essais (jusqu’à 5 minutes). Vérifiez la connexion internet de cette machine. |
 | Inconnue du relais | Le relais a oublié l’instance et le nouvel enregistrement a échoué. Désactivez puis réactivez Remote ; si cela ne suffit pas, remplacez la clé. |

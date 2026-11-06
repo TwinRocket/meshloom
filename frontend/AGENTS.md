@@ -751,7 +751,7 @@ reopens the dialog.
 encrypted file for that message's conversation), `api.reportShare(id, {reason, details?})`, `api.listShareMine(cursor?)`,
 `api.deleteShare(id)` and `api.clearShareCache()` (admin) call `/api/share/*` (and
 `api.uploadShareFile(blob)`, below); types `ShareStatus`, `ShareLink`, `ShareFile`,
-`ShareMeta`, `ShareMine`, `ShareMineObject`, `ShareCacheClear` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
+`ShareMeta`, `ShareMine`, `ShareMineObject`, `ShareCacheClear` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; `errors.radio_key_*`, slice `radiokey`, when the instance lacks the radio key: `utils/radioKeyError.ts` adds the docs link to the upload and shorten toasts; a
 `share_disabled` answer means sharing is off). Call `getShareMeta` only on hover,
 focus, a tap or when the preview policy lets a shared image load, never on a plain render.
 

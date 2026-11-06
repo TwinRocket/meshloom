@@ -461,6 +461,25 @@ class TestLinks:
         assert info.value.code == "share_attestation_unavailable"
         assert len(links.requests) == 2 and len(community.calls) == 2
 
+    async def test_a_missing_radio_key_says_so_without_spending_anything(
+        self, links, community, clock
+    ):
+        """MSHL-471: nothing left, so no hold and no budget; a direct radio works at once."""
+        community.answers = [
+            HTTPException(
+                status_code=503,
+                detail={"code": "radio_key_behind_proxy", "message": "no key"},
+            )
+        ]
+        with pytest.raises(ShareError) as info:
+            await share.create_link("https://example.com/a")
+        assert info.value.code == "radio_key_behind_proxy"
+        assert info.value.status_code == 503
+        assert links.requests == []
+        assert not ca._state.holds.get("links")
+        assert not ca._state.fetches.get("links")
+        assert not ca._state.failures.get("links")
+
     async def test_upload_retried_with_its_body(self, links, community, clock, tmp_path):
         from app.services import share_upload
 

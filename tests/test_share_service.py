@@ -555,9 +555,12 @@ class TestTimeouts:
 def test_every_code_is_translated(lang):
     from pathlib import Path
 
-    slice_path = Path(__file__).parents[1] / f"frontend/src/i18n/locales/slices/ah.{lang}.json"
-    errors = json.loads(slice_path.read_text(encoding="utf-8"))["errors"]
-    assert set(SHARE_ERRORS) - _INTERNAL_CODES - _UI_PENDING_CODES <= set(errors)
+    slices = Path(__file__).parents[1] / "frontend/src/i18n/locales/slices"
+    errors: set[str] = set()
+    for name in ("ah", "radiokey"):
+        path = slices / f"{name}.{lang}.json"
+        errors |= set(json.loads(path.read_text(encoding="utf-8"))["errors"])
+    assert set(SHARE_ERRORS) - _INTERNAL_CODES - _UI_PENDING_CODES <= errors
 
 
 # Never reaches the UI: an id collision is retried with a new id and key (MSHL-255).

@@ -191,7 +191,7 @@
         "email": "Email"
       },
       "map": {
-        "help": "Puts the repeaters and room servers you hear on <map>map.meshcore.io</map>. Your radio firmware must allow private key export.",
+        "help": "Puts the repeaters and room servers you hear on <map>map.meshcore.io</map>. This Meshloom must hold the radio's private key: firmware that allows key export, and no radio proxy in between.",
         "dryRunStatusOn": "<strong>Dry run on:</strong> nothing is sent, it only goes to the log.",
         "dryRunStatusOff": "<strong>Dry run off:</strong> uploads are live.",
         "dryRunLabel": "Dry Run (log only, no uploads)",

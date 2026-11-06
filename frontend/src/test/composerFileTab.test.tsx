@@ -234,6 +234,24 @@ describe('Composer File tab', () => {
     expect(mockToast.error).not.toHaveBeenCalled();
   });
 
+  it('names the missing radio key, with the docs link, when the upload needs it', async () => {
+    upload.mockRejectedValue(
+      new ApiError('Backend sentence', 503, { code: 'radio_key_behind_proxy', params: {} })
+    );
+    setup();
+    pick(jpeg());
+    await screen.findByTestId('file-tab-summary');
+    fireEvent.click(screen.getByTestId('file-tab-send'));
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith(
+        i18n.t('errors.radio_key_behind_proxy'),
+        expect.objectContaining({
+          action: expect.objectContaining({ label: i18n.t('settings.common.learnMore') }),
+        })
+      )
+    );
+  });
+
   it('shows a coded toast when the upload is refused', async () => {
     upload.mockRejectedValue(
       new ApiError('busy', 429, { code: 'share_rate_limited', params: {} }, 5)

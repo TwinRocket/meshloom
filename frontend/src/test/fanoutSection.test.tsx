@@ -273,6 +273,34 @@ describe('SettingsFanoutSection', () => {
     expect(screen.getByText('HTTP 500')).toBeInTheDocument();
   });
 
+  it('translates a missing radio key and links the docs', async () => {
+    mockedApi.getFanoutConfigs.mockResolvedValue([webhookConfig]);
+    renderSection({
+      health: {
+        ...baseHealth,
+        fanout_statuses: {
+          'wh-1': {
+            name: 'Test Hook',
+            type: 'webhook',
+            status: 'error',
+            last_error: 'radio_key_behind_proxy',
+          },
+        },
+      },
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: tf('list.viewErrorAria', { name: 'Test Hook' }) })
+    );
+
+    expect(screen.getByText(i18n.t('errors.radio_key_behind_proxy'))).toBeInTheDocument();
+    expect(screen.queryByText('radio_key_behind_proxy')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: i18n.t('settings.common.learnMore') })).toHaveAttribute(
+      'href',
+      expect.stringContaining('docs/deep/radio/')
+    );
+  });
+
   it('does not show an error info button when the integration has no retained error', async () => {
     mockedApi.getFanoutConfigs.mockResolvedValue([webhookConfig]);
     renderSection({

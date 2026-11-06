@@ -54,7 +54,7 @@ C’est autre chose que le [Meshloom Community](/docs/deep/community/) officiel.
 
 ### Envoi vers la carte
 
-Il envoie vers map.meshcore.io les annonces des répéteurs et des serveurs de salon qui diffusent leur position. Il a besoin de la clé privée de la radio pour les signer : le firmware de la radio doit donc autoriser l’export de la clé. Un même nœud est envoyé au plus une fois par heure.
+Il envoie vers map.meshcore.io les annonces des répéteurs et des serveurs de salon qui diffusent leur position. Il a besoin de la clé privée de la radio pour les signer : le firmware de la radio doit donc autoriser l’export de la clé, et la radio ne doit pas être atteinte par un [proxy radio](/docs/deep/radio/#proxy-radio). Un même nœud est envoyé au plus une fois par heure.
 
 **Il démarre en mode simulation (dry-run).** En mode simulation, Meshloom écrit seulement dans son journal ce qu’il enverrait. Rien n’arrive sur la carte tant que vous n’avez pas décoché **Mode simulation (journal uniquement, pas d’envoi)** dans le formulaire. Un périmètre géographique facultatif limite les envois aux nœuds situés dans un rayon autour de votre radio.
 

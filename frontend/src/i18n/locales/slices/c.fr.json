@@ -359,7 +359,7 @@
       "regionsAdded_other": "{{count}} régions ajoutées — vérifiez et enregistrez les réglages de messagerie",
       "exportWithKey": "Export généré avec la clé privée",
       "exportWithoutKey": "Export généré sans la clé privée",
-      "exportWithoutKeyHelp": "Le firmware de la radio n’a pas exporté sa clé privée",
+      "exportWithoutKeyHelp": "La radio n’a pas donné sa clé privée (firmware sans export de clé, ou proxy intermédiaire)",
       "invalidConfig": "Fichier de config invalide",
       "invalidConfigHelp": "Le fichier doit contenir un nom et les paramètres radio (freq, bw, sf, cr)",
       "importKeyRebooting": "Config + clé privée importées, enregistrement et redémarrage…",
