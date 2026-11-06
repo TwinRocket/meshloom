@@ -142,7 +142,7 @@ Webhook, Apprise, Amazon SQS (custom endpoint) and Map Upload (custom API addres
 
 The address is checked when you save an enabled integration and again before each send (for SQS, when the integration starts). A refused one shows an error such as "this address is on a private network" and nothing is sent. The webhook and Map Upload connect only to the address that was checked and never follow a redirect.
 
-Integrations you had set up before this check keep working: the upgrade ticks the box for them, and a one-time notice at the top of the page lists them. Untick it in an integration that points to a public service. The box ticked by the upgrade covers only the address it was ticked for: when you change the address, it unticks itself, and you tick it again if the new address is on your network.
+Integrations you had set up before this check keep working: the upgrade ticks the box for them, and a one-time notice at the top of the page lists them. Untick it in an integration that points to a public service. While the notice is open, the box ticked by the upgrade covers only the address it was ticked for: when you change the address, it unticks itself, and you tick it again if the new address is on your network. After **Got it**, the box stays ticked when the address changes.
 
 ## Apprise
 

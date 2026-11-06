@@ -204,12 +204,14 @@ When an upgrade has to change the structure of your database, Meshloom first mak
 Meshloom refuses to start on a database made by a newer version, and leaves it untouched. To go back, put the copy back. Everything received or changed since the upgrade is lost.
 
 1. Stop Meshloom.
-2. In the data folder, put the copy in place of the database and remove the files that go with the old one (`sudo` if the files are not yours):
+2. In the data folder, put the copy in place of the database and remove the files that go with the old one (if the files are not yours, open a root shell first with `sudo -s`: with the Linux package `/var/lib/meshloom` is closed to other accounts, so a `sudo cp` from your own shell cannot expand the `*`):
 
    ```bash
-   cp -p meshcore.db.schema87.before-*.db meshcore.db
-   rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
+   cp -p meshcore.db.schema87.before-*.db meshcore.db &&
+     rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
+
+   With several copies matching, or none, the command fails and the database stays as it was: list the copies with `ls meshcore.db.schema*` and name the file you want.
 
    Going back to 5.0 or later, also put back the key if the copy has one: `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Install the older version, then start it:

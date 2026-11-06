@@ -200,10 +200,10 @@ takes everything from the line starting `## [X.Y.Z-rc.N]` up to the next `## [`.
 - 5.0.0-rc.1's section replaced the development log of the cycle. That log, per feature,
   is `CHANGELOG.md` at commit `3003b5511ef5450762fa3369ddc00637f922b066`: not revised, so
   some entries were superseded later. Check any of it against the code.
-- During the rc, the links of `docs/user/*/prerelease.md` and the going-back links of
-  `upgrade-4-18.md` are absolute GitHub links to `preversion-5`, because `/next/docs` sends
-  a tester to GitHub, where a site path (`/en/docs/...`) answers 404. Put site paths back
-  before the final.
+- During the rc, all the links of `docs/user/*/prerelease.md` and `docs/user/*/upgrade-4-18.md`
+  are absolute GitHub links to `preversion-5`, because `/next/docs` sends a tester to GitHub,
+  where a site path (`/en/docs/...`) answers 404. The other pages keep site paths. Put site
+  paths back in these two before the final.
 
 ### How a tester gets an rc
 

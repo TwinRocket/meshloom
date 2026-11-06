@@ -204,12 +204,14 @@ Quand une mise à niveau doit changer la structure de votre base, Meshloom en fa
 Meshloom refuse de démarrer sur une base faite par une version plus récente, et n’y touche pas. Pour revenir en arrière, remettez la copie. Tout ce qui a été reçu ou modifié depuis la mise à niveau est perdu.
 
 1. Arrêtez Meshloom.
-2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les fichiers qui accompagnent l’ancienne (avec `sudo` si les fichiers ne sont pas à vous) :
+2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les fichiers qui accompagnent l’ancienne (si les fichiers ne sont pas à vous, ouvrez d’abord un shell root avec `sudo -s` : avec le paquet Linux, `/var/lib/meshloom` est fermé aux autres comptes, donc un `sudo cp` depuis votre shell ne peut pas développer le `*`) :
 
    ```bash
-   cp -p meshcore.db.schema87.before-*.db meshcore.db
-   rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
+   cp -p meshcore.db.schema87.before-*.db meshcore.db &&
+     rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
+
+   Si plusieurs copies correspondent, ou aucune, la commande échoue et la base reste telle quelle : listez les copies avec `ls meshcore.db.schema*` et nommez celle que vous voulez.
 
    Pour revenir à une 5.0 ou plus récente, remettez aussi la clé si la copie en a une : `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Installez l’ancienne version, puis démarrez-la :
