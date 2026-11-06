@@ -340,7 +340,7 @@ would create the environment unprotected.
 3. **Keep the repository secret.** The workflows on `main` have no `environment:` until
    `preversion-5` merges: without it, a 4.18.x would be built with an empty key.
    While the environment has no secret of that name, its jobs read the repository
-   secret. 5.0.0-rc.1 was released this way, with `release-signing` holding no secret.
+   secret.
 4. Only once `preversion-5` is on `main`: add the secret `MESHLOOM_REPO_GPG_PRIVATE_KEY`
    to that environment, then delete the repository secret. Its value is the CI subkey,
    rebuilt from the offline backup ("Rebuild the CI subkey" in `pkg/keys/README.md`).
