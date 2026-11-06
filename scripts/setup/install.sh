@@ -836,7 +836,7 @@ compose_image_version() {
 }
 
 detect_installed_version() {
-    local v="" wd="" conf=""
+    local v="" wd=""
     INSTALLED_VERSION=""
     if v="$(package_installed_version)"; then
         INSTALLED_VERSION="$v"
