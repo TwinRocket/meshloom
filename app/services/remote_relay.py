@@ -338,6 +338,7 @@ async def relayed_scope(kind: str, head: Any) -> tuple[dict[str, Any] | None, st
         scope["scheme"] = "wss"
         scope["subprotocols"] = subprotocols
         scope["extensions"] = {"websocket.http.response": {}}
+    remote.note_device_seen(claims["sub"])
     return scope, None
 
 

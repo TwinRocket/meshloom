@@ -554,7 +554,12 @@ revoke-all is `own_account`, and those five (and the custom domain test) are sho
   `settings.remote.badgeHelp.<id>`. `REMOTE_LINK_STATES` mirrors `LINK_STATES` of
   `app/services/remote_relay.py`; `tests/test_remote_ui_strings.py` pins the copy and checks
   every state and every `errors.remote_*` code (`REMOTE_ERRORS`, the relay refusals) in en and fr.
-  The section polls `GET /api/remote` every 15 s.
+  The section polls `GET /api/remote` every 15 s, and every 3 s while the badge is `connecting`
+  or `reconnecting` (`REMOTE_STATUS_SETTLING_POLL_MS`), so the badge and the approve form follow
+  an enable within seconds. The route makes no request to the relay. A tick starts nothing while
+  a request is in flight (a new one would discard its answer), unless it has hung for 30 s
+  (`REMOTE_STATUS_STUCK_MS`), and the 3 s refresh pauses while the tab is hidden. An action's
+  `reload` always asks again: its answer is the newer one.
 - **Community required** (MSHL-445). With `community_enabled: false` the badge is
   `needs_community` (Remote off: no enable button) or `community_off` (Remote on, paused), and
   the action is a button that opens the Community section (`onOpenSection('community')`). The
@@ -581,7 +586,7 @@ revoke-all is `own_account`, and those five (and the custom domain test) are sho
   `PairingQr`; the 15 min countdown runs on the local clock (`ENROLL_LIFETIME_S`, never the
   server's); while it shows, `GET /api/remote` every 3 s (`ENROLL_POLL_MS`) and a new `qr` device
   of the current user ends it with "enrolled". The known ids are frozen when the code is issued
-  (plus the ids the dialog's own polls saw), never refreshed from the section's 15 s poll, which
+  (plus the ids the dialog's own polls saw), never refreshed from the section's poll, which
   may see the new device first.
 - **Access requests** (`RemoteAccessRequestsPanel`, polled every 10 s): the pending list never
   shows the code, the reader types the code the device shows; a warning against social

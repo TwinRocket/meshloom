@@ -14,17 +14,13 @@
         "maxLength": 400
       },
       "maxItems": 50,
-      "default": [
-        "keyword: hello => Hello {sender}!",
-        "prefix: !ping => Pong!"
-      ],
       "title": {
         "en": "Rules",
         "fr": "Règles"
       },
       "description": {
-        "en": "One rule per line: trigger, then a colon, the text to look for, an arrow and the reply. Triggers: keyword (the word or phrase appears in the message), prefix (the message starts with it), regex (a pattern, 100 characters at most). Options go after the trigger: keyword,channel=#test,cooldown=120: ... The reply may use {sender}, {channel} and {text}. Example: prefix: !ping => Pong, {sender}!",
-        "fr": "Une règle par ligne : le déclencheur, deux-points, le texte à chercher, une flèche et la réponse. Déclencheurs : keyword (le mot ou la phrase apparaît dans le message), prefix (le message commence par ce texte), regex (un motif, 100 caractères au plus). Les options se placent après le déclencheur : keyword,channel=#test,cooldown=120: ... La réponse peut contenir {sender}, {channel} et {text}. Exemple : prefix: !ping => Pong, {sender}!"
+        "en": "It answers nothing until you add a rule. One rule per line: trigger, then a colon, the text to look for, an arrow and the reply. Triggers: keyword (the word or phrase appears in the message), prefix (the message starts with it), regex (a pattern, 100 characters at most). Options go after the trigger: keyword,channel=#test,cooldown=120: ... The reply may use {sender}, {channel} and {text}. Example: prefix: !ping => Pong, {sender}!",
+        "fr": "Il ne répond à rien tant que vous n'ajoutez pas de règle. Une règle par ligne : le déclencheur, deux-points, le texte à chercher, une flèche et la réponse. Déclencheurs : keyword (le mot ou la phrase apparaît dans le message), prefix (le message commence par ce texte), regex (un motif, 100 caractères au plus). Les options se placent après le déclencheur : keyword,channel=#test,cooldown=120: ... La réponse peut contenir {sender}, {channel} et {text}. Exemple : prefix: !ping => Pong, {sender}!"
       }
     },
     "case_sensitive": {

@@ -80,6 +80,7 @@ from fastapi import HTTPException
 
 from app.auth.audit import AuditActor, record
 from app.auth.models import User
+from app.background_tasks import spawn
 from app.net.egress_guard import (
     CheckedResponse,
     EgressBlocked,
@@ -138,6 +139,8 @@ BROWSER_PASS_RENEW_AFTER_S = 86400
 BROWSER_PASS_RENEW_RETRY_S = 600
 # Attempts kept in memory: forgetting one costs at most one more renewal.
 RENEWAL_ATTEMPTS_MAX = 4096
+# Per device, between two writes of ``last_seen_at``: a page's burst of requests is one write.
+DEVICE_SEEN_INTERVAL_S = 300
 # remote-relay.md: the instance answers ``enroll`` within 10 s; keep a margin.
 ENROLL_ANSWER_TIMEOUT_S = 8.0
 ACCESS_REQUEST_TTL_S = 600
@@ -248,6 +251,8 @@ class _Runtime:
     clock: Callable[[], float] = time.time
     # Device id -> monotonic time of its last renewal attempt, oldest first.
     renewal_attempts: OrderedDict[str, float] = field(default_factory=OrderedDict)
+    # Device id -> monotonic time of its last ``last_seen_at`` write, oldest first.
+    device_seen: OrderedDict[str, float] = field(default_factory=OrderedDict)
 
 
 _rt = _Runtime(access={}, listeners=[])
@@ -808,24 +813,46 @@ async def verify_device_pass(token: str, slot: PassSlot) -> tuple[str, dict[str,
     return verdict, claims
 
 
+def _take_device_slot(slots: OrderedDict[str, float], device_id: str, period: float) -> bool:
+    """Whether this device may act again after ``period``; takes the slot when it may. No
+    ``await``, so concurrent requests of one device get a single slot. Forgetting the
+    oldest device past ``RENEWAL_ATTEMPTS_MAX`` costs it at most one more action."""
+    moment = time.monotonic()
+    last = slots.get(device_id)
+    if last is not None and moment - last < period:
+        return False
+    slots[device_id] = moment
+    slots.move_to_end(device_id)
+    while len(slots) > RENEWAL_ATTEMPTS_MAX:
+        slots.popitem(last=False)
+    return True
+
+
 def _renewal_due(token: str) -> bool:
-    """Whether to try renewing this already accepted pass, and record the attempt. No
-    ``await``, so concurrent requests of one browser get a single attempt; nothing
+    """Whether to try renewing this already accepted pass, and record the attempt. Nothing
     here reads the database or signs, so a pass that is not due costs next to nothing."""
     claims = remote_passes.decode_pass(token)
     if claims is None or claims["kind"] != "browser":
         return False
     if _now() - claims["iat"] < BROWSER_PASS_RENEW_AFTER_S:
         return False
-    attempts, sub, moment = _rt.renewal_attempts, claims["sub"], time.monotonic()
-    last = attempts.get(sub)
-    if last is not None and moment - last < BROWSER_PASS_RENEW_RETRY_S:
-        return False
-    attempts[sub] = moment
-    attempts.move_to_end(sub)
-    while len(attempts) > RENEWAL_ATTEMPTS_MAX:
-        attempts.popitem(last=False)
-    return True
+    return _take_device_slot(_rt.renewal_attempts, claims["sub"], BROWSER_PASS_RENEW_RETRY_S)
+
+
+async def _write_device_seen(device_id: str, now: int) -> None:
+    try:
+        await RemoteRepository.touch_device(device_id, now)
+    except Exception as exc:
+        logger.warning("Remote: could not record a device's use (%s)", type(exc).__name__)
+
+
+def note_device_seen(device_id: str) -> None:
+    """A relayed request or WebSocket of this device passed the edge lock: record it for
+    the devices list, at most once per ``DEVICE_SEEN_INTERVAL_S``. Synchronous and costing
+    a dict lookup: the write runs in the background, so it can neither fail nor delay the
+    request. Only the settings UI reads ``last_seen_at``, never the checks of a pass."""
+    if _take_device_slot(_rt.device_seen, device_id, DEVICE_SEEN_INTERVAL_S):
+        spawn(_write_device_seen(device_id, _now()), name="remote-device-seen")
 
 
 async def renew_browser_pass(token: str) -> str | None:

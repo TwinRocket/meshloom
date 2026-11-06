@@ -8,7 +8,7 @@ Answers messages with replies you write as simple rules. No code.
 
 ## Rules
 
-One rule per line in **Rules**:
+It starts with no rules, so it answers nothing until you add one. One rule per line in **Rules**:
 
 ```
 trigger[,option=value]: text to look for => reply   (a space on each side of =>)

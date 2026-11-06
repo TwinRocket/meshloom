@@ -1,5 +1,5 @@
-"""Renewal of a browser pass through ``x-meshloom-set-pass`` (MSHL-468), against the
-in-process fake relay (``tests/remote_relay_fakes.py``), which does not implement the
+"""Renewal of a browser pass through ``x-meshloom-set-pass`` (MSHL-468), and a device's
+``last_seen_at`` (MSHL-472), against the in-process fake relay (``tests/remote_relay_fakes.py``), which does not implement the
 relay's rule: ``_relay_accepts`` below mirrors ``instanceRelay.renewal`` of
 ``meshloom-remote`` (a pass that verifies in the cookie slot, for the same ``sub``).
 Nothing here runs against the real relay.
@@ -618,3 +618,137 @@ class TestRealApp:
         rows = await AuthAuditRepository.list_recent(limit=50)
         revoked = [row.target for row in rows if row.action == "remote.device_revoked"]
         assert revoked == [f"device:{device.id}"]
+
+
+async def _until_seen(device_id: str) -> int:
+    """The write runs in the background: wait for it."""
+    for _ in range(200):
+        seen = (await RemoteRepository.get_device(device_id)).last_seen_at
+        if seen is not None:
+            return seen
+        await asyncio.sleep(0.01)
+    raise AssertionError("last_seen_at was never written")
+
+
+@pytest.fixture
+def touches(monkeypatch):
+    """Every write of ``last_seen_at``, then the real write."""
+    calls: list[str] = []
+    real = RemoteRepository.touch_device
+
+    async def counted(device_id: str, now: int) -> None:
+        calls.append(device_id)
+        await real(device_id, now)
+
+    monkeypatch.setattr(RemoteRepository, "touch_device", counted)
+    return calls
+
+
+class TestLastSeen:
+    @pytest.mark.parametrize("kind", ["browser", "client"])
+    async def test_a_relayed_request_marks_the_device_seen(self, env, kind):
+        device, token = await env.device(kind)
+        assert device.last_seen_at is None
+        conn = await env.connect(App(env.user))
+        status, *_ = await conn.request("GET", "/api/contacts", pass_token=token)
+        assert status == 200
+        assert await _until_seen(device.id) == int(env.clock.now)
+
+    async def test_a_relayed_websocket_marks_the_device_seen(self, env):
+        device, token = await env.device()
+        conn = await env.connect(App(env.user))
+        await conn.send(rf.encode_json(rf.WS_OPEN, 1, conn.head("WS", "/api/ws", pass_token=token)))
+        assert (await conn.frame(1)).type == rf.WS_ACCEPT
+        assert await _until_seen(device.id) == int(env.clock.now)
+
+    async def test_a_burst_writes_once_then_once_per_interval(self, env, touches):
+        device, token = await env.device()
+        conn = await env.connect(App(env.user))
+        await asyncio.gather(
+            *(conn.request("GET", f"/assets/{n}.js", pass_token=token) for n in range(20))
+        )
+        first = await _until_seen(device.id)
+        status, *_ = await conn.request("GET", "/api/contacts", pass_token=token)
+        assert status == 200
+        await asyncio.sleep(0.05)
+        assert touches == [device.id]
+
+        # The interval runs on real time, as the renewal's does.
+        remote._rt.device_seen[device.id] -= remote.DEVICE_SEEN_INTERVAL_S
+        env.clock.now += 1000
+        await conn.request("GET", "/api/contacts", pass_token=token)
+        for _ in range(200):
+            if (await RemoteRepository.get_device(device.id)).last_seen_at != first:
+                break
+            await asyncio.sleep(0.01)
+        assert touches == [device.id, device.id]
+        assert (await RemoteRepository.get_device(device.id)).last_seen_at == first + 1000
+
+    async def test_two_devices_have_their_own_interval(self, env, touches):
+        first, first_token = await env.device()
+        second, second_token = await env.device()
+        conn = await env.connect(App(env.user))
+        await conn.request("GET", "/api/x", pass_token=first_token)
+        await conn.request("GET", "/api/x", pass_token=second_token)
+        await _until_seen(first.id)
+        await _until_seen(second.id)
+        assert sorted(touches) == sorted([first.id, second.id])
+
+    async def test_a_failed_write_never_fails_the_request(self, env, monkeypatch, caplog):
+        device, token = await env.device()
+
+        async def broken(*_a: Any) -> None:
+            raise RuntimeError("database is locked")
+
+        monkeypatch.setattr(RemoteRepository, "touch_device", broken)
+        conn = await env.connect(App(env.user))
+        with caplog.at_level(logging.WARNING):
+            status, *_ = await conn.request("GET", "/api/contacts", pass_token=token)
+            await asyncio.sleep(0.05)
+        assert status == 200
+        assert "could not record" in caplog.text
+        assert "database is locked" not in caplog.text
+
+    async def test_a_slow_write_never_delays_the_request(self, env, monkeypatch):
+        device, token = await env.device()
+        blocked = asyncio.Event()
+        started = asyncio.Event()
+
+        async def stuck(*_a: Any) -> None:
+            started.set()
+            await blocked.wait()
+
+        monkeypatch.setattr(RemoteRepository, "touch_device", stuck)
+        conn = await env.connect(App(env.user))
+        status, *_ = await asyncio.wait_for(
+            conn.request("GET", "/api/contacts", pass_token=token), timeout=5
+        )
+        assert status == 200
+        await asyncio.wait_for(started.wait(), timeout=5)
+        blocked.set()
+
+    async def test_a_refused_request_marks_nothing(self, env, touches):
+        device, token = await env.device()
+        conn = await env.connect(App(env.user))
+        assert await remote.revoke_device(device.id, SYSTEM_ACTOR, owner_id=None)
+        status, *_ = await conn.request("GET", "/api/contacts", pass_token=token)
+        assert status == 401
+        status, *_ = await conn.request("GET", "/api/contacts")
+        assert status == 401
+        await asyncio.sleep(0.05)
+        assert touches == []
+        assert (await RemoteRepository.get_device(device.id)).last_seen_at is None
+
+    async def test_revocation_does_not_depend_on_it(self, env):
+        seen, seen_token = await env.device()
+        never, never_token = await env.device()
+        conn = await env.connect(App(env.user))
+        await conn.request("GET", "/api/contacts", pass_token=seen_token)
+        await _until_seen(seen.id)
+        for device in (seen, never):
+            assert await remote.revoke_device(device.id, SYSTEM_ACTOR, owner_id=None)
+        gate = await remote.gate_state()
+        assert set(gate["revoked"]) == {seen.id, never.id}
+        for token in (seen_token, never_token):
+            status, *_ = await conn.request("GET", "/api/contacts", pass_token=token)
+            assert status == 401

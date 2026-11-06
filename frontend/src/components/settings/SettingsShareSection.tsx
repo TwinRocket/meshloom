@@ -11,7 +11,12 @@ import type {
 } from '../../types';
 import { shareTermsStale } from '../../utils/shareTerms';
 import { userDocsUrl } from '../../utils/userDocsUrl';
-import { loadShareStatus, refreshShareStatus, useShareStatus } from '../../stores/shareStatusStore';
+import {
+  getShareStatusSnapshot,
+  loadShareStatus,
+  refreshShareStatus,
+  useShareStatus,
+} from '../../stores/shareStatusStore';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import {
@@ -193,6 +198,15 @@ function ShareCacheControl() {
   );
 }
 
+/**
+ * The upload list is what creates the sharing identity on an instance that has none (its
+ * request signs with the key, `ensure_instance_key`), after the status was read: read it
+ * again, or "identity ready" stays on "not yet". No request once it is ready.
+ */
+function refreshUntilIdentityReady(): void {
+  if (!getShareStatusSnapshot().status?.identity_ready) void refreshShareStatus();
+}
+
 /** "My uploads" while sharing is on; off, why there is no list. */
 function ShareUploads({ status }: { status: ShareStatus }) {
   const { t } = useTranslation();
@@ -204,7 +218,7 @@ function ShareUploads({ status }: { status: ShareStatus }) {
       </section>
     );
   }
-  return <ShareUploadsList host={status.host} />;
+  return <ShareUploadsList host={status.host} onSettled={refreshUntilIdentityReady} />;
 }
 
 function StatusLine({ status }: { status: ShareStatus }) {
