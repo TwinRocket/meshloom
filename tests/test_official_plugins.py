@@ -361,6 +361,22 @@ async def test_bad_rules_are_logged_at_start_and_status_is_localised(host):
     assert status == ["0 règle(s), 0 réponse(s) la dernière heure"]
 
 
+def test_the_rules_field_shows_no_rule_the_plugin_would_not_run():
+    """The form shows a schema default as if it were saved, while the plugin only reads the
+    saved config: a default rule would be on screen and not running (MSHL-472)."""
+    schema = json.loads((OFFICIAL / "auto_responder" / "config.schema.json").read_text("utf-8"))
+    assert "default" not in schema["properties"]["rules"]
+
+
+async def test_a_fresh_install_answers_nothing_and_says_so(host):
+    plugin, _ = await start({})
+    await plugin.on_message(msg("hello"))
+    await plugin.on_message(msg("!ping"))
+    assert host.sent == []
+    status = [p["summary"] for m, p in host.calls if m == "status.set"]
+    assert status == ["0 rule(s), 0 answer(s) in the last hour"]
+
+
 async def test_config_change_reloads_the_rules(host):
     plugin, _ = await start({"rules": ["keyword: a => one"]})
     await plugin.on_config_changed({"config": {"rules": ["keyword: b => two"]}})
