@@ -66,7 +66,8 @@
         },
         "restored": {
           "badge": "Restaurée",
-          "text": "Extension restaurée, désactivée. Vérifiez-la ci-dessous, puis acceptez pour la démarrer."
+          "text": "Extension restaurée, désactivée. Vérifiez-la ci-dessous, puis acceptez pour la démarrer.",
+          "versionChanged": "Version {{version}} installée ; la sauvegarde avait la {{previous}}."
         },
         "reinstall": {
           "badge": "À réinstaller",
@@ -170,6 +171,7 @@
         "restart": "Redémarrer",
         "restarted": "Redémarrée.",
         "reinstall": "Réinstaller",
+        "reinstallSource": "Source : {{repository}}",
         "reinstalling": "Réinstallation...",
         "reinstalled": "Réinstallée. Vérifiez-la, puis acceptez pour la démarrer.",
         "copyDiagnostic": "Copier le diagnostic",

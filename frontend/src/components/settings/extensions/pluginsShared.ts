@@ -109,6 +109,12 @@ export function needsReinstall(instance: Pick<PluginInstance, 'status' | 'attent
   return instance.status === 'needs_attention' && attentionType(instance) === 'reinstall';
 }
 
+/** The version a reinstall replaced, while the instance waits for its review. */
+export function previousVersion(instance: Pick<PluginInstance, 'attention'>): string | null {
+  const previous = instance.attention?.previous_version;
+  return attentionType(instance) === 'restored' && typeof previous === 'string' ? previous : null;
+}
+
 /**
  * Why the toggle cannot enable the instance from the list, or null when it can.
  * `review` means the drawer's explicit acknowledgement is needed first;

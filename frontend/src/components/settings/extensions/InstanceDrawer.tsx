@@ -28,6 +28,7 @@ import {
   isFrozen,
   lastErrorText,
   needsReinstall,
+  previousVersion,
   sendQuotaState,
 } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
@@ -217,11 +218,13 @@ function DrawerBody({
 
   // Resending the grant is the acknowledgement the API asks for before it starts an
   // instance that waits for a review (`attention_required`).
+  // In one PATCH: on a stopped row a grant alone leaves the attention, and `enabled` alone
+  // is no acknowledgement.
   const acknowledge = () =>
-    run(async () => {
-      await api.patchPlugin(instance.instance_id, { granted_permissions: granted });
-      return api.patchPlugin(instance.instance_id, { enabled: true });
-    }, t('settings.extensions.drawer.accepted'));
+    run(
+      () => api.patchPlugin(instance.instance_id, { granted_permissions: granted, enabled: true }),
+      t('settings.extensions.drawer.accepted')
+    );
 
   const reinstall = async () => {
     setReinstalling(true);
@@ -261,6 +264,7 @@ function DrawerBody({
 
   const canRestart = instance.enabled && !frozen && instance.status !== 'needs_attention';
   const reinstallBlocked = needsReinstall(instance) && !instance.reinstallable;
+  const replacedVersion = previousVersion(instance);
 
   return (
     <div className="space-y-5 p-4 pt-12">
@@ -339,12 +343,29 @@ function DrawerBody({
                     defaultValue: t('settings.extensions.attention.other.text'),
                   })}
             </p>
+            {replacedVersion && (
+              <p>
+                {t('settings.extensions.attention.restored.versionChanged', {
+                  version: instance.version,
+                  previous: replacedVersion,
+                })}
+              </p>
+            )}
             {canManage && needsReinstall(instance) && instance.reinstallable && (
-              <Button size="sm" onClick={reinstall} disabled={readOnly}>
-                {reinstalling
-                  ? t('settings.extensions.drawer.reinstalling')
-                  : t('settings.extensions.drawer.reinstall')}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={reinstall} disabled={readOnly}>
+                  {reinstalling
+                    ? t('settings.extensions.drawer.reinstalling')
+                    : t('settings.extensions.drawer.reinstall')}
+                </Button>
+                {instance.repository && (
+                  <span className="break-all text-xs text-muted-foreground">
+                    {t('settings.extensions.drawer.reinstallSource', {
+                      repository: instance.repository,
+                    })}
+                  </span>
+                )}
+              </div>
             )}
             {canManage && reinstallBlocked && (
               <Button

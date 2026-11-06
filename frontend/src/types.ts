@@ -364,6 +364,8 @@ export interface PluginInstance {
   notices?: string[];
   /** Admin only: restored without its code, and its source exists here (`POST /reinstall`). */
   reinstallable?: boolean;
+  /** Admin only: the repository a custom instance comes from. */
+  repository?: string | null;
 }
 
 export interface FanoutStatusEntry {

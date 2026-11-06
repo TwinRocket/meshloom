@@ -66,7 +66,8 @@
         },
         "restored": {
           "badge": "Restored",
-          "text": "Restored extension, turned off. Check it below, then accept to start it."
+          "text": "Restored extension, turned off. Check it below, then accept to start it.",
+          "versionChanged": "Version {{version}} installed; the backup had {{previous}}."
         },
         "reinstall": {
           "badge": "To reinstall",
@@ -170,6 +171,7 @@
         "restart": "Restart",
         "restarted": "Restarted.",
         "reinstall": "Reinstall",
+        "reinstallSource": "Source: {{repository}}",
         "reinstalling": "Reinstalling...",
         "reinstalled": "Reinstalled. Check it, then accept to start it.",
         "copyDiagnostic": "Copy diagnostic",

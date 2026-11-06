@@ -177,8 +177,8 @@ L'onglet **Mises à jour** les liste sans contacter personne (il montre ce que l
 
 Une extension qui revient d'une sauvegarde sans son code affiche **À réinstaller**. Ouvrez-la et choisissez **Réinstaller** : Meshloom récupère son code depuis la même source. Pour une extension venue d'un dépôt, le Store doit être en ligne.
 
-- Elle garde ses réglages, ses données enregistrées s'il y en a, ses conversations choisies et ses limites d'envoi. Les secrets ne sont pas dans une sauvegarde : saisissez-les de nouveau. Ses permissions restent cochées tant que le code les demande toutes ; sinon, cochez-les de nouveau.
-- Un dépôt ne propose que sa dernière version : l'extension peut donc revenir dans une version plus récente que celle de la sauvegarde. Quand une autre copie est déjà installée ici, elle prend la version de cette copie.
+- Elle garde les réglages que le nouveau code accepte encore (le tiroir nomme ceux qu'il a réinitialisés), ses données enregistrées s'il y en a, ses conversations choisies et ses limites d'envoi. Les secrets ne sont pas dans une sauvegarde : saisissez-les de nouveau. Ses permissions restent cochées tant que le code les demande toutes ; sinon, cochez-les de nouveau.
+- Un dépôt ne propose que sa dernière version : l'extension peut donc revenir dans une version plus récente ou plus ancienne que celle de la sauvegarde ; le tiroir indique la source avant que vous choisissiez, et les deux versions après. Quand une autre copie est déjà installée ici, elle prend la version de cette copie.
 - Elle reste arrêtée : vérifiez-la, puis choisissez **Accepter et activer**.
 - Quand sa source n'est pas disponible ici (une extension que cette version de Meshloom ne fournit pas, par exemple), le tiroir propose **Désinstaller** à la place.
 

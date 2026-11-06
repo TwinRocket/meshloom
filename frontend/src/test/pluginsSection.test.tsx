@@ -418,9 +418,12 @@ describe('SettingsExtensionsSection', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: t('settings.extensions.drawer.acceptAndEnable') })
     );
-    await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
-    expect(patch.mock.calls[0][1]).toHaveProperty('granted_permissions');
-    expect(patch.mock.calls[1][1]).toEqual({ enabled: true });
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    expect(patch).toHaveBeenCalledTimes(1);
+    expect(patch).toHaveBeenCalledWith(row.instance_id, {
+      granted_permissions: row.granted_permissions,
+      enabled: true,
+    });
   });
 });
 
@@ -571,6 +574,33 @@ describe('re-consent, reorder and admin gate', () => {
       expect(
         screen.queryByRole('button', { name: t('settings.extensions.drawer.save') })
       ).not.toBeInTheDocument();
+    });
+
+    it('names the source next to the button, and the version a reinstall replaced', async () => {
+      vi.spyOn(api, 'reinstallPlugin').mockResolvedValue(
+        toReinstall({
+          version: '1.1.0',
+          attention: { type: 'restored', previous_version: '1.0.0', config_dropped: ['greeting'] },
+          reinstallable: false,
+          repository: 'acme/echo',
+        })
+      );
+      await openDrawer(toReinstall({ repository: 'acme/echo' }));
+      expect(
+        await screen.findByText(
+          t('settings.extensions.drawer.reinstallSource', { repository: 'acme/echo' })
+        )
+      ).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: reinstallName() }));
+      expect(
+        await screen.findByText(
+          t('settings.extensions.attention.restored.versionChanged', {
+            version: '1.1.0',
+            previous: '1.0.0',
+          })
+        )
+      ).toBeVisible();
+      expect(screen.getByTestId('plugin-config-dropped')).toHaveTextContent('greeting');
     });
 
     it('says why it failed and lets the admin try again', async () => {

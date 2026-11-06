@@ -194,6 +194,9 @@ class PluginInstanceView(BaseModel):
         description="Admin only. An instance restored without its code whose source exists "
         "here, so ``POST /reinstall`` can try it. Reaches no network.",
     )
+    repository: str | None = Field(
+        default=None, description="Admin only. The repository a custom instance comes from."
+    )
 
 
 class BundledPluginView(BaseModel):
@@ -400,6 +403,7 @@ async def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
         restarts=live.get("restarts", 0),
         dropped_events=live.get("dropped_events", 0),
         reinstallable=admin and await _reinstallable(row),
+        repository=row["repository"] if admin else None,
     )
 
 
@@ -805,6 +809,12 @@ async def _prepare(source: installer.ArchiveSource, plugin_id: str) -> installer
         raise _error(500, "install_failed", "The plugin could not be installed") from None
 
 
+def _refuse_revoked(siblings: list[dict[str, Any]]) -> None:
+    """The code of a revoked instance gives no other instance a way to run it."""
+    if any(r["status"] == "revoked" for r in siblings):
+        raise _error(409, "plugin_revoked", "This plugin was revoked")
+
+
 def _consent(manifest: dict[str, Any], granted: dict[str, Any]) -> None:
     missing = installer.consent_missing(manifest, granted)
     if missing:
@@ -830,6 +840,7 @@ async def _install_locked(body: InstallRequest, details: dict[str, Any]) -> Plug
     siblings = await PluginRepository.get_by_plugin_id(body.plugin_id)
     if any(row["kind"] != body.kind for row in siblings):
         raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
+    _refuse_revoked(siblings)
     prepared: installer.PreparedInstall | None = None
     shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
     if body.kind != "bundled" and shared is not None:
@@ -947,23 +958,30 @@ async def reinstall_plugin(
     """Bring back the code of an instance restored from a backup without it
     (``attention.type = "reinstall"``, 409 ``plugin_not_reinstallable`` otherwise): the
     same source, checked like an install. A custom repository only serves its latest
-    release, which can be newer than the restored version; an instance of the plugin
-    already running here gives its code and version instead, nothing is downloaded. The
-    instance stays disabled with ``attention.type = "restored"``, its grants kept only
-    when the manifest covers them, for the admin to review before it starts."""
+    release, which can be newer or older than the restored version; another instance of
+    the plugin gives its code and version instead, nothing is downloaded (409
+    ``incompatible`` or ``plugin_revoked`` when it cannot). The instance stays disabled
+    with ``attention.type = "restored"``, its grants kept only when the manifest covers
+    them, for the admin to review before it starts: ``attention.previous_version`` when
+    the version changed, ``attention.config_dropped`` for the settings the schema rejects.
+    Audited with ``from_version`` and ``to_version``."""
     row = await _row(instance_id)
     async with audit.audited(
         actor,
         "plugin.installed",
         target=_target(row["instance_id"]),
-        details=_audit_details(row, reinstall=True),
-    ):
+        details=_audit_details(row, reinstall=True, from_version=row["version"]),
+    ) as scope:
         async with installer.plugin_lock(row["plugin_id"]):
-            await _reinstall(row["instance_id"])
+            version, dropped = await _reinstall(row["instance_id"])
+        scope.details["to_version"] = version
+        scope.details["config_dropped"] = dropped
     return await _view(await _row(row["instance_id"]), True)
 
 
-async def _reinstall(instance_id: str) -> None:
+async def _reinstall(instance_id: str) -> tuple[str, list[str]]:
+    """The version now installed and the config fields it dropped (caller holds the lock)."""
+    from app.plugins import updates
     from app.services.backup_plugins import (
         RESTORED,
         config_for_schema,
@@ -981,10 +999,14 @@ async def _reinstall(instance_id: str) -> None:
     ]
     if any(r["kind"] != row["kind"] for r in siblings):
         raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
+    _refuse_revoked(siblings)
     shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
     if row["kind"] != "bundled" and shared is not None:
         # The code directory is shared: replacing it would pull it from under that instance.
-        if _repository_key(row["repository"] or "") != shared["repository"]:
+        if (
+            row["kind"] == "custom"
+            and _repository_key(row["repository"] or "") != shared["repository"]
+        ):
             raise _error(
                 409,
                 "plugin_repository_conflict",
@@ -997,23 +1019,40 @@ async def _reinstall(instance_id: str) -> None:
             raise _error(409, "plugin_code_missing", "The installed code of this plugin is missing")
         manifest, schema = shared["manifest"], shared["config_schema"]
         archive_sha256, repository = shared["archive_sha256"], shared["repository"]
+        if not installer.compatible(manifest):
+            raise _error(
+                409,
+                "incompatible",
+                "This plugin does not support this version of Meshloom",
+                compat=(manifest.get("compat") or {}).get("meshloom"),
+            )
     else:
         manifest, schema, archive_sha256, repository = await _fetch_code(row)
+    version = manifest["version"]
+    kept_config = public_config(row)
+    config = config_for_schema(schema, kept_config)
+    dropped = sorted(set(kept_config) - set(config))
+    attention = {**(row["attention"] or {}), "type": RESTORED}
+    if version != row["version"]:
+        attention["previous_version"] = row["version"]
+    if dropped:
+        attention[updates.CONFIG_DROPPED] = dropped
     try:
         await PluginRepository.update(
             instance_id,
             manifest=manifest,
-            version=manifest["version"],
+            version=version,
             config_schema=schema,
-            config=config_for_schema(schema, public_config(row)),
+            config=config,
             granted_permissions=granted_within(manifest, row["granted_permissions"]),
-            attention={**(row["attention"] or {}), "type": RESTORED},
+            attention=attention,
             archive_sha256=archive_sha256,
             repository=repository,
         )
     except PluginStoreError as exc:
         raise _store_error(exc) from None
     plugin_manager.announce(instance_id)
+    return version, dropped
 
 
 async def _fetch_code(

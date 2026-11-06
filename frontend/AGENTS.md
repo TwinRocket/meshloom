@@ -610,8 +610,8 @@ reloads the list whenever `health.plugin_statuses` changes (the server announces
 and a health refresh follows, so no extra WebSocket handler). Rules: `enableBlock()`
 (`pluginsShared.ts`) keeps `revoked`/`incompatible` from being enabled (the toggle is disabled
 and `toggle()` refuses too); `needs_attention` for a reason other than `config_required` is
-enabled only through the drawer's **Accept and enable** (resends `granted_permissions`, then
-`enabled: true`); a row restored without its code (`needsReinstall()`) shows **Reinstall**
+enabled only through the drawer's **Accept and enable** (`granted_permissions` and
+`enabled: true` in one PATCH, since on a stopped row a grant alone leaves the attention); a row restored without its code (`needsReinstall()`) shows **Reinstall**
 (`reinstallPlugin`, `reinstallable` true in the view: the source exists here) or **Uninstall**
 (`reinstall_unavailable`), and the drawer remounts when it leaves that state, since the manifest
 and grants changed; with `plugins_disabled_source` set to anything but `paused` every write is off but

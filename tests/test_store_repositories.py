@@ -466,7 +466,12 @@ async def test_reinstall_takes_the_latest_release_when_a_newer_one_exists(
     view = response.json()
     assert view["version"] == "1.1.0"
     assert view["enabled"] is False
-    assert view["attention"] == {"type": "restored", "was_enabled": True}
+    assert view["attention"] == {
+        "type": "restored",
+        "was_enabled": True,
+        "previous_version": "1.0.0",
+    }
+    assert view["repository"] == "acme/echo"
     assert view["granted_permissions"] == GRANT
     stored = await PluginRepository.get(row["instance_id"])
     assert stored is not None
