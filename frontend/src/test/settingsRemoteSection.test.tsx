@@ -24,6 +24,7 @@ import {
 import i18n from '../i18n';
 import en from '../i18n/locales/slices/remote.en.json';
 import fr from '../i18n/locales/slices/remote.fr.json';
+import fr from '../i18n/locales/slices/remote.fr.json';
 import type { HealthStatus } from '../types';
 
 vi.mock('../components/ui/sonner', () => ({
@@ -207,6 +208,26 @@ describe('SettingsRemoteSection', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('asks for two-factor authentication, never a passkey, to protect an account', () => {
+    // A passkey leaves the password valid on its own: only two-factor stops a password alone.
+    const cases = [
+      [en, /two-factor authentication/],
+      [fr, /double authentification/],
+    ] as const;
+    for (const [slice, expected] of cases) {
+      const remote = slice.settings.remote;
+      const notices = slice.settings.access.securityNotice;
+      for (const line of [
+        remote.about.secure,
+        remote.enable.isolationWarning,
+        notices.remote_reduced_plugin_isolation,
+      ]) {
+        expect(line).toMatch(expected);
+        expect(line).not.toMatch(/passkey|clé d.accès/i);
+      }
+    }
   });
 
   it('shows one actionable line and links the Remote docs for the details', async () => {

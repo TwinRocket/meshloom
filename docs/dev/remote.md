@@ -400,7 +400,7 @@ enrolment URL or an access code.
 Settings → Remote access (section `remote`, lazy-loaded, every account role but the kiosk:
 `ACCOUNT_SETTINGS_SECTIONS`). Details in `frontend/AGENTS.md`, "Remote access section".
 
-- One actionable line (passkey or 2FA) and a "Learn more" link to the user docs
+- One actionable line (turn on 2FA; a passkey does not stop a password alone) and a "Learn more" link to the user docs
   (`docs/user/<lang>/deep/remote.md`, URL from `utils/userDocsUrl.ts`). What the relay sees (TLS
   ends at the relay, so it could read the traffic, the password at sign-in included; what the
   registration sends; a relayed request is never the local network) lives in that page and

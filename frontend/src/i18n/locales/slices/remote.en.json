@@ -8,7 +8,7 @@
       "about": {
         "title": "Meshloom Remote",
         "intro": "Open this Meshloom from anywhere, without opening a port on your router. Only the devices you allow can get in.",
-        "secure": "Protect access: use a passkey or turn on two-factor authentication.",
+        "secure": "Protect access: turn on two-factor authentication.",
         "learnMore": "Learn more"
       },
       "status": {
@@ -75,7 +75,7 @@
       "enable": {
         "title": "Turn on Meshloom Remote?",
         "help": "This instance gets a meshloom.link address. You then allow each device.",
-        "isolationWarning": "Plugins run without a sandbox: protect every administrator with a passkey or two-factor authentication.",
+        "isolationWarning": "Plugins run without a sandbox: protect every administrator with two-factor authentication.",
         "isolationAck": "I understand, turn it on anyway.",
         "confirm": "Turn on"
       },
@@ -219,7 +219,7 @@
     },
     "access": {
       "securityNotice": {
-        "remote_reduced_plugin_isolation": "Remote is on and plugins run without a sandbox: protect every administrator with a passkey or two-factor authentication."
+        "remote_reduced_plugin_isolation": "Remote is on and plugins run without a sandbox: protect every administrator with two-factor authentication."
       }
     }
   },

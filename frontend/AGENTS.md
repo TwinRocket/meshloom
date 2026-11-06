@@ -543,8 +543,8 @@ Settings → Remote access (section id `remote`, icon `MonitorSmartphone`, `lazy
 revoke-all is `own_account`, and those five (and the custom domain test) are shown to `isAdmin` only (an admin also reads
 `/auth/users` to name device owners).
 
-- **Never local.** The section shows one actionable line (`settings.remote.about.secure`: use a
-  passkey or 2FA) and a "Learn more" link to the user docs page `deep/remote` (`userDocsUrl`,
+- **Never local.** The section shows one actionable line (`settings.remote.about.secure`: turn
+  on 2FA) and a "Learn more" link to the user docs page `deep/remote` (`userDocsUrl`,
   `utils/userDocsUrl.ts`), which says what the relay sees; the UI does not repeat it (MSHL-449). In
   code a relayed request is never the local network (`request_via()` is `relay`): through the relay
   (`via === 'relay'`) the enrolment button is replaced by the LAN-only notice (the server answers
@@ -867,7 +867,7 @@ every new or edited string:
 - **A consent dialog** is one line plus a checkbox ("I accept the terms and the privacy
   policy", with the links).
 - **A security warning** stays only when the user can act on it, in one line that says
-  what to do ("Protect access: turn on a passkey or two-factor authentication.").
+  what to do ("Protect access: turn on two-factor authentication.").
 - **Settings help**: one short line under the control, or nothing when the label is
   enough.
 - **Errors** say what happened and what to do, in one sentence.

@@ -7,7 +7,7 @@ order: 24
 
 Meshloom listens on port 8000 of the machine it runs on, and nothing more. To reach it from outside your home or office, do not forward that port on your router: put something in front of it that you control. This page covers three ways, all of them on your own account or machines, with nothing to ask from the Meshloom project. The Home Assistant add-on has [its own note](#home-assistant-add-on). Two short entry pages cover the most common setups: [Tailscale serve](/en/docs/deep/self-host-tailscale/) and [your existing reverse proxy](/en/docs/deep/self-host-proxy/) (Caddy, nginx, Traefik).
 
-From 5.0, every page and API route asks for an account whatever the path, so a tunnel or a proxy never opens Meshloom without a sign-in. Read [Accounts and access](/en/docs/deep/access/) first, and use a strong password, [two-factor authentication](/en/docs/deep/access/#two-factor-authentication) or a [passkey](/en/docs/deep/access/#passkeys) for every administrator.
+From 5.0, every page and API route asks for an account whatever the path, so a tunnel or a proxy never opens Meshloom without a sign-in. Read [Accounts and access](/en/docs/deep/access/) first, and use a strong password and [two-factor authentication](/en/docs/deep/access/#two-factor-authentication) for every administrator. A [passkey](/en/docs/deep/access/#passkeys) avoids typing the password, which stays valid.
 
 > **What was tested.** The Meshloom side of each path (which setting to change, and what Meshloom does with the headers it receives) was checked against the code of this version. The Caddy and nginx snippets below, and Traefik's file-provider form, were run in front of Meshloom 5.0 in a local test (sign-in, secure cookie, live WebSocket). The Cloudflare, Tailscale and WireGuard configurations, and Traefik's Docker labels, are the products' documented ways of doing it and have **not** been run end to end by the author of this page: they are marked *untested* where they appear. Report what you find.
 
@@ -146,7 +146,7 @@ With a proxy on your own machine, or with Meshloom on the open Internet, [fail2b
 
 ## Checklist
 
-- Accounts exist, administrators have a strong password and a second factor or a passkey.
+- Accounts exist, administrators have a strong password and a second factor.
 - The page is served in HTTPS by the forwarder, and the sign-in page does not warn about plain HTTP.
 - The public name is in **Public addresses**; the forwarder's own address, and nothing wider, is in **Trusted proxies**.
 - **Login-free on the local network** is off, or **Trusted networks** holds only local devices reached by IP address.
