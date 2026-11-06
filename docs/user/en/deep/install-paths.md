@@ -192,7 +192,7 @@ Started by hand without `--host`, Meshloom answers only on the machine itself, a
 
 ### The copy made before an upgrade
 
-When an upgrade has to change the structure of your database, Meshloom first makes a copy of it, in the same folder, under a name that says which structure it holds and which version made it: for example `meshcore.db.schema87.before-5.0.0.db` (schema 87 is what every 4.18 uses). When a `secrets.key` file exists, it is copied too, as `meshcore.db.schema144.before-5.1.0.secrets.key`. A new installation, or a start with nothing to upgrade, makes no copy.
+When an upgrade has to change the structure of your database, Meshloom first makes a copy of it, in the same folder, under a name that says which structure it holds and which version made it: for example `meshcore.db.schema87.before-5.0.0.db`, or `meshcore.db.schema87.before-5.0.0-rc.1.db` on a release candidate (schema 87 is what every 4.18 uses). When a `secrets.key` file exists, it is copied too, as `meshcore.db.schema144.before-5.1.0.secrets.key`. A new installation, or a start with nothing to upgrade, makes no copy.
 
 - **Size.** The copy is as large as the database, and takes up to a few minutes on a Raspberry Pi with a large database (the log shows its progress). Meshloom asks for the size of the database plus a quarter of it, 64 MB at least, free in that folder.
 - **If the copy fails.** Meshloom does not upgrade and does not start, and the log says why and how much space it needs. Your database is left as it was. Free some space and start again. An upgrade cannot be undone, so Meshloom prefers a start that waits to an upgrade with no way back.
@@ -204,12 +204,14 @@ When an upgrade has to change the structure of your database, Meshloom first mak
 Meshloom refuses to start on a database made by a newer version, and leaves it untouched. To go back, put the copy back. Everything received or changed since the upgrade is lost.
 
 1. Stop Meshloom.
-2. In the data folder, put the copy in place of the database and remove the files that go with the old one (`sudo` if the files are not yours):
+2. In the data folder, put the copy in place of the database and remove the files that go with the old one (if the files are not yours, open a root shell first with `sudo -s`: with the Linux package `/var/lib/meshloom` is closed to other accounts, so a `sudo cp` from your own shell cannot expand the `*`):
 
    ```bash
-   cp -p meshcore.db.schema87.before-5.0.0.db meshcore.db
-   rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
+   cp -p meshcore.db.schema87.before-*.db meshcore.db &&
+     rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
+
+   With several copies matching, or none, the command fails and the database stays as it was: list the copies with `ls meshcore.db.schema*` and name the file you want.
 
    Going back to 5.0 or later, also put back the key if the copy has one: `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Install the older version, then start it:

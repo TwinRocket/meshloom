@@ -142,7 +142,7 @@ Webhook, Apprise, Amazon SQS (point d’accès personnalisé) et Envoi vers la c
 
 L’adresse est vérifiée quand vous enregistrez une intégration activée, puis avant chaque envoi (pour SQS, au démarrage de l’intégration). Une adresse refusée affiche une erreur comme « cette adresse est sur un réseau privé » et rien n’est envoyé. Le webhook et l’envoi vers la carte se connectent uniquement à l’adresse vérifiée et ne suivent jamais de redirection.
 
-Les intégrations configurées avant cette vérification continuent de fonctionner : la mise à jour coche la case pour elles, et un avis unique en haut de la page les liste. Décochez-la dans une intégration qui pointe vers un service public. La case cochée par la mise à jour ne vaut que pour l’adresse pour laquelle elle a été cochée : quand vous changez l’adresse, elle se décoche, et vous la cochez à nouveau si la nouvelle adresse est sur votre réseau.
+Les intégrations configurées avant cette vérification continuent de fonctionner : la mise à jour coche la case pour elles, et un avis unique en haut de la page les liste. Décochez-la dans une intégration qui pointe vers un service public. Tant que l’avis est ouvert, la case cochée par la mise à jour ne vaut que pour l’adresse pour laquelle elle a été cochée : quand vous changez l’adresse, elle se décoche, et vous la cochez à nouveau si la nouvelle adresse est sur votre réseau. Après **Compris**, la case reste cochée quand l’adresse change.
 
 ## Apprise
 

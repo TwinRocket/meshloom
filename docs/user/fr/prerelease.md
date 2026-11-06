@@ -9,7 +9,7 @@ Une pré-version (une version candidate, `5.0.0-rc.1` par exemple) est la procha
 
 ## Avant de commencer
 
-Copiez d’abord vos données, ou essayez la pré-version sur une nouvelle instance. Si vous venez de la 4.18, lisez [Passer de la 4.18 à la 5.0](/docs/upgrade-4-18/).
+Copiez d’abord vos données, ou essayez la pré-version sur une nouvelle instance. Si vous venez de la 4.18, lisez [Passer de la 4.18 à la 5.0](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/fr/upgrade-4-18.md). Ce qui change et les limites connues sont dans les [notes de version](https://github.com/TwinRocket/meshloom/releases).
 
 ## Installer la pré-version ou y passer
 
@@ -21,7 +21,7 @@ Collez ceci dans un terminal :
 
 C’est l’installateur habituel, avec les mêmes questions. Quand aucune pré-version n’est ouverte, il le dit et ne change rien.
 
-Il fonctionne avec les paquets `apt` et `dnf` sur les machines 64 bits, et avec Docker. Les machines 32 bits n’ont pas de paquet : utilisez Docker.
+Il fonctionne avec les paquets `apt` et `dnf` sur les machines 64 bits, et avec Docker. Les machines 32 bits n’ont pas de paquet : Docker y couvre l’ARMv7. L’ARMv6 et le x86 32 bits n’ont pas d’image.
 
 ## Passer à une pré-version plus récente
 
@@ -45,6 +45,6 @@ Avec un paquet, lancez donc la commande d’installation habituelle une fois la 
 Deux possibilités :
 
 - Utilisez une nouvelle instance, et gardez celle-ci telle quelle.
-- Restaurez votre propre copie des données sur une installation neuve de la 4.18 : les étapes sont dans [Revenir à la 4.18](/docs/upgrade-4-18/#revenir-à-la-418).
+- Restaurez votre propre copie des données sur une installation neuve de la 4.18 : les étapes sont dans [Revenir à la 4.18](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/fr/upgrade-4-18.md#revenir-à-la-418).
 
 Ne lancez jamais le script d’installation de la 4.18 sur une machine en pré-version. Il ne connaît pas les pré-versions, et peut démarrer la 4.18 sur une base qu’elle ne sait pas lire. Les versions suivantes de l’installateur refusent et ne changent rien.
