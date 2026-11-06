@@ -83,7 +83,7 @@ An administrator can give an address in **Settings → Remote access → Alert e
 
 - **Confirming**: the relay sends a mail with a link to confirm and a link to stop. Nothing else is sent until the address is confirmed; the link is valid 24 hours.
 - **Changing or removing**: type another address to replace it (it must be confirmed again), press **Remove the address**, or follow the stop link in any mail. An address can be set at most 3 times a day.
-- **What is kept**: the address stays on the relay and is used for these mails only. Meshloom does not keep it and the relay never shows it back, so the page only says whether one is waiting for confirmation or confirmed. **Leave Meshloom Remote** and replacing the key delete it.
+- **What is kept**: the address stays on the relay and is used for these mails only. Meshloom does not keep it and the relay never shows it back, so the page only says whether one is waiting for confirmation or confirmed. **Leave Meshloom Remote** deletes it. Replacing the key deletes it too while Remote is on and the relay answers, unless TwinRocket froze the instance. Otherwise it stays on the relay, and only the stop link of a mail you received can still remove it: with Remote off, turn it on and remove the address before replacing the key.
 
 Without a confirmed address the pause happens all the same, without a mail.
 

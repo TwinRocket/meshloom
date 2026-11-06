@@ -645,6 +645,35 @@ describe('SettingsRemoteSection', () => {
       expect(input).toHaveValue('');
     });
 
+    it('says the relay keeps it, not Meshloom', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      await renderAs('admin');
+      const heading = await screen.findByRole('heading', {
+        name: t('settings.remote.alertEmail.title'),
+      });
+      const header = heading.parentElement as HTMLElement;
+      expect(header).toHaveTextContent(t('settings.common.storedOnRelay'));
+      expect(header).not.toHaveTextContent(t('settings.common.storedInMeshloom'));
+    });
+
+    it('a slow first read never overwrites what an action answered', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      let finishRead: (value: { state: 'confirmed' }) => void = () => undefined;
+      vi.spyOn(api, 'getRemoteAlertEmail').mockReturnValue(
+        new Promise((resolve) => {
+          finishRead = resolve;
+        })
+      );
+      vi.spyOn(api, 'setRemoteAlertEmail').mockResolvedValue({ state: 'pending' });
+      await renderAs('admin');
+      fireEvent.change(await field(), { target: { value: 'me@example.org' } });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.remote.alertEmail.save') }));
+      const shown = await screen.findByTestId('remote-alert-email-state');
+      expect(shown).toHaveTextContent(t('settings.remote.alertEmail.state.pending'));
+      await act(async () => finishRead({ state: 'confirmed' }));
+      expect(shown).toHaveTextContent(t('settings.remote.alertEmail.state.pending'));
+    });
+
     it('removes a confirmed address', async () => {
       vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
       vi.spyOn(api, 'getRemoteAlertEmail').mockResolvedValue({ state: 'confirmed' });

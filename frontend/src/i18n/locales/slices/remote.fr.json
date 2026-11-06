@@ -48,7 +48,7 @@
         "reconnecting": "La connexion au relais est coupée et Meshloom se reconnecte seul. Vérifiez la connexion internet de cette machine.",
         "not_registered": "Le relais ne connaît plus cette instance. Désactivez puis réactivez Remote.",
         "paused": "Le relais a mis cette instance en pause. Meshloom réessaie seul d’ici 20 minutes.",
-        "quota_exceeded": "Remote revient le 1er du mois prochain. Meshloom continue de fonctionner sur votre réseau local.",
+        "quota_exceeded": "Remote revient le 1er. Meshloom continue de fonctionner sur votre réseau local.",
         "replaced": "Une autre installation utilise la clé de cette instance, souvent une sauvegarde restaurée. Remplacez la clé ici.",
         "banned": "Le relais a banni cette instance. Contactez TwinRocket si c’est une erreur.",
         "update_required": "Mettez Meshloom à jour pour utiliser Remote.",

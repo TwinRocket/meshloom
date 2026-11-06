@@ -259,7 +259,7 @@ drops, every stream ends at once and the app tasks get 5 s before they are cance
 | `4003` | `register()` again (idempotent), reconnect once; a second `4003` or a failed registration stops | `not_registered` |
 | `4004 quota_exceeded` | Retry after 15 to 20 min (or when Remote changes); the relay lifts it on the 1st (UTC) | `quota_exceeded` |
 | `4004`, any other reason (`instance_paused`, `instance_frozen`) | Retry after 15 to 20 min (or when Remote changes) | `paused` |
-| `4005` | Reconnect once; replaced again stops (two installs share a key). A connection that lasted 60 s (`STABLE_AFTER_S`) starts the count again, also when it is the one that was replaced | `replaced` |
+| `4005` | Reconnect once; replaced again stops (two installs share a key). A connection that lasted 15 min (`REPLACED_RESET_AFTER_S`) starts the count again, also when it is the one that was replaced | `replaced` |
 | `4009` | Stop, never retried on its own | `banned` |
 | `4010` | Stop until Meshloom is updated | `update_required` |
 | `1013`, unknown `4xxx` | Retry after 5 to 15 min | `relay_paused` |
@@ -277,10 +277,12 @@ live socket, and `instance_paused` or `instance_frozen` otherwise (`src/hosts/re
 `GET /v1/instances/self`, so the client makes no lookup. Any other reason shows `paused`,
 never the quota.
 
-**Why 60 s for `4005`.** Two installs on one key both reconnect at once, so each is kicked
-within seconds of its HELLO and a fight reaches two closes quickly. `hello_ok` is no reset:
-every connection of a fight has it. A single late takeover (a restored copy started and
-stopped) is not a fight and never stops Remote.
+**Why 15 min for `4005`.** Two installs on one key both reconnect at once, so each is kicked
+within seconds of its HELLO. A peer that cannot connect at once waits at most one backoff
+(5 min) plus the timeouts, so 15 min covers that slow fight too. `hello_ok` is no reset: every
+connection of a fight has it. A single late takeover (a restored copy started and stopped) is
+not a fight and never stops Remote. Known limit: a peer that kicks this install less often than
+every 15 min is never counted as a fight; each side then stays up that long between kicks.
 
 ## Alert e-mail (MSHL-467)
 
@@ -301,6 +303,11 @@ contract is not sent yet by meshloom-remote (`src/alertEmail.ts`). All three rou
   `instance_unknown` 409 `remote_not_registered`; 429 `remote_rate_limited` with
   `retry_after` (3 `PUT` a day per key, 3 mails a day per address, 100 for the registry).
   A pause does not block these routes.
+- `rotate` calls the same `DELETE` first when Remote is on, because the old key is the only way
+  to reach the address and the relay has no purge. The relay allows it during a pause, unlike
+  `DELETE /v1/instances/self`, and refuses it during a freeze; a failure never blocks the
+  rotation. With Remote or Community off nothing may leave, so the address stays on the relay
+  (the user docs say so).
 - The address is never stored here, logged or put in the audit. The relay never returns it,
   so there is no read of it. Audit: `remote.alert_email_set`, `remote.alert_email_cleared`,
   with `details.error` on a failure.

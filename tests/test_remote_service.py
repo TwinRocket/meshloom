@@ -464,6 +464,7 @@ class TestAlertEmail:
             (503, {"code": "registration_paused"}, "remote_alert_email_paused"),
             (404, {"code": "instance_unknown"}, "remote_not_registered"),
             (403, {"code": "instance_banned"}, "remote_registry_error"),
+            (403, {"code": "instance_retired"}, "remote_registry_error"),
             (500, {}, "remote_unavailable"),
         ],
     )
@@ -513,6 +514,36 @@ class TestAlertEmail:
         await RemoteRepository.update_state(enabled=True)
         response = await client.put("/api/remote/alert-email", json={"email": ALERT_ADDRESS})
         assert response.json()["detail"]["code"] == "remote_not_registered"
+        assert relay.recorder.requests == []
+
+    async def test_rotate_removes_the_address_first_while_the_old_key_signs(self, relay, admin):
+        await remote.enable(SYSTEM_ACTOR)
+        relay.recorder.requests.clear()
+        await remote.rotate(SYSTEM_ACTOR)
+        calls = [(r.method, r.url.path) for r in relay.recorder.requests]
+        assert calls[:2] == [
+            ("DELETE", "/v1/instances/self/alert-email"),
+            ("DELETE", "/v1/instances/self"),
+        ]
+
+    async def test_a_refused_removal_never_blocks_the_rotation(self, relay, admin):
+        await remote.enable(SYSTEM_ACTOR)
+        real = relay.handle
+
+        def frozen(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/instances/self/alert-email":
+                return json_response(403, {"code": "instance_frozen", "detail": "x"})
+            return real(request)
+
+        relay.recorder.handler = frozen
+        state = await remote.rotate(SYSTEM_ACTOR)
+        assert state.slug == SLUG2
+
+    async def test_rotate_with_remote_off_sends_nothing(self, relay, admin):
+        await remote.enable(SYSTEM_ACTOR)
+        await remote.disable(SYSTEM_ACTOR)
+        relay.recorder.requests.clear()
+        await remote.rotate(SYSTEM_ACTOR)
         assert relay.recorder.requests == []
 
     async def test_administrators_only(self, relay, admin, client, sign_in_as):

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../../../api';
@@ -25,13 +25,15 @@ export function RemoteAlertEmailPanel() {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set by any action: a slow first read must not overwrite what the action answered.
+  const acted = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     api
       .getRemoteAlertEmail()
       .then((next) => {
-        if (!cancelled) setState(next.state);
+        if (!cancelled && !acted.current) setState(next.state);
       })
       .catch(() => undefined);
     return () => {
@@ -40,6 +42,7 @@ export function RemoteAlertEmailPanel() {
   }, []);
 
   const act = async (action: () => Promise<{ state: RemoteAlertEmailState }>, done: string) => {
+    acted.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -65,7 +68,7 @@ export function RemoteAlertEmailPanel() {
       <SettingsGroupHeader
         id="remote-alert-email"
         title={t('settings.remote.alertEmail.title')}
-        storedOn="server"
+        storedOn="relay"
       />
       <p className="text-[0.8125rem] text-muted-foreground">
         {t('settings.remote.alertEmail.help')}{' '}

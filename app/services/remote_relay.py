@@ -33,7 +33,7 @@
   4003 registers again and reconnects once, then ``not_registered``; 4004
   ``quota_exceeded`` when that is the close reason, else ``paused`` (retry after 15 to
   20 min either way); 4005 reconnects once, then ``replaced``, the count starting again
-  after a connection that lasted 60 s; 4009 ``banned`` and 4010 ``update_required``
+  after a connection that lasted 15 min; 4009 ``banned`` and 4010 ``update_required``
   stop; 1013 and unknown 4xxx
   ``relay_paused`` (5 to 15 min); anything else is an exponential backoff from 1 s to
   5 min with full jitter, reset after 60 s connected. A stopped state stays until
@@ -83,6 +83,9 @@ BACKOFF_MAX_S = 300.0
 STABLE_AFTER_S = 60.0
 PAUSED_RETRY_S = (15 * 60.0, 20 * 60.0)
 CLOSE_QUOTA_EXCEEDED = "quota_exceeded"
+# Above the longest wait of a peer that cannot connect at once (BACKOFF_MAX_S plus the
+# open and HELLO timeouts), so a connection kicked by a slow peer does not reset the count.
+REPLACED_RESET_AFTER_S = 15 * 60.0
 RELAY_PAUSED_RETRY_S = (5 * 60.0, 15 * 60.0)
 RATE_LIMITED_MAX_S = 15 * 60.0
 
@@ -1189,9 +1192,9 @@ class RelayClient:
                 registered_again = False
             if outcome.connected_s >= STABLE_AFTER_S:
                 delay = BACKOFF_INITIAL_S
-                # Not hello_ok: in a replace fight each install gets its HELLO, then
-                # is kicked seconds later. Two installs on one key reconnect at once,
-                # so a real fight never lasts this long per connection.
+            # Not hello_ok: in a replace fight each install gets its HELLO, then is kicked
+            # when the other one is back, seconds later or one backoff later.
+            if outcome.connected_s >= REPLACED_RESET_AFTER_S:
                 replaced = 0
             code = outcome.code if outcome.http_status is None else None
             if code is not None and code != 1000:

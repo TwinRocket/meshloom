@@ -83,7 +83,7 @@ Un administrateur peut donner une adresse dans **Réglages → Accès à distanc
 
 - **Confirmer** : le relais envoie un e-mail avec un lien pour confirmer et un lien pour arrêter. Rien d’autre n’est envoyé tant que l’adresse n’est pas confirmée ; le lien est valable 24 heures.
 - **Changer ou retirer** : saisissez une autre adresse pour la remplacer (elle doit être confirmée à nouveau), appuyez sur **Retirer l’adresse**, ou suivez le lien d’arrêt de n’importe quel e-mail. Une adresse peut être définie 3 fois par jour au plus.
-- **Ce qui est conservé** : l’adresse reste sur le relais et ne sert qu’à ces e-mails. Meshloom ne la garde pas et le relais ne la réaffiche jamais : la page dit seulement si une adresse attend sa confirmation ou est confirmée. **Quitter Meshloom Remote** et le remplacement de la clé la suppriment.
+- **Ce qui est conservé** : l’adresse reste sur le relais et ne sert qu’à ces e-mails. Meshloom ne la garde pas et le relais ne la réaffiche jamais : la page dit seulement si une adresse attend sa confirmation ou est confirmée. **Quitter Meshloom Remote** la supprime. Remplacer la clé la supprime aussi tant que Remote est activé et que le relais répond, sauf si TwinRocket a gelé l’instance. Sinon elle reste sur le relais, et seul le lien d’arrêt d’un e-mail reçu peut encore la retirer : Remote désactivé, activez-le et retirez l’adresse avant de remplacer la clé.
 
 Sans adresse confirmée, la pause a lieu quand même, sans e-mail.
 

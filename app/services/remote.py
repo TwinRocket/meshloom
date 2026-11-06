@@ -55,6 +55,7 @@ passes this instance signs (``app/services/remote_passes.py``).
 - **Alert e-mail.** ``alert_email_state``, ``set_alert_email`` and ``clear_alert_email``
   call the registry's ``/v1/instances/self`` and ``/alert-email``. The address only goes
   to the relay: it is never stored here, never logged, never read back (only its state).
+  ``rotate()`` removes it first, while the old key still signs.
 
 Never log a token, a pass, an enrolment URL, an access code or an alert address.
 """
@@ -154,6 +155,7 @@ _REGISTRY_CODES = frozenset(
         "clock_skew",
         "token_replayed",
         "instance_banned",
+        "instance_retired",
         "instance_unknown",
         "payload_too_large",
         "rate_limited",
@@ -568,6 +570,13 @@ async def rotate(actor: AuditActor) -> RemoteState:
     async with _lock():
         state = await RemoteRepository.get_state()
         if state.enabled and state.slug:
+            # Before the registration: the relay refuses that during a pause, not this,
+            # and once the key is gone nothing here can reach the address. A failure
+            # (a freeze, no network) never blocks the rotation.
+            try:
+                await clear_alert_email(actor)
+            except RemoteError as exc:
+                logger.warning("Remote: the alert e-mail could not be removed: %s", exc.code)
             # While the old key still signs; a failure only leaves an orphan the
             # registry forgets on its own.
             try:

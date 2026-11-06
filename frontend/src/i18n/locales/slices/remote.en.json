@@ -48,7 +48,7 @@
         "reconnecting": "The link to the relay is down and Meshloom reconnects on its own. Check this machine's internet connection.",
         "not_registered": "The relay no longer knows this instance. Turn Remote off and on again.",
         "paused": "The relay paused this instance. Meshloom tries again on its own within 20 minutes.",
-        "quota_exceeded": "Remote is back on the 1st of next month. Meshloom keeps working on your local network.",
+        "quota_exceeded": "Remote is back on the 1st. Meshloom keeps working on your local network.",
         "replaced": "Another install uses this instance's key, often a restored backup. Replace the key here.",
         "banned": "The relay banned this instance. Contact TwinRocket if this is a mistake.",
         "update_required": "Update Meshloom to use Remote.",

@@ -530,7 +530,7 @@ class TestCloseCodes:
 
     async def test_4005_far_apart_never_stops_remote(self, env, monkeypatch):
         """BUG-12: a stable connection in between starts the count again."""
-        monkeypatch.setattr(remote_relay, "STABLE_AFTER_S", 0.05)
+        monkeypatch.setattr(remote_relay, "REPLACED_RESET_AFTER_S", 0.05)
         await env.client.start(EchoApp())
         for _ in range(3):
             conn = await env.fake.connection()
@@ -553,9 +553,22 @@ class TestCloseCodes:
         await asyncio.sleep(0.1)
         assert len(env.fake.attempts) == 2 and not env.client.running()
 
+    async def test_4005_slow_fight_is_still_detected(self, env, monkeypatch):
+        """Each kick comes after the backoff reset (a slow peer): still a fight."""
+        monkeypatch.setattr(remote_relay, "STABLE_AFTER_S", 0.05)
+        await env.client.start(EchoApp())
+        for _ in range(2):
+            conn = await env.fake.connection()
+            await _until(lambda: remote.relay_connected())
+            await asyncio.sleep(0.1)
+            await conn.ws.close(4005, "replaced")
+            await asyncio.sleep(0.05)
+        await _until(lambda: remote.link_status() == remote_relay.REPLACED)
+        assert len(env.fake.attempts) == 2 and not env.client.running()
+
     async def test_4005_right_after_a_stable_connection_counts_once(self, env, monkeypatch):
         """Replaced after a long run: one reconnect; replaced again at once stops."""
-        monkeypatch.setattr(remote_relay, "STABLE_AFTER_S", 0.05)
+        monkeypatch.setattr(remote_relay, "REPLACED_RESET_AFTER_S", 0.05)
         await env.client.start(EchoApp())
         conn = await env.fake.connection()
         await _until(lambda: remote.relay_connected())
