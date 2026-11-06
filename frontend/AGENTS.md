@@ -843,7 +843,10 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
 
 ### i18n
 
-- `src/i18n/index.ts` loads only the active language. i18next `fallbackLng` is
+- `src/i18n/index.ts` loads only the active language, as one file:
+  `src/i18n/bundle.{en,fr}.ts` import the base and every slice together, eagerly. Never make a
+  slice its own lazy import: that was 88 requests at once, and the Remote relay refuses a
+  request beyond 64 open (MSHL-470, see "Cold load budget"). i18next `fallbackLng` is
   `false` (the `FALLBACK_LOCALE` constant is not a runtime fallback), so `en` and
   `fr` must have exactly the same keys; `src/test/i18nParity.test.ts` enforces it.
 - Strings live in `locales/{en,fr}.json` plus `locales/slices/*.{en,fr}.json`,
@@ -851,12 +854,36 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
   The base still holds stale copies of many slice keys: a slice value wins, but a key
   deleted from a slice falls back to the base copy, so delete it from
   `locales/{en,fr}.json` too.
-  After adding a slice, delete `node_modules/.vitest-cache` if `i18nParity`
-  misses its keys: the cached transform keeps the old `import.meta.glob` list.
+  After adding or merging a slice, delete `node_modules/.vitest-cache` if `i18nParity` or any
+  test misses its keys: the cached transform of `bundle.*.ts` keeps the old `import.meta.glob`
+  list.
 - Tests default to `fr` (`src/test/setup.ts`): query copy with `i18n.t('key')`,
   never a literal string.
 - Format numbers with `utils/formatNumber.ts` or `{{count, number}}`. Never call
   bare `toLocaleString()` on a number.
+
+### Cold load budget
+
+Through Meshloom Remote one instance has 64 open streams, API calls and the WebSocket included,
+and a request beyond them gets 503 `relay_busy` (`remote-relay.md`; the relay does not queue).
+`npm run check:cold-load` (CI, `scripts/quality/all_quality.sh`) reads the build and fails above
+32 files for the entry or one file per language. It does not see the API burst or lazy chunks.
+
+A refusal that still happens must not end on an error screen:
+
+- `fetchJson` (`src/api.ts`) retries `relay_busy` up to 4 times, for every method, since the
+  request never reached the instance, waiting 5 s at most between tries whatever `Retry-After`
+  asks. The instance's own 503 answers are not retried.
+- `src/utils/chunkReload.ts` reloads after 1, 2, then 4 s when the language file or a lazy chunk
+  fails, then stops and lets the caller show its error. A boot does not clear the count, since a
+  file that stays refused fails again after every boot: it starts over only when a failure comes
+  over a minute after the last reload. So a lasting failure gives 3 reloads, and can never
+  reload faster than once a minute after that. Without `sessionStorage` nothing can be counted,
+  so nothing reloads by itself.
+- The boot guard, inline in `index.html`, follows the same rule with the same key when a module
+  script or the stylesheet fails, since the app code may not run. It stops once the app has
+  rendered. Its last message sets its own colours and background inline, in EN and FR, and the
+  app does not render over it (`data-boot-failed`).
 
 ### UI copy
 

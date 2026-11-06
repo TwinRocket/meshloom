@@ -83,6 +83,7 @@ echo -ne "${BLUE}[build]${NC} "
 cd "$REPO_ROOT/frontend"
 npx --quiet tsc 2>&1
 npx --quiet vite build --logLevel error 2>&1
+node scripts/check-cold-load.mjs 2>&1
 echo -e "${GREEN}Passed!${NC}"
 
 echo -e "${GREEN}=== Phase 2 complete ===${NC}"

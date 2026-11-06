@@ -9,7 +9,7 @@ import { applyStartupTheme, initFollowOSListener } from './utils/theme';
 import { applyFontScale, getSavedFontScale } from './utils/fontScale';
 import { migrateLegacyLocalStoragePrefix } from './utils/legacyStoragePrefix';
 import { initAppViewport } from './utils/appViewport';
-import { clearReloadFlag, installPreloadErrorHandler, reloadOnce } from './utils/chunkReload';
+import { installPreloadErrorHandler, scheduleReload } from './utils/chunkReload';
 import { SessionProvider } from './auth/SessionProvider';
 import { PushSubscriptionProvider } from './contexts/PushSubscriptionContext';
 
@@ -35,7 +35,10 @@ function renderBootError(root: HTMLElement): void {
 // Wait for the active language bundle so the first paint never shows raw keys.
 i18nReady.then(
   () => {
-    createRoot(document.getElementById('root')!).render(
+    const root = document.getElementById('root')!;
+    // The boot guard in index.html has used up its reloads and shows its message: keep it.
+    if (root.querySelector('[data-boot-failed]')) return;
+    createRoot(root).render(
       <StrictMode>
         <SessionProvider>
           <PushSubscriptionProvider>
@@ -44,12 +47,12 @@ i18nReady.then(
         </SessionProvider>
       </StrictMode>
     );
-    clearReloadFlag();
   },
   (err: unknown) => {
     console.error('Failed to load the UI language:', err);
-    // A stale page after an update: fetch the fresh index once, else show a static error.
-    if (!reloadOnce()) renderBootError(document.getElementById('root')!);
+    // A stale page after an update, or a request the relay refused: fetch the index again,
+    // and show a static error only once the attempts are used up.
+    if (!scheduleReload()) renderBootError(document.getElementById('root')!);
   }
 );
 

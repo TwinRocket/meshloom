@@ -36,40 +36,30 @@ function mergeSliceModules(
   modules: unknown[]
 ): Record<string, unknown> {
   let out = base;
-  for (const mod of modules) {
-    const overlay =
-      mod && typeof mod === 'object' && 'default' in mod
-        ? (mod as { default: Record<string, unknown> }).default
-        : (mod as Record<string, unknown>);
+  for (const overlay of modules) {
     if (overlay && typeof overlay === 'object') {
-      out = deepMerge(out, overlay);
+      out = deepMerge(out, overlay as Record<string, unknown>);
     }
   }
   return out;
 }
 
-type JsonModule = { default: Record<string, unknown> };
-type Loader = () => Promise<JsonModule>;
+type Bundle = { base: Record<string, unknown>; slices: Record<string, unknown> };
 
-// One entry per language, loaded on demand: only the active language is fetched at
-// startup, the other one when the user switches. Slices overlay the base file.
-const baseLoaders: Record<string, Loader> = {
-  en: () => import('./locales/en.json'),
-  fr: () => import('./locales/fr.json'),
-};
-const sliceLoaders: Record<string, Record<string, Loader>> = {
-  en: import.meta.glob<JsonModule>('./locales/slices/*.en.json'),
-  fr: import.meta.glob<JsonModule>('./locales/slices/*.fr.json'),
+// One file per language, loaded on demand: only the active language is fetched at startup, the
+// other one when the user switches. A file per slice would mean some 90 requests at once, and
+// the Remote relay refuses a request beyond 64 open at a time (MSHL-470).
+const bundleLoaders: Record<string, () => Promise<Bundle>> = {
+  en: () => import('./bundle.en'),
+  fr: () => import('./bundle.fr'),
 };
 
 async function loadLanguage(language: string): Promise<Record<string, unknown>> {
-  const loadBase = baseLoaders[language];
-  if (!loadBase) return {};
-  const [base, ...slices] = await Promise.all([
-    loadBase(),
-    ...Object.values(sliceLoaders[language] ?? {}).map((load) => load()),
-  ]);
-  return mergeSliceModules(base.default, slices);
+  const load = bundleLoaders[language];
+  if (!load) return {};
+  const { base, slices } = await load();
+  // Slices overlay the base file, in file name order.
+  return mergeSliceModules(base, Object.values(slices));
 }
 
 const lazyBackend: BackendModule = {

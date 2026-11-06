@@ -251,6 +251,11 @@ jobs:
         run: npm run build
         working-directory: frontend
 
+      # The Remote relay refuses a request beyond 64 open at a time (MSHL-470).
+      - name: Cold load file budget
+        run: npm run check:cold-load
+        working-directory: frontend
+
   # The ntfy transport against a real server (tests/integration/test_ntfy_e2e.py):
   # scripts/quality/ntfy_integration.sh starts the pinned binwiederhier/ntfy image.
   ntfy-integration:
