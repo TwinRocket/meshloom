@@ -24,7 +24,6 @@ import {
 import i18n from '../i18n';
 import en from '../i18n/locales/slices/remote.en.json';
 import fr from '../i18n/locales/slices/remote.fr.json';
-import fr from '../i18n/locales/slices/remote.fr.json';
 import type { HealthStatus } from '../types';
 
 vi.mock('../components/ui/sonner', () => ({
