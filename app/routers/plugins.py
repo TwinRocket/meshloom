@@ -590,7 +590,12 @@ def _status_changes(
     status = row["status"]
     if status in ("revoked", "incompatible"):
         return {}
-    cleared = {"attention": None, "status": "installed"}
+    # A value reset by an update or a reinstall stays named until the config is saved.
+    dropped = (row["attention"] or {}).get("config_dropped")
+    notice = (
+        {"type": "config_dropped", "fields": dropped} if dropped and not config_changed else None
+    )
+    cleared = {"attention": notice, "status": "installed"}
     kind = (row["attention"] or {}).get("type")
     if kind == "config_required" and not missing:
         return cleared

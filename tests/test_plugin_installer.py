@@ -1234,6 +1234,38 @@ async def test_reinstallable_agrees_with_what_the_route_answers(
         assert (response.status_code, code_of(response)) == (409, code)
 
 
+@pytest.mark.parametrize(
+    ("accept_with_config", "attention"),
+    [(False, {"type": "config_dropped", "fields": ["greeting"]}), (True, None)],
+)
+async def test_accepting_keeps_the_notice_until_the_config_is_saved(
+    api, manager, catalog, tmp_path, accept_with_config, attention
+):
+    sources, _ = catalog
+    schema = {"type": "object", "properties": {"greeting": {"type": "integer"}}}
+    sources["acme.echo"] = build_archive(tmp_path, version="2.0.0", schema=schema)
+    row = await _restored_row(
+        config_schema={"type": "object", "properties": {"greeting": {"type": "string"}}},
+        config={"greeting": "Bonjour"},
+    )
+    iid = row["instance_id"]
+    assert (await api.post(f"/api/plugins/{iid}/reinstall")).status_code == 200
+
+    body = {"granted_permissions": GRANT, "enabled": True}
+    if accept_with_config:
+        body["config"] = {"greeting": 3}
+    accepted = await api.patch(f"/api/plugins/{iid}", json=body)
+
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["attention"] == attention
+    assert accepted.json()["enabled"] is True
+    assert manager.get(iid) is not None
+
+    saved = await api.patch(f"/api/plugins/{iid}", json={"config": {"greeting": 3}})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["attention"] is None
+
+
 async def test_only_an_admin_sees_the_source_of_an_instance(
     api, manager, catalog, tmp_path, sign_in_as
 ):

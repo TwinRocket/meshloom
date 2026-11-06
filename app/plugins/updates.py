@@ -23,7 +23,8 @@ Only ``kind = custom`` instances (a custom GitHub repository, MSHL-196) update h
   ``PreparedInstall.swap`` moves the tree in and every row of the plugin is written in
   one transaction (``PluginRepository.update_many``); the old tree goes back when the
   write fails. The code directory is shared, so all the instances of the plugin move
-  together; each one is checked for its own consent and config:
+  together, and instances that do not share one repository refuse any update
+  (``plugin_repository_conflict``, before any request); each one is checked for its own consent and config:
 
   - permissions the stored grants do not cover (added or changed) or a widened privacy
     declaration hold it: ``needs_attention``, ``attention.type = consent_required``
@@ -41,8 +42,8 @@ Only ``kind = custom`` instances (a custom GitHub repository, MSHL-196) update h
   rejects (a field it still declares, not required) is dropped and reported, never
   silently: ``attention.type = config_dropped`` with its ``fields`` on an instance that
   is not held (a notice: ``status`` is unchanged and it still runs; a PATCH that saves
-  its ``config`` clears it), ``attention.config_dropped`` on a held one (the same PATCH clears the key, not the
-  hold), and
+  its ``config`` clears it), ``attention.config_dropped`` on a held one (the same PATCH
+  clears the key, not the hold; accepting the hold without it leaves the notice above), and
   ``config_dropped`` in the ``plugin.updated`` audit details. A dropped required field
   is a ``config_required`` hold instead.
 - ``auto_update()`` is a Store evaluator (``register_store_evaluator``): it reads only
@@ -427,7 +428,8 @@ async def update_plugin(
     ``auto`` and an instance would be held or lose a config value (nothing changes). Raises the router's
     ``HTTPException`` (``plugin_not_updatable``, ``plugin_up_to_date``,
     ``plugin_source_unavailable``, ``store_offline``, ``archive_mismatch``,
-    ``consent_required``, ``incompatible``, ``config_invalid``, ``update_failed``).
+    ``consent_required``, ``incompatible``, ``config_invalid``, ``update_failed``,
+    ``plugin_repository_conflict``).
     Each updated instance gets a ``plugin.updated`` audit row; ``audit_self=False``
     leaves out ``instance_id``'s (the route writes it, failures included)."""
     api = _api()
@@ -467,6 +469,16 @@ async def _update_locked(
     rows = [
         r for r in await PluginRepository.get_by_plugin_id(row["plugin_id"]) if not _reinstall(r)
     ]
+    # The tree is shared and every row takes the new source: one source for all, or none.
+    own = api._repository_key(row["repository"])
+    for other in rows:
+        if api._repository_key(other["repository"] or "") != own:
+            raise api._error(
+                409,
+                "plugin_repository_conflict",
+                "Another instance of this plugin comes from another repository",
+                repository=other["repository"],
+            )
     source = await api._source(row["kind"], row["plugin_id"], version, row["repository"])
     announced = await source.fetch_manifest()
     if not _newer(announced.get("version"), row["version"]):

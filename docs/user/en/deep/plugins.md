@@ -177,7 +177,7 @@ The **Updates** tab lists them without contacting anyone (it shows what the last
 
 An extension that comes back from a backup without its code shows **To reinstall**. Open it and choose **Reinstall**: Meshloom fetches its code again from the same source. For an extension from a repository, the Store must be online.
 
-- It keeps its settings the new code still accepts (the drawer names the ones it reset, until you save them), its stored data if any, its chosen conversations and its sending limits. Secrets are not in a backup: type them again. Its permissions stay ticked as long as the code still asks for all of them; otherwise tick them again.
+- It keeps its settings the new code still accepts (the drawer names the ones it reset until you save the settings, even after you accept), its stored data if any, its chosen conversations and its sending limits. Secrets are not in a backup: type them again. Its permissions stay ticked as long as the code still asks for all of them; otherwise tick them again.
 - A repository only offers its latest release, so the extension can come back at a newer or older version than the one in the backup; the drawer shows the source before you choose and both versions after. When another copy of it is already installed here, it takes the version of that copy.
 - It stays off: check it, then choose **Accept and enable**.
 - When it cannot be reinstalled here (an extension this version of Meshloom does not ship, or another copy that comes from another repository, is revoked or does not fit this version of Meshloom), the drawer offers **Uninstall** instead.

@@ -412,8 +412,9 @@ by `services/backup.py`.
   when it cannot work here (`reinstallable` false in the instance view) it
   offers **Uninstall** instead. When an instance of the same plugin and kind
   is installed here, the row shares its manifest, version and schema and is
-  `restored` instead, unless one of them is `revoked` or `incompatible`: it stays
-  **to reinstall**, and the route refuses until that changes. Every restored row is **disabled**, `needs_attention`
+  `restored` instead, unless one of them is `revoked` or `incompatible`, or a `custom`
+  one comes from another repository: it stays **to reinstall**, and the route refuses
+  until that changes. Every restored row is **disabled**, `needs_attention`
   (`restored`, accepted like any other attention by sending
   `granted_permissions` again, or `reinstall`), with `was_enabled` and
   `secrets_missing` (the omitted write-only names) in `attention`. Grants are

@@ -15,7 +15,8 @@ One entry per row of ``plugins`` (Store T12, ``docs/dev/backup.md``, "Plugins"):
   in the file. The row comes back with ``attention.type = "reinstall"``, which refuses every
   start (``_status_block`` in ``app/routers/plugins.py``). When an instance of the same
   plugin is already installed here, the restored one shares its code (manifest, version,
-  schema) and is ``restored`` instead, unless that instance is revoked or incompatible; the on_restore hook does the same for a bundled
+  schema) and is ``restored`` instead, unless that instance is revoked or incompatible or
+  comes from another repository; the on_restore hook does the same for a bundled
   plugin this release ships, after writing its code out.
 - **Every restored instance comes back disabled**, ``needs_attention`` with
   ``attention.type`` ``restored`` (reviewed and accepted like any other attention) or
@@ -239,7 +240,8 @@ def granted_within(manifest: dict[str, Any], granted: dict[str, Any]) -> dict[st
 
 async def _existing(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
     async with conn.execute(
-        "SELECT instance_id, plugin_id, kind, version, manifest, config_schema, attention, status"
+        "SELECT instance_id, plugin_id, kind, version, manifest, config_schema, attention, status,"
+        " repository"
         " FROM plugins ORDER BY sort_order, installed_at, instance_id"
     ) as cursor:
         rows = await cursor.fetchall()
@@ -253,6 +255,7 @@ async def _existing(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
             "config_schema": json.loads(row[5] or "{}"),
             "attention": json.loads(row[6]) if row[6] else None,
             "status": row[7],
+            "repository": row[8],
         }
         for row in rows
     ]
@@ -260,7 +263,11 @@ async def _existing(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
 
 def _sibling(rows: list[dict[str, Any]], item: BackupPluginInstance) -> dict[str, Any] | None:
     """An installed instance of the same plugin whose code the restored one can share. A
-    revoked or incompatible one gives none: the row could then be accepted and started."""
+    revoked or incompatible one gives none: the row could then be accepted and started.
+    Nor does one of a custom plugin from another repository: an update takes its source
+    from the row and replaces the code of every instance."""
+    from app.routers.plugins import _repository_key
+
     same = [
         row
         for row in rows
@@ -269,6 +276,9 @@ def _sibling(rows: list[dict[str, Any]], item: BackupPluginInstance) -> dict[str
         and (row["attention"] or {}).get("type") != REINSTALL
     ]
     if any(row["status"] in ("revoked", "incompatible") for row in same):
+        return None
+    source = _repository_key(item.repository or "")
+    if item.kind == "custom" and any(row["repository"] != source for row in same):
         return None
     return same[0] if same else None
 
@@ -434,6 +444,7 @@ async def restore_plugins(section: BackupSection, conn: aiosqlite.Connection) ->
                 "manifest",
                 "config_schema",
                 "attention",
+                "repository",
             )
         }
         row["status"] = "needs_attention"
