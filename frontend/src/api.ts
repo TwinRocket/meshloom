@@ -288,11 +288,54 @@ function reportApiFailure(error: ApiError, url: string, method: string): void {
   }
 }
 
+/** Retries of a request the relay refused with `relay_busy`, up to about 10 s in all. */
+const RELAY_BUSY_RETRIES = 4;
+
+/** The relay's own refusal (JSON `{"detail","code"}`): the request never reached the instance. */
+async function isRelayBusy(res: Response): Promise<boolean> {
+  if (res.status !== 503) return false;
+  try {
+    const body = (await res.clone().json()) as { code?: unknown } | null;
+    return body?.code === 'relay_busy';
+  } catch {
+    return false;
+  }
+}
+
+function waitOrAbort(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', aborted);
+      resolve();
+    }, ms);
+    if (signal?.aborted) aborted();
+    else signal?.addEventListener('abort', aborted, { once: true });
+  });
+}
+
+/**
+ * `fetch`, waiting out the relay's `relay_busy`. Safe for every method: the request was refused
+ * before reaching the instance. The instance's own 503 answers are not retried.
+ */
+async function fetchPastRelayBusy(input: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(input, init);
+    if (attempt >= RELAY_BUSY_RETRIES || !(await isRelayBusy(res))) return res;
+    const seconds = Number(res.headers.get('Retry-After')) || 1;
+    // A growing wait with some jitter, so a page's refused requests do not all come back at once.
+    await waitOrAbort(seconds * 1000 * (attempt + 1) + Math.random() * 500, init.signal);
+  }
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${url}`, {
+    res = await fetchPastRelayBusy(`${API_BASE}${url}`, {
       ...options,
       headers: {
         ...(hasBody && { 'Content-Type': 'application/json' }),

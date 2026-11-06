@@ -26,6 +26,40 @@
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
     <link rel="manifest" href="./site.webmanifest" crossorigin="use-credentials" />
     <script>
+      // Boot guard. When a module script or the stylesheet cannot load (the Remote relay refused
+      // it with 503 relay_busy, or an update removed it), no app code runs and the page stays
+      // blank: wait, reload, and count the attempts. Same count and delays as
+      // src/utils/chunkReload.ts, which takes over once the app code runs.
+      (function() {
+        var KEY = 'meshloom-boot-reloads';
+        var DELAYS = [1000, 2000, 4000];
+        var pending = false;
+        window.addEventListener('error', function(event) {
+          var el = event.target;
+          var failedLoad = el && (el.tagName === 'SCRIPT' || (el.tagName === 'LINK' && el.rel === 'stylesheet'));
+          var root = document.getElementById('root');
+          if (!failedLoad || pending || !root || root.firstChild) return;
+          var attempt = 0;
+          try {
+            attempt = Number(sessionStorage.getItem(KEY)) || 0;
+            if (attempt < DELAYS.length) sessionStorage.setItem(KEY, String(attempt + 1));
+          } catch (e) {
+            attempt = DELAYS.length;
+          }
+          if (attempt < DELAYS.length) {
+            pending = true;
+            setTimeout(function() { location.reload(); }, DELAYS[attempt]);
+            return;
+          }
+          // No i18n without the app code, hence both languages.
+          root.innerHTML =
+            '<div role="alert" style="padding:2rem;font-family:sans-serif;color:#fff">' +
+            '<p>Meshloom could not load.</p><p>Meshloom n’a pas pu se charger.</p>' +
+            '<button type="button" onclick="location.reload()">Reload / Recharger</button></div>';
+        }, true);
+      })();
+    </script>
+    <script>
       // Service worker registration moved to main.tsx (requires isSecureContext
       // for Web Push). Do not duplicate here.
 

@@ -9,7 +9,7 @@ import { applyStartupTheme, initFollowOSListener } from './utils/theme';
 import { applyFontScale, getSavedFontScale } from './utils/fontScale';
 import { migrateLegacyLocalStoragePrefix } from './utils/legacyStoragePrefix';
 import { initAppViewport } from './utils/appViewport';
-import { clearReloadFlag, installPreloadErrorHandler, reloadOnce } from './utils/chunkReload';
+import { clearReloadFlag, installPreloadErrorHandler, scheduleReload } from './utils/chunkReload';
 import { SessionProvider } from './auth/SessionProvider';
 import { PushSubscriptionProvider } from './contexts/PushSubscriptionContext';
 
@@ -48,8 +48,9 @@ i18nReady.then(
   },
   (err: unknown) => {
     console.error('Failed to load the UI language:', err);
-    // A stale page after an update: fetch the fresh index once, else show a static error.
-    if (!reloadOnce()) renderBootError(document.getElementById('root')!);
+    // A stale page after an update, or a request the relay refused: fetch the index again,
+    // and show a static error only once the attempts are used up.
+    if (!scheduleReload()) renderBootError(document.getElementById('root')!);
   }
 );
 

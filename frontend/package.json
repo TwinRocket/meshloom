@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
     "typecheck": "tsc",
+    "check:cold-load": "node scripts/check-cold-load.mjs",
     "packaged-build": "vite build --outDir prebuilt",
     "preview": "vite preview",
     "test": "vitest",

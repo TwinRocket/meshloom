@@ -978,3 +978,65 @@ describe('bulkDeleteContacts', () => {
     expect(onBatch).toHaveBeenCalledWith(keys.slice(0, 5000), 5000);
   });
 });
+
+describe('relay busy retry', () => {
+  const busy = () =>
+    new Response(JSON.stringify({ detail: 'Instance busy', code: 'relay_busy' }), {
+      status: 503,
+      headers: { 'Retry-After': '1', 'Content-Type': 'application/json' },
+    });
+  const ok = () => new Response('[]', { status: 200 });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('retries a refused request after Retry-After and returns the answer', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValueOnce(busy()).mockResolvedValueOnce(ok());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getChannels();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(result).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up with the relay error after four retries', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(async () => busy());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getChannels().catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(60000);
+    const err = await result;
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("leaves the instance's own 503 alone", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ detail: 'Radio busy' }), { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api.getChannels()).rejects.toBeInstanceOf(ApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops waiting when the caller aborts', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const fetchMock = vi.fn().mockImplementation(async () => busy());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getMessages({}, controller.signal).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(10);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    const err = await result;
+    expect(isAbortError(err)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

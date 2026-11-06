@@ -838,7 +838,10 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
 
 ### i18n
 
-- `src/i18n/index.ts` loads only the active language. i18next `fallbackLng` is
+- `src/i18n/index.ts` loads only the active language, as one file:
+  `src/i18n/bundle.{en,fr}.ts` import the base and every slice together, eagerly. Never make a
+  slice its own lazy import: that was 88 requests at once, and the Remote relay refuses a
+  request beyond 64 open (MSHL-470, see "Cold load budget"). i18next `fallbackLng` is
   `false` (the `FALLBACK_LOCALE` constant is not a runtime fallback), so `en` and
   `fr` must have exactly the same keys; `src/test/i18nParity.test.ts` enforces it.
 - Strings live in `locales/{en,fr}.json` plus `locales/slices/*.{en,fr}.json`,
@@ -852,6 +855,22 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
   never a literal string.
 - Format numbers with `utils/formatNumber.ts` or `{{count, number}}`. Never call
   bare `toLocaleString()` on a number.
+
+### Cold load budget
+
+Through Meshloom Remote one instance has 64 open streams, API calls and the WebSocket included,
+and a request beyond them gets 503 `relay_busy` (`remote-relay.md`; the relay does not queue).
+`npm run check:cold-load` (CI, `scripts/quality/all_quality.sh`) reads the build and fails above
+32 files for the entry or one file per language. It does not see the API burst or lazy chunks.
+
+A refusal that still happens must not end on an error screen:
+
+- `fetchJson` (`src/api.ts`) retries `relay_busy` up to 4 times, for every method, since the
+  request never reached the instance. The instance's own 503 answers are not retried.
+- `src/utils/chunkReload.ts` reloads with a growing delay, 3 times in a session, when the language
+  file or a lazy chunk fails. A successful boot resets the count.
+- The boot guard, inline in `index.html`, does the same with the same count when a module script
+  or the stylesheet fails, since no app code runs then. It stops once the app has rendered.
 
 ### UI copy
 
