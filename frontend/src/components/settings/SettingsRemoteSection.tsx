@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../../api';
@@ -46,6 +46,8 @@ export const REMOTE_STATUS_POLL_MS = 15_000;
  * approve form follow it within seconds. Reads the instance only, never the relay.
  */
 export const REMOTE_STATUS_SETTLING_POLL_MS = 3_000;
+/** A refresh waits for the request in flight, unless it has hung for this long. */
+export const REMOTE_STATUS_STUCK_MS = 30_000;
 
 type Confirm = 'disable' | 'unregister' | 'rotate' | null;
 
@@ -85,18 +87,24 @@ export function SettingsRemoteSection({
   const [userNames, setUserNames] = useState<ReadonlyMap<number, string>>(new Map());
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((value) => value + 1), []);
+  // When the request in flight started: a new one would discard its answer.
+  const requestStarted = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    requestStarted.current = Date.now();
     api
       .getRemote()
       .then((next) => {
         if (cancelled) return;
+        requestStarted.current = null;
         setStatus(next);
         setLoadError(null);
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(formatAccessError(err, t));
+        if (cancelled) return;
+        requestStarted.current = null;
+        setLoadError(formatAccessError(err, t));
       });
     return () => {
       cancelled = true;
@@ -107,8 +115,14 @@ export function SettingsRemoteSection({
   const settling = badge?.id === 'connecting' || badge?.id === 'reconnecting';
 
   useEffect(() => {
+    const tick = () => {
+      if (settling && document.hidden) return;
+      const started = requestStarted.current;
+      if (started !== null && Date.now() - started < REMOTE_STATUS_STUCK_MS) return;
+      reload();
+    };
     const id = window.setInterval(
-      reload,
+      tick,
       settling ? REMOTE_STATUS_SETTLING_POLL_MS : REMOTE_STATUS_POLL_MS
     );
     return () => window.clearInterval(id);

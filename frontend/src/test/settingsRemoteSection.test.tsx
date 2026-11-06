@@ -7,6 +7,7 @@ import type { AuthRole, AuthSessionInfo, AuthVia } from '../auth/types';
 import {
   REMOTE_STATUS_POLL_MS,
   REMOTE_STATUS_SETTLING_POLL_MS,
+  REMOTE_STATUS_STUCK_MS,
   SettingsRemoteSection,
 } from '../components/settings/SettingsRemoteSection';
 import { ENROLL_POLL_MS } from '../components/settings/remote/RemoteEnrollDialog';
@@ -313,6 +314,83 @@ describe('SettingsRemoteSection', () => {
     expect(getRemote.mock.calls.length).toBe(before);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getRemote.mock.calls.length).toBe(before + 1);
+  });
+
+  it('lets a status slower than the fast refresh land, with one request at a time', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(api, 'listRemoteAccessRequests').mockResolvedValue([]);
+    const getRemote = vi
+      .spyOn(api, 'getRemote')
+      .mockResolvedValue(statusOf({ relay_connected: false, link_status: 'connecting' }));
+    await renderAs('admin');
+    expect(await screen.findByTestId('remote-badge')).toHaveAttribute('data-badge', 'connecting');
+
+    const slow = REMOTE_STATUS_SETTLING_POLL_MS + 500;
+    getRemote.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(statusOf()), slow))
+    );
+    const before = getRemote.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS);
+    });
+    expect(getRemote.mock.calls.length).toBe(before + 1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS);
+    });
+    expect(getRemote.mock.calls.length).toBe(before + 1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(getRemote.mock.calls.length).toBe(before + 1);
+    expect(screen.getByTestId('remote-badge')).toHaveAttribute('data-badge', 'connected');
+  });
+
+  it('asks again when a status request never answers', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(api, 'listRemoteAccessRequests').mockResolvedValue([]);
+    const getRemote = vi
+      .spyOn(api, 'getRemote')
+      .mockResolvedValue(statusOf({ relay_connected: false, link_status: 'connecting' }));
+    await renderAs('admin');
+    await screen.findByTestId('remote-badge');
+
+    getRemote.mockImplementation(() => new Promise(() => undefined));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS);
+    });
+    const hung = getRemote.mock.calls.length;
+    getRemote.mockResolvedValue(statusOf());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_STUCK_MS - 1_000);
+    });
+    expect(getRemote.mock.calls.length).toBe(hung);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS + 1_000);
+    });
+    expect(getRemote.mock.calls.length).toBe(hung + 1);
+    expect(screen.getByTestId('remote-badge')).toHaveAttribute('data-badge', 'connected');
+  });
+
+  it('pauses the fast refresh while the tab is hidden', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(api, 'listRemoteAccessRequests').mockResolvedValue([]);
+    const getRemote = vi
+      .spyOn(api, 'getRemote')
+      .mockResolvedValue(statusOf({ relay_connected: false, link_status: 'connecting' }));
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    await renderAs('admin');
+    await screen.findByTestId('remote-badge');
+    const before = getRemote.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS * 3);
+    });
+    expect(getRemote.mock.calls.length).toBe(before);
+
+    hidden.mockReturnValue(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REMOTE_STATUS_SETTLING_POLL_MS);
     });
     expect(getRemote.mock.calls.length).toBe(before + 1);
   });
