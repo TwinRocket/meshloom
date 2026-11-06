@@ -60,6 +60,7 @@ _LOCAL = {
     "pass_state",
     "_sign",
     "verify_device_pass",
+    "renew_browser_pass",
     "_require_registered",
     "_new_device",
     "issue_enroll_token",

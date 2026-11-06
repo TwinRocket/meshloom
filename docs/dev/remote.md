@@ -112,7 +112,7 @@ Format and rules: `remote-relay.md`, "Passes". The instance signs:
 | Kind | Lifetime | Issued by |
 |---|---|---|
 | `enroll` | 15 min | `POST /api/remote/enroll` (QR code) |
-| `browser` | 90 days | a QR enrolment or an approved access request (the relay sets `__Host-mlgate`) |
+| `browser` | 90 days, renewed while used | a QR enrolment or an approved access request (the relay sets `__Host-mlgate`), then a renewal |
 | `client` | 365 days | `POST /api/remote/devices/client` (the `X-Meshloom-Pass` header of a script or meshenger), shown once |
 
 `iss` is the slug, `sub` the device id (22 base64url characters), `uid` the Meshloom user
@@ -122,6 +122,38 @@ id the device belongs to, `gen` the current generation. Every device is a row of
 `verify_device_pass(token, slot)` is the third check of the edge lock, for the relay
 client to run on `x-meshloom-pass`: the contract verdict, then the device must exist,
 not be revoked and belong to the pass's `uid`.
+
+### Renewal of a browser pass
+
+The relay client adds `x-meshloom-set-pass: <new pass>` to a `RESP_HEAD`
+(`HttpStream._renewed_pass`, `remote.renew_browser_pass`); the relay checks it (cookie slot,
+same `sub`), sets `__Host-mlgate` and removes the header. The relay's side is contract
+"Renewal"; the rest is the instance's choice:
+
+- **When.** A 2xx answer to a request under `/api/` with a browser pass and a signed-in
+  principal, of any account: a device approved through an access request belongs to its
+  approver, not to whoever signs in on it. A device left on the login page, a failed request
+  and a static file renew nothing. The answer to the login itself does not (nobody was signed
+  in yet); the next API call does.
+- **How often.** A pass under one day old (`BROWSER_PASS_RENEW_AFTER_S`) costs one JSON decode
+  and nothing else. Past that, one attempt per device every 10 minutes
+  (`BROWSER_PASS_RENEW_RETRY_S`, kept in memory, set before the first `await`), so the
+  concurrent requests of a page renew once and an answer that never reached the browser is
+  retried without a surge. The relay only verifies a signature: no KV or D1 write, no stored
+  state.
+- **Revocation wins.** The pass is verified again when the answer is ready (the request may
+  have revoked its own device), a pass past its `exp` in the 60 s of clock skew is refused,
+  and `extend_device_pass` updates `pass_expires_at` only on a row not revoked, before the pass
+  is handed out. The revoked list thus keeps a device as long as its last pass lives. `gen` is
+  the old pass's, so a new generation also refuses it.
+- **Failure.** A failed renewal only logs the exception type and the request carries on. A
+  head within about 2 KiB of the 64 KiB limit renews nothing.
+- **Containment.** `outbound_headers` drops the header name from anything the app sends, on
+  HTTP and on WebSockets. The pass is held by the stream, not in the ASGI scope. A WebSocket
+  never renews: the relay reads the header on HTTP answers only, and a page's API calls do it.
+- **Limits.** An older pass stays valid until its own `exp`, and renews too: a copied pass ends
+  only by revoking the device. A renewal in flight while the browser posts
+  `/_meshloom/forget` can set the cookie again; a later forget or a revocation ends it.
 
 ## Enrolment by QR code
 
@@ -151,7 +183,7 @@ not be revoked and belong to the pass's `uid`.
 
 - `DELETE /api/remote/devices/{id}` (one's own; an administrator any) marks the device
   revoked. The revoked list of the generation holds the devices whose pass may still be
-  presented (until `pass_expires_at` + 60 s). Past 1024 ids (the relay's limit), the
+  presented (until `pass_expires_at` + 60 s, which follows the renewals). Past 1024 ids (the relay's limit), the
   generation is bumped instead.
 - `POST /api/remote/devices/revoke-all` (admin) bumps `gate_gen`: every pass dies.
 - `gate_state()` is `{gen, revoked}`. Each change is pushed at once as CONTROL `gate`
