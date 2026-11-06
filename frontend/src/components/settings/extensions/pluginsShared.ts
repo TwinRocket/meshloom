@@ -90,9 +90,9 @@ export function attentionFields(instance: Pick<PluginInstance, 'attention'>): st
 }
 
 /**
- * The config fields an update reset because the new schema rejected their value: the
- * notice `attention: {type: "config_dropped", fields}` of a running instance, or
- * `attention.config_dropped` of a held one. Saving the config clears them.
+ * The config fields an update or a reinstall reset because the new schema rejected their
+ * value: the notice `attention: {type: "config_dropped", fields}` of a running instance, or
+ * `attention.config_dropped` of a held one. Saving the config clears them (the API does).
  */
 export function droppedFields(instance: Pick<PluginInstance, 'attention'>): string[] {
   const attention = instance.attention;
@@ -118,7 +118,7 @@ export function previousVersion(instance: Pick<PluginInstance, 'attention'>): st
 /**
  * Why the toggle cannot enable the instance from the list, or null when it can.
  * `review` means the drawer's explicit acknowledgement is needed first;
- * `reinstall_unavailable` that its source does not exist here, so only uninstalling is left.
+ * `reinstall_unavailable` that it cannot be reinstalled here, so only uninstalling is left.
  */
 export function enableBlock(
   instance: PluginInstance

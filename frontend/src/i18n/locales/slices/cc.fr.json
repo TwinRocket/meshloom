@@ -72,11 +72,11 @@
         "reinstall": {
           "badge": "À réinstaller",
           "text": "Restaurée sans son code : réinstallez-la ou désinstallez-la.",
-          "unavailable": "Restaurée sans son code, et sa source n'est pas disponible ici. Vous pouvez la désinstaller."
+          "unavailable": "Restaurée sans son code, et elle ne peut pas être réinstallée ici. Vous pouvez la désinstaller."
         },
         "config_dropped": {
           "badge": "Réglages réinitialisés",
-          "text": "La mise à jour a réinitialisé des réglages : {{fields}}. Vérifiez-les et enregistrez."
+          "text": "Des réglages ont été réinitialisés : {{fields}}. Vérifiez-les et enregistrez."
         },
         "other": {
           "badge": "À examiner",
@@ -92,7 +92,7 @@
         "config_required": "Réglages requis d'abord",
         "review": "Ouvrez-la pour l'examiner et l'accepter",
         "reinstall": "À réinstaller d'abord",
-        "reinstall_unavailable": "Source non disponible"
+        "reinstall_unavailable": "Réinstallation impossible ici"
       },
       "isolation": {
         "title": "Niveau d'isolation",

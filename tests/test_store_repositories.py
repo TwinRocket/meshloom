@@ -24,6 +24,7 @@ from app.plugins.custom_repos import (
     parse_repository,
 )
 from app.repository import AppSettingsRepository
+from app.repository.auth import AuthAuditRepository
 from app.repository.plugins import PluginRepository
 from tests.test_plugin_installer import (
     GRANT,
@@ -476,6 +477,10 @@ async def test_reinstall_takes_the_latest_release_when_a_newer_one_exists(
     stored = await PluginRepository.get(row["instance_id"])
     assert stored is not None
     assert stored["archive_sha256"] == hashlib.sha256(data).hexdigest()
+    rows = await AuthAuditRepository.list_recent(limit=10)
+    details = next(r.details for r in rows if r.action == "plugin.installed")
+    assert details["repository"] == "acme/echo"
+    assert (details["from_version"], details["to_version"]) == ("1.0.0", "1.1.0")
 
 
 async def test_resolver_checks_the_version(net, online, tmp_path):

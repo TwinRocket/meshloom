@@ -1162,6 +1162,78 @@ async def test_reinstall_names_the_settings_the_new_schema_rejects(api, manager,
     assert response.json()["attention"]["config_dropped"] == ["gone", "greeting"]
 
 
+async def test_saving_the_config_clears_the_settings_a_reinstall_reset(
+    api, manager, catalog, tmp_path
+):
+    """MSHL-469 follow-up: the notice says "check them and save"; the review stays."""
+    sources, _ = catalog
+    schema = {"type": "object", "properties": {"greeting": {"type": "integer"}}}
+    sources["acme.echo"] = build_archive(tmp_path, version="2.0.0", schema=schema)
+    row = await _restored_row(
+        config_schema={"type": "object", "properties": {"greeting": {"type": "string"}}},
+        config={"greeting": "Bonjour"},
+    )
+    iid = row["instance_id"]
+    view = (await api.post(f"/api/plugins/{iid}/reinstall")).json()
+    assert view["attention"]["config_dropped"] == ["greeting"]
+
+    saved = await api.patch(f"/api/plugins/{iid}", json={"config": {"greeting": 3}})
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["attention"] == {"type": "restored", "previous_version": "1.0.0"}
+    assert saved.json()["status"] == "needs_attention"
+    assert saved.json()["enabled"] is False
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        (None, None),
+        ("other_repository", "plugin_repository_conflict"),
+        ("revoked", "plugin_revoked"),
+        ("incompatible", "incompatible"),
+        ("code_missing", "plugin_code_missing"),
+        ("other_kind", "plugin_kind_conflict"),
+    ],
+)
+async def test_reinstallable_agrees_with_what_the_route_answers(
+    api, manager, catalog, tmp_path, change, code
+):
+    """MSHL-469 follow-up: what a sibling rules out is known without any request."""
+    sources, asked = catalog
+    sources["acme.echo"] = build_archive(tmp_path)
+    if change == "other_kind":
+        await _restored_row(kind="store", repository=None, status="installed", attention=None)
+    else:
+        first = await install(api)
+        assert first.status_code == 201, first.text
+        sibling = first.json()["instance_id"]
+        await manager.stop(sibling)
+        await PluginRepository.update(sibling, enabled=False)
+        if change == "revoked":
+            await PluginRepository.update(sibling, status="revoked")
+        elif change == "incompatible":
+            manifest = {**first.json()["manifest"], "compat": {"meshloom": "<1"}}
+            await PluginRepository.update(sibling, manifest=manifest, status="incompatible")
+        elif change == "code_missing":
+            installer.remove_code(manager.plugins_root(), "acme.echo")
+    row = await _restored_row(
+        repository="other/echo" if change == "other_repository" else "acme/echo"
+    )
+    asked.clear()
+
+    listed = (await api.get("/api/plugins")).json()
+    view = next(v for v in listed if v["instance_id"] == row["instance_id"])
+    assert view["reinstallable"] is (code is None)
+    assert asked == []
+
+    response = await api.post(f"/api/plugins/{row['instance_id']}/reinstall")
+    if code is None:
+        assert response.status_code == 200, response.text
+    else:
+        assert (response.status_code, code_of(response)) == (409, code)
+
+
 async def test_only_an_admin_sees_the_source_of_an_instance(
     api, manager, catalog, tmp_path, sign_in_as
 ):

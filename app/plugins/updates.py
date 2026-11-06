@@ -41,7 +41,8 @@ Only ``kind = custom`` instances (a custom GitHub repository, MSHL-196) update h
   rejects (a field it still declares, not required) is dropped and reported, never
   silently: ``attention.type = config_dropped`` with its ``fields`` on an instance that
   is not held (a notice: ``status`` is unchanged and it still runs; a PATCH that saves
-  its ``config`` clears it), ``attention.config_dropped`` on a held one, and
+  its ``config`` clears it), ``attention.config_dropped`` on a held one (the same PATCH clears the key, not the
+  hold), and
   ``config_dropped`` in the ``plugin.updated`` audit details. A dropped required field
   is a ``config_required`` hold instead.
 - ``auto_update()`` is a Store evaluator (``register_store_evaluator``): it reads only

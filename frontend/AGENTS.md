@@ -612,7 +612,7 @@ and a health refresh follows, so no extra WebSocket handler). Rules: `enableBloc
 and `toggle()` refuses too); `needs_attention` for a reason other than `config_required` is
 enabled only through the drawer's **Accept and enable** (`granted_permissions` and
 `enabled: true` in one PATCH, since on a stopped row a grant alone leaves the attention); a row restored without its code (`needsReinstall()`) shows **Reinstall**
-(`reinstallPlugin`, `reinstallable` true in the view: the source exists here) or **Uninstall**
+(`reinstallPlugin`, `reinstallable` true in the view: nothing known rules it out) or **Uninstall**
 (`reinstall_unavailable`), and the drawer remounts when it leaves that state, since the manifest
 and grants changed; with `plugins_disabled_source` set to anything but `paused` every write is off but
 Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissions and shows

@@ -117,6 +117,7 @@ async def test_a_reinstall_says_which_version_it_replaced(api, manager):
     rows = await _plugin_rows()
     assert rows[-1].action == "plugin.installed"
     assert rows[-1].details["reinstall"] is True
+    assert rows[-1].details["repository"] is None
     assert rows[-1].details["from_version"] == "0.0.1"
     assert rows[-1].details["to_version"] == response.json()["version"]
     assert "kept-value-7f3a" not in _dump(rows)

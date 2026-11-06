@@ -16,6 +16,7 @@ import pytest
 
 from app.models import BackupSection
 from app.plugins import host as host_module
+from app.plugins import installer
 from app.repository.plugins import PluginKvRepository, PluginRepository
 from app.services import backup_plugins
 from app.services.backup import export_backup_v2, export_document
@@ -185,6 +186,76 @@ async def test_a_bundled_reinstall_row_is_offered_only_when_this_release_ships_i
     assert shipped.status_code == 200, shipped.text
     assert shipped.json()["attention"]["type"] == "restored"
     assert shipped.json()["version"] != "0.0.1"
+
+
+@pytest.mark.parametrize("status", ["incompatible", "revoked"])
+async def test_a_frozen_sibling_gives_a_restored_instance_no_code(backup_db, api, manager, status):
+    """MSHL-469 follow-up: a restored row sharing that code could be accepted and started."""
+    manifest = json.loads((ECHO_SRC / "manifest.json").read_text())
+    await PluginRepository.create(
+        plugin_id=manifest["id"],
+        label="Frozen",
+        kind="custom",
+        version=manifest["version"],
+        manifest=manifest,
+        granted_permissions=ECHO_GRANT,
+        status=status,
+        repository="acme/echo",
+    )
+    # Two entries: the first restored row does not hand the code to the second either.
+    entries = [
+        {
+            "instance_id": str(uuid.uuid4()),
+            "plugin_id": manifest["id"],
+            "kind": "custom",
+            "label": "Echo",
+            "version": manifest["version"],
+            "enabled": True,
+            "manifest": manifest,
+            "granted_permissions": ECHO_GRANT,
+            "repository": "acme/echo",
+        }
+        for _ in range(2)
+    ]
+    warnings = await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": entries})})
+    assert warnings == ["plugins_to_reinstall:2"]
+
+    for entry in entries:
+        row = await PluginRepository.get(entry["instance_id"])
+        assert row is not None and row["attention"]["type"] == "reinstall"
+        response = await api.patch(
+            f"/api/plugins/{entry['instance_id']}",
+            json={"enabled": True, "granted_permissions": ECHO_GRANT},
+        )
+        assert (response.status_code, code_of(response)) == (409, "plugin_reinstall_required")
+        assert manager.get(entry["instance_id"]) is None
+
+
+async def test_the_hook_does_not_bring_back_a_bundled_plugin_with_a_revoked_instance(
+    backup_db, api, host_manager
+):
+    await PluginRepository.create(
+        plugin_id="meshloom.greeter",
+        label="Revoked",
+        kind="bundled",
+        version="1.0.0",
+        manifest={"id": "meshloom.greeter"},
+        status="revoked",
+    )
+    bundled = installer.list_bundled()["meshloom.greeter"]
+    manifest = installer.manifest_dict(bundled.package)
+    entry = {
+        "instance_id": str(uuid.uuid4()),
+        "plugin_id": "meshloom.greeter",
+        "kind": "bundled",
+        "label": "Greeter",
+        "version": manifest["version"],
+        "enabled": True,
+        "manifest": manifest,
+    }
+    await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": [entry]})})
+    row = await PluginRepository.get(entry["instance_id"])
+    assert row is not None and row["attention"]["type"] == "reinstall"
 
 
 async def test_a_reinstall_row_never_starts(backup_db, api, manager):
