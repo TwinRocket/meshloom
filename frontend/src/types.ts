@@ -2267,7 +2267,13 @@ export interface OssUpdateJob {
   started_at: number | null;
 }
 
-/** Cached GET /api/updates — Stats catalogue, not GitHub from the browser. */
+/** Why an update will not install on its own. Community's text: render as plain text only. */
+export interface OssUpdateHoldReason {
+  fr: string;
+  en: string;
+}
+
+/** Cached GET /api/updates: the app asks Community, the browser never does. */
 export interface OssUpdateStatus {
   current: string;
   latest: string | null;
@@ -2284,8 +2290,11 @@ export interface OssUpdateStatus {
   next_auto_apply_at?: number | null;
   /** Compose install still runs the pre-4.18 host helper; re-run the installer. */
   legacy_update_helper?: boolean;
-  /** Where `latest` came from: GitHub (primary), the Community mirror, or an env pin. */
-  latest_source?: 'github' | 'community' | 'env' | null;
+  /** Where `latest` came from: Community, or an env pin. */
+  latest_source?: 'community' | 'env' | null;
+  /** Community asks not to auto-apply this update; a manual install stays available. */
+  auto_update_held?: boolean;
+  auto_update_hold_reason?: OssUpdateHoldReason | null;
   job: OssUpdateJob;
 }
 

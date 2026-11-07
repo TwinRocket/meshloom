@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { versionsMatch } from '../../hooks/useOssUpdates';
 import type { OssUpdateSettingsPatch, OssUpdateStatus } from '../../types';
 import { cn } from '../../lib/utils';
+import { resolveHoldReason } from '../../utils/updateHold';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
@@ -68,7 +69,7 @@ export function SettingsUpdatesSection({
   applying?: boolean;
   className?: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const applySupported = updates?.apply_supported === true;
   const updateAvailable = updates?.update_available === true;
   const kind = updates?.install_kind;
@@ -82,7 +83,8 @@ export function SettingsUpdatesSection({
     updateAvailable &&
     !versionsMatch(updates?.current, updates?.latest);
   const checkedAt = formatUnixSeconds(updates?.checked_at);
-  const nextAutoApply = formatUnixSeconds(updates?.next_auto_apply_at);
+  const held = updateAvailable && updates?.auto_update_held === true;
+  const nextAutoApply = held ? null : formatUnixSeconds(updates?.next_auto_apply_at);
   const weekdays = resolvedWeekdays(updates);
 
   const [windowStart, setWindowStart] = useState(() =>
@@ -248,6 +250,20 @@ export function SettingsUpdatesSection({
               </p>
             </div>
           </div>
+
+          {held ? (
+            <p
+              role="status"
+              data-testid="updates-hold-reason"
+              className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[0.8125rem] text-foreground"
+            >
+              {resolveHoldReason(
+                updates?.auto_update_hold_reason,
+                i18n.language,
+                t('updates.holdFallback')
+              )}
+            </p>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
