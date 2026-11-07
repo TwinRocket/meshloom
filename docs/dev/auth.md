@@ -1541,15 +1541,16 @@ while no account exists: `<scheme>://<primary private IPv4>:<port>`. The address
 on the default route (`_primary_private_ipv4`, a UDP `connect` that sends nothing), RFC 1918
 only (`local_address.is_rfc1918`). The port is `scope["server"]`'s, the one the connection
 reached. It is checked by connecting to that address (`_accepts_connections`), which also
-rules out a server bound to loopback. https only when the request reached Meshloom directly.
+rules out a server bound to loopback. https only when no trusted proxy sent the request.
 None in a container (`install_kind.in_container`), through the relay, and on any failure; it
 never raises. It gives an anonymous visitor a private address until the account exists,
 which the owner accepted to spare them the search.
 
-**Residual risk.** Two exposures cannot be seen from here: under Docker's userland proxy
-every client appears as the gateway (private), and a local tunnel that forwards without
-headers (`ssh -R`, `socat`, HAProxy in TCP mode) makes Internet visitors appear as
-127.0.0.1. On a machine reachable that way the first visitor can become administrator, on
+**Residual risk.** Some exposures cannot be seen from here, for example: Docker's userland
+proxy, where every client appears as the gateway (private), also for a port published over
+IPv6; a local tunnel that forwards without headers (`ssh -R`, `socat`, HAProxy in TCP mode),
+where Internet visitors appear as 127.0.0.1; a bare nginx `proxy_pass` (no forwarding header,
+no public `Host`); a router port forwarded with source NAT. On a machine reachable that way the first visitor can become administrator, on
 an upgraded database too. Create the account with `meshloom-admin create-admin` before
 publishing it.
 

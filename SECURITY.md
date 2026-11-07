@@ -99,9 +99,11 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   upgraded from an older version alike. From a public address, through an unlisted
   proxy, under a domain name (a web page can point its own name at a LAN address), or
   once a public address is declared, setup is refused. Meshloom cannot detect every
-  exposure: behind Docker's userland proxy every client looks local, and so does a
-  visitor arriving through a local tunnel that adds no forwarding header (`ssh -R`,
-  `socat`, HAProxy in TCP mode, seen as 127.0.0.1). On a machine reachable that way
+  exposure. For example, every client looks local behind Docker's userland proxy (also
+  for a port published over IPv6), behind a reverse proxy that adds no forwarding
+  header (a bare nginx `proxy_pass`), through a router port forwarded with source NAT,
+  and through a local tunnel that adds no forwarding header (`ssh -R`, `socat`, HAProxy
+  in TCP mode, seen as 127.0.0.1). On a machine reachable that way
   the first visitor can become administrator, so create the account with
   `meshloom-admin create-admin` before publishing it.
 - **Other web pages are kept out, with documented gaps.** CORS is same-origin

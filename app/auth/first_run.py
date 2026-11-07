@@ -25,11 +25,13 @@ the visitor to come back from the local network, at ``local_setup_url()`` when
 that address can be known. Home Assistant ingress is not concerned: setup is
 refused there anyway (403 ``auth_ingress_only``).
 
-Residual risk: two exposures cannot be seen from here. Docker's userland proxy
-shows every client as the gateway, and a local tunnel that forwards without
-headers (``ssh -R``, ``socat``, HAProxy in TCP mode) shows Internet visitors as
-127.0.0.1. Either lets the first visitor become administrator, on an upgraded
-database too. On such a machine the account is created with
+Residual risk: some exposures cannot be seen from here, for example Docker's
+userland proxy (every client shown as the gateway, also for a port published over
+IPv6), a local tunnel that forwards without headers (``ssh -R``, ``socat``, HAProxy
+in TCP mode: Internet visitors shown as 127.0.0.1), a bare nginx ``proxy_pass`` (no
+forwarding header, no public ``Host``) and a router port forwarded with source NAT.
+Each lets the first visitor become administrator, on an upgraded database too. On
+such a machine the account is created with
 ``meshloom-admin create-admin`` before it is published (``docs/dev/auth.md``).
 
 **Fail closed.** Setup is refused (503 ``auth_setup_unavailable``) until
@@ -142,9 +144,10 @@ async def local_setup_url(scope: MutableMapping[str, Any]) -> str | None:
     nothing to a visitor), through the relay (``scope["server"]`` is then the Remote
     hostname), without a private address, when nothing answers there, and on any
     failure. Never raises. The port is the one the connection reached, which a proxy
-    on the way does not change. The scheme is only https when this request reached
-    Meshloom directly: a trusted proxy's ``X-Forwarded-Proto`` says nothing about
+    on the way does not change. The scheme is only https when no trusted proxy
+    sent this request: its ``X-Forwarded-Proto`` says nothing about
     the LAN address, and plain http is what a local install serves."""
+    from app.auth.ratelimit import is_trusted_proxy
     from app.middleware import proxy_headers
     from app.services.install_kind import in_container
 
@@ -157,9 +160,8 @@ async def local_setup_url(scope: MutableMapping[str, Any]) -> str | None:
             return None
         if not await _accepts_connections(address, port):
             return None
-        client = scope.get("client")
-        direct = bool(client) and proxy_headers.peer_address(scope) == client[0]
-        scheme = "https" if direct and scope.get("scheme") == "https" else "http"
+        forwarded = is_trusted_proxy(proxy_headers.peer_address(scope), proxy_headers.current())
+        scheme = "https" if not forwarded and scope.get("scheme") == "https" else "http"
         return f"{scheme}://{address}:{port}"
     except Exception as exc:
         logger.debug("No local address to offer for first-run setup: %s", type(exc).__name__)

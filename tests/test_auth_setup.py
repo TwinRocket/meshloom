@@ -506,9 +506,18 @@ async def test_the_local_address_is_built_from_the_real_port_and_scheme():
         "http://192.168.1.5:9000"
     )
     assert await first_run.local_setup_url(_scope(scheme="https")) == "https://192.168.1.5:8000"
-    # A trusted proxy's X-Forwarded-Proto says nothing about the LAN address.
-    forwarded = _scope(scheme="https", state={proxy_headers.PEER_STATE_KEY: "192.168.1.2"})
-    assert await first_run.local_setup_url(forwarded) == "http://192.168.1.5:8000"
+
+
+@pytest.mark.usefixtures("on_a_lan")
+@pytest.mark.parametrize("client", ["8.8.8.8", "192.168.1.2"])  # with and without X-Forwarded-For
+async def test_a_trusted_proxys_scheme_says_nothing_about_the_lan_address(monkeypatch, client):
+    monkeypatch.setattr(proxy_headers, "current", lambda: ["192.168.1.2/32"])
+    scope = _scope(
+        scheme="https",
+        client=(client, 1),
+        state={proxy_headers.PEER_STATE_KEY: "192.168.1.2"},
+    )
+    assert await first_run.local_setup_url(scope) == "http://192.168.1.5:8000"
 
 
 @pytest.mark.usefixtures("on_a_lan")

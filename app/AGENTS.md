@@ -843,8 +843,9 @@ run as root).
   be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs).
 - Migration 101 adds the local accounts tables (`users`, `sessions`, `auth_audit`,
-  `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
-  (`tests/test_migrations/test_migration_101.py` compares the two schemas).
+  `auth_settings`); their DDL is in `SCHEMA_TABLES` too. The two differ as written (101 still has the
+  columns later migrations drop) and are equal only once the migrations have run
+  (`tests/test_migrations/test_migration_101.py` compares the results).
   Model, repository and rules: `docs/dev/auth.md`.
 - Migration 146 drops `auth_settings.setup_code_hash`: there is no installation code any more
   (`app/auth/first_run.py`).
