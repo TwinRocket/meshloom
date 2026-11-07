@@ -818,9 +818,11 @@ point, which opens the exported `ShareConsentDialog` and sends
 `open()` button) plus the textarea's `onPaste` in `MessageInput`, which hands a pasted image to the tab
 (`IncomingFile`, never into the text). `utils/imageDownscale.ts` decodes
 (`createImageBitmap`, `<img>` fallback), scales the longest side to 1600 px, re-encodes (JPEG 0.82; PNG kept
-with transparency; WebP when `toBlob` really yields it; GIF untouched, 5 MiB cap), which also strips EXIF;
+with transparency; WebP when `toBlob` really yields it; GIF untouched, 5 MiB cap), which also strips EXIF: the source file never leaves. A re-encode larger than the source is encoded again
+(`encodeWithin`: `RETRY_QUALITIES`, or `@jsquash/oxipng` for a PNG up to 1 Mpx, a lazy chunk through `loadOptional`): the first within the limit goes, else the smallest. The panel previews the prepared blob (object URL, revoked on change); the
+size summary (`chat.fileTab.summary`) renders under `import.meta.env.DEV` only;
 HEIC and other types are refused with a coded message (`chat.fileTab.error.*`, no upload). Size and type
-rules are pure (`fitWithin`, `classifySource`, `chooseOutputType`). The upload is `api.uploadShareFile`
+rules are pure (`fitWithin`, `classifySource`, `chooseOutputType`, `encodeWithin`). The upload is `api.uploadShareFile`
 (XHR, raw body, `X-Share-Mode: public`, progress, `AbortSignal`; `encrypted: {type, id}` switches to
 `X-Share-Mode: encrypted` with `X-Share-Conversation-Type` / `X-Share-Conversation-Id`, where a channel's
 id is its `share_conversation_id`, never its key (MSHL-378), and `name` adds `X-Share-Name` (percent-encoded,
@@ -879,7 +881,8 @@ A refusal that still happens must not end on an error screen:
   file that stays refused fails again after every boot: it starts over only when a failure comes
   over a minute after the last reload. So a lasting failure gives 3 reloads, and can never
   reload faster than once a minute after that. Without `sessionStorage` nothing can be counted,
-  so nothing reloads by itself.
+  so nothing reloads by itself. `loadOptional` wraps a lazy import the page can do without (oxipng in
+  the File tab): its failure gives null and no reload, so the user's work stays.
 - The boot guard, inline in `index.html`, follows the same rule with the same key when a module
   script or the stylesheet fails, since the app code may not run. It stops once the app has
   rendered. Its last message sets its own colours and background inline, in EN and FR, and the
