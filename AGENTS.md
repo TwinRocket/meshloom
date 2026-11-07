@@ -288,7 +288,7 @@ MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
   `scripts/setup/sync_installer_embeds.py`; the tests run it with `--check`.
   Keep `install.sh` under 126 000 bytes: `bash -c "$(curl ...)"` passes it as one
   argument, and Linux caps that at 128 KiB.
-- A doc change in `docs/user/` reaches meshloom.app only with the next release.
+- A doc change in `docs/user/` reaches meshloom.app only with the next release. Their frontmatter must be valid YAML (quote a `description` that contains ": "): `tests/test_docs_frontmatter_yaml.py` checks it, because an invalid file in a tag breaks every site build and a tag cannot be rewritten.
 - **Updater: the root side never reads anything the app writes.** The app only
   writes a trigger file; the root helper upgrades only from the signed source and
   publishes a status file the app only reads. Details in `app/AGENTS.md`, "Updates".
