@@ -1,5 +1,5 @@
 name: Meshloom
-version: "4.18.2"
+version: "4.18.3"
 slug: meshloom
 description: Talk over your MeshCore mesh — conversations, a live map of what your node hears, packet tools, and MQTT discovery
 url: https://github.com/TwinRocket/meshloom
@@ -43,31 +43,22 @@ usb: true
 # only the bus (mounted read-only at /run/dbus; talking over it still works).
 # Without this the transport is offered but every scan and connection fails.
 # The bus is not a narrow grant: the add-on runs as root and nothing mediates D-Bus,
-# so any code in it (extensions included) can ask host services such as systemd or logind
-# to act as root on the host. DOCS.md says so and advises disable_plugins when exposed.
+# so any code in it (bots included) can ask host services such as systemd or logind
+# to act as root on the host. DOCS.md says so and advises disable_bots when exposed.
 host_dbus: true
 
 # Everything the instance keeps: database, keys, settings.
 map:
   - addon_config:rw
 
-# The shared images cache (<addon_config>/share-cache, up to 200 MiB) is
-# rebuilt on demand, and share-tmp only holds uploads in progress: keep both out
-# of Home Assistant backups. So are the database copies made before a migration
-# (a second full database each, with its secrets).
-backup_exclude:
-  - share-cache
-  - share-tmp
-  - meshcore.db.schema*
-  - meshcore.db.copy-in-progress*
-  - meshcore.db.migration-in-progress
-
 options:
   log_level: INFO
   proxy_port: 5051
+  basic_auth_username: ""
+  basic_auth_password: ""
   # DEPRECATED, remove in the next release: copied once into Settings → Notifications.
   vapid_subject: ""
-  disable_plugins: false
+  disable_bots: false
 
 schema:
   log_level: list(DEBUG|INFO|WARNING|ERROR)
@@ -75,5 +66,7 @@ schema:
   # once here and pushed into Meshloom at startup; the field is read-only in the app
   # for that reason.
   proxy_port: port
+  basic_auth_username: str?
+  basic_auth_password: password?
   vapid_subject: str?
-  disable_plugins: bool?
+  disable_bots: bool?
