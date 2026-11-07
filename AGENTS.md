@@ -192,7 +192,7 @@ the gate (`CONTRIBUTING.md`).
 - `install.sh` embeds the public key, its fingerprint, the compose helper and
   the apt pin. After changing any of them, run
   `scripts/setup/sync_installer_embeds.py`; the tests run it with `--check`.
-- A doc change in `docs/user/` reaches meshloom.app only with the next release.
+- A doc change in `docs/user/` reaches meshloom.app only with the next release. Their frontmatter must be valid YAML (quote a `description` that contains ": "): `tests/test_docs_frontmatter_yaml.py` checks it, because an invalid file in a tag breaks every site build and a tag cannot be rewritten.
 - **Updater: the root side never reads anything the app writes.** The app only
   writes a trigger file; the root helper upgrades only from the signed source and
   publishes a status file the app only reads. Details in `app/AGENTS.md`, "Updates".

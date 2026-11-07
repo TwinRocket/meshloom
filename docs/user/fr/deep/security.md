@@ -1,6 +1,6 @@
 ---
 title: Sécurité
-description: Ce que Meshloom ne protège pas, et les quelques verrous qui existent : accès Basic, désactivation des bots, sauvegarde chiffrée.
+description: "Ce que Meshloom ne protège pas, et les quelques verrous qui existent : accès Basic, désactivation des bots, sauvegarde chiffrée."
 level: deep
 order: 20
 ---
