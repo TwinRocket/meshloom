@@ -104,7 +104,6 @@ _SECRET_FRAGMENTS = (
     "privatekey",
     "recoverycode",
     "secret",
-    "setupcode",
     "token",
 )
 _ALLOWED_KEY = re.compile(r"[a-z0-9_-]+")
@@ -1423,7 +1422,7 @@ class AuthAuditRepository:
         ts: int | None = None,
     ) -> int:
         """Append an audit row. ``details`` must hold no secret: a key such as
-        ``password``, ``apiKey``, ``blePin`` or ``setup_code``, or one with
+        ``password``, ``apiKey``, ``blePin`` or ``pairing_code``, or one with
         characters outside ``[a-z0-9_-]`` once folded, raises ``ValueError``.
 
         Text fields are truncated to ``_AUDIT_TEXT_LIMITS``; ``details`` over
@@ -1544,7 +1543,6 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
         ingress_default_role=row["ingress_default_role"],
         session_lifetime_days=row["session_lifetime_days"],
         audit_retention_days=row["audit_retention_days"],
-        setup_code_set=row["setup_code_hash"] is not None,
         require_2fa_for_admins=bool(row["require_2fa_for_admins"]),
         lan_login_free=bool(row["lan_login_free"]),
         addresses_identify_clients=bool(row["addresses_identify_clients"]),
@@ -1661,15 +1659,6 @@ class AuthSettingsRepository:
         return bool(row[0])
 
     @staticmethod
-    async def get_setup_code_hash() -> str | None:
-        async with db.readonly() as conn:
-            async with conn.execute("SELECT setup_code_hash FROM auth_settings WHERE id = 1") as c:
-                row = await c.fetchone()
-        if row is None:
-            raise AuthSettingsMissingError("auth_settings row missing")
-        return row[0]
-
-    @staticmethod
     async def ingress_admin_granted() -> bool:
         """Whether a Home Assistant identity was already made ``admin`` as the
         first one (migration 107). Never cleared: deleting that identity does
@@ -1721,16 +1710,6 @@ class AuthSettingsRepository:
             async with conn.execute(
                 "UPDATE auth_settings SET device_cookie_key = ? WHERE id = 1",
                 (secrets.token_hex(32),),
-            ) as cursor:
-                if cursor.rowcount != 1:
-                    raise AuthSettingsMissingError("auth_settings row missing")
-
-    @staticmethod
-    async def set_setup_code_hash(code_hash: str | None) -> None:
-        """Store the hash of the installation code (``app/auth/tokens.py``), or clear it."""
-        async with db.tx() as conn:
-            async with conn.execute(
-                "UPDATE auth_settings SET setup_code_hash = ? WHERE id = 1", (code_hash,)
             ) as cursor:
                 if cursor.rowcount != 1:
                     raise AuthSettingsMissingError("auth_settings row missing")

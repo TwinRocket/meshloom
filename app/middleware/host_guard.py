@@ -32,9 +32,9 @@ by a client). It runs inside ``TrustedProxyHeadersMiddleware`` (the ingress
 check needs the TCP peer it records), inside ``https_required`` (which reuses
 ``exempt``, ``public_urls`` and the refusal headers) and outside the auth gate.
 
-- **First run** (``app/auth/setup_code.request_exposed``) asks
-  ``name_cannot_be_rebound`` whatever the mode: a name that fails it needs the
-  installation code. It adds single-label names to the strict rule, because a Docker
+- **First run** (``app/auth/first_run.request_exposed``) asks
+  ``name_cannot_be_rebound`` whatever the mode: from a name that fails it, setup is
+  refused. It adds single-label names to the strict rule, because a Docker
   container's own host name is not the name its LAN users type.
 
 The list of observed names is what the access settings screen reads

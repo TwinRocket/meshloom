@@ -491,16 +491,16 @@ async def _reset_radio_proxy_runtime():
 @pytest.fixture(autouse=True)
 def _reset_auth_state():
     """No first-run preparation and no login delays at the start of each test."""
-    from app.auth import setup_code, webauthn
+    from app.auth import first_run, webauthn
     from app.auth.ratelimit import reset_login_limiter
     from app.auth.totp import reset_pending_logins
 
-    setup_code.reset_first_run_state()
+    first_run.reset_first_run_state()
     reset_login_limiter()
     reset_pending_logins()
     webauthn.reset_state()
     yield
-    setup_code.reset_first_run_state()
+    first_run.reset_first_run_state()
     reset_login_limiter()
     reset_pending_logins()
     webauthn.reset_state()

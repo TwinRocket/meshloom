@@ -29,6 +29,11 @@ def _in_container() -> bool:
     return DOCKERENV_PATH.exists() or CONTAINERENV_PATH.exists()
 
 
+def in_container() -> bool:
+    """Whether this process runs in a container, whatever the update helper says."""
+    return _in_container() or detect_install_kind()[0] in {"compose", "container", "addon"}
+
+
 def _package_helper_present() -> bool:
     return APPLY_UPDATE_BIN.exists() or UPDATE_SERVICE.exists()
 

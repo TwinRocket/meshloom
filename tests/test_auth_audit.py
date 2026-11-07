@@ -7,9 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.auth import audit, setup_code
+from app.auth import audit, first_run
 from app.repository.auth import AuthAuditRepository, AuthSettingsRepository
-from app.routers import auth as auth_router
 from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
 
 # Secret fixtures typed into the flows below; none may reach an audit row.
@@ -26,29 +25,20 @@ def _summary(rows):
     return [(row.action, row.outcome, row.via) for row in rows]
 
 
-@pytest.fixture(autouse=True)
-def _no_setup_delay(monkeypatch):
-    monkeypatch.setattr(auth_router, "SETUP_FAILURE_DELAY_S", 0)
-
-
 # --- Account events, through the real gate -----------------------------------
 
 
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
 async def test_account_flow_writes_one_row_per_event_with_actor_via_and_outcome():
-    await setup_code.prepare_first_run(existing_database=True)
-    code = await setup_code.issue_setup_code()
-    wrong_code = "00000000" if code != "00000000" else "11111111"
-    async with make_client() as client:
-        refused = await client.post(
-            "/api/auth/setup",
-            json={"username": ADMIN, "password": PASSWORD, "setup_code": wrong_code},
+    await first_run.prepare_first_run()
+    async with make_client(client=("8.8.8.8", 40000)) as outside:
+        refused = await outside.post(
+            "/api/auth/setup", json={"username": ADMIN, "password": PASSWORD}
         )
         assert refused.status_code == 403
-        done = await client.post(
-            "/api/auth/setup", json={"username": ADMIN, "password": PASSWORD, "setup_code": code}
-        )
+    async with make_client() as client:
+        done = await client.post("/api/auth/setup", json={"username": ADMIN, "password": PASSWORD})
         assert done.status_code == 200, done.text
         await client.post("/api/auth/logout")
 
@@ -92,8 +82,10 @@ async def test_account_flow_writes_one_row_per_event_with_actor_via_and_outcome(
         ("logout", "success", "lan"),
     ]
     anonymous = {("setup", "failure"), ("login", "failure")}
+    assert rows[0].ip == "8.8.8.8"  # the refused setup came from outside
+    assert rows[0].details == {"reason": "setup_local_only"}
     for row in rows:
-        assert row.ip == "127.0.0.1"
+        assert row.ip == ("8.8.8.8" if row is rows[0] else "127.0.0.1")
         if (row.action, row.outcome) in anonymous:
             assert row.actor_user_id is None
         else:
@@ -409,13 +401,9 @@ async def test_the_housekeeping_loop_runs_the_purge(monkeypatch):
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
 async def test_no_audit_row_holds_a_known_secret():
-    await setup_code.prepare_first_run(existing_database=True)
-    code = await setup_code.issue_setup_code()
+    await first_run.prepare_first_run()
     async with make_client() as client:
-        await client.post(
-            "/api/auth/setup",
-            json={"username": ADMIN, "password": PASSWORD, "setup_code": code},
-        )
+        await client.post("/api/auth/setup", json={"username": ADMIN, "password": PASSWORD})
         await client.post("/api/auth/logout")
         await client.post("/api/auth/login", json={"username": ADMIN, "password": WRONG_PASSWORD})
         await login(client)
@@ -427,7 +415,7 @@ async def test_no_audit_row_holds_a_known_secret():
             await client.put("/api/radio/private-key", json={"private_key": PRIVATE_KEY_HEX})
     await create_user("second", password=WRONG_PASSWORD, role="member")
 
-    secrets = [PASSWORD, NEW_PASSWORD, WRONG_PASSWORD, code, PRIVATE_KEY_HEX, session_cookie]
+    secrets = [PASSWORD, NEW_PASSWORD, WRONG_PASSWORD, PRIVATE_KEY_HEX, session_cookie]
     rows = await _rows()
     assert len(rows) >= 6
     for row in rows:

@@ -21,7 +21,11 @@ def _auth_schema(path: str) -> dict[tuple[str, str], str]:
             f"SELECT type, name, sql FROM sqlite_master WHERE tbl_name IN ({placeholders})",
             _AUTH_TABLES,
         ).fetchall()
-        schema = {(kind, name): " ".join((sql or "").split()) for kind, name, sql in rows}
+        # Spaces only: DROP COLUMN (migration 146) leaves a different gap before a comma.
+        schema = {
+            (kind, name): " ".join((sql or "").split()).replace(" ,", ",")
+            for kind, name, sql in rows
+        }
         for table in _AUTH_TABLES:
             schema[("info", table)] = repr(conn.execute(f"PRAGMA table_info({table})").fetchall())
     finally:
@@ -65,9 +69,9 @@ async def test_settings_row_has_the_defaults_and_rerun_is_harmless():
         await run_migrations(conn)
         cursor = await conn.execute(
             "SELECT COUNT(*), host_guard_mode, ingress_default_role, session_lifetime_days,"
-            " audit_retention_days, setup_code_hash FROM auth_settings"
+            " audit_retention_days FROM auth_settings"
         )
-        assert tuple(await cursor.fetchone()) == (1, "observe", "member", 30, 30, None)
+        assert tuple(await cursor.fetchone()) == (1, "observe", "member", 30, 30)
     finally:
         await conn.close()
 

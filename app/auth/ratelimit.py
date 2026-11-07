@@ -71,8 +71,7 @@ and per-IP rules apply to the client, the per-username slow-down does not
 (one client must not slow every device down; a 128-bit code needs no global
 rule). On a shared address no rule applies to it.
 
-Not covered: installation codes are answered one at a time
-(``app/routers/auth.py``); ``Authorization: Basic`` is never checked (MSHL-100). Concurrent attempts on one pair can each pass
+Not covered: ``Authorization: Basic`` is never checked (MSHL-100). Concurrent attempts on one pair can each pass
 ``check()`` before the first failure is recorded; the argon2id queue (10)
 bounds that burst.
 """
@@ -193,7 +192,7 @@ def is_trusted_proxy(peer: str | None, proxies: Iterable[str]) -> bool:
     """Whether the TCP peer is in one of ``proxies`` (``auth_settings.trusted_proxies``).
 
     Used by ``forwarded_by_untrusted_peer`` and by the exposed first run
-    (``app/auth/setup_code.request_exposed``). A peer that is not an address is not one."""
+    (``app/auth/first_run.request_exposed``). A peer that is not an address is not one."""
     address = local_address.parse_address(peer)
     return address is not None and any(address in ipaddress.ip_network(proxy) for proxy in proxies)
 

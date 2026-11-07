@@ -15,13 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from app.auth import fail_log, setup_code
+from app.auth import fail_log, first_run
 from app.auth.models import AuthSettings, TrustedNetworkRule
 from app.auth.providers import ingress
 from app.log_redaction import RedactingFormatter
 from app.middleware import proxy_headers
 from app.repository.auth import AuthSettingsRepository
-from app.routers import auth as auth_router
 from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
 from tests.test_auth_totp import _enrol, _password_step
 from tests.webauthn_authenticator import SoftAuthenticator
@@ -119,16 +118,14 @@ async def test_a_good_login_writes_nothing(lines):
     assert lines() == []
 
 
-async def test_setup_with_a_wrong_installation_code(lines, monkeypatch):
-    monkeypatch.setattr(auth_router, "SETUP_FAILURE_DELAY_S", 0)
-    await setup_code.prepare_first_run(existing_database=True)
-    async with make_client() as client:
+async def test_a_setup_refused_by_location_guesses_nothing_and_writes_no_line(lines):
+    await first_run.prepare_first_run()
+    async with make_client(client=("8.8.8.8", 40000)) as client:
         response = await client.post(
-            "/api/auth/setup",
-            json={"username": ADMIN, "password": PASSWORD, "setup_code": "1"},
+            "/api/auth/setup", json={"username": ADMIN, "password": PASSWORD}
         )
     assert response.status_code == 403
-    assert _one(lines(), "setup", "invalid_setup_code")["user"] == fail_log.user_field(ADMIN)
+    assert lines() == []
 
 
 async def test_second_factor_with_a_wrong_code(lines):

@@ -297,15 +297,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to start the Meshloom Remote relay client")
 
-    # Accounts: issue the installation code on an existing database with no
-    # account yet (app/auth/setup_code.py).
-    from app.auth.setup_code import prepare_first_run
+    # Accounts: the kiosk account, and what lets setup open (app/auth/first_run.py).
+    from app.auth.first_run import prepare_first_run
 
     try:
-        await prepare_first_run(existing_database=existing_database)
+        await prepare_first_run()
     except Exception:
         # Fail closed: setup answers 503 until a retry from the setup route succeeds
-        # (app/auth/setup_code.py), and every other route still needs an account.
+        # (app/auth/first_run.py), and every other route still needs an account.
         logger.exception("Failed to prepare the first-run account setup")
 
     # Share uploads left half-staged by a crash or a kill (app/services/share_upload.py).

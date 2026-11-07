@@ -1,7 +1,7 @@
 """Typed contracts of the local accounts tables (``app/repository/auth.py``).
 
 Secrets never sit on the general models: ``User`` has no password hash or TOTP
-secret, ``AuthSession`` no token hash, ``AuthSettings`` no setup code hash. The
+secret, ``AuthSession`` no token hash, ``AuthSettings`` no cookie key. The
 one model that carries a hash, ``UserCredentials``, wraps it in ``SecretStr``
 and hides inputs from validation errors (``app/AGENTS.md``, "Secrets").
 """
@@ -152,7 +152,6 @@ class AuthSettings(BaseModel):
     audit_retention_days: int = Field(
         default=366, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
     )
-    setup_code_set: bool = False
     # Admins with a password and no second factor reach only the enrolment
     # routes until they enrol (``app/auth/totp.py``). Off by default (Q16).
     require_2fa_for_admins: bool = False

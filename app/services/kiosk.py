@@ -1,4 +1,4 @@
-"""The Raspberry Pi kiosk image: host marker, ``kiosk`` account, setup banner code.
+"""The Raspberry Pi kiosk image: host marker, ``kiosk`` account, setup banner.
 
 ``/var/lib/meshloom/kiosk`` is a host-provisioned flag, the same class as
 ``MESHCORE_MANAGED_PORTS`` (``app/AGENTS.md``, "Host flags"): written by
@@ -9,9 +9,8 @@ user setting and is not in the user docs. With it:
 - the first start creates the ``kiosk`` account (role ``kiosk``, no password,
   provider ``system``) when it is absent. **No trusted-network rule is seeded**:
   the launcher signs in with a device token (below);
-- the installation code is issued even on a database created by this start (the
-  screen is in a room, the LAN is not), and the screen shows it while no
-  administrator exists (``kiosk_setup_code``);
+- while no administrator exists, the screen tells the user to create it from a
+  phone or computer on the same network, and waits (``kiosk_screen``);
 - the same start provisions the launcher's **device token** (T60, below).
 
 **Device token** (``docs/dev/auth.md``, "Kiosk device token"). The launcher
@@ -90,9 +89,6 @@ EXCHANGE_FAILURE_RATE = 10
 _bootstrap_hits: collections.deque[float] = collections.deque()
 _exchange_failures: collections.deque[float] = collections.deque()
 
-# The plaintext of the code issued at this start, for the kiosk screen only.
-_displayed_code: str | None = None
-
 
 def kiosk_host() -> bool:
     return KIOSK_MARKER.exists()
@@ -110,37 +106,10 @@ async def ensure_kiosk_user() -> None:
     logger.info("Kiosk host: created the %r account", KIOSK_USERNAME)
 
 
-def remember_displayed_code(code: str | None) -> None:
-    global _displayed_code
-    _displayed_code = code
-
-
-async def displayed_setup_code(scope: Scope, headers: Mapping[str, str]) -> str | None:
-    """The installation code for the kiosk screen, or None (fail closed).
-
-    Only on a kiosk host, only while the code issued at this start is still the
-    stored one (``meshloom-admin setup-code`` replaces it from another process),
-    and only to the request the kiosk browser makes: a direct loopback peer that
-    is no trusted proxy, carries no proxy header, did not come through the relay
-    or ingress, and passes the strict ``Host`` guard. Those are the checks of the
-    trusted-network provider (``rule_blocker``, whose loopback refusal is lifted
-    here because loopback is exactly the kiosk browser).
-    """
-    if _displayed_code is None or not kiosk_host():
-        return None
-    if not await direct_loopback_request(scope, headers):
-        return None
-    try:
-        from app.auth.tokens import hash_token
-        from app.repository.auth import AuthSettingsRepository
-
-        stored = await AuthSettingsRepository.get_setup_code_hash()
-    except Exception:
-        logger.exception("Kiosk setup code check failed; not shown")
-        return None
-    if stored is None or stored != hash_token(_displayed_code):
-        return None
-    return _displayed_code
+async def is_kiosk_screen(scope: Scope, headers: Mapping[str, str]) -> bool:
+    """Whether this request is the kiosk browser's: a kiosk host and a direct
+    loopback request (``direct_loopback_request``). Only chooses a banner."""
+    return kiosk_host() and await direct_loopback_request(scope, headers)
 
 
 async def direct_loopback_request(scope: Scope, headers: Mapping[str, str]) -> bool:

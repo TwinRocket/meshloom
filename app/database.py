@@ -329,8 +329,7 @@ CREATE TABLE IF NOT EXISTS auth_settings (
     ingress_default_role TEXT NOT NULL DEFAULT 'member'
         CHECK (ingress_default_role IN ('admin', 'member', 'viewer', 'kiosk')),
     session_lifetime_days INTEGER NOT NULL DEFAULT 30,
-    audit_retention_days INTEGER NOT NULL DEFAULT 366,
-    setup_code_hash TEXT
+    audit_retention_days INTEGER NOT NULL DEFAULT 366
 );
 
 INSERT OR IGNORE INTO auth_settings (id) VALUES (1);

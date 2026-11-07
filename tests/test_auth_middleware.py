@@ -68,7 +68,7 @@ async def test_public_routes_answer_anonymously_and_minimally():
         assert body == {
             "authenticated": False,
             "setup_required": False,
-            "setup_code_required": False,
+            "setup_local_only": False,
             "methods": {
                 "password": True,
                 "ingress": False,
@@ -77,6 +77,7 @@ async def test_public_routes_answer_anonymously_and_minimally():
                 "magic_link": False,
             },
             "secure": False,
+            "kiosk_screen": False,
         }
         assert "instance" not in body and "version" not in session.text
         assert session.headers["cache-control"] == "no-store"

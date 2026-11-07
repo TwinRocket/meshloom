@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from uvicorn.main import main as uvicorn_main
 
-from app.auth import middleware, setup_code
+from app.auth import first_run, middleware
 from app.auth.middleware import AuthMiddleware
 from app.auth.principal import get_principal
 from app.auth.providers import ingress
@@ -101,9 +101,7 @@ def test_a_relayed_request_is_never_ingress():
 
 
 async def test_first_ingress_visit_on_an_empty_database_creates_the_admin():
-    # A 4.18.x database: setup would ask for the installation code.
-    await setup_code.prepare_first_run(existing_database=True)
-    assert await AuthSettingsRepository.get_setup_code_hash() is not None
+    await first_run.prepare_first_run()
     async with make_client(client=SUPERVISOR) as client:
         anonymous = (await client.get("/api/auth/session")).json()
         assert anonymous["setup_required"] is True
@@ -119,7 +117,6 @@ async def test_first_ingress_visit_on_an_empty_database_creates_the_admin():
         assert first["authenticated"] is True
         assert first["setup_required"] is False
         assert first["user"]["role"] == "admin"
-        assert await AuthSettingsRepository.get_setup_code_hash() is None
 
         second = await client.get("/api/auth/session", headers=ha_headers(BOB_ID, "bob", "Bob"))
         assert second.json()["user"]["role"] == "member"
