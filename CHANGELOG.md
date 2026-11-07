@@ -1,16 +1,26 @@
 ## [Unreleased]
 
+---
+
+## [5.0.0-rc.4] - 2026-11-07
+
+Fourth release candidate of Meshloom 5.0. Creating the first account gets simpler. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new.
+
 ### Changed
 
-- **Passwords.** The minimum goes from 12 to 10 characters. Common passwords are still refused, and that list now covers shorter ones. Existing passwords keep working. `meshloom-admin` applies the same list.
 - **First account.** There is no installation code any more. From the local network, you create the administrator account directly, also after an upgrade and on the kiosk image. From anywhere else the page asks you to open Meshloom from the local network. On a machine you publish through a tunnel Meshloom cannot detect, create the account with `meshloom-admin create-admin` first ([details](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/en/deep/access.md#the-first-administrator)).
+- **Passwords.** The minimum goes from 12 to 10 characters. Common passwords are still refused, and that list now covers shorter ones. Existing passwords keep working. `meshloom-admin` applies the same list.
+- **Version check through Community.** Every Meshloom, member or not, now asks Community for the latest version, about every 6 hours. Some versions do not install automatically: a banner then links to the update settings, which explain why.
 
 ### Français
 
+Quatrième version candidate de Meshloom 5.0. Créer le premier compte devient plus simple. [Les notes de la rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) restent valables : avant d'essayer, limites connues et nouveautés.
+
 #### Changements
 
-- **Mots de passe.** Le minimum passe de 12 à 10 caractères. Les mots de passe courants restent refusés, et cette liste couvre maintenant les plus courts. Les mots de passe existants continuent de fonctionner. `meshloom-admin` applique la même liste.
 - **Premier compte.** Il n'y a plus de code d'installation. Depuis le réseau local, vous créez directement le compte administrateur, y compris après une mise à jour et sur l'image kiosque. Depuis ailleurs, la page vous demande d'ouvrir Meshloom depuis le réseau local. Sur une machine publiée par un tunnel que Meshloom ne peut pas détecter, créez d'abord le compte avec `meshloom-admin create-admin` ([détails](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/fr/deep/access.md#le-premier-administrateur)).
+- **Mots de passe.** Le minimum passe de 12 à 10 caractères. Les mots de passe courants restent refusés, et cette liste couvre maintenant les plus courts. Les mots de passe existants continuent de fonctionner. `meshloom-admin` applique la même liste.
+- **Vérification des versions par Community.** Chaque Meshloom, membre ou non, demande maintenant la dernière version à Community, environ toutes les 6 heures. Certaines versions ne s'installent pas automatiquement : un bandeau renvoie alors vers les réglages de mise à jour, qui expliquent pourquoi.
 
 ---
 
