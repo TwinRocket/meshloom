@@ -194,7 +194,9 @@ describe('Composer File tab', () => {
   it('previews the image that will be sent, from memory', async () => {
     setup();
     pick(jpeg());
-    expect(await screen.findByTestId('file-tab-preview')).toHaveAttribute('src', 'blob:preview');
+    const preview = await screen.findByTestId('file-tab-preview');
+    // The source is set in an effect, which can run just after the element appears.
+    await waitFor(() => expect(preview).toHaveAttribute('src', 'blob:preview'));
     expect(URL.createObjectURL).toHaveBeenCalledWith(prepared.blob);
     expect(upload).not.toHaveBeenCalled();
   });
