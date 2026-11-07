@@ -56,7 +56,7 @@ SOFTWARE.
 
 </details>
 
-### apprise (1.13.1) — BSD-2-Clause
+### apprise (2.1.0) — BSD-2-Clause
 
 <details>
 <summary>Full license text</summary>
@@ -91,7 +91,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
 
-### bleak (2.1.1) — MIT
+### bleak (3.0.2) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -110,7 +110,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 </details>
 
-### boto3 (1.43.93) — Apache-2.0
+### boto3 (1.43.118) — Apache-2.0
 
 <details>
 <summary>Full license text</summary>
@@ -296,7 +296,7 @@ Apache License
 
 </details>
 
-### fastapi (0.141.1) — MIT
+### fastapi (0.162.0) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -349,7 +349,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 </details>
 
-### meshcore (2.3.9.1) — MIT
+### meshcore (2.3.17) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -393,7 +393,7 @@ under the terms of *both* these licenses.
 
 </details>
 
-### pycryptodome (3.23.0) — BSD License; Public Domain
+### pycryptodome (3.24.1) — BSD License; Public Domain
 
 <details>
 <summary>Full license text</summary>
@@ -464,7 +464,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
 
-### pydantic-settings (2.15.0) — MIT
+### pydantic-settings (2.16.1) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1062,7 +1062,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 </details>
 
-### uvicorn (0.52.4) — BSD-3-Clause
+### uvicorn (0.54.0) — BSD-3-Clause
 
 <details>
 <summary>Full license text</summary>
@@ -1099,7 +1099,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
 
-### websockets (17.1) — BSD-3-Clause
+### websockets (17.3) — BSD-3-Clause
 
 <details>
 <summary>Full license text</summary>
@@ -1315,7 +1315,7 @@ SOFTWARE.
 
 </details>
 
-### @radix-ui/react-checkbox (1.3.11) — MIT
+### @radix-ui/react-checkbox (1.4.1) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1346,7 +1346,7 @@ SOFTWARE.
 
 </details>
 
-### @radix-ui/react-dialog (1.1.23) — MIT
+### @radix-ui/react-dialog (1.3.1) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1377,7 +1377,7 @@ SOFTWARE.
 
 </details>
 
-### @radix-ui/react-label (2.1.15) — MIT
+### @radix-ui/react-label (2.1.17) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1408,7 +1408,7 @@ SOFTWARE.
 
 </details>
 
-### @radix-ui/react-separator (1.1.15) — MIT
+### @radix-ui/react-separator (1.2.0) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1439,7 +1439,7 @@ SOFTWARE.
 
 </details>
 
-### @radix-ui/react-slot (1.3.3) — MIT
+### @radix-ui/react-slot (1.5.0) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1470,7 +1470,7 @@ SOFTWARE.
 
 </details>
 
-### @radix-ui/react-tabs (1.1.21) — MIT
+### @radix-ui/react-tabs (1.2.1) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1501,7 +1501,7 @@ SOFTWARE.
 
 </details>
 
-### @tanstack/react-virtual (3.14.12) — MIT
+### @tanstack/react-virtual (3.14.22) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1532,7 +1532,7 @@ SOFTWARE.
 
 </details>
 
-### @uiw/react-codemirror (4.25.11) — MIT
+### @uiw/react-codemirror (4.25.12) — MIT
 
 *License file not found in package.*
 
@@ -1817,7 +1817,7 @@ SOFTWARE.
 
 </details>
 
-### i18next (26.4.2) — MIT
+### i18next (26.5.10) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -1933,7 +1933,7 @@ SOFTWARE.
 
 </details>
 
-### maplibre-gl (6.13.0) — BSD-3-Clause
+### maplibre-gl (6.15.0) — BSD-3-Clause
 
 <details>
 <summary>Full license text</summary>
@@ -2237,7 +2237,7 @@ This product bundles QR Code Generator, which is available under a
 
 </details>
 
-### react (19.3.0) — MIT
+### react (19.3.1) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -2268,7 +2268,7 @@ SOFTWARE.
 
 </details>
 
-### react-dom (19.3.0) — MIT
+### react-dom (19.3.1) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -2299,7 +2299,7 @@ SOFTWARE.
 
 </details>
 
-### react-i18next (17.0.13) — MIT
+### react-i18next (17.1.8) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -2478,7 +2478,7 @@ SOFTWARE.
 
 </details>
 
-### tailwind-merge (3.6.0) — MIT
+### tailwind-merge (3.7.0) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -2540,7 +2540,7 @@ SOFTWARE.
 
 </details>
 
-### three (0.182.0) — MIT
+### three (0.186.1) — MIT
 
 <details>
 <summary>Full license text</summary>
@@ -2548,7 +2548,7 @@ SOFTWARE.
 ```
 The MIT License
 
-Copyright © 2010-2025 three.js authors
+Copyright © 2010-2026 three.js authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
