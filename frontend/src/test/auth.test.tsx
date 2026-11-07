@@ -13,7 +13,7 @@ import i18n from '../i18n';
 const base: AuthSessionInfo = {
   authenticated: false,
   setup_required: false,
-  setup_code_required: false,
+  setup_local_only: false,
   methods: { password: true, ingress: false },
 };
 const admin = { id: 1, username: 'owner', display_name: 'Olive', role: 'admin' as const };
@@ -57,6 +57,12 @@ const t = (key: string, options?: Record<string, unknown>) => i18n.t(key, option
  */
 const settled = () => act(async () => {});
 
+async function fillSetupForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(await screen.findByLabelText(t('auth.username')), 'owner');
+  await user.type(screen.getByLabelText(t('auth.password')), 'correct horse battery');
+  await user.type(screen.getByLabelText(t('auth.setup.confirmPassword')), 'correct horse battery');
+}
+
 beforeEach(async () => {
   await i18n.changeLanguage('fr');
 });
@@ -75,7 +81,6 @@ describe('session gate', () => {
       </SessionProvider>
     );
     await screen.findByRole('heading', { name: t('auth.setup.title') });
-    expect(screen.queryByLabelText(t('auth.setup.code'))).toBeNull();
     expect(screen.queryByTestId('app')).toBeNull();
 
     // Paste, not type: one change event per field instead of one re-render per key, so the
@@ -98,46 +103,36 @@ describe('session gate', () => {
     });
   });
 
-  it('asks for the installation code, with where to find it, on an existing database', async () => {
+  it('creates the administrator with no code to fetch', async () => {
     const user = userEvent.setup();
     const fetchFn = stubFetch({
-      'GET /auth/session': () =>
-        jsonResponse({ ...base, setup_required: true, setup_code_required: true }),
-      'POST /auth/setup': () =>
-        jsonResponse({ detail: { code: 'auth_setup_code_invalid', message: 'bad' } }, 403),
+      'GET /auth/session': () => jsonResponse({ ...base, setup_required: true }),
+      'POST /auth/setup': () => jsonResponse(signedIn),
     });
     render(
       <SessionProvider>
         <Probe />
       </SessionProvider>
     );
-    const code = await screen.findByLabelText(t('auth.setup.code'));
-    expect(screen.getByText(/docker logs/)).toBeInTheDocument();
-    expect(screen.getByText(/journalctl -u meshloom/)).toBeInTheDocument();
-    expect(screen.getByText(/Journal du module/)).toBeInTheDocument();
-
-    await user.type(code, '1234 5678');
-    await user.type(screen.getByLabelText(t('auth.username')), 'owner');
-    await user.type(screen.getByLabelText(t('auth.password')), 'correct horse battery');
-    await user.type(
-      screen.getByLabelText(t('auth.setup.confirmPassword')),
-      'correct horse battery'
-    );
+    await fillSetupForm(user);
     await user.click(screen.getByRole('button', { name: t('auth.setup.submit') }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(t('errors.auth_setup_code_invalid'));
+    expect(await screen.findByTestId('app')).toBeInTheDocument();
     const post = fetchFn.mock.calls.find(([, init]) => init?.method === 'POST')!;
-    expect(JSON.parse(String(post[1]!.body)).setup_code).toBe('1234 5678');
+    expect(JSON.parse(String(post[1]!.body))).toEqual({
+      username: 'owner',
+      password: 'correct horse battery',
+    });
   });
 
-  it('shows the kiosk banner with the installation code when the server sends it', async () => {
+  it('shows no form from outside the local network, only where to go', async () => {
     stubFetch({
       'GET /auth/session': () =>
         jsonResponse({
           ...base,
           setup_required: true,
-          setup_code_required: true,
-          kiosk_setup_code: '12345678',
+          setup_local_only: true,
+          setup_local_url: 'http://192.168.1.5:8000',
         }),
     });
     render(
@@ -145,8 +140,99 @@ describe('session gate', () => {
         <Probe />
       </SessionProvider>
     );
+    expect(await screen.findByText(t('auth.setup.localOnly.title'))).toBeInTheDocument();
+    expect(screen.getByText(t('auth.setup.localOnly.description'))).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'http://192.168.1.5:8000' })).toHaveAttribute(
+      'href',
+      'http://192.168.1.5:8000'
+    );
+    expect(screen.getByRole('link', { name: t('settings.common.learnMore') })).toHaveAttribute(
+      'href',
+      expect.stringContaining('/docs/first-run/')
+    );
+    expect(screen.queryByLabelText(t('auth.username'))).toBeNull();
+    expect(screen.queryByText(/meshloom-admin/)).toBeNull();
+  });
+
+  it('asks for the local network without an address when the server has none', async () => {
+    stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse({ ...base, setup_required: true, setup_local_only: true }),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    expect(await screen.findByText(t('auth.setup.localOnly.title'))).toBeInTheDocument();
+    expect(screen.getAllByRole('link')).toHaveLength(1); // the docs link alone
+    expect(screen.queryByLabelText(t('auth.username'))).toBeNull();
+  });
+
+  it('switches to the local network page when a submit is refused for that', async () => {
+    const user = userEvent.setup();
+    let refused = false;
+    stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse(
+          refused
+            ? {
+                ...base,
+                setup_required: true,
+                setup_local_only: true,
+                setup_local_url: 'http://10.0.0.4:8000',
+              }
+            : { ...base, setup_required: true }
+        ),
+      'POST /auth/setup': () => {
+        refused = true;
+        return jsonResponse({ detail: { code: 'auth_setup_local_only', message: 'no' } }, 403);
+      },
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    await fillSetupForm(user);
+    await user.click(screen.getByRole('button', { name: t('auth.setup.submit') }));
+
+    expect(await screen.findByText(t('auth.setup.localOnly.title'))).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'http://10.0.0.4:8000' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps every other setup error on the form', async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      'GET /auth/session': () => jsonResponse({ ...base, setup_required: true }),
+      'POST /auth/setup': () =>
+        jsonResponse({ detail: { code: 'auth_setup_unavailable', message: 'later' } }, 503),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    await fillSetupForm(user);
+    await user.click(screen.getByRole('button', { name: t('auth.setup.submit') }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(t('errors.auth_setup_unavailable'));
+    expect(screen.getByLabelText(t('auth.username'))).toBeInTheDocument();
+  });
+
+  it('shows the kiosk banner, with no code, on the kiosk screen', async () => {
+    stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse({ ...base, setup_required: true, kiosk_screen: true }),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
     expect(await screen.findByText(t('auth.setup.kioskBanner.title'))).toBeInTheDocument();
-    expect(screen.getByText('1234 5678')).toBeInTheDocument();
+    expect(screen.getByText(t('auth.setup.kioskBanner.body'))).toBeInTheDocument();
   });
 
   it('opens the kiosk session once the administrator was created elsewhere', async () => {
@@ -163,8 +249,7 @@ describe('session gate', () => {
                 authenticated: true,
                 user: kioskUser,
                 setup_required: true,
-                setup_code_required: true,
-                kiosk_setup_code: '12345678',
+                kiosk_screen: true,
               }),
       });
       render(
@@ -187,17 +272,16 @@ describe('session gate', () => {
     }
   });
 
-  it('shows no kiosk banner without the code', async () => {
+  it('shows no kiosk banner elsewhere', async () => {
     stubFetch({
-      'GET /auth/session': () =>
-        jsonResponse({ ...base, setup_required: true, setup_code_required: true }),
+      'GET /auth/session': () => jsonResponse({ ...base, setup_required: true }),
     });
     render(
       <SessionProvider>
         <Probe />
       </SessionProvider>
     );
-    await screen.findByLabelText(t('auth.setup.code'));
+    await screen.findByLabelText(t('auth.username'));
     expect(screen.queryByText(t('auth.setup.kioskBanner.title'))).not.toBeInTheDocument();
   });
 
@@ -444,8 +528,7 @@ describe('review fixes', () => {
   it('scrolls inside the page so the submit button is reachable on a small viewport', async () => {
     // jsdom does no layout: assert the classes that make the page scroll (body is overflow:hidden).
     stubFetch({
-      'GET /auth/session': () =>
-        jsonResponse({ ...base, setup_required: true, setup_code_required: true }),
+      'GET /auth/session': () => jsonResponse({ ...base, setup_required: true }),
     });
     render(
       <SessionProvider>

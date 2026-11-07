@@ -43,7 +43,7 @@ const ENROLL_URL = 'https://abc.meshloom.link/_meshloom/enroll#token=secret';
 const sessionOf = (role: AuthRole, via: AuthVia = 'lan'): AuthSessionInfo => ({
   authenticated: true,
   setup_required: false,
-  setup_code_required: false,
+  setup_local_only: false,
   methods: { password: true, ingress: false },
   user: { id: 1, username: 'root', display_name: 'Root', role },
   via,

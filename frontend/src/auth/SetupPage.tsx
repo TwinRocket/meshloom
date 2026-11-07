@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { api, formatApiError } from '../api';
+import { api, ApiError, formatApiError, getApiErrorCode } from '../api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { LearnMoreLink } from '../components/settings/LearnMoreLink';
 import { AuthLayout } from './AuthLayout';
 import { passwordStrength } from './passwordStrength';
 import { PASSWORD_MIN_LENGTH, noSessionReason, type AuthSessionInfo } from './types';
@@ -13,18 +14,20 @@ import { PASSWORD_MIN_LENGTH, noSessionReason, type AuthSessionInfo } from './ty
 export const KIOSK_SETUP_POLL_MS = 5000;
 
 /**
- * First run: create the administrator. A database that existed before the upgrade also
- * asks for the installation code the server printed, which proves the visitor can read
- * the server's log and is not just the first one to find the page.
+ * First run: create the administrator, from the local network. Anywhere else the server
+ * refuses, so the page says where to go instead of showing a form.
  */
 export function SetupPage({
-  setupCodeRequired,
-  kioskSetupCode,
+  setupLocalOnly = false,
+  setupLocalUrl,
+  kioskScreen = false,
   onDone,
 }: {
-  setupCodeRequired: boolean;
-  /** Set only on the kiosk screen: the code is shown there, nobody types on it. */
-  kioskSetupCode?: string;
+  setupLocalOnly?: boolean;
+  /** Where to go on the local network, when the server can tell. */
+  setupLocalUrl?: string;
+  /** This browser is the kiosk screen: nobody types on it. */
+  kioskScreen?: boolean;
   onDone: (session: AuthSessionInfo) => void;
 }) {
   const { t } = useTranslation();
@@ -32,18 +35,19 @@ export function SetupPage({
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [setupCode, setSetupCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The server can refuse a page that loaded as local (a public address declared since).
+  const [refused, setRefused] = useState<{ url?: string } | null>(null);
 
-  // The kiosk screen: nobody types on it, the administrator is created from a phone. Once
-  // that is done, its own session (the launcher's device token) opens the app.
+  // The kiosk screen: the administrator is created from a phone. Once that is done, its
+  // own session (the launcher's device token) opens the app.
   const onDoneRef = useRef(onDone);
   useEffect(() => {
     onDoneRef.current = onDone;
   });
   useEffect(() => {
-    if (!kioskSetupCode) return;
+    if (!kioskScreen) return;
     const timer = window.setInterval(() => {
       api.getAuthSession().then(
         (session) => {
@@ -55,7 +59,7 @@ export function SetupPage({
       );
     }, KIOSK_SETUP_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [kioskSetupCode]);
+  }, [kioskScreen]);
 
   const strength = passwordStrength(password);
   const mismatch = confirm.length > 0 && confirm !== password;
@@ -63,8 +67,7 @@ export function SetupPage({
     username.trim().length > 0 &&
     strength !== 'empty' &&
     strength !== 'tooShort' &&
-    confirm === password &&
-    (!setupCodeRequired || setupCode.trim().length > 0);
+    confirm === password;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -76,7 +79,6 @@ export function SetupPage({
         username: username.trim(),
         password,
         ...(displayName.trim() && { display_name: displayName.trim() }),
-        ...(setupCodeRequired && { setup_code: setupCode.trim() }),
       });
       const reason = noSessionReason(session);
       if (reason) {
@@ -87,50 +89,56 @@ export function SetupPage({
       }
       onDone(session);
     } catch (err) {
-      setError(formatApiError(err, t));
       setBusy(false);
+      if (
+        err instanceof ApiError &&
+        getApiErrorCode(err.detail)?.code === 'auth_setup_local_only'
+      ) {
+        setRefused({});
+        api.getAuthSession().then(
+          (session) => setRefused({ url: session.setup_local_url }),
+          () => {
+            // The message alone still says what to do.
+          }
+        );
+        return;
+      }
+      setError(formatApiError(err, t));
     }
+  }
+
+  if (setupLocalOnly || refused) {
+    const localUrl = setupLocalUrl ?? refused?.url;
+    return (
+      <AuthLayout
+        title={t('auth.setup.localOnly.title')}
+        description={t('auth.setup.localOnly.description')}
+      >
+        <div className="space-y-2 text-center text-sm">
+          {localUrl && (
+            <p>
+              <a href={localUrl} className="font-medium underline underline-offset-2">
+                {localUrl}
+              </a>
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            <LearnMoreLink page="first-run" />
+          </p>
+        </div>
+      </AuthLayout>
+    );
   }
 
   return (
     <AuthLayout title={t('auth.setup.title')} description={t('auth.setup.description')}>
-      {kioskSetupCode && (
+      {kioskScreen && (
         <div role="status" className="space-y-1 rounded-md border border-border bg-muted/50 p-3">
           <p className="text-sm font-medium">{t('auth.setup.kioskBanner.title')}</p>
           <p className="text-xs text-muted-foreground">{t('auth.setup.kioskBanner.body')}</p>
-          <p
-            className="text-center font-mono text-2xl tracking-widest"
-            aria-label={t('auth.setup.kioskBanner.code', { code: kioskSetupCode })}
-          >
-            {kioskSetupCode.replace(/^(\d{4})(\d{4})$/, '$1 $2')}
-          </p>
         </div>
       )}
       <form onSubmit={submit} className="space-y-4" noValidate>
-        {setupCodeRequired && (
-          <div className="space-y-1.5">
-            <Label htmlFor="auth-setup-code">{t('auth.setup.code')}</Label>
-            <Input
-              id="auth-setup-code"
-              name="setup-code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              autoFocus
-              value={setupCode}
-              onChange={(event) => setSetupCode(event.target.value)}
-              aria-describedby="auth-setup-code-hint"
-            />
-            <div id="auth-setup-code-hint" className="space-y-1 text-xs text-muted-foreground">
-              <p>{t('auth.setup.codeHint')}</p>
-              <ul className="list-disc space-y-0.5 pl-4">
-                <li>{t('auth.setup.codeWhereDocker')}</li>
-                <li>{t('auth.setup.codeWhereSystemd')}</li>
-                <li>{t('auth.setup.codeWhereAddon')}</li>
-                <li>{t('auth.setup.codeWhereCli')}</li>
-              </ul>
-            </div>
-          </div>
-        )}
         <div className="space-y-1.5">
           <Label htmlFor="auth-username">{t('auth.username')}</Label>
           <Input
@@ -140,7 +148,7 @@ export function SetupPage({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            autoFocus={!setupCodeRequired}
+            autoFocus
             value={username}
             onChange={(event) => setUsername(event.target.value)}
           />
