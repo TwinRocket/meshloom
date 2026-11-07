@@ -38,8 +38,26 @@ export function resetPendingReload(): void {
   pending = false;
 }
 
+let optionalLoads = 0;
+
+/**
+ * Run a lazy import the page can do without: a failure gives null and never reloads, which would
+ * throw away what the user is working on. A required chunk failing meanwhile gets no reload either,
+ * and shows its own error.
+ */
+export async function loadOptional<T>(load: () => Promise<T>): Promise<T | null> {
+  optionalLoads += 1;
+  try {
+    return await load();
+  } catch {
+    return null;
+  } finally {
+    optionalLoads -= 1;
+  }
+}
+
 export function installPreloadErrorHandler(target: Window = window): void {
   target.addEventListener('vite:preloadError', (event) => {
-    if (scheduleReload()) event.preventDefault();
+    if (optionalLoads === 0 && scheduleReload()) event.preventDefault();
   });
 }

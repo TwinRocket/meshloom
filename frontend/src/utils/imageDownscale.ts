@@ -3,18 +3,30 @@
  *
  * The browser decodes the image, scales it so its longest side is at most
  * `MAX_SIDE` and re-encodes it: that is what keeps the upload small on a mobile
- * link and what strips the EXIF block (location, camera, time). Native APIs only
- * (createImageBitmap, canvas): no WebCrypto, so it works on plain HTTP. A GIF is
+ * link and what strips the EXIF block (location, camera, time). createImageBitmap
+ * and canvas, plus oxipng's WebAssembly for a rare PNG: no WebCrypto, so it works on
+ * plain HTTP. A GIF is
  * sent untouched (re-encoding would flatten the animation) and only checked
  * against its cap.
  *
  * The size and type decisions are pure functions so they are unit-testable
  * without a canvas; `downscaleImage` is the thin DOM part around them.
+ *
+ * Apart from a GIF, the source file itself never leaves, so the removed metadata needs no proof. A
+ * re-encode can outgrow a small, well-compressed source (a canvas PNG is plain
+ * 32-bit RGBA, without the source's palette): it is then encoded again, at a lower
+ * quality or as an optimised PNG, and the smallest try goes (MSHL-474).
  */
+
+import { loadOptional } from './chunkReload';
 
 /** Longest side of an uploaded image, in pixels. */
 export const MAX_SIDE = 1600;
 export const JPEG_QUALITY = 0.82;
+/** Tried in order when the first lossy encoding outgrows the source. */
+export const RETRY_QUALITIES = [0.7, 0.6, 0.5];
+/** Above this oxipng would hold the page for too long (it runs on the main thread). */
+const MAX_OPTIMISED_PIXELS = 1_000_000;
 /** Caps of the share service (contract "Files API v1"): a stored image, a GIF. */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const MAX_GIF_BYTES = 5 * 1024 * 1024;
@@ -200,6 +212,35 @@ function canEncodeWebp(): Promise<boolean> {
 }
 
 /**
+ * The first encoding within `limit`, else the smallest one. Later encoders only run
+ * when needed, and one that yields nothing is skipped.
+ */
+export async function encodeWithin(
+  limit: number,
+  encoders: Array<() => Promise<Blob | null>>
+): Promise<Blob | null> {
+  let best: Blob | null = null;
+  for (const encode of encoders) {
+    const blob = await encode();
+    if (blob && (!best || blob.size < best.size)) best = blob;
+    if (best && best.size <= limit) break;
+  }
+  return best;
+}
+
+/** A PNG rebuilt from the pixels by oxipng. Its code loads here, only for the rare image that needs it. */
+async function optimisedPng(ctx: CanvasRenderingContext2D, size: Dimensions): Promise<Blob | null> {
+  if (size.width * size.height > MAX_OPTIMISED_PIXELS) return null;
+  // When this fails the canvas encoding stands.
+  return loadOptional(async () => {
+    const { optimise } = await import('@jsquash/oxipng');
+    const pixels = ctx.getImageData(0, 0, size.width, size.height);
+    const png = await optimise(pixels, { level: 2, optimiseAlpha: true });
+    return new Blob([png], { type: 'image/png' });
+  });
+}
+
+/**
  * Decode, scale and re-encode `file`. Throws `ImageRefusedError` (never a bare
  * message) when the file cannot be sent: HEIC, another type, undecodable, or
  * still over the service's cap after encoding.
@@ -235,10 +276,24 @@ export async function downscaleImage(file: File): Promise<PreparedImage> {
     // Transparency only matters for the types that can carry it.
     const hasAlpha = (kind === 'image/png' || kind === 'image/webp') && sampleHasAlpha(ctx, output);
     const type = chooseOutputType(kind, hasAlpha, kind === 'image/webp' && (await canEncodeWebp()));
-    const blob = await toBlob(canvas, type, type === 'image/png' ? undefined : JPEG_QUALITY);
-    if (!blob || blob.type !== type) throw new ImageRefusedError('decode');
-    if (blob.size > maxBytesFor(type)) throw new ImageRefusedError('tooLarge');
-    return { blob, type, original, output, originalBytes: file.size, bytes: blob.size };
+    const encodeAs = async (quality?: number) => {
+      const encoded = await toBlob(canvas, type, quality);
+      return encoded?.type === type ? encoded : null;
+    };
+    const optimise = () => optimisedPng(ctx, output);
+    const encoders =
+      type === 'image/png'
+        ? [() => encodeAs(), optimise]
+        : kind === 'image/png'
+          ? // A PNG without transparency is a drawing when JPEG cannot beat it: stay lossless.
+            [() => encodeAs(JPEG_QUALITY), optimise]
+          : [JPEG_QUALITY, ...RETRY_QUALITIES].map((quality) => () => encodeAs(quality));
+    const limit = Math.min(file.size, MAX_UPLOAD_BYTES);
+    const blob = await encodeWithin(limit, encoders);
+    if (!blob) throw new ImageRefusedError('decode');
+    const sent = blob.type as OutputType;
+    if (blob.size > maxBytesFor(sent)) throw new ImageRefusedError('tooLarge');
+    return { blob, type: sent, original, output, originalBytes: file.size, bytes: blob.size };
   } finally {
     decoded.close();
   }

@@ -6,6 +6,7 @@ import { LazyBoundary } from '../components/LazyBoundary';
 import i18n from '../i18n';
 import {
   installPreloadErrorHandler,
+  loadOptional,
   resetPendingReload,
   scheduleReload,
 } from '../utils/chunkReload';
@@ -102,6 +103,43 @@ describe('chunk reload guard', () => {
     target.dispatchEvent(last);
     Object.defineProperty(window, 'location', { configurable: true, value: original });
     expect(last.defaultPrevented).toBe(false);
+  });
+});
+
+describe('loadOptional', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    resetPendingReload();
+  });
+
+  it('gives the result of a load that works', async () => {
+    await expect(loadOptional(async () => 'module')).resolves.toBe('module');
+  });
+
+  it('gives null and schedules no reload when the load fails', async () => {
+    const target = new EventTarget();
+    installPreloadErrorHandler(target as unknown as Window);
+    const event = new Event('vite:preloadError', { cancelable: true });
+    const result = await loadOptional(async () => {
+      target.dispatchEvent(event);
+      throw new Error('chunk 404');
+    });
+    expect(result).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+    expect(sessionStorage.getItem('meshloom-boot-reloads')).toBeNull();
+  });
+
+  it('leaves the reload guard on once it is over', async () => {
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockReturnValue(0 as never);
+    const target = new EventTarget();
+    installPreloadErrorHandler(target as unknown as Window);
+    await loadOptional(async () => {
+      throw new Error('chunk 404');
+    });
+    const event = new Event('vite:preloadError', { cancelable: true });
+    target.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    setTimeoutSpy.mockRestore();
   });
 });
 

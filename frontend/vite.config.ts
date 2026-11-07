@@ -10,6 +10,10 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Loads its .wasm relative to its own module, which pre-bundling would break in dev.
+  optimizeDeps: {
+    exclude: ['@jsquash/oxipng'],
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,

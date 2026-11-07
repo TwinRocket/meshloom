@@ -13,6 +13,7 @@
       "dropHere": "Déposez la photo pour la préparer",
       "choose": "Choisir une photo",
       "preparing": "Préparation de la photo...",
+      "previewAlt": "Aperçu de l'image à envoyer",
       "summary": "{{type}}, {{before}} avant, {{after}} après ({{width}} x {{height}} px). La position et les données de l'appareil sont retirées.",
       "caption": "Légende (facultative)",
       "budget": "{{used}}/{{limit}} octets",

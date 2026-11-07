@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   MAX_GIF_BYTES,
   MAX_SIDE,
   chooseOutputType,
   classifySource,
+  encodeWithin,
   fitWithin,
   isHeic,
   maxBytesFor,
@@ -63,5 +64,38 @@ describe('maxBytesFor', () => {
   it('caps a GIF lower than other images', () => {
     expect(maxBytesFor('image/gif')).toBe(MAX_GIF_BYTES);
     expect(maxBytesFor('image/jpeg')).toBeGreaterThan(MAX_GIF_BYTES);
+  });
+});
+
+describe('encodeWithin', () => {
+  const blobOf = (size: number) => new Blob([new Uint8Array(size)]);
+
+  it('stops at the first encoding within the limit', async () => {
+    const later = vi.fn(async () => blobOf(1));
+    const blob = await encodeWithin(10, [async () => blobOf(10), later]);
+    expect(blob?.size).toBe(10);
+    expect(later).not.toHaveBeenCalled();
+  });
+  it('tries further until one fits', async () => {
+    const blob = await encodeWithin(10, [
+      async () => blobOf(30),
+      async () => blobOf(20),
+      async () => blobOf(9),
+      async () => blobOf(1),
+    ]);
+    expect(blob?.size).toBe(9);
+  });
+  it('sends the smallest when none fits, whatever the order', async () => {
+    const blob = await encodeWithin(10, [
+      async () => blobOf(30),
+      async () => blobOf(20),
+      async () => blobOf(25),
+    ]);
+    expect(blob?.size).toBe(20);
+  });
+  it('skips an encoder that yields nothing, and keeps what it has', async () => {
+    expect((await encodeWithin(10, [async () => null, async () => blobOf(5)]))?.size).toBe(5);
+    expect((await encodeWithin(10, [async () => blobOf(30), async () => null]))?.size).toBe(30);
+    expect(await encodeWithin(10, [async () => null])).toBeNull();
   });
 });
