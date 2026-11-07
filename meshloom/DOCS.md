@@ -68,7 +68,7 @@ can sign in, set `disable_plugins` (see below) to lock every extension off.
 Opened from the sidebar, Meshloom signs you in with your Home Assistant user:
 no Meshloom password and no account creation page, also after an update from
 4.18. The first Home Assistant user to open it becomes its administrator, even
-if a Meshloom administrator already exists (one made with the installation code
+if a Meshloom administrator already exists (one made on a published port
 or with `meshloom-admin`): the sidebar is the add-on's way in and must always reach an
 administrator. The next ones get the **Member** role, which can read and send
 but not change settings. Only Home Assistant administrators see the Meshloom
@@ -145,7 +145,7 @@ yours (and list the tunnel or proxy in **Trusted proxies**, so Meshloom sees
 HTTPS and the real visitor). Ingress is never refused for its name and keeps
 working meanwhile; the two ways in are independent. A published port is
 reachable by anything that can route to that machine: it asks for a Meshloom
-account and password (one created on that port with the installation code, or
+account and password (one created on that port from the local network, or
 with `meshloom-admin`, see *Recovering access*). The old `basic_auth_*` options
 are gone: HTTP Basic auth is removed.
 

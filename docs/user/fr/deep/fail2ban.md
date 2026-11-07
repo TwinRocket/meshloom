@@ -7,7 +7,7 @@ order: 24.5
 
 Meshloom ralentit déjà quelqu’un qui devine un mot de passe ([Les délais de connexion](/docs/deep/access/#les-délais-de-connexion)). [fail2ban](https://github.com/fail2ban/fail2ban) ajoute un blocage au niveau du pare-feu : une adresse qui échoue cinq fois en dix minutes ne peut plus joindre le port 8000 du tout, pendant une heure, puis plus longtemps à chaque retour. C’est facultatif, et désactivé tant que vous ne l’activez pas.
 
-Chaque mot de passe, code, passkey, jeton ou code d’installation refusé écrit une ligne commençant par `AUTH_FAIL` dans le journal de Meshloom, avec l’adresse d’où il vient. fail2ban surveille ces lignes. Rien dedans n’identifie le compte : seulement un code court qui change à chaque redémarrage.
+Chaque mot de passe, code, passkey ou jeton refusé écrit une ligne commençant par `AUTH_FAIL` dans le journal de Meshloom, avec l’adresse d’où il vient. fail2ban surveille ces lignes. Rien dedans n’identifie le compte : seulement un code court qui change à chaque redémarrage.
 
 ## Le blocage intégré et fail2ban
 

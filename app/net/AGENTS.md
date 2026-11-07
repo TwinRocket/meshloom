@@ -306,7 +306,7 @@ above, and `pairing.is_lan_host`, `backup.endpoint_looks_private` and
   (`100.64.0.0/10` and Tailscale's IPv6 `fd7a:115c:a1e0::/48`, inside
   `fc00::/7`). A tailnet address is a client: it can be banned and an
   `AUTH_FAIL` line from such a peer is never `proxied=1`.
-- Callers: `ratelimit.client_is_public` (login panel hint, `setup_code`
+- Callers: `ratelimit.client_is_public` (login panel hint, `first_run`
   exposure), `fail_log` (`proxied`, via `is_ban_exempt`), `ip_ban.bannable`/`check`
   (`is_ban_exempt` plus the host's on-link global IPv6 prefixes from
   `/proc/net/if_inet6` and `/proc/net/ipv6_route`), `ip_ban.is_local` (both
