@@ -90,6 +90,8 @@ _IATA_RE = re.compile(r"^[A-Z]{3}$")
 IATA_SUGGEST_PATH = "/v1/iata/suggest"
 IATA_SUGGEST_TIMEOUT_SECONDS = 5.0
 _STATS_TIMEOUT_SECONDS = 8.0
+# Opted-out instances use this route: no version, nothing that tells them apart.
+RELEASE_CHECK_USER_AGENT = "Meshloom"
 # Stats sample upserts are 30/hour/pubkey. After a 429, stop POSTing until that
 # window has elapsed instead of retrying every catalogue pass.
 SAMPLE_QUOTA_BACKOFF_SECONDS = 3600.0
@@ -1368,14 +1370,18 @@ async def fetch_meshloom_latest() -> dict[str, Any] | None:
 
     The one call that does not ask the egress guard: the owner authorised this
     route for every instance, opted out or waiting for a position included. So it
-    reads no Community state, sends no JWT, no parameter and no body, and goes
-    neither through ``stats_request`` nor near the breaker, which it can neither
+    reads no Community state, sends no JWT, no parameter and no body, says only
+    ``User-Agent: Meshloom`` (no version), and goes neither through ``stats_request`` nor near the breaker, which it can neither
     feed nor be stopped by. ``community_teardown()`` can still cancel it.
     """
     url = f"{normalize_api_base(DEFAULT_API_BASE)}/v1/meshloom/latest"
     try:
         response = await _community_http(
-            "GET", url, generation=_egress_generation, timeout=_STATS_TIMEOUT_SECONDS
+            "GET",
+            url,
+            generation=_egress_generation,
+            timeout=_STATS_TIMEOUT_SECONDS,
+            headers={"User-Agent": RELEASE_CHECK_USER_AGENT},
         )
     except HTTPException:
         return None

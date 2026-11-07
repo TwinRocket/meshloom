@@ -63,7 +63,7 @@ never asks the guard at all; the others are each a context variable read by
 
 | Exception | Variable | Allowed |
 |---|---|---|
-| Release check (owner decision, 2026-11-07) | none: `fetch_meshloom_latest` | public `GET /v1/meshloom/latest` only, every instance, every 6 h; no JWT, no state read, no breaker |
+| Release check (owner decision, 2026-11-07) | none: `fetch_meshloom_latest` | public `GET /v1/meshloom/latest` only, every instance, every 6 h; no JWT, no state read, no breaker, `User-Agent: Meshloom` without a version |
 | Join or IATA bind | `_bind_state` | `PUT /v1/me/iata`, also while waiting |
 | Opt-out call and its manual retry | `_opt_out_state` | `POST /v1/me/opt-out` only |
 | IATA suggestion | `_iata_suggest_state` | `GET /v1/iata/suggest` only; not during an opt-out |

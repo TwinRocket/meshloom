@@ -121,6 +121,11 @@ def _hold_reason(hold: Any) -> dict[str, str] | None:
     return reason
 
 
+def _release(version: Version) -> Version:
+    """The version without pre/post/dev parts. Not ``.release``: (5, 0) must equal (5, 0, 0)."""
+    return Version(version.base_version)
+
+
 def _parse_hold_below(hold: Any) -> Version | None:
     below = hold.get("below") if isinstance(hold, dict) else None
     if not isinstance(below, str):
@@ -136,9 +141,11 @@ def _resolve_hold(
 ) -> tuple[bool, dict[str, str] | None]:
     """Whether ``auto_update_hold`` stops auto-apply from ``current`` to ``latest``.
 
-    It applies when ``current < below <= latest``. A hold whose ``below`` cannot be
-    read fails closed: it applies to any update that crosses a major version.
-    Absent or null means no hold (Community may not send the field yet).
+    It applies when ``current < below <= latest``, comparing releases without their
+    pre-release part: a 5.0.0-rc.3 instance is not below 5.0.0, and a 5.0.0-rc.1
+    ``latest`` does reach it. A hold whose ``below`` cannot be read fails closed: it
+    applies to any update that crosses a major version. Absent or null means no hold
+    (Community may not send the field yet).
     """
     global _warned_unparsable_hold
     hold = payload.get("auto_update_hold") if payload else None
@@ -156,7 +163,7 @@ def _resolve_hold(
             logger.warning("Unreadable auto_update_hold from Community: %.120r", hold)
         applies = latest_version.major > current_version.major
     else:
-        applies = current_version < below <= latest_version
+        applies = _release(current_version) < _release(below) <= _release(latest_version)
     return (True, _hold_reason(hold)) if applies else (False, None)
 
 

@@ -493,6 +493,7 @@ class TestCommunityOffNoEgress:
             assert request.content == b""
             assert "authorization" not in request.headers
             assert "cookie" not in request.headers
+            assert request.headers["user-agent"] == "Meshloom"
 
     async def test_full_backup_restore_job_makes_no_egress(
         self, backup_db, egress, cleanup_community

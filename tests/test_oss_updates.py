@@ -97,8 +97,12 @@ class TestFetchMeshloomLatest:
             payload = await fetch_meshloom_latest()
 
         assert payload == _STATS_PAYLOAD
-        # Exactly these arguments: no header, no parameter, no body.
-        client.request.assert_awaited_once_with("GET", f"{DEFAULT_API_BASE}/v1/meshloom/latest")
+        # Exactly these arguments: a bare User-Agent, no other header, no parameter, no body.
+        client.request.assert_awaited_once_with(
+            "GET",
+            f"{DEFAULT_API_BASE}/v1/meshloom/latest",
+            headers={"User-Agent": "Meshloom"},
+        )
         mint.assert_not_called()
         stats_req.assert_not_called()
         read_state.assert_not_called()
@@ -455,6 +459,10 @@ class TestHoldRule:
             ("4.18.3", "5.2.1", True),
             ("4.18.3", "4.18.4", False),  # latest is below it
             ("5.0.0", "5.0.1", False),  # already past it
+            ("5.0.0-rc.3", "5.0.0", False),  # a pre-release of it is not below it
+            ("5.0.0-rc.3", "5.0.1", False),
+            ("4.18.3", "5.0.0-rc.1", True),  # a pre-release of it does reach it
+            ("4.18.3-rc.1", "5.0.0", True),
         ],
     )
     def test_applies_only_when_current_below_latest(self, current, latest, held):
@@ -462,6 +470,11 @@ class TestHoldRule:
         assert status["update_available"] is True
         assert status["auto_update_held"] is held
         assert status["auto_update_hold_reason"] == (_REASON if held else None)
+
+    @pytest.mark.parametrize("below", ["5.0", "v5.0.0", "5.0.0-rc.1"])
+    def test_below_is_compared_as_a_release(self, below):
+        assert _status("4.18.3", "5.0.0", _hold(below=below))["auto_update_held"] is True
+        assert _status("5.0.0-rc.3", "5.0.0", _hold(below=below))["auto_update_held"] is False
 
     def test_field_absent_is_no_hold(self):
         import app.services.oss_updates as oss_updates
