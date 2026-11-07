@@ -82,8 +82,8 @@ docker-compose.dev.yaml  runs ghcr.io/twinrocket/meshloom:edge (never builds; se
   keeps a strong reference, logs exceptions and is drained at shutdown. A
   long-lived loop may use `create_task` only if it keeps the task in an
   attribute and cancels it at shutdown.
-- **Community egress.** Opted out means no connection at all to the Community
-  hosts. Every egress goes through the guard in
+- **Community egress.** Opted out means no connection to the Community hosts but
+  the public release check (`fetch_meshloom_latest`). Every other egress goes through the guard in
   `app/services/meshloom_community.py` (`community_egress_state()`); never add a
   call path around it. The few bounded exceptions and the "waiting for a
   position" level are in `app/AGENTS.md`. The radio's position leaves only in

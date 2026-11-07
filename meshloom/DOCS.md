@@ -120,11 +120,12 @@ it. Joining is your choice: in **Settings → Meshloom Community**, enter the
 Community then receives the raw packets your radio hears, and in return names
 hops, draws RF locate zones and feeds the Live page. To leave, click **Leave
 Meshloom Community** in the same place and confirm: every connection to
-Community stops at once, without a restart, and the update check then asks
-GitHub only, every 6 hours. The one exception: if Community surely did not get
-the opt-out and the broker could not be reached at that moment, Meshloom
-reconnects, only to delete your node's leftover status, a few tries within
-24 hours at most, then never again.
+Community stops at once, without a restart, except the version check: every
+Meshloom, joined or not, asks `api.meshloom.app` for the latest version every
+6 hours, which sends nothing but your IP address. The one other exception: if
+Community surely did not get the opt-out and the broker could not be reached at
+that moment, Meshloom reconnects, only to delete your node's leftover status, a
+few tries within 24 hours at most, then never again.
 Details: <https://meshloom.app/en/docs/deep/community/>.
 
 ## Where the data lives

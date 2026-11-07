@@ -33,7 +33,7 @@ hypothesis: check it against the code. Constants are named so you can grep them.
   unexpected body gives 502.
 - `CommunityBreaker`: 3 consecutive failures (`BREAKER_FAILURE_THRESHOLD`) open it
   for 30 s (`BREAKER_OPEN_SECONDS`, 503 without network), then one trial call
-  decides. The IATA suggestion and the release mirror never touch it.
+  decides. The IATA suggestion and the release check never touch it.
 - The hashtag catalogue is global (`GET /community/hashtags` proxies
   `GET /v1/hashtags`). Hashtag names go out (`PUT /v1/me/hashtags`) only with
   Community on and an IATA saved, and only for a `#` channel whose key is
@@ -47,20 +47,23 @@ hypothesis: check it against the code. Constants are named so you can grep them.
 
 ## Egress guard
 
-Opted out means no connection to the Community hosts. `community_egress_state()` is
+Opted out means no connection to the Community hosts but the exceptions below.
+`community_egress_state()` is
 the single check, made by `stats_request`, the Live socket (before every
 reconnect, and through `community_active()` for `subscribe`/`restart`/
-`unsubscribe`), the release mirror, `active_iata_codes`, the hashtag publish and
-resolve, the directory, observer reach and the update poll cadence. It answers
+`unsubscribe`), `active_iata_codes`, the hashtag publish and resolve, the directory
+and observer reach. It answers
 None while off **and while waiting for a position**. `community_enrolled_state()`
 (on, waiting or not) is for `FanoutManager.sync_system_modules()`, the Stats
 publisher (`_pre_connect`) and the `PUT /v1/me/iata` binds only.
 
-Four exceptions, each a context variable read by `stats_request` for one path
-(do not add a fifth without an owner decision):
+Five exceptions (do not add a sixth without an owner decision). The release check
+never asks the guard at all; the others are each a context variable read by
+`stats_request` for one path:
 
 | Exception | Variable | Allowed |
 |---|---|---|
+| Release check (owner decision, 2026-11-07) | none: `fetch_meshloom_latest` | public `GET /v1/meshloom/latest` only, every instance, every 6 h; no JWT, no state read, no breaker |
 | Join or IATA bind | `_bind_state` | `PUT /v1/me/iata`, also while waiting |
 | Opt-out call and its manual retry | `_opt_out_state` | `POST /v1/me/opt-out` only |
 | IATA suggestion | `_iata_suggest_state` | `GET /v1/iata/suggest` only; not during an opt-out |
@@ -91,8 +94,7 @@ exceptions).
   allowed and lands in this state.
 - A change spawns `_apply_position_state()`: save the flag (also while off), then
   under `_update_lock` re-read the state. To waiting: bump `_egress_generation`,
-  cancel requests in flight, close Live. Back to active: reopen Live and nudge the
-  update poll. Both ways, the Stats publisher re-publishes its retained status
+  cancel requests in flight, close Live. Back to active: reopen Live. Both ways, the Stats publisher re-publishes its retained status
   (`FanoutManager.republish_system_status()`). Tested by `TestWaitingForPosition`.
 
 ## Joining, IATA change, opt-out
