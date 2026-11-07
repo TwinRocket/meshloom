@@ -2,6 +2,32 @@
 
 ---
 
+## [5.0.0-rc.3] - 2026-11-07
+
+Third release candidate of Meshloom 5.0. It improves photo sharing. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new.
+
+### Changed
+
+- **Share a photo.** The File tab now shows the image as it will be sent, instead of a line about its size.
+
+### Fixed
+
+- **Share a photo.** A small image no longer comes out much larger than your file: it is saved again at a lower quality, or as an optimised PNG. A big PNG of over about one megapixel can still end up larger.
+
+### Français
+
+Troisième version candidate de Meshloom 5.0. Elle améliore le partage de photos. [Les notes de la rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) restent valables : avant d'essayer, limites connues et nouveautés.
+
+#### Changements
+
+- **Partage de photo.** L'onglet Fichier montre maintenant l'image telle qu'elle partira, au lieu d'une ligne sur sa taille.
+
+#### Corrections
+
+- **Partage de photo.** Une petite image ne devient plus bien plus lourde que votre fichier : elle est réenregistrée en qualité plus basse, ou en PNG optimisé. Un grand PNG de plus d'un mégapixel environ peut encore finir plus lourd.
+
+---
+
 ## [5.0.0-rc.2] - 2026-11-07
 
 Second release candidate of Meshloom 5.0. It fixes the installer. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new. The copy made before an upgrade is now named `meshcore.db.schema87.before-5.0.0-rc.2.db`.
