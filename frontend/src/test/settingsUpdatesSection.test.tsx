@@ -93,6 +93,26 @@ describe('SettingsUpdatesSection', () => {
     );
   });
 
+  it('puts the hold reason next to the install button, ahead of the automatic settings', () => {
+    render(
+      <SettingsUpdatesSection updates={status({ auto_update_held: true })} onApply={vi.fn()} />
+    );
+    const reason = screen.getByTestId('updates-hold-reason');
+    const install = screen.getByRole('button', { name: i18n.t('settings.updates.installNow') });
+    const auto = screen.getByLabelText(i18n.t('updates.autoUpdate'));
+    expect(install.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(reason.compareDocumentPosition(auto) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('says when the last check got no answer', () => {
+    const { rerender } = render(<SettingsUpdatesSection updates={status()} />);
+    expect(screen.queryByTestId('updates-check-failed')).toBeNull();
+    rerender(<SettingsUpdatesSection updates={status({ check_stale: true })} />);
+    expect(screen.getByTestId('updates-check-failed')).toHaveTextContent(
+      i18n.t('settings.updates.checkFailed')
+    );
+  });
+
   it('shows nothing about a hold when none applies', () => {
     render(<SettingsUpdatesSection updates={status()} />);
     expect(screen.queryByTestId('updates-hold-reason')).toBeNull();

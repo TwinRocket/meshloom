@@ -84,6 +84,13 @@ rotation steps are in `pkg/keys/README.md`.
      equal to `origin/main`, HEAD carries `X.Y.Z` and a CHANGELOG section, the
      `all-quality` check is green on HEAD and the tag is new, then pushes the
      tag after confirmation (`--dry-run` runs the checks only).
+   - After publishing, press **Refresh latest release** in ops-ui (Observers):
+     instances learn the version from Community, which otherwise reads GitHub
+     only every 24 h.
+   - Do not publish a 4.18.x around 5.0.0. The app shows and holds on what
+     Community says, but the root helpers resolve their target themselves: an
+     instance applying a 4.18.x while 5.0.0 is the newest release installs
+     5.0.0, across the hold (`app/AGENTS.md`, Updates).
 2. A tag `X.Y.Z` triggers `release.yml` (`workflow_dispatch` only re-publishes
    an existing tag: `gh workflow run release.yml --ref X.Y.Z`; the workflow and
    `create_github_release.sh` never create a tag). That workflow runs the quality gate,

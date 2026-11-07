@@ -2286,6 +2286,8 @@ export interface OssUpdateStatus {
   auto_update_window_end?: string | null;
   auto_update_weekdays?: number[];
   checked_at?: number | null;
+  /** The last check got no usable answer: this is the last known status. */
+  check_stale?: boolean;
   tz_name?: string | null;
   next_auto_apply_at?: number | null;
   /** Compose install still runs the pre-4.18 host helper; re-run the installer. */

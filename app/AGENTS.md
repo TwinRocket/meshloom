@@ -522,7 +522,8 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 - **What the app shows** comes from Community only: `services/oss_updates.py` asks
   the public `GET /v1/meshloom/latest` every 6 h, on every instance, joined or not
   (`fetch_meshloom_latest`, the one call that skips the egress guard: plain GET, no
-  JWT, no breaker, `User-Agent: Meshloom` with no version). The browser calls nothing. `MESHLOOM_UPDATE_LATEST` pins it.
+  JWT, no breaker, `User-Agent: Meshloom` with no version, 15 s and 64 KB in all, no
+  compressed answer). Only a strict `X.Y.Z` or `X.Y.Z-rc.N` counts as an answer. The browser calls nothing. `MESHLOOM_UPDATE_LATEST` pins it.
 - **Hold.** `auto_update_hold: {below, reason: {fr, en}}` applies when
   `current < below <= latest`, compared without pre-release parts (a `5.0.0-rc.3`
   instance is not below `5.0.0`); an unreadable `below` applies to a major crossing

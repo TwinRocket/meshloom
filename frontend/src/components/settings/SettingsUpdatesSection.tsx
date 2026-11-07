@@ -195,6 +195,28 @@ export function SettingsUpdatesSection({
             </Button>
           ) : null}
         </div>
+        {held && applySupported ? (
+          <p
+            role="status"
+            data-testid="updates-hold-reason"
+            className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[0.8125rem] text-foreground"
+          >
+            {resolveHoldReason(
+              updates?.auto_update_hold_reason,
+              i18n.language,
+              t('updates.holdFallback')
+            )}
+          </p>
+        ) : null}
+        {updates?.check_stale ? (
+          <p
+            role="status"
+            data-testid="updates-check-failed"
+            className="text-[0.8125rem] text-muted-foreground"
+          >
+            {t('settings.updates.checkFailed')}
+          </p>
+        ) : null}
         {showAddonHelp ? (
           <p className="text-[0.8125rem] text-muted-foreground">{t('updates.addonManual')}</p>
         ) : null}
@@ -250,20 +272,6 @@ export function SettingsUpdatesSection({
               </p>
             </div>
           </div>
-
-          {held ? (
-            <p
-              role="status"
-              data-testid="updates-hold-reason"
-              className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[0.8125rem] text-foreground"
-            >
-              {resolveHoldReason(
-                updates?.auto_update_hold_reason,
-                i18n.language,
-                t('updates.holdFallback')
-              )}
-            </p>
-          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">

@@ -8,9 +8,14 @@ from typing import Literal, TypedDict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from app.background_tasks import spawn
 from app.repository import AppSettingsRepository
 from app.services.install_kind import detect_install_kind
-from app.services.oss_updates import get_update_status, refresh_oss_update_cache
+from app.services.oss_updates import (
+    get_update_status,
+    recheck_auto_apply,
+    refresh_oss_update_cache,
+)
 from app.services.update_apply import (
     UpdateApplyBusy,
     expire_stale_applying_job,
@@ -66,6 +71,10 @@ class UpdateStatusResponse(BaseModel):
         default=None, description="Why, shown as plain text; null when absent or malformed"
     )
     checked_at: int | None = Field(description="Unix time of the last successful catalogue fetch")
+    check_stale: bool = Field(
+        default=False,
+        description="The last check got no usable answer: the status is the last known one",
+    )
     tz_name: str
     next_auto_apply_at: int | None = Field(
         description=(
@@ -155,6 +164,7 @@ async def build_update_status() -> UpdateStatusResponse:
         auto_update_held=held,
         auto_update_hold_reason=catalogue.get("auto_update_hold_reason"),
         checked_at=catalogue.get("checked_at"),
+        check_stale=bool(catalogue.get("check_stale")),
         tz_name=host_tz_name(),
         next_auto_apply_at=(
             _next_auto_apply_at(
@@ -216,4 +226,6 @@ async def patch_update_settings(body: UpdateSettingsPatch) -> UpdateStatusRespon
         kwargs["auto_update_weekdays"] = body.auto_update_weekdays
     if kwargs:
         await AppSettingsRepository.update(**kwargs)
+        # In the background: next_auto_apply_at can say "now", and this must not fail the PATCH.
+        spawn(recheck_auto_apply(), name="oss-update-settings-recheck")
     return await build_update_status()

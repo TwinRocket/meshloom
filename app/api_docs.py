@@ -91,8 +91,8 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
     {
         "name": "updates",
         "description": (
-            "Cached latest Meshloom release from GitHub releases/latest, with the "
-            "Community mirror as fallback (no JWT; works opted out), "
+            "Cached latest Meshloom release from Community's public route "
+            "(no JWT; works opted out), with its auto-update hold, "
             "plus in-app apply status when a package/compose helper is present."
         ),
     },

@@ -39,6 +39,7 @@ existing database, then a startup warning).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -92,6 +93,9 @@ IATA_SUGGEST_TIMEOUT_SECONDS = 5.0
 _STATS_TIMEOUT_SECONDS = 8.0
 # Opted-out instances use this route: no version, nothing that tells them apart.
 RELEASE_CHECK_USER_AGENT = "Meshloom"
+# The only source of update information: bounded in time and size whatever answers.
+RELEASE_CHECK_TOTAL_SECONDS = 15.0
+RELEASE_CHECK_MAX_BYTES = 64 * 1024
 # Stats sample upserts are 30/hour/pubkey. After a 429, stop POSTing until that
 # window has elapsed instead of retrying every catalogue pass.
 SAMPLE_QUOTA_BACKOFF_SECONDS = 3600.0
@@ -139,7 +143,7 @@ _sample_quota_until = 0.0
 # Bumped by community_teardown(): a request that passed the enabled check
 # before the opt-out must not leave afterwards.
 _egress_generation = 0
-_inflight: set[asyncio.Future[httpx.Response]] = set()
+_inflight: set[asyncio.Future[Any]] = set()
 # One Community state change at a time: an opt-in sent while the opt-out
 # teardown still runs would otherwise be undone by it (Live closed, publisher
 # stopped while the database says on).
@@ -1340,6 +1344,16 @@ async def _community_http(
     follow_redirects: bool = False,
     **kwargs: Any,
 ) -> httpx.Response:
+    """Every Community request but the release check, which streams its answer."""
+
+    async def _send() -> httpx.Response:
+        async with httpx.AsyncClient(follow_redirects=follow_redirects, timeout=timeout) as client:
+            return await client.request(method, url, **kwargs)
+
+    return await _run_cancellable(_send, generation=generation)
+
+
+async def _run_cancellable(send: Callable[[], Coroutine[Any, Any, _T]], *, generation: int) -> _T:
     """The only place an HTTP request to Community leaves.
 
     The request runs as its own task so ``community_teardown()`` can cancel it;
@@ -1348,11 +1362,7 @@ async def _community_http(
     if generation != _egress_generation:
         raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
 
-    async def _send() -> httpx.Response:
-        async with httpx.AsyncClient(follow_redirects=follow_redirects, timeout=timeout) as client:
-            return await client.request(method, url, **kwargs)
-
-    task = asyncio.ensure_future(_send())
+    task = asyncio.ensure_future(send())
     _inflight.add(task)
     try:
         return await task
@@ -1365,35 +1375,63 @@ async def _community_http(
         _inflight.discard(task)
 
 
+async def _read_release_answer(url: str) -> bytes | None:
+    """The body of a 200, or None. Never holds more than the cap in memory.
+
+    ``identity`` is asked and anything else refused, so nothing is decompressed: a
+    small compressed body cannot grow past the cap inside a single read.
+    """
+    async with httpx.AsyncClient(follow_redirects=False, timeout=_STATS_TIMEOUT_SECONDS) as client:
+        async with client.stream(
+            "GET",
+            url,
+            headers={"User-Agent": RELEASE_CHECK_USER_AGENT, "Accept-Encoding": "identity"},
+        ) as response:
+            if response.status_code != 200:
+                logger.warning("Meshloom latest release HTTP %s", response.status_code)
+                return None
+            encoding = response.headers.get("content-encoding", "identity").strip().lower()
+            if encoding != "identity":
+                logger.warning("Meshloom latest release refused: encoded as %.40r", encoding)
+                return None
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                body += chunk
+                if len(body) > RELEASE_CHECK_MAX_BYTES:
+                    logger.warning("Meshloom latest release refused: too large")
+                    return None
+            return bytes(body)
+
+
 async def fetch_meshloom_latest() -> dict[str, Any] | None:
     """GET the public latest-release route. None without a usable answer.
 
     The one call that does not ask the egress guard: the owner authorised this
     route for every instance, opted out or waiting for a position included. So it
     reads no Community state, sends no JWT, no parameter and no body, says only
-    ``User-Agent: Meshloom`` (no version), and goes neither through ``stats_request`` nor near the breaker, which it can neither
-    feed nor be stopped by. ``community_teardown()`` can still cancel it.
+    ``User-Agent: Meshloom`` (no version), and goes neither through
+    ``stats_request`` nor near the breaker, which it can neither feed nor be
+    stopped by. ``community_teardown()`` can still cancel it.
     """
     url = f"{normalize_api_base(DEFAULT_API_BASE)}/v1/meshloom/latest"
     try:
-        response = await _community_http(
-            "GET",
-            url,
-            generation=_egress_generation,
-            timeout=_STATS_TIMEOUT_SECONDS,
-            headers={"User-Agent": RELEASE_CHECK_USER_AGENT},
+        body = await asyncio.wait_for(
+            _run_cancellable(lambda: _read_release_answer(url), generation=_egress_generation),
+            RELEASE_CHECK_TOTAL_SECONDS,
         )
     except HTTPException:
+        return None
+    except TimeoutError:
+        logger.warning("Meshloom latest release fetch timed out")
         return None
     except httpx.RequestError as exc:
         logger.warning("Meshloom latest release fetch failed: %s", exc)
         return None
-    if response.status_code != 200:
-        logger.warning("Meshloom latest release HTTP %s", response.status_code)
+    if body is None:
         return None
     try:
-        payload = response.json()
-    except ValueError:
+        payload = json.loads(body)
+    except (ValueError, RecursionError):
         logger.warning("Meshloom latest release returned non-JSON")
         return None
     return payload if isinstance(payload, dict) else None

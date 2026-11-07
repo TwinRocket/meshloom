@@ -20,12 +20,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
 
+from app.background_tasks import spawn
 from app.services.meshloom_community import fetch_meshloom_latest
 from app.services.update_window import in_window, next_window_start
 from app.version_info import get_app_build_info
@@ -36,6 +38,13 @@ logger = logging.getLogger(__name__)
 UPDATE_POLL_INTERVAL_SECONDS = 6 * 3600
 RELEASES_REPO_URL = "https://github.com/TwinRocket/meshloom"
 MAX_HOLD_REASON_CHARS = 300
+# What Meshloom publishes: X.Y.Z, at most with -rc.N. Nothing else is a version here.
+_RELEASE_VERSION_RE = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?"
+)
+_RELEASE_VERSION_MAX_CHARS = 32
+# After a settings change: what is older than this is read again before applying.
+SETTINGS_RECHECK_MAX_AGE_SECONDS = 300
 
 _poll_task: asyncio.Task | None = None
 _window_timer_task: asyncio.Task | None = None
@@ -77,24 +86,31 @@ async def fetch_latest_release() -> dict[str, Any] | None:
     return {**payload, "source": "community"}
 
 
+def _parse_release_version(value: Any) -> Version | None:
+    """The version when ``value`` is strictly ``X.Y.Z`` or ``X.Y.Z-rc.N``, else None."""
+    if (
+        not isinstance(value, str)
+        or len(value) > _RELEASE_VERSION_MAX_CHARS
+        or _RELEASE_VERSION_RE.fullmatch(value) is None
+    ):
+        return None
+    return Version(value)
+
+
 def _payload_version(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
     value = payload.get("version")
-    if not isinstance(value, str) or not value.strip():
-        return None
-    return value.strip()
+    return value if _parse_release_version(value) is not None else None
 
 
 def _payload_html_url(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
+    # The UI opens this link: only the page of this very release.
+    version = _payload_version(payload)
     value = payload.get("html_url")
-    if not isinstance(value, str):
-        return None
-    # The UI opens this link: only a release page of the public repository.
-    url = value.strip()
-    return url if url.startswith(f"{RELEASES_REPO_URL}/releases/") else None
+    return value if version and value == f"{RELEASES_REPO_URL}/releases/tag/{version}" else None
 
 
 def _payload_source(payload: dict[str, Any] | None) -> str | None:
@@ -127,13 +143,7 @@ def _release(version: Version) -> Version:
 
 
 def _parse_hold_below(hold: Any) -> Version | None:
-    below = hold.get("below") if isinstance(hold, dict) else None
-    if not isinstance(below, str):
-        return None
-    try:
-        return Version(_strip_leading_v(below))
-    except InvalidVersion:
-        return None
+    return _parse_release_version(hold.get("below") if isinstance(hold, dict) else None)
 
 
 def _resolve_hold(
@@ -224,7 +234,8 @@ def _schedule_window_apply(when: datetime) -> None:
         except Exception:
             logger.exception("Scheduled auto-apply failed")
 
-    _window_timer_task = asyncio.create_task(_fire())
+    # spawn() keeps the task alive once _cancel_window_timer has let go of it.
+    _window_timer_task = spawn(_fire(), name="oss-update-window-timer")
 
 
 def reset_oss_update_cache() -> None:
@@ -322,8 +333,11 @@ async def _maybe_auto_apply() -> None:
     status = get_update_status()
     if not status["update_available"]:
         return
-    if status["auto_update_held"] or status["check_stale"]:
+    if status["auto_update_held"]:
         _cancel_window_timer()
+        return
+    # An armed timer stays: it reads Community again when it fires.
+    if status["check_stale"]:
         return
     kind, supported = detect_install_kind()
     if not supported:
@@ -370,6 +384,18 @@ async def _maybe_auto_apply() -> None:
         await start_apply(kind, target=status["latest"])
     except UpdateApplyBusy:
         return
+
+
+async def recheck_auto_apply() -> None:
+    """After a settings change: start or arm what the new settings allow. Never raises."""
+    try:
+        status = get_update_status()
+        age = time.time() - (status["checked_at"] or 0)
+        if status["update_available"] and age > SETTINGS_RECHECK_MAX_AGE_SECONDS:
+            await refresh_oss_update_cache()
+        await _maybe_auto_apply()
+    except Exception:
+        logger.exception("Auto-apply check after a settings change failed")
 
 
 async def _oss_update_loop() -> None:
