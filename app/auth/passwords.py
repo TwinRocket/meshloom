@@ -102,20 +102,57 @@ async def verify_password_async(password_hash: str | None, password: str) -> boo
 
 # --- Password policy ---------------------------------------------------------
 #
-# At least 12 characters, not the username, not a common password (cadrage
-# §4.2). The list holds 100 common passwords that are 12 characters or more:
-# the usual top-100 lists are almost all shorter, so the length rule already
-# refuses them. Keyboard walks (QWERTY, AZERTY, QWERTZ), digit runs, and
-# breach-list words with digits appended, in English and French, plus a few
-# names a Meshloom user would reach for. Compared case-insensitively. No
-# zxcvbn on purpose (no i18n feedback, 400 kB of word lists).
+# At least 10 characters, not the username, not a common password. The list
+# holds common passwords of 10 characters or more: keyboard walks (QWERTY,
+# AZERTY, QWERTZ), digit runs, and breach-list words with digits appended, in
+# English and French, plus a few names a Meshloom user would reach for.
+# Anything shorter is refused by length, so an entry below the minimum would
+# be dead. Compared case-insensitively. No zxcvbn on purpose (no i18n feedback,
+# 400 kB of word lists).
 
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 10
 
 PasswordPolicyReason = Literal["too_short", "too_long", "same_as_username", "too_common"]
 
 COMMON_PASSWORDS: frozenset[str] = frozenset(
     [
+        # 10 and 11 characters.
+        "password12",
+        "password123",
+        "1234567890",
+        "9876543210",
+        "1q2w3e4r5t",
+        "qwertyuiop",
+        "qwerty1234",
+        "azertyuiop",
+        "azerty1234",
+        "a1z2e3r4t5",
+        "qwertzuiop",
+        "qsdfghjklm",
+        "jetaime123",
+        "motdepasse",
+        "motdepasse1",
+        "letmein123",
+        "welcome123",
+        "bienvenue1",
+        "changeme123",
+        "marseille13",
+        "meshcore12",
+        "meshcore123",
+        "meshloom12",
+        "meshloom123",
+        "meshtastic",
+        "meshtastic1",
+        "raspberry1",
+        "raspberrypi",
+        "azerty12345",
+        "qwerty12345",
+        "1234567891",
+        "0123456789",
+        "1111111111",
+        "0000000000",
+        "aaaaaaaaaa",
+        # 12 characters or more.
         "123456789012",
         "1234567890123",
         "12345678901234",

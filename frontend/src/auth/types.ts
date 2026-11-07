@@ -181,7 +181,7 @@ export function behindUntrustedHttpsProxy(
 }
 
 /** The shortest password the backend accepts (`password_policy_violation`). */
-export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MIN_LENGTH = 10;
 
 /** `GET /auth/me`: the caller's own account. */
 export interface AuthMe {

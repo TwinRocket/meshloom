@@ -1562,16 +1562,16 @@ account alone does not count: setup does not depend on it.
 
 ## Password policy
 
-`password_policy_violation()` (`app/auth/passwords.py`): at least 12
+`password_policy_violation()` (`app/auth/passwords.py`): at least 10
 characters (after NFC), at most 1024, not equal to the user name (compared
-after NFKC and case folding), not in `COMMON_PASSWORDS`. The usual top-100
-lists are almost entirely shorter than 12 characters, so the length rule
-already refuses them; the embedded list is 100 common passwords of 12
-characters or more (keyboard walks in QWERTY, AZERTY and QWERTZ, digit runs,
+after NFKC and case folding), not in `COMMON_PASSWORDS`. The embedded list
+holds common passwords of 10 characters or more (keyboard walks in QWERTY, AZERTY and QWERTZ, digit runs,
 breach-list words with digits, English and French, plus names a Meshloom user
 reaches for). Refusal: 400 `auth_password_policy` with
 `params.reason` (`too_short`, `too_long`, `same_as_username`, `too_common`)
-and `params.min_length`. Applied at setup and on a password change.
+and `params.min_length`. Applied at setup, on a password change, when an admin creates a user or sets a
+password, and by `meshloom-admin`. Never at login, so existing passwords keep
+working.
 
 ## Routes (`/api/auth`)
 

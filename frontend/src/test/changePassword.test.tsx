@@ -97,7 +97,7 @@ describe('forced password change', () => {
     await fill(user, 'temporary-secret', 'a much better secret');
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(t('errors.auth_password_policy'));
-    expect(alert).toHaveTextContent(/at least 12 characters/);
+    expect(alert).toHaveTextContent(/at least 10 characters/);
     expect(screen.queryByTestId('app')).toBeNull();
   });
 
