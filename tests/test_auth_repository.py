@@ -246,13 +246,13 @@ async def test_audit_rows_page_purge_and_refuse_secrets(test_db):
 
 
 @pytest.mark.asyncio
-async def test_auth_settings_defaults_update_and_setup_code(test_db):
+async def test_auth_settings_defaults_and_update(test_db):
     settings = await AuthSettingsRepository.get()
     assert settings.audit_retention_days == 366
     assert settings.session_lifetime_days == 30
     assert settings.host_guard_mode == "observe"
     assert settings.ingress_default_role == "member"
-    assert settings.trusted_networks == [] and not settings.setup_code_set
+    assert settings.trusted_networks == []
     assert not settings.lan_login_free
 
     updated = await AuthSettingsRepository.update(
@@ -273,14 +273,6 @@ async def test_auth_settings_defaults_update_and_setup_code(test_db):
         await AuthSettingsRepository.update(audit_retention_days=0)
     assert await AuthSettingsRepository.get() == updated
 
-    code_hash = hash_token("setup-code")
-    await AuthSettingsRepository.set_setup_code_hash(code_hash)
-    assert await AuthSettingsRepository.get_setup_code_hash() == code_hash
-    assert (await AuthSettingsRepository.get()).setup_code_set
-    assert code_hash not in (await AuthSettingsRepository.get()).model_dump_json()
-    await AuthSettingsRepository.set_setup_code_hash(None)
-    assert not (await AuthSettingsRepository.get()).setup_code_set
-
 
 @pytest.mark.asyncio
 async def test_nothing_secret_is_logged(test_db, caplog):
@@ -292,11 +284,10 @@ async def test_nothing_secret_is_logged(test_db, caplog):
     user = await UserRepository.create("hal", "admin", password_hash=HASH)
     await UserRepository.get_credentials("hal")
     await AuthSessionRepository.create(user.id, hash_token(token), lifetime_s=60)
-    await AuthSettingsRepository.set_setup_code_hash(hash_token("code"))
     with pytest.raises(UsernameTakenError) as excinfo:
         await UserRepository.create("HAL", "admin", password_hash=HASH)
     assert HASH not in str(excinfo.value)
-    for secret in (HASH, token, hash_token(token), hash_token("code")):
+    for secret in (HASH, token, hash_token(token)):
         assert secret not in caplog.text
 
 
@@ -339,8 +330,8 @@ async def test_a_new_session_is_never_its_own_eviction_victim(test_db):
         "apiKey",
         "api_key",
         "privateKey",
-        "setup_code",
-        "setupCode",
+        "pairing_code",
+        "pairingCode",
         "recovery_codes",
         "seed",
         "instance_seed",
@@ -429,20 +420,15 @@ async def test_settings_writes_fail_loudly_without_the_row(test_db):
     async with test_db.tx() as conn:
         await conn.execute("DELETE FROM auth_settings")
     with pytest.raises(AuthSettingsMissingError):
-        await AuthSettingsRepository.set_setup_code_hash(hash_token("c"))
-    with pytest.raises(AuthSettingsMissingError):
         await AuthSettingsRepository.update(lan_login_free=True)
     with pytest.raises(AuthSettingsMissingError):
         await AuthSettingsRepository.get()
-    with pytest.raises(AuthSettingsMissingError):
-        await AuthSettingsRepository.get_setup_code_hash()
 
     # The migration (and SCHEMA_TABLES at every start) puts the row back.
     async with test_db.tx() as conn:
         await set_version(conn, 100)
         await run_migrations(conn)
-    await AuthSettingsRepository.set_setup_code_hash(hash_token("c"))
-    assert await AuthSettingsRepository.get_setup_code_hash() == hash_token("c")
+    assert await AuthSettingsRepository.get()
 
 
 @pytest.mark.asyncio

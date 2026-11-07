@@ -374,7 +374,7 @@ SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
 
 # Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets (with
 # the TOTP state: an enabled flag without its secret asks a code nobody can give),
-# the setup code hash and the known-device cookie key are set to NULL, and the
+# and the known-device cookie key are set to NULL, and the
 # sessions, TOTP recovery codes and device pairing codes are deleted. The
 # plugin config secrets (docs/dev/plugins.md) are deleted too: a restored
 # instance asks for them again. A restored snapshot keeps the accounts but none
@@ -382,7 +382,7 @@ SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
 # tickets).
 SNAPSHOT_SCRUBBED_AUTH_COLUMNS: dict[str, tuple[str, ...]] = {
     "users": ("password_hash", "totp_secret", "totp_enabled_at", "totp_last_counter"),
-    "auth_settings": ("setup_code_hash", "device_cookie_key"),
+    "auth_settings": ("device_cookie_key",),
     "oidc_provider": ("client_secret",),
 }
 SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = (

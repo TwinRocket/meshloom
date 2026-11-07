@@ -195,7 +195,7 @@ describe('TrustedProxiesSettings behind an untrusted https proxy', () => {
             JSON.stringify({
               authenticated: true,
               setup_required: false,
-              setup_code_required: false,
+              setup_local_only: false,
               methods: { password: true, ingress: false },
               secure,
               user: { id: 1, username: 'owner', display_name: 'Olive', role: 'admin' },

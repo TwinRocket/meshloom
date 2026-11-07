@@ -17,12 +17,7 @@ From another device on the same network, use the machine's IP address with port 
 
 The first time you open Meshloom, before anything else, it asks you to create the administrator account. Choose a user name and a password of at least 12 characters (a few words in a row make a good one; it must differ from the user name and not be a common password), and optionally a display name. The language buttons under the form switch the interface.
 
-If this Meshloom already held data before it asked for accounts (an upgrade), the page also asks for the **installation code**: 8 digits that Meshloom prints in its log each time it starts while no account exists. A new Meshloom opened for the first time from outside the local network (from a public address, through a proxy you have not listed, with a public address declared, or under a domain name such as `meshloom.example.org`) asks for one too: it prints it in its log at that moment. From the local network, at the machine's IP address or a local name (`mypi`, `mypi.local`), a new Meshloom asks for no code. Spaces and dashes in the code do not matter. To find it:
-
-- **Docker:** `docker logs <container>` and look for "installation code".
-- **Package install:** `journalctl -u meshloom`.
-- **Home Assistant add-on:** the **Log** tab of the add-on.
-- **Any install:** `meshloom-admin setup-code` on the host prints a new code.
+This works from the local network, at the machine's IP address or a local name (`mypi`, `mypi.local`), on a new Meshloom and on one that already held data before it asked for accounts (an upgrade). Opened from anywhere else (a public address, a proxy you have not listed, a declared public address, or a domain name such as `meshloom.example.org`), the page asks you to open Meshloom from the local network, and gives its address when it knows it. If you cannot open Meshloom from its local network, for example when you only reach it through a tunnel, create the account on the machine with `meshloom-admin create-admin <user>` (with Docker, through [`docker exec`](/en/docs/deep/access/#docker-and-docker-compose)). See [The first administrator](/en/docs/deep/access/#the-first-administrator).
 
 Afterwards Meshloom opens a login page to anyone who is not signed in. If a session ends while the page is open, a dialog asks for your password again and you resume where you were. Your name is in the account button (bottom of the side rail, or the top of **Settings** on a phone), which also has **Sign out**. On plain `http://` your password crosses the network unencrypted, which the login page points out: use HTTPS or a network you trust.
 

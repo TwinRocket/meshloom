@@ -369,9 +369,10 @@ purpose.
 
 - `main.tsx` wraps `App` in `SessionProvider`, which reads `GET /api/auth/session`
   before anything else mounts, so nothing loads before the server knows who calls.
-  `setup_required` renders `SetupPage` (the installation-code field only when
-  `setup_code_required`, with where to find it per install kind; on the kiosk screen,
-  `kiosk_setup_code` set, it re-reads the session every 5 s and opens the app once an
+  `setup_required` renders `SetupPage` (no form when `setup_local_only`, or after a 403
+  `auth_setup_local_only`: it asks to open Meshloom from the local network, with
+  `setup_local_url` as a link when present; on the kiosk screen,
+  `kiosk_screen` set, it re-reads the session every 5 s and opens the app once an
   administrator exists, the screen's own `kiosk` session coming from the launcher's device
   token, `docs/dev/auth.md` "Kiosk device token"), an anonymous
   visit renders `LoginPage` (warns when `!window.isSecureContext`), and a signed-in

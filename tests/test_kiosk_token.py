@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from app.auth import setup_code
+from app.auth import first_run
 from app.repository.auth import ApiTokenRepository, AuthAuditRepository, UserRepository
 from app.services import kiosk
 from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
@@ -36,15 +36,13 @@ def kiosk_host(tmp_path, monkeypatch):
     monkeypatch.setattr(kiosk, "KIOSK_TOKEN_DIR", token_dir)
     kiosk.reset_bootstrap_codes()
     kiosk.reset_rate_limits()
-    kiosk.remember_displayed_code(None)
     yield token_dir / kiosk.KIOSK_TOKEN_FILENAME
     kiosk.reset_bootstrap_codes()
     kiosk.reset_rate_limits()
-    kiosk.remember_displayed_code(None)
 
 
 async def _start() -> None:
-    await setup_code.prepare_first_run(existing_database=False)
+    await first_run.prepare_first_run()
 
 
 def _secret(path: Path) -> str:
@@ -455,16 +453,12 @@ async def test_setup_page_still_shows_the_code_with_a_kiosk_session(kiosk_host):
         path = (await _bootstrap(client, _secret(kiosk_host))).json()["path"]
         assert "set-cookie" in (await client.get(path)).headers
         session = (await client.get("/api/auth/session")).json()
-        # The screen keeps showing the setup page and its code until an admin exists.
+        # The screen keeps showing the setup page and its banner until an admin exists.
         assert session["setup_required"] is True
-        assert re.fullmatch(r"\d{8}", session["kiosk_setup_code"])
+        assert session["kiosk_screen"] is True
         response = await client.post(
             "/api/auth/setup",
-            json={
-                "username": ADMIN,
-                "password": PASSWORD,
-                "setup_code": session["kiosk_setup_code"],
-            },
+            json={"username": ADMIN, "password": PASSWORD},
             headers={"Origin": LOOP},
         )
         assert response.status_code == 200, response.text

@@ -62,7 +62,7 @@ and the OpenAPI page (`/docs`), not a table here.
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
   every table bounded (`docs/dev/auth.md`, "Login delays").
 - `auth/fail_log.py` writes one `AUTH_FAIL` line (logger `meshloom.auth`) per refused
-  credential: login, second factor, passkey, Bearer, pairing code, setup code.
+  credential: login, second factor, passkey, Bearer, pairing code.
   The format is a contract (`docs/dev/auth-fail-log.md`, `CONTRACTS:` commits): a new
   credential check calls `log_auth_failure()` with a route and reason from
   `ROUTE_REASONS`, never a clear-text name; ingress never writes it. Through the
@@ -808,8 +808,6 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
 - `rotate-device-key` replaces `auth_settings.device_cookie_key` (every known-device
   cookie becomes unknown; `settings.changed` row, target
   `auth_settings.device_cookie_key`); it refuses a database not migrated to 119 yet.
-- Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
-  new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
 - Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
   policy belongs to the login routes, which should share it with this file.
 - Tests: `tests/test_cli.py`. User docs: `docs/user/{en,fr}/deep/access.md`.
@@ -845,9 +843,12 @@ run as root).
   be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs).
 - Migration 101 adds the local accounts tables (`users`, `sessions`, `auth_audit`,
-  `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
-  (`tests/test_migrations/test_migration_101.py` compares the two schemas).
+  `auth_settings`); their DDL is in `SCHEMA_TABLES` too. The two differ as written (101 still has the
+  columns later migrations drop) and are equal only once the migrations have run
+  (`tests/test_migrations/test_migration_101.py` compares the results).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 146 drops `auth_settings.setup_code_hash`: there is no installation code any more
+  (`app/auth/first_run.py`).
 - Migration 145 (MSHL-459) adds `channel_slot_clears_pending` (keys of deleted channels
   still on a radio slot); `IF NOT EXISTS`, no `SCHEMA_TABLES` change. Excluded from the JSON
   backup, emptied in a database copy (`SNAPSHOT_EMPTIED_TABLES`).
@@ -1395,7 +1396,7 @@ writes that rule out on its own and takes the same `now`.
   `backup_identity_seed_leak`, coded on both routes) any document holding an
   `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
   the BLE PIN, the previous-transport snapshot, `users.password_hash`,
-  `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
+  `users.totp_secret` and `auth_settings.device_cookie_key` set to NULL and
   `sessions`, `recovery_codes`, `pairing_codes` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
   login secrets are never exported. The accounts travel in the JSON full
   backup's `users` section, the API tokens in its `api_tokens` section and each account's notification
@@ -1977,7 +1978,7 @@ never in `docs/user/**` or the environment docs.
 
 | Flag | Effect |
 |---|---|
-| `/var/lib/meshloom/kiosk` | Raspberry Pi kiosk host (`services/kiosk.py`). Written by `scripts/build/build_rpi_kiosk_image.sh` and, on an image flashed before 5.0.0, by `pkg/nfpm/postinstall.sh` (it finds `/etc/xdg/autostart/meshloom-kiosk.desktop` or `/usr/lib/meshloom/meshloom-kiosk-setup`, installed by the image; the launcher is not a signal, the deb ships it). With it, `prepare_first_run` creates the `kiosk` account (role `kiosk`, provider `system`, no password, **no trusted-network rule**) when absent, issues the installation code even on a fresh database, and `GET /auth/session` returns it as `kiosk_setup_code` to a direct loopback request (no proxy header) while setup is open and the code is still the stored one. `UserRepository.any_exist()` ignores `kiosk` accounts so this account never closes setup. The same start keeps one live `read` device token of that account in `/var/lib/meshloom-kiosk/kiosk.token` (`ensure_kiosk_token`; directory `meshloom:meshloom-kiosk` `2750` from `postinstall.sh`, file `0640`; rotated when the file does not hold it or an admin revokes it, which signs the account out and voids pending codes; the directory must be of group `meshloom-kiosk` with setgid; the token is refused on every route but the bootstrap). The launcher (`pkg/rpi/meshloom-kiosk`, shipped by the deb at `/usr/lib/meshloom/meshloom-kiosk`) probes `GET /api/auth/session`, then trades the token (header through curl's stdin config, never argv) at `POST /api/auth/kiosk-bootstrap` for a one-time `GET /api/auth/kiosk-session?code=` that Chromium opens to get the session cookie; both routes answer a direct loopback request on a kiosk host only (`routers/auth_kiosk.py`, `docs/dev/auth.md`, "Kiosk device token"). |
+| `/var/lib/meshloom/kiosk` | Raspberry Pi kiosk host (`services/kiosk.py`). Written by `scripts/build/build_rpi_kiosk_image.sh` and, on an image flashed before 5.0.0, by `pkg/nfpm/postinstall.sh` (it finds `/etc/xdg/autostart/meshloom-kiosk.desktop` or `/usr/lib/meshloom/meshloom-kiosk-setup`, installed by the image; the launcher is not a signal, the deb ships it). With it, `prepare_first_run` creates the `kiosk` account (role `kiosk`, provider `system`, no password, **no trusted-network rule**) when absent, and `GET /auth/session` answers `kiosk_screen: true` to a direct loopback request (no proxy header) while setup is open, which only chooses the setup page's banner. `UserRepository.any_exist()` ignores `kiosk` accounts so this account never closes setup. The same start keeps one live `read` device token of that account in `/var/lib/meshloom-kiosk/kiosk.token` (`ensure_kiosk_token`; directory `meshloom:meshloom-kiosk` `2750` from `postinstall.sh`, file `0640`; rotated when the file does not hold it or an admin revokes it, which signs the account out and voids pending codes; the directory must be of group `meshloom-kiosk` with setgid; the token is refused on every route but the bootstrap). The launcher (`pkg/rpi/meshloom-kiosk`, shipped by the deb at `/usr/lib/meshloom/meshloom-kiosk`) probes `GET /api/auth/session`, then trades the token (header through curl's stdin config, never argv) at `POST /api/auth/kiosk-bootstrap` for a one-time `GET /api/auth/kiosk-session?code=` that Chromium opens to get the session cookie; both routes answer a direct loopback request on a kiosk host only (`routers/auth_kiosk.py`, `docs/dev/auth.md`, "Kiosk device token"). |
 
 ## Developer-only variables
 

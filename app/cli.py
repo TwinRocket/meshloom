@@ -4,7 +4,6 @@ Run it on the machine (or in the container) that holds the database::
 
     meshloom-admin reset-password alice
     meshloom-admin create-admin alice
-    meshloom-admin setup-code
     meshloom-admin list-users
     meshloom-admin disable-user alice
     meshloom-admin disable-2fa alice
@@ -30,8 +29,7 @@ file the server then cannot write.
 
 Exit status: 0 done, 1 refused or failed (message on stderr), 2 bad usage.
 Passwords are read from the terminal (twice) or from stdin with ``--stdin``,
-never from an argument, and no command prints one. The one secret ``setup-code``
-prints is the installation code, on purpose.
+never from an argument, and no command prints one.
 """
 
 import argparse
@@ -51,7 +49,6 @@ import aiosqlite
 from app.auth import audit
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH, hash_password
-from app.auth.setup_code import issue_setup_code
 from app.config import settings
 from app.database import db
 from app.repository.auth import (
@@ -77,7 +74,6 @@ from app.repository.ip_ban import (
 _COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
     "reset-password": "password.changed",
     "create-admin": "user.created",
-    "setup-code": "setup_code.issued",
     "list-users": "users.listed",
     "disable-user": "user.disabled",
     "enable-user": "user.enabled",
@@ -276,28 +272,6 @@ async def _create_admin(args: argparse.Namespace) -> int:
         raise CliError(str(exc)) from None
     await _audit(args, audit.user_target(user.id), username=user.username, role=user.role)
     print(f"Administrator {user.username} created (id {user.id}).")
-    return 0
-
-
-async def _setup_code(args: argparse.Namespace) -> int:
-    # Only the SHA-256 of the code is stored, so a code cannot be read back:
-    # each run issues a new one and the previous one stops working.
-    # A kiosk account (kiosk hosts create it before any administrator) does not
-    # count: setup is still open (UserRepository.any_exist).
-    if await UserRepository.any_exist():
-        raise CliError(
-            "the installation code only matters while no account exists, and one does: "
-            "use create-admin or reset-password instead"
-        )
-    # The same 8-digit code the server logs at startup (app/auth/setup_code.py),
-    # the only form POST /api/auth/setup accepts.
-    code = await issue_setup_code()
-    await _audit(args, None)
-    print(code)
-    print(
-        "New installation code above; any earlier one no longer works.",
-        file=sys.stderr,
-    )
     return 0
 
 
@@ -557,7 +531,6 @@ async def _whitelist(args: argparse.Namespace) -> int:
 _COMMANDS: dict[str, Callable[[argparse.Namespace], Awaitable[int]]] = {
     "reset-password": _reset_password,
     "create-admin": _create_admin,
-    "setup-code": _setup_code,
     "list-users": _list_users,
     "disable-user": _disable_user,
     "enable-user": _enable_user,
@@ -605,8 +578,6 @@ def build_parser() -> argparse.ArgumentParser:
     cmd.add_argument("username")
     cmd.add_argument("--display-name", default="")
     password_options(cmd)
-
-    add("setup-code", "issue a new installation code (only while no account exists)")
 
     cmd = add("list-users", "list the accounts")
     cmd.add_argument("--json", action="store_true", help="machine-readable output")

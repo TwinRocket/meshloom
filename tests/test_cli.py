@@ -14,7 +14,6 @@ import pytest
 
 from app import cli
 from app.auth.passwords import hash_password, verify_password
-from app.auth.tokens import token_matches
 from app.database import Database
 from app.repository import auth as auth_repo
 
@@ -135,26 +134,6 @@ def test_create_admin(dbfile, stdin, capsys):
     assert "already exists" in capsys.readouterr().err
 
 
-def test_setup_code_is_accepted_by_the_stored_hash_and_rotates(dbfile, capsys):
-    assert run(dbfile, "setup-code") == 0
-    first = capsys.readouterr().out.strip()
-    # The 8-digit form POST /api/auth/setup accepts, like the startup log line.
-    assert len(first) == 8 and first.isdigit()
-    (stored,) = _query(dbfile, "SELECT setup_code_hash FROM auth_settings")[0]
-    assert stored != first and token_matches(first, stored)
-    assert run(dbfile, "setup-code") == 0
-    second = capsys.readouterr().out.strip()
-    (stored,) = _query(dbfile, "SELECT setup_code_hash FROM auth_settings")[0]
-    assert second != first
-    assert token_matches(second, stored) and not token_matches(first, stored)
-
-
-def test_setup_code_refused_once_an_account_exists(dbfile, capsys):
-    _add_user(dbfile, "alice")
-    assert run(dbfile, "setup-code") == 1
-    assert capsys.readouterr().out == ""
-
-
 def test_list_users_table_and_json(dbfile, capsys):
     _add_user(dbfile, "alice")
     _add_user(dbfile, "kiosk", role="kiosk", password=None)
@@ -237,7 +216,6 @@ def test_help_runs():
     for name in (
         "reset-password",
         "create-admin",
-        "setup-code",
         "list-users",
         "disable-user",
         "host-guard-observe",
@@ -501,10 +479,10 @@ def test_every_install_kind_ships_the_command():
     assert "pkg/nfpm/meshloom-admin /usr/local/bin/meshloom-admin" in dockerfile
 
 
-def test_setup_code_works_with_only_a_kiosk_account(dbfile, capsys):
-    _add_user(dbfile, "kiosk", "kiosk", None)
-    assert _query(dbfile, "SELECT count(*) FROM users") == [(1,)]
-    assert run(dbfile, "setup-code") == 0
+def test_setup_code_command_is_gone(dbfile):
+    with pytest.raises(SystemExit) as excinfo:
+        run(dbfile, "setup-code")
+    assert excinfo.value.code == 2
 
 
 def test_host_guard_observe_resets_the_mode_and_is_audited(dbfile, capsys):

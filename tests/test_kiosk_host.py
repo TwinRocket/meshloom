@@ -1,6 +1,5 @@
-"""Kiosk host marker (app/services/kiosk.py): the account, the banner code, the packaging."""
+"""Kiosk host marker (app/services/kiosk.py): the account, the banner, the packaging."""
 
-import re
 import shutil
 import stat
 import subprocess
@@ -9,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.auth import setup_code
+from app.auth import first_run
 from app.repository.auth import AuthSettingsRepository, UserRepository
 from app.services import kiosk
 from tests.auth_helpers import ADMIN, PASSWORD, make_client
@@ -27,15 +26,8 @@ def marker(tmp_path, monkeypatch):
     return path
 
 
-@pytest.fixture(autouse=True)
-def _clean_code():
-    kiosk.remember_displayed_code(None)
-    yield
-    kiosk.remember_displayed_code(None)
-
-
-async def _prepare(existing: bool = False) -> None:
-    await setup_code.prepare_first_run(existing_database=existing)
+async def _prepare() -> None:
+    await first_run.prepare_first_run()
 
 
 @pytest.mark.real_auth
@@ -43,7 +35,6 @@ async def _prepare(existing: bool = False) -> None:
 async def test_without_the_marker_nothing_is_created(marker):
     await _prepare()
     assert await UserRepository.list_all() == []
-    assert not (await AuthSettingsRepository.get()).setup_code_set
 
 
 @pytest.mark.real_auth
@@ -59,49 +50,37 @@ async def test_marker_creates_the_kiosk_user_once_and_no_trusted_network(marker)
 
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
-async def test_kiosk_account_does_not_close_setup_and_the_code_is_shown_to_loopback(marker):
+async def test_kiosk_account_does_not_close_setup_and_loopback_is_the_screen(marker):
     marker.touch()
     await _prepare()
     async with make_client(base_url=LOOP) as client:
         session = (await client.get("/api/auth/session")).json()
         assert session["setup_required"] is True
-        assert session["setup_code_required"] is True
-        code = session["kiosk_setup_code"]
-        assert re.fullmatch(r"\d{8}", code)
+        assert session["setup_local_only"] is False
+        assert session["kiosk_screen"] is True
 
         # Not through a proxy, not from another machine.
         proxied = await client.get("/api/auth/session", headers={"X-Forwarded-For": "8.8.8.8"})
-        assert "kiosk_setup_code" not in proxied.json()
+        assert proxied.json()["kiosk_screen"] is False
     async with make_client(base_url=LOOP, client=("192.168.1.20", 50000)) as lan:
-        assert "kiosk_setup_code" not in (await lan.get("/api/auth/session")).json()
-
-    async with make_client(base_url=LOOP) as client:
-        response = await client.post(
-            "/api/auth/setup", json={"username": ADMIN, "password": PASSWORD, "setup_code": code}
-        )
+        session = (await lan.get("/api/auth/session")).json()
+        assert session["kiosk_screen"] is False
+        assert session["setup_local_only"] is False
+        # The phone on the network creates the administrator, without a code.
+        response = await lan.post("/api/auth/setup", json={"username": ADMIN, "password": PASSWORD})
         assert response.status_code == 200, response.text
-        assert "kiosk_setup_code" not in (await client.get("/api/auth/session")).json()
+    async with make_client(base_url=LOOP) as client:
+        assert (await client.get("/api/auth/session")).json()["kiosk_screen"] is False
     assert {u.username for u in await UserRepository.list_all()} == {"kiosk", ADMIN}
 
 
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
-async def test_code_replaced_by_the_cli_is_no_longer_shown(marker):
-    marker.touch()
+async def test_plain_host_has_no_kiosk_screen(marker):
     await _prepare()
-    await setup_code.issue_setup_code()
-    async with make_client(base_url=LOOP) as client:
-        assert "kiosk_setup_code" not in (await client.get("/api/auth/session")).json()
-
-
-@pytest.mark.real_auth
-@pytest.mark.usefixtures("test_db", "fast_argon2")
-async def test_plain_host_never_shows_a_code(marker):
-    await _prepare(existing=True)
     async with make_client(base_url=LOOP) as client:
         session = (await client.get("/api/auth/session")).json()
-    assert session["setup_code_required"] is True
-    assert "kiosk_setup_code" not in session
+    assert session["kiosk_screen"] is False
 
 
 def test_deb_ships_the_launcher_and_postinstall_marks_existing_kiosks():
@@ -165,12 +144,12 @@ def test_launcher_and_postinstall_parse():
 
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
-async def test_code_is_refused_with_a_foreign_host_or_relay_marker(marker):
+async def test_the_screen_is_not_a_foreign_host_or_relay_marker(marker):
     marker.touch()
     await _prepare()
     async with make_client(base_url=LOOP) as client:
-        assert "kiosk_setup_code" in (await client.get("/api/auth/session")).json()
+        assert (await client.get("/api/auth/session")).json()["kiosk_screen"] is True
         rebinding = await client.get("/api/auth/session", headers={"Host": "evil.example.com"})
-        assert "kiosk_setup_code" not in rebinding.json()
+        assert rebinding.json()["kiosk_screen"] is False
         via = await client.get("/api/auth/session", headers={"Via": "1.1 tunnel"})
-        assert "kiosk_setup_code" not in via.json()
+        assert via.json()["kiosk_screen"] is False

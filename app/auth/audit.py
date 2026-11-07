@@ -47,6 +47,7 @@ AuditAction = Literal[
     "user.deleted",
     "users.listed",
     "password.changed",
+    # No longer written since 5.0.0 (no installation code); kept so older rows still read.
     "setup_code.issued",
     "settings.changed",
     # Devices (API and device tokens) and second factors (later)

@@ -4,7 +4,7 @@ Meshloom 5.0.0 makes login mandatory (LAN included) with four roles: `admin`,
 `member`, `viewer` and `kiosk`. This page covers the data layer (tables,
 password hashing, opaque tokens, the repository) and the auth core: the gate
 that resolves a principal for every request, the CSRF rule, the first-run
-setup with its installation code, the `/api/auth/*` routes and the permission
+setup, the `/api/auth/*` routes and the permission
 registry (which role may call which route, and receive which WebSocket event).
 The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
 "Session gate"). Home Assistant ingress identities are in "Ingress" below,
@@ -30,7 +30,7 @@ works on the same tables.
 | Tables (fresh databases) | `SCHEMA_TABLES` / `SCHEMA_INDEXES` in `app/database.py`, textually identical |
 | Typed models | `app/auth/models.py` |
 | Password hashing (argon2id) | `app/auth/passwords.py` |
-| Opaque secrets (sessions, setup code, API tokens) | `app/auth/tokens.py` |
+| Opaque secrets (sessions, API tokens) | `app/auth/tokens.py` |
 | API and device tokens (Bearer) | `app/auth/providers/token.py`, `app/routers/auth_tokens.py`, `app/migrations/_108_api_tokens.py` |
 | Repository | `app/repository/auth.py` |
 | Principal (who is calling) | `app/auth/principal.py` |
@@ -43,7 +43,7 @@ works on the same tables.
 | `AUTH_FAIL` log line (one per refused credential; a contract) | `app/auth/fail_log.py`, `docs/dev/auth-fail-log.md`, `tests/test_auth_fail_log.py` |
 | Login delays (per pair, per username, per IP; known devices) | `app/auth/ratelimit.py`, `app/auth/device_cookie.py`, `tests/test_auth_ratelimit.py` |
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
-| Installation code, first run | `app/auth/setup_code.py` |
+| First run, exposed requests | `app/auth/first_run.py` |
 | CSRF rule, https detection, `X-Forwarded-Host` for same-origin | `app/origin_policy.py` |
 | Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
 | Host guard (`host_allowed`, observe/enforce middleware, observed names) | `app/middleware/host_guard.py`, `tests/test_host_guard.py` |
@@ -151,8 +151,7 @@ them aligned, so check both when you edit one).
   secret word such as `password`, `pass`, `secret`, `token`, `key`, `apikey`,
   `pin`, `code`, `otp`, `totp`, `hash`, `seed`, `cookie`, `session`, `auth` or
   `credential`, or (3) the key with separators removed contains a fragment
-  such as `password`, `secret`, `token`, `apikey`, `privatekey` or
-  `setupcode`. `ping`, `pinned`, `user_id` or `reason` pass; a harmless key
+  such as `password`, `secret`, `token`, `apikey` or `privatekey`. `ping`, `pinned`, `user_id` or `reason` pass; a harmless key
   that matches is refused, which is accepted. Failed
   logins are written without authentication, so every field is bounded:
   `action` 64, `outcome` 32, `target` 256, `ip` 64, `via` 32 characters
@@ -160,10 +159,8 @@ them aligned, so check both when you edit one).
   `{"bytes": <size>, "truncated": true}`. Server code never calls the repository
   directly: it writes through `app/auth/audit.py` (see "Audit log" below).
 - **Settings** live in their own single-row table `auth_settings`, not in
-  `app_settings`, so the setup code hash never reaches `AppSettings`, the v1
-  backup settings or the settings API. `AuthSettings` exposes `setup_code_set`
-  instead of the hash; `get_setup_code_hash()` / `set_setup_code_hash()` are the
-  only accessors. Every read and write raises `AuthSettingsMissingError` when
+  `app_settings`, so the cookie key never reaches `AppSettings`, the v1 backup
+  settings or the settings API. Every read and write raises `AuthSettingsMissingError` when
   the row is missing instead of falling back to defaults (fail closed); the
   migration and `SCHEMA_TABLES` insert it at every start. CIDRs (`trusted_networks[].cidr`, `trusted_proxies`) are
   canonicalized with `ipaddress`; an invalid one is refused. The CORS list stays
@@ -202,7 +199,7 @@ logged at ERROR and the row is not written (a bug at the call site).
 
   | Action | Written by |
   |---|---|
-  | `setup` | `POST /auth/setup` (`failure` + `details.reason` for a wrong code, `error` when first-run preparation failed) |
+  | `setup` | `POST /auth/setup` (`failure` + `details.reason` `setup_local_only` for an exposed request, one row a minute at most, `REFUSAL_AUDIT_INTERVAL_S`; `error` when first-run preparation failed) |
   | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`; `pending` with `details.factor = totp` when the password checked and a second factor is owed), `POST /auth/login/2fa` (`success` with `details.factor` `totp` or `recovery`, plus `remaining` recovery codes for the latter; `failure` with `details.reason = second_factor_invalid`; `delayed`/`refused` while a login delay runs), `POST /auth/logout`, `GET /auth/kiosk-session` (`details.method = "kiosk_token"`, `reason` on failure) |
   | `totp.enrolled` | `POST /auth/2fa/confirm` (`success` with `details.sessions_revoked`; `failure` for a wrong first code), and the password check of `POST /auth/2fa/enrol` (`failure`, `delayed`, `refused`) |
   | `totp.disabled` | `POST /auth/2fa/disable` (password and code checks too), `meshloom-admin disable-2fa` |
@@ -215,7 +212,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `user.disabled`, `user.enabled` | `PATCH /auth/users/{id}` (`disabled`), `meshloom-admin disable-user` / `enable-user` |
   | `user.deleted` | `DELETE /auth/users/{id}` (`details.role`, `provider`) |
   | `users.listed` | `GET /auth/users` (`details.count`), `meshloom-admin list-users` |
-  | `setup_code.issued` | `meshloom-admin` |
+  | `setup_code.issued` | no longer written since 5.0.0; kept so older rows still read |
   | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password; `delayed`/`refused` while a login delay runs; `refused` with `details.reason = password_policy` and `policy`; `refused` with `details.reason = forbidden` when a `kiosk` session or a scoped token sends a `new_password`), `POST /auth/users/{id}/password` (`details.reset`, `must_change`, `sessions_revoked`), `meshloom-admin reset-password` |
   | `settings.changed` | `PATCH /auth/settings`, one row per field changed (the `ip_ban_*` fields: one row, target `auth_settings.ip_ban`, `details` holding the changed ones); `meshloom-admin host-guard-observe` and `rotate-device-key` (target `auth_settings.device_cookie_key`, never the key) |
   | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | No longer written (MSHL-192 removed the bot routes: `type = bot` answers 410 and the until-restart route is gone). Kept in `AuditAction` so rows written by 4.18.x and earlier 5.0 builds still render. The `plugin.*` actions replace them |
@@ -263,7 +260,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   transaction (`AUDIT_PURGE_BATCH`), so a large retention drop never holds the
   write lock for long.
 - Tests: `tests/test_auth_audit.py` (one row per event, the API, the purge, and a
-  sweep that no row holds a password, the installation code, a session cookie or
+  sweep that no row holds a password, a session cookie or
   a private key typed in the flows).
 
 ## Backups
@@ -278,13 +275,13 @@ admin. The API tokens travel in their own `api_tokens` section (hashes,
 scopes, expiry; never a secret, the database holds none), behind the same box
 and only with `users`, in the same transaction (`restore_with`): accounts kept
 by `accounts_no_admin` keep their tokens and the file's are not restored. `auth_settings` is not in any JSON backup
-(machine-specific). `sessions` and
-the setup code are never exported; `auth_audit` is not in the JSON backup but
+(machine-specific). `sessions` are
+never exported; `auth_audit` is not in the JSON backup but
 stays in the SQLite download (IPs, usernames). The SQLite download
 (`GET /settings/backup/database`) keeps the accounts and the audit trail but
 not their secrets: `prepare_sqlite_snapshot()` sets `users.password_hash`,
 `users.totp_secret` with `totp_enabled_at` and `totp_last_counter`, and
-`auth_settings.setup_code_hash` to NULL and empties
+`auth_settings.device_cookie_key` to NULL and empties
 `sessions` and `recovery_codes` in the copy, under `secure_delete`. A restored snapshot therefore
 has accounts that cannot log in with a password until an admin reset. The
 passkeys (`webauthn_credentials`) stay in the copy: they are public keys, and
@@ -432,8 +429,7 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
   Assistant administrators see the panel, so the first ingress user is one of
   them. `panel_admin` is a manifest key, not a user option; never set it to
   false without revisiting this rule. A lock makes the
-  check and the insert one step. When it is the first account, the
-  installation code is cleared, so a 4.18.x add-on lands signed in with no
+  check and the insert one step. A 4.18.x add-on lands signed in with no
   setup step. Audit row `user.created` (`via = ingress`, `details.role`); a
   display name Home Assistant changed writes `user.changed`
   (`details.source = home_assistant`).
@@ -906,7 +902,7 @@ HTTP Basic auth is removed (MSHL-100):
 
 - The variables are never read: each start logs the retired-variable warning
   while they are set (`RETIRED_ENV`). A 4.x install that had only them goes
-  through the first run with the installation code. An account an earlier
+  through the first run, from the local network. An account an earlier
   preview imported stays a normal account.
 - A `Basic` header is no credential: the gate ignores it like any unknown
   scheme, so the request gets the plain 401 with no argon2id work, no
@@ -1014,7 +1010,7 @@ and none by IP alone behind Docker:
   one slot a second; the per-IP rule and the relay's edge lock answer that,
   not a lock on the name.
 - **`AUTH_FAIL` line.** Each refused credential (login, second factor, passkey,
-  Bearer, pairing code, setup code) also writes one `WARNING` line on the
+  Bearer, pairing code) also writes one `WARNING` line on the
   logger `meshloom.auth`, keyed on `client_ip()`, with `via` the transport
   (`request_via()`), `proxied=1` when a ban-exempt peer (RFC 1918, loopback,
   link-local, ULA; not the tailnet ranges `100.64.0.0/10` and
@@ -1046,7 +1042,7 @@ the same failures with the same address.
   cutting off all its visitors: declare it in Trusted proxies. A forged
   `X-Forwarded-For` from an untrusted peer bans that peer, never the forged
   address. `is_local()` (both tailnet ranges included) still decides the
-  login-free gate, the login delays and the setup code.
+  login-free gate, the login delays and the exposed first run.
   Nor, for the ban only (the `AUTH_FAIL` line and its `proxied` rule are
   unchanged), a global IPv6 address inside a prefix on-link on the host,
   re-read at most every 60 s (`HOST_PREFIXES_TTL_S`), each file read capped at
@@ -1508,26 +1504,21 @@ OpenID Connect case in `tests/test_auth_oidc.py`. Frontend: `frontend/src/auth/m
 - **Not done.** No test mail button (the address verification is one); no admin
   policy forcing the e-mail code.
 
-## First run and the installation code
+## First run
 
-`prepare_first_run()` (`app/auth/setup_code.py`) runs in the lifespan, while
-no account exists:
+`prepare_first_run()` (`app/auth/first_run.py`) runs in the lifespan: it creates the
+kiosk account and its device token on a kiosk host and checks the database answers. The
+retired `MESHCORE_BASIC_AUTH_*` variables are never imported (HTTP Basic auth was removed,
+MSHL-100): when set, they only get the retired-variable warning (`RETIRED_ENV`,
+`app/services/legacy_env_settings.py`).
 
-1. The retired `MESHCORE_BASIC_AUTH_*` variables are never imported (HTTP
-   Basic auth was removed, MSHL-100): when set, they only get the
-   retired-variable warning (`RETIRED_ENV`, `app/services/legacy_env_settings.py`).
-2. On a database that existed before this start (the file was there, or the
-   radio history says so: the same `existing_database` as the legacy imports)
-   an 8-digit installation code is generated, its SHA-256 stored in
-   `auth_settings.setup_code_hash`, and the code logged at WARNING. A new code
-   replaces the old one at every start. `meshloom-admin setup-code` prints a
-   fresh one (`issue_setup_code()`).
-3. On a database created by this start nothing is asked from the local
-   network: whoever installed it is in front of it. A restart before the setup
-   makes the database existing, and the code is then asked.
+While no account exists, `POST /api/auth/setup` creates the administrator for a request
+from the local network, on a new database, on an existing one (a 4.x upgrade) and on the
+kiosk image alike. No secret is asked: there is no installation code since 5.0.0
+(migration 146 drops its column).
 
-**Exposed first run (MSHL-424).** On a fresh database a request is *exposed*
-(`setup_code.request_exposed(scope)`) when it does not come through the LAN
+**Exposed first run (MSHL-424).** A request is *exposed*
+(`first_run.request_exposed(scope)`) when it does not come through the LAN
 path (`auth_via` other than `lan`), carries any forwarding header (`PROXY_HEADERS`
 in `app/auth/providers/trusted_network.py`: `X-Forwarded-*`, `Forwarded`,
 `X-Real-IP`, `CF-Connecting-IP` and the rest) from a peer that is not a trusted proxy, comes from a client
@@ -1536,34 +1527,38 @@ loopback, link-local, ULA or CGNAT per `app/net/local_address.py`, so a
 documentation or reserved address is exposed too; on the address a trusted
 proxy forwarded), has a `Host` a public DNS zone could hold
 (`host_guard.name_cannot_be_rebound` fails, whatever `host_guard_mode` says: DNS
-rebinding, MSHL-461), or when `auth_settings.public_urls` is not empty. The first exposed `GET
-/api/auth/session` or `POST /api/auth/setup` issues a code
-(`ensure_exposure_code()`, under a lock, only when none is stored), logs it at
-WARNING and answers `setup_code_required: true`; setup without it answers 403
-`auth_setup_code_invalid`. That code is waived for later non-exposed requests
-(kept in memory as `_exposure_code_hash`), so an internet visitor cannot lock
-the owner on the LAN out. A code from `meshloom-admin setup-code` or from a
-restart is required from everyone. Under ingress the session issues no code
-(setup is refused there, `auth_ingress_only`). Limits, both closed by declaring
-a public URL: under Docker's userland proxy every client appears as the gateway
-(private); a local tunnel that forwards without headers (`ssh -R`, `socat`,
-HAProxy in TCP mode) makes Internet visitors appear as 127.0.0.1.
+rebinding, MSHL-461), or when `auth_settings.public_urls` is not empty. Setup answers it
+403 `auth_setup_local_only` and `GET /api/auth/session` says `setup_local_only: true`.
+Under ingress neither applies: setup answers `auth_ingress_only` first. A refusal guesses
+no secret, so it writes no `AUTH_FAIL` line and at most one audit row a minute
+(`REFUSAL_AUDIT_INTERVAL_S`); no delay is needed, as there is nothing to guess.
+
+With `public_urls` declared the local network is refused too, and the only way to the
+first account is `meshloom-admin create-admin`.
+
+**`setup_local_url`** (`first_run.local_setup_url(scope)`) comes with `setup_local_only`,
+while no account exists: `<scheme>://<primary private IPv4>:<port>`. The address is the one
+on the default route (`_primary_private_ipv4`, a UDP `connect` that sends nothing), RFC 1918
+only (`local_address.is_rfc1918`). The port is `scope["server"]`'s, the one the connection
+reached. It is checked by connecting to that address (`_accepts_connections`), which also
+rules out a server bound to loopback. https only when no trusted proxy sent the request.
+None in a container (`install_kind.in_container`), through the relay, and on any failure; it
+never raises. It gives an anonymous visitor a private address until the account exists,
+which the owner accepted to spare them the search.
+
+**Residual risk.** Some exposures cannot be seen from here, for example: Docker's userland
+proxy, where every client appears as the gateway (private), also for a port published over
+IPv6; a local tunnel that forwards without headers (`ssh -R`, `socat`, HAProxy in TCP mode),
+where Internet visitors appear as 127.0.0.1; a bare nginx `proxy_pass` (no forwarding header,
+no public `Host`); a router port forwarded with source NAT. On a machine reachable that way the first visitor can become administrator, on
+an upgraded database too. Create the account with `meshloom-admin create-admin` before
+publishing it.
 
 **Fail closed.** `POST /api/auth/setup` answers 503 `auth_setup_unavailable`
 until `prepare_first_run()` has succeeded in this process: when it raised at
 startup (a locked database), the setup route runs it again and keeps refusing
-while it fails. Setup is also refused when the database existed before this
-start and no code hash is stored, whatever code is sent, and no exposure code is
-issued then. `GET /api/auth/session` then says `setup_code_required: true`.
-
-Once an account exists the hash is cleared. `POST /api/auth/setup` checks the
-code with digits only (`1234 5678` and `1234-5678` match); wrong codes are
-answered one at a time, one second apart (a lock around setup): one guess a
-second against 10^8 codes, so the login delays do not apply to setup. When the
-setup route retries a failed `prepare_first_run()`, it keeps a code hash that
-is already stored (`keep_stored_code`): it may be the one `meshloom-admin
-setup-code` printed while the startup preparation was failing. The code is
-never stored in clear and never in an audit row.
+while it fails. This comes before the exposure check. A failure of the kiosk
+account alone does not count: setup does not depend on it.
 
 ## Password policy
 
@@ -1586,8 +1581,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey, oidc, oidc_label?, magic_link}, secure}` (`magic_link`: at least one account takes sign-in links, the SMTP profile is usable and this request's origin may carry a mailed link, the `auth_magic_link_origin_untrusted` rule of `POST /auth/magic-link`) (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
-| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required (existing database, or an exposed request, "Exposed first run") and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_local_only, setup_local_url?, kiosk_screen, methods: {password, ingress, passkey, oidc, oidc_label?, magic_link}, secure}` (`magic_link`: at least one account takes sign-in links, the SMTP profile is usable and this request's origin may carry a mailed link, the `auth_magic_link_origin_untrusted` rule of `POST /auth/magic-link`) (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
+| `POST /auth/setup` | public while no account exists | `{username, password, display_name?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_local_only` for an exposed request ("Exposed first run"); 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony; "email" alone or added when the e-mail code is on, with `email_hint`), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code, method?}` (`method: "email"` for an e-mail code) or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
 | `POST /auth/login/2fa/email` | public | `{pending_token, lang?}`: mails an e-mail code for the pending login ("E-mail code and sign-in links"). `{sent, expires_in, resend_in}`; 401 `auth_2fa_pending_invalid`, 429 `auth_email_send_limit` or `auth_rate_limited`, 503 `auth_email_unavailable`, 502 `auth_email_send_failed` |
@@ -1654,8 +1649,8 @@ The setup page does this in a browser; from a shell (scripts, tests) it is:
 
 ```bash
 curl -c jar -H 'Content-Type: application/json' \
-  -d '{"username":"owner","password":"a long passphrase","setup_code":"12345678"}' \
-  http://HOST:8000/api/auth/setup        # setup_code: existing database, or reached from outside the LAN
+  -d '{"username":"owner","password":"a long passphrase"}' \
+  http://HOST:8000/api/auth/setup        # from the local network only
 curl -c jar -H 'Content-Type: application/json' \
   -d '{"username":"owner","password":"a long passphrase"}' http://HOST:8000/api/auth/login
 curl -b jar http://HOST:8000/api/auth/session
@@ -1667,19 +1662,17 @@ curl -b jar http://HOST:8000/api/auth/session
 first start create a `kiosk` account (`app/services/kiosk.py`, called from
 `prepare_first_run`) with no trusted-network rule. `UserRepository.any_exist()`
 (the meaning of "setup done" in `/auth/session`, `/auth/setup`, the gate and the
-ingress first-user rule) ignores `kiosk` accounts. On a kiosk host an
-installation code is issued even on a fresh database; `/auth/session` returns it
-as `kiosk_setup_code` only to a direct loopback peer carrying no proxy header
-while setup is open.
+ingress first-user rule) ignores `kiosk` accounts. `/auth/session` answers
+`kiosk_screen: true` only to a direct loopback peer carrying no proxy header while
+setup is open: the page then shows its banner asking to create the administrator from a
+phone or computer on the same network, and waits.
 
 The account is created when absent by username, at every start: a disabled
 `kiosk` account stays disabled, but one an administrator deleted comes back at
 the next restart of a kiosk host (harmless: no password, read-only). Remove the
-marker to stop that. The code is shown only after the trusted-network request
+marker to stop that. `kiosk_screen` follows the trusted-network request
 checks (`rule_blocker`: not relayed or ingress, no trusted proxy, no proxy
-header, strict `Host`) with loopback allowed, and any error hides it.
-`meshloom-admin setup-code` works on a kiosk host (it tests `any_exist()`); the
-screen then stops showing the old code.
+header, strict `Host`) with loopback allowed, and any error answers false.
 
 ### Kiosk device token
 
@@ -1754,8 +1747,8 @@ in its header), `app/routers/auth_kiosk.py`, `pkg/rpi/meshloom-kiosk`,
   every code is refused until the window slides.
 - **Setup.** The bootstrap works while no administrator exists (the `kiosk`
   account is a principal; `any_exist()` ignores it), so the screen holds a
-  kiosk session behind the setup page and its installation code. `SetupPage`
-  re-reads `GET /auth/session` every 5 s while it shows the kiosk code, and
+  kiosk session behind the setup page and its banner. `SetupPage`
+  re-reads `GET /auth/session` every 5 s while `kiosk_screen` is set, and
   opens the app once an administrator exists.
 - **Launcher.** `pkg/rpi/meshloom-kiosk` reads the file (or through
   `sg meshloom-kiosk` when the session started before the group was added),
@@ -1800,8 +1793,8 @@ the browser, which signed in again as `kiosk` within 15 s.
 the result here.
 
 1. Flash the 4.18.2 kiosk image, let it start, then update it to a 5.0 build
-   (Settings, or `apt`): after a reboot the screen shows the setup page with the
-   installation code, in a `kiosk` session.
+   (Settings, or `apt`): after a reboot the screen shows the setup page with its
+   banner, in a `kiosk` session.
 2. Create the administrator from a phone: within a few seconds the wall screen
    opens the app as `kiosk` (channels, no direct messages, no settings door).
 3. Reboot: the screen opens the app again with no setup or sign-in page.
@@ -1822,12 +1815,12 @@ strictness:
 
 - The trusted-network provider calls it directly and **always** refuses a
   rejected host, in both modes (see "Trusted networks").
-- First run (`setup_code.request_exposed`) asks `name_cannot_be_rebound`, in both
+- First run (`first_run.request_exposed`) asks `name_cannot_be_rebound`, in both
   modes: `host_allowed` plus single-label names, since no public DNS name has one
   label and a Docker container's own name is not the one its LAN users type. A
   rebinding page is same-origin for the CSRF rule and comes from a LAN browser, so
-  only its name gives it away. It then needs the installation code, as does an owner
-  on a dotted name of their own.
+  only its name gives it away. Setup is then refused, also for an owner on a dotted name
+  of their own, who uses the machine's IP address.
 - Mailed sign-in links do not use it: `host_allowed` accepts any IP literal and
   `.local` name, which a client can point at its own box. They take the stricter
   `_host_is_this_machine` of `app/routers/auth_email.py` ("E-mail code and sign-in
@@ -1956,9 +1949,10 @@ reason. Never run it against a production instance or its data.
 Use a fresh database for A, a copy of a 4.18 database for B.
 
 A. **Fresh install.**
-1. Open the address: the setup page asks for the administrator with **no**
-   installation code (add-on: not asked, see below). Create it; you land in the
-   app.
+1. Open the address: the setup page asks for the administrator
+   (add-on: not asked, see below). Create it; you land in the app. From a public
+   address or a domain name the page shows no form, asks for the local network and
+   links the local address (package install, not in a container).
 2. Sign out, sign in with a wrong password six times: the delay message
    appears, the right password still works for this browser.
 3. Create a `member`, a `viewer` and a `kiosk` in **Users & Access**. As each:
@@ -1983,13 +1977,10 @@ A. **Fresh install.**
    above, and no password, code or token.
 
 B. **Upgrade from 4.18.**
-1. Without Basic variables: after the update the setup page asks the
-   **installation code** printed in the log (`journalctl -u meshloom`,
-   `docker logs`, the add-on **Log** tab); a wrong code is refused, one per
-   second; `meshloom-admin setup-code` prints a new one and the old one stops
-   working.
+1. Without Basic variables: after the update the setup page, from the local
+   network, creates the administrator directly.
 2. With the retired `MESHCORE_BASIC_AUTH_*` set: they are not imported, the
-   log warns they are retired, and the setup page asks the installation code
+   log warns they are retired, and the setup page works
    as in 1; a script using `Authorization: Basic` gets a plain 401 (use an API
    token).
 3. With trusted network rules: after the update they sign nobody in until an
@@ -2035,7 +2026,7 @@ token" for both images:
 
 Also check on each: `Settings → Users & Access` shows **Kiosk screen** in the
 token list; `ps -ef | grep -c mlt_` stays 0; with the `kiosk` account disabled
-the screen shows the sign-in page and not the app; and the setup code appears
+the screen shows the sign-in page and not the app; and the kiosk banner appears
 only on the Pi's own screen (not from another machine, not through a proxy).
 
 ### Record

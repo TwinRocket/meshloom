@@ -64,13 +64,13 @@ space or any other control character (see "Escaping").
 | `passkey` | `POST /api/auth/webauthn/login/verify`: unknown or used challenge, or an assertion that does not check | `bad_passkey` |
 | `bearer` | `Authorization: Bearer`: unknown, revoked or expired API or device token | `invalid_token` |
 | `pair` | `POST /api/auth/pair`: unknown, malformed (within the body's length limit), used or expired pairing code (410) | `invalid_code` |
-| `setup` | `POST /api/auth/setup`: wrong installation code | `invalid_setup_code` |
 
 Not written:
 
 - an attempt refused by a login delay before any check (429
   `auth_rate_limited`), or by the busy argon2id queue (503 `auth_busy`);
-- a precondition: setup already done (409), a full token table on pairing
+- a precondition: setup already done (409), a setup refused because the request did
+  not come from the local network (403 `auth_setup_local_only`, no secret is guessed), a full token table on pairing
   (409), a route closed under ingress (403);
 - a body that fails validation (422), such as a pairing code longer than the
   body allows;

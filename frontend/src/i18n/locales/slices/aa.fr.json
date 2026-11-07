@@ -52,12 +52,10 @@
         "good": "Bon",
         "strong": "Solide"
       },
-      "code": "Code d'installation",
-      "codeHint": "Saisissez le code à 8 chiffres écrit dans le journal de Meshloom. Où le trouver :",
-      "codeWhereDocker": "Docker : docker logs <conteneur>, cherchez « installation code ».",
-      "codeWhereSystemd": "Installation par paquet : journalctl -u meshloom.",
-      "codeWhereAddon": "Module Home Assistant : l'onglet Journal du module.",
-      "codeWhereCli": "Toute installation, pour un nouveau code : meshloom-admin setup-code sur l'hôte.",
+      "localOnly": {
+        "title": "Ouvrez Meshloom sur votre réseau local",
+        "description": "Le compte administrateur se crée depuis le réseau local. Ouvrez Meshloom depuis un téléphone ou un ordinateur connecté au même réseau que cette machine."
+      },
       "submit": "Créer le compte"
     },
     "userMenu": {

@@ -7,7 +7,7 @@ order: 24.5
 
 Meshloom already slows down someone who keeps guessing a password ([Sign-in delays](/en/docs/deep/access/#sign-in-delays)). [fail2ban](https://github.com/fail2ban/fail2ban) adds a block at the firewall: an address that fails five times in ten minutes can no longer reach port 8000 at all, for an hour, then longer each time it comes back. It is optional, and off until you turn it on.
 
-Each refused password, code, passkey, token or installation code writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from. fail2ban watches those lines. Nothing in them identifies the account: only a short code that changes at each restart.
+Each refused password, code, passkey or token writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from. fail2ban watches those lines. Nothing in them identifies the account: only a short code that changes at each restart.
 
 ## The built-in ban and fail2ban
 

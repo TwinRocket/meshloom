@@ -22,7 +22,7 @@ const PAYLOAD = 'meshloom://pair?d=eyJ2IjoxfQ';
 const sessionOf = (role: AuthRole, via: 'lan' | 'ingress' = 'lan'): AuthSessionInfo => ({
   authenticated: true,
   setup_required: false,
-  setup_code_required: false,
+  setup_local_only: false,
   methods: { password: true, ingress: false },
   user: { id: 1, username: 'root', display_name: 'Root', role },
   via,

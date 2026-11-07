@@ -245,8 +245,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   if (session.setup_required) {
     return (
       <SetupPage
-        setupCodeRequired={session.setup_code_required}
-        kioskSetupCode={session.kiosk_setup_code}
+        setupLocalOnly={session.setup_local_only}
+        setupLocalUrl={session.setup_local_url}
+        kioskScreen={session.kiosk_screen}
         onDone={(next) => setState({ status: 'ready', session: next })}
       />
     );

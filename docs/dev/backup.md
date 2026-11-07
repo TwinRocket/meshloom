@@ -209,7 +209,6 @@ These hold for every section; a restore function must keep them:
      previous-transport snapshot that holds it) and the local accounts
      secrets (`SNAPSHOT_SCRUBBED_AUTH_COLUMNS`: `users.password_hash`,
      `users.totp_secret`, `users.totp_enabled_at`, `users.totp_last_counter`,
-     `auth_settings.setup_code_hash`,
      `auth_settings.device_cookie_key`, so a restored copy makes a new
      known-device key and forgets every browser; the `sessions`
      and `recovery_codes` tables, the plugin config secrets in
@@ -256,7 +255,7 @@ imported by `services/backup.py`.
   in base64url; a public key, never a secret; a version 1 or 2 file restores
   without them). Never
   `username_key` (recomputed), sessions, the audit trail or `auth_settings`
-  (with the setup code hash and the known-device cookie key). Keys a file adds to a row are dropped
+  (with the known-device cookie key). Keys a file adds to a row are dropped
   (`BackupUser`, `extra="ignore"`, `hide_input_in_errors`).
 - **Include accounts.** `ACCOUNT_SECTIONS` lists the sections the export box
   covers (`users`, `api_tokens` and `notification_user_rules`). Checked by default; unchecked, none of them is

@@ -31,7 +31,10 @@ export interface SecondFactorChallenge {
 export interface AuthSessionInfo {
   authenticated: boolean;
   setup_required: boolean;
-  setup_code_required: boolean;
+  /** Setup refuses this request: it did not come straight from the local network. */
+  setup_local_only: boolean;
+  /** With `setup_local_only`: the address to use on the local network, when it can be known. */
+  setup_local_url?: string;
   methods: {
     password: boolean;
     ingress: boolean;
@@ -45,8 +48,8 @@ export interface AuthSessionInfo {
   };
   /** Whether the server saw the request as https (a trusted proxy's `X-Forwarded-Proto`). */
   secure?: boolean;
-  /** The installation code, only for the kiosk screen (a direct loopback request, setup open). */
-  kiosk_setup_code?: string;
+  /** This is the kiosk screen (a direct loopback request on a kiosk host, setup open). */
+  kiosk_screen?: boolean;
   user?: AuthUser;
   via?: AuthVia;
   instance?: { name?: string; version: string };
@@ -143,7 +146,6 @@ export interface AuthSetupRequest {
   username: string;
   password: string;
   display_name?: string;
-  setup_code?: string;
 }
 
 export interface AuthLoginRequest {

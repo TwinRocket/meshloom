@@ -17,7 +17,7 @@ you work there:
 Developer reference, `docs/dev/`:
 
 - `database.md`: SQLite schema, migrations, indexes, retention.
-- `auth.md`: local accounts (data model, argon2id, the auth gate, providers, permissions, sessions and cookie, CSRF rule, Host guard, tokens, TOTP, passkeys, kiosk, setup code, `/api/auth` routes) and the manual checklist for the five install kinds plus the kiosk image, run before the 5.0.0 tag.
+- `auth.md`: local accounts (data model, argon2id, the auth gate, providers, permissions, sessions and cookie, CSRF rule, Host guard, tokens, TOTP, passkeys, kiosk, first run, `/api/auth` routes) and the manual checklist for the five install kinds plus the kiosk image, run before the 5.0.0 tag.
 - `backup.md`: full backup sections and restore hooks.
 - `community-client.md`: the Community client; `frontend-community.md`: its frontend state.
 - `releasing.md`: branches, images, the release chain.

@@ -135,9 +135,9 @@ async def _create(
         role = "admin" if first else (await AuthSettingsRepository.get()).ingress_default_role
         no_account = not await UserRepository.any_exist()
         if no_account:
-            # Prepare the first run (installation code) if it has not run
-            # yet; ingress does not depend on it.
-            from app.auth.setup_code import SetupUnavailable, ensure_first_run_ready
+            # Prepare the first run if it has not run yet; ingress does not
+            # depend on it.
+            from app.auth.first_run import SetupUnavailable, ensure_first_run_ready
 
             try:
                 await ensure_first_run_ready()
@@ -160,11 +160,6 @@ async def _create(
         if user is None:
             logger.warning("Could not find a free username for a Home Assistant identity")
             return None
-        if no_account:
-            # The first account exists now: the installation code has no use left.
-            from app.auth.setup_code import clear_setup_code
-
-            await clear_setup_code()
     logger.info("Home Assistant identity %r added as %s", user.username, user.role)
     await audit.record(
         "user.created",

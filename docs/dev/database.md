@@ -396,8 +396,7 @@ Single row (`id = 1`) of access settings, kept out of `app_settings` so no auth
 secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
 `trusted_proxies` (JSON CIDR list), `public_urls` (JSON), `host_guard_mode`
 (`observe`/`enforce`), `ingress_default_role` (`member`), `session_lifetime_days`
-(30; 1 to 365 through `PATCH /api/auth/settings`), `audit_retention_days` (366), `lan_login_free` (migration 136, off: the trusted network rules apply only once an admin turns it on; migration 136 also drops the 4.x `basic_imported` column), `setup_code_hash` (SHA-256 of
-the installation code), `ingress_admin_granted` (migration 107: the first Home
+(30; 1 to 365 through `PATCH /api/auth/settings`), `audit_retention_days` (366), `lan_login_free` (migration 136, off: the trusted network rules apply only once an admin turns it on; migration 136 also drops the 4.x `basic_imported` column), `ingress_admin_granted` (migration 107: the first Home
 Assistant identity was made admin; never cleared), `require_2fa_for_admins`
 (migration 109, off: admins with a password and no second factor reach only the
 enrolment routes), `device_cookie_key` (migration 119: hex HMAC-SHA256 key of the
@@ -709,7 +708,7 @@ order in `app/AGENTS.md`, "## Backups"):
   is not in the database, so not in the snapshot. In the copy (never the live
   database) every `app_settings.*_seed` column, the BLE PIN, the
   previous-transport snapshot, the password and TOTP secrets of `users` and
-  `auth_settings.setup_code_hash` and `auth_settings.device_cookie_key` are set to NULL, `sessions`,
+  `auth_settings.device_cookie_key` are set to NULL, `sessions`,
   `recovery_codes`, `pairing_codes`, `plugin_secrets` and the three `remote_*` tables are
   emptied, the consent `share_enabled` and the share terms acceptance (`share_terms_version`, `share_terms_accepted_at`) are set to 0, and a one-row
   `meshloom_backup_snapshot` marker table is added: a database

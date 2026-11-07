@@ -11,7 +11,7 @@ import i18n from '../i18n';
 const session = (mustChange: boolean): AuthSessionInfo => ({
   authenticated: true,
   setup_required: false,
-  setup_code_required: false,
+  setup_local_only: false,
   methods: { password: true, ingress: false },
   user: {
     id: 2,

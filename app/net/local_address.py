@@ -5,7 +5,7 @@ host or the household network) or *public* (anything else). Every inbound
 decision that depends on it asks this module:
 
 - the login limiter's "public client" hint and the exposed first run
-  (``app/auth/ratelimit.client_is_public``, ``app/auth/setup_code.request_exposed``);
+  (``app/auth/ratelimit.client_is_public``, ``app/auth/first_run.request_exposed``);
 - the built-in ban's exclusions, through ``is_ban_exempt`` (``app/auth/ip_ban.bannable``,
   ``check``), and the ``AUTH_FAIL`` line's ``proxied`` field, through the same;
 - the login-free-on-the-local-network gate and its notice
@@ -42,8 +42,8 @@ benchmarking (``198.18.0.0/15``, ``2001:2::/48``), ``192.0.0.0/24``,
 deprecated site-local ``fec0::/10`` and IPv4-compatible ``::a.b.c.d``. A LAN
 never hands those out, so a peer in one of them is unexpected, and every
 caller then takes its safe side: the limiter and the ban count it,
-``proxied`` stays ``0``, the login-free gate refuses, a first run asks for
-the installation code.
+``proxied`` stays ``0``, the login-free gate refuses, a first run is refused
+as coming from outside.
 
 Rules that hold for every caller:
 
@@ -83,6 +83,10 @@ LOCAL_NETWORKS: tuple[IPNetwork, ...] = tuple(
         "fc00::/7",
         "fe80::/10",
     )
+)
+
+RFC1918_NETWORKS: tuple[ipaddress.IPv4Network, ...] = tuple(
+    ipaddress.IPv4Network(cidr) for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 
 # Carrier-grade NAT and Tailscale: local, but not exempt from the ban (MSHL-434).
@@ -137,6 +141,15 @@ def is_ban_exempt(value: IPAddress | str | None) -> bool:
         return False
     # ``in`` is False across IP versions, so no version check is needed.
     return not any(address in network for network in TAILNET_NETWORKS)
+
+
+def is_rfc1918(value: IPAddress | str | None) -> bool:
+    """Whether the address is a plain private IPv4 one, the kind a household LAN hands
+    out and a visitor can type (not loopback, link-local or CGNAT). Not an address: False."""
+    address = _address(value)
+    return isinstance(address, ipaddress.IPv4Address) and any(
+        address in network for network in RFC1918_NETWORKS
+    )
 
 
 def is_public(value: IPAddress | str | None) -> bool:

@@ -33,6 +33,13 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, Strict
 
 from app.auth import audit, device_cookie, email_factor, ratelimit, sessions, totp, webauthn
 from app.auth.fail_log import log_auth_failure
+from app.auth.first_run import (
+    SetupUnavailable,
+    ensure_first_run_ready,
+    local_setup_url,
+    refusal_audit_due,
+    request_exposed,
+)
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import (
     MAX_AUDIT_RETENTION_DAYS,
@@ -66,14 +73,6 @@ from app.auth.providers.password import (
     authenticate,
     authenticate_with_hash,
 )
-from app.auth.setup_code import (
-    SetupUnavailable,
-    check_setup_code,
-    clear_setup_code,
-    ensure_exposure_code,
-    request_exposed,
-    setup_code_required,
-)
 from app.middleware import host_guard, https_required
 from app.middleware.host_guard import RejectedHost
 from app.middleware.proxy_headers import MAX_TRUSTED_PROXIES, normalize_proxies
@@ -102,14 +101,11 @@ _CURSOR = re.compile(r"[0-9]{1,19}")
 AUDIT_PAGE_DEFAULT = 100
 AUDIT_PAGE_MAX = 500
 
-# Wrong installation codes are answered one at a time, this far apart.
-SETUP_FAILURE_DELAY_S = 1.0
-
 _setup_lock = asyncio.Lock()
 
 _MESSAGES = {
     "auth_setup_done": "The administrator already exists",
-    "auth_setup_code_invalid": "Invalid installation code",
+    "auth_setup_local_only": "Create the administrator from the local network",
     "auth_password_policy": "Password refused by the password policy",
     "auth_username_invalid": "Invalid username",
     "auth_invalid_credentials": "Invalid credentials",
@@ -275,15 +271,18 @@ class AuthSessionResponse(BaseModel):
 
     authenticated: bool
     setup_required: bool
-    setup_code_required: bool
+    # Setup refuses this request (``app/auth/first_run.py``): it did not come straight
+    # from the local network. The address to use there, when it can be known.
+    setup_local_only: bool
+    setup_local_url: str | None = None
     methods: AuthMethods
     # Whether the server saw this request as https (``scope["scheme"]``, from a
     # trusted proxy's X-Forwarded-Proto behind one): the session cookie is the
     # ``__Host-`` Secure one only then. A browser on https that reads false sits
     # behind a proxy Meshloom does not trust.
     secure: bool = False
-    # The installation code, for the kiosk screen alone (``app/services/kiosk.py``).
-    kiosk_setup_code: str | None = None
+    # This request is the kiosk screen's while setup is open (``app/services/kiosk.py``).
+    kiosk_screen: bool = False
     user: SessionUser | None = None
     via: Via | None = None
     instance: InstanceInfo | None = None
@@ -297,7 +296,6 @@ class SetupRequest(BaseModel):
     username: str = Field(min_length=1, max_length=USERNAME_MAX_LENGTH)
     password: SecretStr = Field(max_length=MAX_PASSWORD_LENGTH)
     display_name: str = Field(default="", max_length=128)
-    setup_code: SecretStr | None = Field(default=None, max_length=64)
 
 
 class LoginRequest(BaseModel):
@@ -411,14 +409,13 @@ async def _session_payload(
     oidc_provider = None if under_ingress or setup_required else await _oidc_provider()
     oidc_on = oidc_provider is not None and oidc_provider.ready
     if setup_required and not under_ingress:
-        # Setup is refused under ingress (auth_ingress_only): no code to issue.
+        # Setup is refused under ingress anyway (auth_ingress_only).
         exposed = await request_exposed(request.scope)
-        if exposed:
-            await ensure_exposure_code()
     payload = AuthSessionResponse(
         authenticated=principal is not None,
         setup_required=setup_required,
-        setup_code_required=setup_required and await setup_code_required(exposed),
+        setup_local_only=exposed,
+        setup_local_url=await local_setup_url(request.scope) if exposed else None,
         methods=AuthMethods(
             password=not under_ingress,
             ingress=under_ingress,
@@ -432,9 +429,9 @@ async def _session_payload(
         secure=_secure(request),
     )
     if setup_required:
-        from app.services.kiosk import displayed_setup_code
+        from app.services.kiosk import is_kiosk_screen
 
-        payload.kiosk_setup_code = await displayed_setup_code(request.scope, request.headers)
+        payload.kiosk_screen = await is_kiosk_screen(request.scope, request.headers)
     if principal is not None:
         from app.version_info import get_app_build_info
 
@@ -594,26 +591,29 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
     """Create the first administrator. Public while no account exists, 409 after.
 
     403 ``auth_ingress_only`` under ingress: the first Home Assistant user to
-    open the sidebar becomes the administrator there."""
+    open the sidebar becomes the administrator there. 403 ``auth_setup_local_only``
+    when the request did not come straight from the local network, and 503
+    ``auth_setup_unavailable`` until first-run preparation succeeded
+    (``app/auth/first_run.py``)."""
     _refuse_under_ingress(request)
     async with _setup_lock:
         if await UserRepository.any_exist():
             raise _error(409, "auth_setup_done")
-        code = body.setup_code.get_secret_value() if body.setup_code else None
         try:
-            code_ok = await check_setup_code(code, await request_exposed(request.scope))
+            await ensure_first_run_ready()
         except SetupUnavailable:
             await audit.record_request(
                 request, "setup", "error", details={"reason": "setup_unavailable"}
             )
             raise _error(503, "auth_setup_unavailable") from None
-        if not code_ok:
-            await audit.record_request(
-                request, "setup", "failure", details={"reason": "setup_code_invalid"}
-            )
-            log_auth_failure(request.scope, "setup", "invalid_setup_code", username=body.username)
-            await asyncio.sleep(SETUP_FAILURE_DELAY_S)
-            raise _error(403, "auth_setup_code_invalid")
+        if await request_exposed(request.scope):
+            # A refusal by location guesses no secret: no AUTH_FAIL line, and one row a
+            # minute at most, since anyone who finds the page can send these.
+            if refusal_audit_due():
+                await audit.record_request(
+                    request, "setup", "failure", details={"reason": "setup_local_only"}
+                )
+            raise _error(403, "auth_setup_local_only")
         password = body.password.get_secret_value()
         if reason := password_policy_violation(password, body.username):
             raise _policy_error(reason)
@@ -626,7 +626,6 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
             )
         except (InvalidUsernameError, UsernameTakenError):
             raise _error(400, "auth_username_invalid") from None
-        await clear_setup_code()
     logger.info("Administrator account %r created", user.username)
     principal = await _start_session(request, response, user)
     await audit.record_request(

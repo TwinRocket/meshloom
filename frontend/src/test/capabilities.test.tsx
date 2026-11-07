@@ -46,7 +46,7 @@ vi.mock('../components/RoomServerPanel', () => ({
 const sessionOf = (role: AuthRole): AuthSessionInfo => ({
   authenticated: true,
   setup_required: false,
-  setup_code_required: false,
+  setup_local_only: false,
   methods: { password: true, ingress: false },
   user: { id: 1, username: role, display_name: role, role },
   via: 'lan',

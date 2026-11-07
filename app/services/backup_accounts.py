@@ -10,8 +10,7 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   and names, base64url). The section is ``sensitive``. The export
   dialog's "Include accounts" box (``BackupExportRequest.include_accounts``,
   checked by default) leaves every name of ``ACCOUNT_SECTIONS`` out when unchecked.
-  Sessions, pairing codes, the audit trail, ``auth_settings`` (with the setup code
-  hash) and the Remote identity are never in it (``NEVER_EXPORTED_SECTIONS``,
+  Sessions, pairing codes, the audit trail, ``auth_settings`` and the Remote identity are never in it (``NEVER_EXPORTED_SECTIONS``,
   ``BACKUP_COVERAGE``); keys a file adds to a user row are ignored.
 - **Restore.** The file's accounts replace the instance's, ids kept, in one
   transaction. A file without the section keeps the current accounts. A section

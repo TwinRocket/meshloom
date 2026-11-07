@@ -12,7 +12,7 @@ const t = i18n.t.bind(i18n);
 const anonymous: AuthSessionInfo = {
   authenticated: false,
   setup_required: false,
-  setup_code_required: false,
+  setup_local_only: false,
   methods: { password: true, ingress: false, passkey: false },
 };
 const signedIn: AuthSessionInfo = {
