@@ -58,6 +58,24 @@ interface ComposerFileTabProps {
 
 type Phase = 'idle' | 'preparing' | 'ready' | 'uploading' | 'sending';
 
+/** The exact bytes that will be sent, shown from memory: nothing leaves for the preview. */
+function PreparedPreview({ blob, alt }: { blob: Blob; alt: string }) {
+  const imageRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const url = URL.createObjectURL(blob);
+    if (imageRef.current) imageRef.current.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [blob]);
+  return (
+    <img
+      ref={imageRef}
+      alt={alt}
+      data-testid="file-tab-preview"
+      className="max-h-60 max-w-full rounded-md border border-border object-contain"
+    />
+  );
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KiB`;
@@ -450,15 +468,19 @@ export function ComposerFileTab({
 
       {prepared && (
         <div className="space-y-2">
-          <p data-testid="file-tab-summary" className="text-[0.8125rem]">
-            {t('chat.fileTab.summary', {
-              type: TYPE_LABEL[prepared.type] ?? prepared.type,
-              before: formatBytes(prepared.originalBytes),
-              after: formatBytes(prepared.bytes),
-              width: prepared.output.width,
-              height: prepared.output.height,
-            })}
-          </p>
+          <PreparedPreview blob={prepared.blob} alt={t('chat.fileTab.previewAlt')} />
+          {/* A developer's check on the encoding: users see the image, the docs say what is removed. */}
+          {import.meta.env.DEV && (
+            <p data-testid="file-tab-summary" className="text-[0.8125rem]">
+              {t('chat.fileTab.summary', {
+                type: TYPE_LABEL[prepared.type] ?? prepared.type,
+                before: formatBytes(prepared.originalBytes),
+                after: formatBytes(prepared.bytes),
+                width: prepared.output.width,
+                height: prepared.output.height,
+              })}
+            </p>
+          )}
           <label className="block space-y-1">
             <span className="text-[0.8125rem] font-medium">{t('chat.fileTab.caption')}</span>
             <input

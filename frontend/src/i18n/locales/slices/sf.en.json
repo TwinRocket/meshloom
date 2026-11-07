@@ -13,6 +13,7 @@
       "dropHere": "Drop the photo to prepare it",
       "choose": "Choose a photo",
       "preparing": "Preparing the photo...",
+      "previewAlt": "Preview of the image to send",
       "summary": "{{type}}, {{before}} before, {{after}} after ({{width}} x {{height}} px). Position and camera data are removed.",
       "caption": "Caption (optional)",
       "budget": "{{used}}/{{limit}} bytes",

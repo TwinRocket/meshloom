@@ -67,8 +67,13 @@ describe('Composer File tab', () => {
     upload = vi.spyOn(api, 'uploadShareFile').mockResolvedValue(STORED);
     prepare = vi.spyOn(downscale, 'downscaleImage').mockResolvedValue(prepared);
     vi.spyOn(api, 'getShareStatus').mockRejectedValue(new Error('offline'));
+    URL.createObjectURL = vi.fn(() => 'blob:preview');
+    URL.revokeObjectURL = vi.fn();
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
 
   function setup(enabled = true) {
     setShareStatus(status(enabled));
@@ -186,10 +191,33 @@ describe('Composer File tab', () => {
     expect(prepare).not.toHaveBeenCalled();
   });
 
+  it('previews the image that will be sent, from memory', async () => {
+    setup();
+    pick(jpeg());
+    expect(await screen.findByTestId('file-tab-preview')).toHaveAttribute('src', 'blob:preview');
+    expect(URL.createObjectURL).toHaveBeenCalledWith(prepared.blob);
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('shows the size summary to developers only', async () => {
+    setup();
+    pick(jpeg());
+    await screen.findByTestId('file-tab-preview');
+    expect(screen.getByTestId('file-tab-summary')).toBeInTheDocument();
+  });
+
+  it('shows no size summary in a production build', async () => {
+    vi.stubEnv('DEV', false);
+    setup();
+    pick(jpeg());
+    await screen.findByTestId('file-tab-preview');
+    expect(screen.queryByTestId('file-tab-summary')).toBeNull();
+  });
+
   it('uploads once, then sends the suggested text with the caption', async () => {
     setup();
     pick(jpeg());
-    expect(await screen.findByTestId('file-tab-summary')).toBeInTheDocument();
+    expect(await screen.findByTestId('file-tab-preview')).toBeInTheDocument();
     fireEvent.change(screen.getByTestId('file-tab-caption'), { target: { value: 'Summit' } });
     fireEvent.click(screen.getByTestId('file-tab-send'));
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(`${STORED.text} Summit`));
@@ -200,7 +228,7 @@ describe('Composer File tab', () => {
   it('refuses an over-budget caption instead of truncating it', async () => {
     setup();
     pick(jpeg());
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.change(screen.getByTestId('file-tab-caption'), {
       target: { value: 'x'.repeat(140) },
     });
@@ -224,7 +252,7 @@ describe('Composer File tab', () => {
     );
     setup();
     pick(jpeg());
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.click(screen.getByTestId('file-tab-send'));
     fireEvent.click(await screen.findByTestId('file-tab-cancel'));
     await waitFor(() => expect(signal?.aborted).toBe(true));
@@ -240,7 +268,7 @@ describe('Composer File tab', () => {
     );
     setup();
     pick(jpeg());
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.click(screen.getByTestId('file-tab-send'));
     await waitFor(() =>
       expect(mockToast.error).toHaveBeenCalledWith(
@@ -258,7 +286,7 @@ describe('Composer File tab', () => {
     );
     setup();
     pick(jpeg());
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.click(screen.getByTestId('file-tab-send'));
     await waitFor(() =>
       expect(mockToast.error).toHaveBeenCalledWith(
@@ -277,7 +305,7 @@ describe('Composer File tab', () => {
     );
     setup();
     pick(jpeg());
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.click(screen.getByTestId('file-tab-send'));
     await waitFor(() =>
       expect(mockToast.error).toHaveBeenCalledWith(i18n.t('errors.share_rate_limited'))
@@ -293,7 +321,7 @@ describe('Composer File tab', () => {
     await act(async () => {
       fireEvent.paste(textarea, { clipboardData: { files: [file], getData: () => '' } });
     });
-    expect(await screen.findByTestId('file-tab-summary')).toBeInTheDocument();
+    expect(await screen.findByTestId('file-tab-preview')).toBeInTheDocument();
     expect(prepare).toHaveBeenCalledWith(file);
   });
 
@@ -312,7 +340,7 @@ describe('Composer File tab', () => {
     fireEvent.click(screen.getByTestId('composer-attach-trigger'));
     fireEvent.click(screen.getByTestId('composer-attach-tab-file'));
     pick(jpeg());
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.click(screen.getByTestId('file-tab-send'));
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(`@[Ann] ${STORED.text}`));
   });
@@ -423,7 +451,7 @@ describe('File tab mode', () => {
     fireEvent.change(screen.getByTestId('file-tab-input'), {
       target: { files: [new File([new Uint8Array(10)], 'summit.jpg', { type: 'image/jpeg' })] },
     });
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.click(screen.getByTestId('file-tab-send'));
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
     expect(upload.mock.calls[0][1]).toMatchObject({
@@ -438,7 +466,7 @@ describe('File tab mode', () => {
     fireEvent.change(screen.getByTestId('file-tab-input'), {
       target: { files: [new File([new Uint8Array(10)], 'summit.jpg', { type: 'image/jpeg' })] },
     });
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     fireEvent.click(screen.getByTestId('file-tab-send'));
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
     const options = upload.mock.calls[0][1] as { encrypted?: unknown; name?: unknown };
@@ -492,12 +520,12 @@ describe('pasted image replay', () => {
     await act(async () => {
       fireEvent.paste(textarea, { clipboardData: { files: [file], getData: () => '' } });
     });
-    await screen.findByTestId('file-tab-summary');
+    await screen.findByTestId('file-tab-preview');
     expect(prepare).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByLabelText(i18n.t('chat.attachClose')));
     fireEvent.click(screen.getByTestId('composer-attach-trigger'));
     fireEvent.click(screen.getByTestId('composer-attach-tab-file'));
-    expect(screen.queryByTestId('file-tab-summary')).toBeNull();
+    expect(screen.queryByTestId('file-tab-preview')).toBeNull();
     expect(prepare).toHaveBeenCalledTimes(1);
     vi.restoreAllMocks();
   });
