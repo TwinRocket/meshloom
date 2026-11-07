@@ -1,14 +1,14 @@
-"""Poll for the latest Meshloom release and cache the badge state.
+"""Poll Community for the latest Meshloom release and cache the badge state.
 
-The source of truth is GitHub: the ``releases/latest`` redirect of the
-public repository, the same lookup the signed compose helper makes before it
-installs anything (``scripts/setup/helpers/compose-update``). Community
-(``GET /v1/meshloom/latest``) is only a mirror used when GitHub cannot be
-reached, so a Community outage never hides a security release.
+Community (``GET /v1/meshloom/latest``) is the only source: public, no JWT, asked
+by every instance once every 6 h, joined or not. It can also say not to auto-apply
+across a version (``auto_update_hold``): the update stays available by hand.
 
-With Community on, the check runs every 300 s and falls back to the mirror.
-Opted out, it asks GitHub only (the mirror is never called) and only once
-every 6 h; turning Community back on wakes the loop at once.
+No answer means no update information. The last known status is kept, but nothing
+is auto-applied on it: a hold published since would go unseen, and the root helpers
+resolve their target on their own (``pkg/nfpm/apply-update``,
+``scripts/setup/helpers/compose-update``), so ``latest`` is only what the app shows
+and compares, never what gets installed.
 
 Runs from app lifespan independently of radio connect / SKIP_POST_CONNECT_SYNC.
 The frontend reads GET /api/updates; this is never stuffed into the WS health
@@ -20,12 +20,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import time
 from datetime import datetime
 from typing import Any
 
-import httpx
 from packaging.version import InvalidVersion, Version
 
 from app.services.meshloom_community import fetch_meshloom_latest
@@ -34,18 +32,17 @@ from app.version_info import get_app_build_info
 
 logger = logging.getLogger(__name__)
 
-UPDATE_POLL_INTERVAL_SECONDS = 300
-UPDATE_POLL_INTERVAL_OPTED_OUT_SECONDS = 6 * 3600
+# Community caches the release for 24 h: polling faster would learn nothing.
+UPDATE_POLL_INTERVAL_SECONDS = 6 * 3600
 RELEASES_REPO_URL = "https://github.com/TwinRocket/meshloom"
-GITHUB_LATEST_TIMEOUT_SECONDS = 10.0
-# Same rule as the compose helper: the tag must be a strict X.Y.Z.
-_RELEASE_TAG_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+MAX_HOLD_REASON_CHARS = 300
 
 _poll_task: asyncio.Task | None = None
-_poll_wake: asyncio.Event | None = None
 _window_timer_task: asyncio.Task | None = None
 _latest_payload: dict[str, Any] | None = None
 _checked_at: int | None = None
+_last_check_failed = False
+_warned_unparsable_hold = False
 
 
 def _strip_leading_v(raw: str) -> str:
@@ -68,52 +65,16 @@ def is_newer_release(latest: str, current: str) -> bool:
         return False
 
 
-def release_from_redirect(location: str, *, repo_url: str = RELEASES_REPO_URL) -> str | None:
-    """Tag from a ``releases/latest`` Location, or None unless it is exactly
-    ``<repo>/releases/tag/X.Y.Z``."""
-    prefix = f"{repo_url}/releases/tag/"
-    text = (location or "").strip()
-    if not text.startswith(prefix):
-        return None
-    tag = text[len(prefix) :]
-    return tag if _RELEASE_TAG_RE.fullmatch(tag) else None
-
-
-async def fetch_github_latest() -> dict[str, Any] | None:
-    """Latest release from GitHub's ``releases/latest`` redirect. No API, no token."""
-    url = f"{RELEASES_REPO_URL}/releases/latest"
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=GITHUB_LATEST_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.get(url)
-    except httpx.RequestError as exc:
-        logger.info("GitHub latest release lookup failed: %s", exc)
-        return None
-    location = response.headers.get("location", "")
-    if response.status_code not in {301, 302, 303, 307, 308}:
-        logger.info("GitHub latest release lookup HTTP %s", response.status_code)
-        return None
-    tag = release_from_redirect(location)
-    if tag is None:
-        logger.warning("GitHub latest release redirect refused: %r", location[:200])
-        return None
-    return {"version": tag, "html_url": location.strip(), "source": "github"}
-
-
 async def fetch_latest_release() -> dict[str, Any] | None:
-    """GitHub first, Community mirror second. None when both fail.
+    """The latest release from Community. None without a usable answer.
 
-    The mirror answers None without any request while Community is off
-    (``fetch_meshloom_latest`` is behind the Community egress guard).
+    An answer with no version (Community has not read the release yet) tells
+    nothing, so it counts as no answer and never replaces what is known.
     """
-    payload = await fetch_github_latest()
-    if payload is not None:
-        return payload
-    mirror = await fetch_meshloom_latest()
-    if mirror is None:
+    payload = await fetch_meshloom_latest()
+    if payload is None or _payload_version(payload) is None:
         return None
-    return {**mirror, "source": "community"}
+    return {**payload, "source": "community"}
 
 
 def _payload_version(payload: dict[str, Any] | None) -> str | None:
@@ -129,16 +90,74 @@ def _payload_html_url(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
     value = payload.get("html_url")
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str):
         return None
-    return value.strip()
+    # The UI opens this link: only a release page of the public repository.
+    url = value.strip()
+    return url if url.startswith(f"{RELEASES_REPO_URL}/releases/") else None
 
 
 def _payload_source(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
     value = payload.get("source")
-    return value if value in {"github", "community"} else None
+    return value if value == "community" else None
+
+
+def _hold_reason(hold: Any) -> dict[str, str] | None:
+    """``{fr, en}`` when both are short non-blank strings, else None. Shown as plain text."""
+    raw = hold.get("reason") if isinstance(hold, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    reason: dict[str, str] = {}
+    for locale in ("fr", "en"):
+        text = raw.get(locale)
+        if not isinstance(text, str) or not text.strip():
+            return None
+        text = text.strip()
+        if len(text) > MAX_HOLD_REASON_CHARS:
+            return None
+        reason[locale] = text
+    return reason
+
+
+def _parse_hold_below(hold: Any) -> Version | None:
+    below = hold.get("below") if isinstance(hold, dict) else None
+    if not isinstance(below, str):
+        return None
+    try:
+        return Version(_strip_leading_v(below))
+    except InvalidVersion:
+        return None
+
+
+def _resolve_hold(
+    payload: dict[str, Any] | None, current: str, latest: str
+) -> tuple[bool, dict[str, str] | None]:
+    """Whether ``auto_update_hold`` stops auto-apply from ``current`` to ``latest``.
+
+    It applies when ``current < below <= latest``. A hold whose ``below`` cannot be
+    read fails closed: it applies to any update that crosses a major version.
+    Absent or null means no hold (Community may not send the field yet).
+    """
+    global _warned_unparsable_hold
+    hold = payload.get("auto_update_hold") if payload else None
+    if hold is None:
+        return False, None
+    try:
+        current_version = Version(_strip_leading_v(current))
+        latest_version = Version(_strip_leading_v(latest))
+    except InvalidVersion:
+        return False, None
+    below = _parse_hold_below(hold)
+    if below is None:
+        if not _warned_unparsable_hold:
+            _warned_unparsable_hold = True
+            logger.warning("Unreadable auto_update_hold from Community: %.120r", hold)
+        applies = latest_version.major > current_version.major
+    else:
+        applies = current_version < below <= latest_version
+    return (True, _hold_reason(hold)) if applies else (False, None)
 
 
 def _env_latest_override() -> tuple[str | None, str | None]:
@@ -150,11 +169,20 @@ def _env_latest_override() -> tuple[str | None, str | None]:
     return latest, html
 
 
+def _current_task() -> asyncio.Task | None:
+    try:
+        return asyncio.current_task()
+    except RuntimeError:  # no running loop (reset_oss_update_cache from a sync fixture)
+        return None
+
+
 def _cancel_window_timer() -> None:
     global _window_timer_task
     task = _window_timer_task
     _window_timer_task = None
-    if task is not None and not task.done():
+    # The timer itself lands here through _maybe_auto_apply: cancelling the running
+    # task would abort the apply it is about to start, at its first await.
+    if task is not None and not task.done() and task is not _current_task():
         task.cancel()
 
 
@@ -181,6 +209,8 @@ def _schedule_window_apply(when: datetime) -> None:
     async def _fire() -> None:
         try:
             await asyncio.sleep(delay)
+            # The last check can be hours old: read any hold published since.
+            await refresh_oss_update_cache()
             await _maybe_auto_apply()
         except asyncio.CancelledError:
             raise
@@ -192,10 +222,11 @@ def _schedule_window_apply(when: datetime) -> None:
 
 def reset_oss_update_cache() -> None:
     """Drop the in-memory catalogue (tests)."""
-    global _latest_payload, _checked_at, _poll_wake
+    global _latest_payload, _checked_at, _last_check_failed, _warned_unparsable_hold
     _latest_payload = None
     _checked_at = None
-    _poll_wake = None
+    _last_check_failed = False
+    _warned_unparsable_hold = False
     _cancel_window_timer()
 
 
@@ -222,9 +253,14 @@ async def _maybe_notify_oss_update() -> None:
 
 
 async def refresh_oss_update_cache() -> dict[str, Any] | None:
-    """Fetch the latest release (GitHub, then Community) and cache it on success."""
-    global _latest_payload, _checked_at
-    payload = await fetch_latest_release()
+    """Ask Community and cache the answer. Without one, the last status stays."""
+    global _latest_payload, _checked_at, _last_check_failed
+    try:
+        payload = await fetch_latest_release()
+    except Exception:
+        logger.exception("Latest release lookup failed")
+        payload = None
+    _last_check_failed = payload is None
     if payload is not None:
         _latest_payload = payload
         _checked_at = int(time.time())
@@ -245,6 +281,11 @@ def get_update_status() -> dict[str, Any]:
         and not is_unknown_local_version(current)
         and is_newer_release(latest, current)
     )
+    held, hold_reason = (
+        _resolve_hold(_latest_payload, current, latest)
+        if update_available and latest is not None
+        else (False, None)
+    )
     return {
         "current": current,
         "latest": latest,
@@ -252,6 +293,10 @@ def get_update_status() -> dict[str, Any]:
         "html_url": html_url,
         "checked_at": _checked_at,
         "source": "env" if env_latest else _payload_source(_latest_payload),
+        "auto_update_held": held,
+        "auto_update_hold_reason": hold_reason,
+        # The operator's pin does not depend on Community answering.
+        "check_stale": _last_check_failed and not env_latest,
     }
 
 
@@ -269,6 +314,9 @@ async def _maybe_auto_apply() -> None:
 
     status = get_update_status()
     if not status["update_available"]:
+        return
+    if status["auto_update_held"] or status["check_stale"]:
+        _cancel_window_timer()
         return
     kind, supported = detect_install_kind()
     if not supported:
@@ -317,39 +365,6 @@ async def _maybe_auto_apply() -> None:
         return
 
 
-async def poll_interval_seconds() -> int:
-    """300 s with Community on, 6 h opted out or waiting for a position (GitHub only).
-
-    When the Community state cannot be read, assume opted out: the slow
-    cadence never polls more often than an opted-out operator agreed to.
-    """
-    from app.services.meshloom_community import community_active
-
-    try:
-        enabled = await community_active()
-    except Exception:
-        logger.debug("Community state unavailable for the update poll", exc_info=True)
-        return UPDATE_POLL_INTERVAL_OPTED_OUT_SECONDS
-    return UPDATE_POLL_INTERVAL_SECONDS if enabled else UPDATE_POLL_INTERVAL_OPTED_OUT_SECONDS
-
-
-def nudge_oss_update_poll() -> None:
-    """Run the next check now (Community just turned on, back to the 300 s cadence)."""
-    if _poll_wake is not None:
-        _poll_wake.set()
-
-
-async def _sleep_until_next_poll(seconds: float) -> None:
-    global _poll_wake
-    if _poll_wake is None:
-        _poll_wake = asyncio.Event()
-    try:
-        await asyncio.wait_for(_poll_wake.wait(), timeout=seconds)
-    except TimeoutError:
-        pass
-    _poll_wake.clear()
-
-
 async def _oss_update_loop() -> None:
     while True:
         try:
@@ -359,23 +374,20 @@ async def _oss_update_loop() -> None:
             raise
         except Exception:
             logger.exception("OSS update poll failed")
-        await _sleep_until_next_poll(await poll_interval_seconds())
+        await asyncio.sleep(UPDATE_POLL_INTERVAL_SECONDS)
 
 
 async def start_oss_update_polling() -> None:
-    """Start the catalogue poll (300 s, or 6 h opted out). Fetches once on start."""
-    global _poll_task, _poll_wake
+    """Start the catalogue poll (every 6 h). Fetches once on start."""
+    global _poll_task
     if _poll_task is not None and not _poll_task.done():
         return
-    # Created before the first check so a nudge during it is not lost.
-    _poll_wake = asyncio.Event()
     _poll_task = asyncio.create_task(_oss_update_loop())
 
 
 async def stop_oss_update_polling() -> None:
     """Stop the catalogue poll."""
-    global _poll_task, _poll_wake
-    _poll_wake = None
+    global _poll_task
     await _await_cancelled_window_timer()
     if _poll_task is None:
         return
