@@ -105,7 +105,14 @@ def test_reset_password_refuses_short_unknown_and_ingress(dbfile, stdin, capsys)
     _add_user(dbfile, "alice")
     stdin("short\n")
     assert run(dbfile, "reset-password", "alice", "--stdin") == 1
-    assert "at least 12" in capsys.readouterr().err
+    assert "at least 10" in capsys.readouterr().err
+    stdin("password123\n")
+    assert run(dbfile, "reset-password", "alice", "--stdin") == 1
+    assert "too common" in capsys.readouterr().err
+    # Within the limit after NFC, over it before: refused, not a crash in hash_password().
+    stdin("e\u0301" * 600 + "\n")
+    assert run(dbfile, "reset-password", "alice", "--stdin") == 1
+    assert "at most" in capsys.readouterr().err
     stdin("long enough password\n")
     assert run(dbfile, "reset-password", "nobody", "--stdin") == 1
     assert "no such user" in capsys.readouterr().err

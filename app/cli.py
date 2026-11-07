@@ -48,7 +48,12 @@ import aiosqlite
 
 from app.auth import audit
 from app.auth.models import User
-from app.auth.passwords import MAX_PASSWORD_LENGTH, hash_password
+from app.auth.passwords import (
+    MAX_PASSWORD_LENGTH,
+    MIN_PASSWORD_LENGTH,
+    hash_password,
+    password_policy_violation,
+)
 from app.config import settings
 from app.database import db
 from app.repository.auth import (
@@ -86,10 +91,6 @@ _COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
     "whitelist add": "ip.whitelisted",
     "whitelist remove": "ip.unwhitelisted",
 }
-
-# Same floor as the setup form (cadrage P1); the full policy (common-password
-# list, differs from the username) lands with the login routes.
-MIN_PASSWORD_LENGTH = 12
 
 _REQUIRED_TABLES = ("users", "sessions", "auth_audit", "auth_settings")
 
@@ -171,12 +172,16 @@ def _read_password(from_stdin: bool, username: str) -> str:
         password = _getpass(f"New password for {username}: ")
         if _getpass("Repeat the password: ") != password:
             raise CliError("the two passwords differ")
-    if len(password) < MIN_PASSWORD_LENGTH:
-        raise CliError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
-    if len(password) > MAX_PASSWORD_LENGTH:
+    # Raw length as well: hash_password() and login count before NFC, the policy after.
+    reason = password_policy_violation(password, username)
+    if reason == "too_long" or len(password) > MAX_PASSWORD_LENGTH:
         raise CliError(f"password must be at most {MAX_PASSWORD_LENGTH} characters")
-    if password.casefold() == username.casefold():
+    if reason == "too_short":
+        raise CliError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
+    if reason == "same_as_username":
         raise CliError("password must differ from the username")
+    if reason == "too_common":
+        raise CliError("password is too common, choose another one")
     return password
 
 

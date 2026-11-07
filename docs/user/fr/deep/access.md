@@ -63,7 +63,7 @@ Chaque utilisateur (sauf le kiosque) voit **Mon compte** et **Mes sessions** sur
 
 ### Quand un administrateur définit votre mot de passe
 
-Si un administrateur définit votre mot de passe (ou `meshloom-admin reset-password --must-change`), Meshloom affiche **Changez votre mot de passe** à la place de l’application : saisissez le mot de passe actuel, puis un nouveau (12 caractères minimum, avec les règles rappelées en cas de refus). Rien d’autre ne fonctionne avant le changement, puis l’application s’ouvre là où vous étiez. Les autres appareils de ce compte sont déconnectés. Un écran kiosque n’a pas de mot de passe et n’a jamais cette page ; si elle s’affichait, demandez à un administrateur.
+Si un administrateur définit votre mot de passe (ou `meshloom-admin reset-password --must-change`), Meshloom affiche **Changez votre mot de passe** à la place de l’application : saisissez le mot de passe actuel, puis un nouveau (10 caractères minimum, avec les règles rappelées en cas de refus). Rien d’autre ne fonctionne avant le changement, puis l’application s’ouvre là où vous étiez. Les autres appareils de ce compte sont déconnectés. Un écran kiosque n’a pas de mot de passe et n’a jamais cette page ; si elle s’affichait, demandez à un administrateur.
 
 ## Les sessions
 
@@ -339,7 +339,7 @@ La sauvegarde complète (**Réglages → Base de données**) contient les compte
 
 Un Meshloom en cours d’exécution voit ces changements dès sa requête suivante ; un navigateur resté ouvert sur une page déconnectée de cette façon perd sa connexion en direct en moins de 30 secondes.
 
-Un mot de passe compte au moins 12 caractères et n’est jamais lu sur la ligne de commande, il reste donc hors de l’historique de votre shell. `meshloom-admin --help` et `meshloom-admin <commande> --help` listent toutes les options. Une commande se termine par le code 0 si elle a réussi, et par 1 avec un message sinon, par exemple quand le fichier de la base est absent, illisible ou pas encore mis à niveau (lancez d’abord Meshloom une fois dans la nouvelle version).
+Un mot de passe compte au moins 10 caractères et n’est jamais lu sur la ligne de commande, il reste donc hors de l’historique de votre shell. `meshloom-admin --help` et `meshloom-admin <commande> --help` listent toutes les options. Une commande se termine par le code 0 si elle a réussi, et par 1 avec un message sinon, par exemple quand le fichier de la base est absent, illisible ou pas encore mis à niveau (lancez d’abord Meshloom une fois dans la nouvelle version).
 
 ### Le premier administrateur
 

@@ -89,10 +89,10 @@ async def test_a_stray_setup_code_does_not_open_setup_when_exposed():
 async def test_setup_applies_the_password_policy():
     await _prepared()
     async with make_client() as client:
-        short = await client.post("/api/auth/setup", json=_setup_body(password="short pass"))
+        short = await client.post("/api/auth/setup", json=_setup_body(password="short"))
         assert short.status_code == 400
         assert short.json()["detail"]["code"] == "auth_password_policy"
-        assert short.json()["detail"]["params"] == {"reason": "too_short", "min_length": 12}
+        assert short.json()["detail"]["params"] == {"reason": "too_short", "min_length": 10}
 
         same = await client.post(
             "/api/auth/setup", json={"username": "LongUsername12", "password": "longusername12"}

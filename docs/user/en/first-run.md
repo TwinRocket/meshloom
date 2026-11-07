@@ -15,7 +15,7 @@ From another device on the same network, use the machine's IP address with port 
 
 ## Create your account
 
-The first time you open Meshloom, before anything else, it asks you to create the administrator account. Choose a user name and a password of at least 12 characters (a few words in a row make a good one; it must differ from the user name and not be a common password), and optionally a display name. The language buttons under the form switch the interface.
+The first time you open Meshloom, before anything else, it asks you to create the administrator account. Choose a user name and a password of at least 10 characters (a few words in a row make a good one; it must differ from the user name and not be a common password), and optionally a display name. The language buttons under the form switch the interface.
 
 This works from the local network, at the machine's IP address or a local name (`mypi`, `mypi.local`), on a new Meshloom and on one that already held data before it asked for accounts (an upgrade). Opened from anywhere else (a public address, a proxy you have not listed, a declared public address, or a domain name such as `meshloom.example.org`), the page asks you to open Meshloom from the local network, and gives its address when it knows it. If you cannot open Meshloom from its local network, for example when you only reach it through a tunnel, create the account on the machine with `meshloom-admin create-admin <user>` (with Docker, through [`docker exec`](/en/docs/deep/access/#docker-and-docker-compose)). See [The first administrator](/en/docs/deep/access/#the-first-administrator).
 

@@ -25,7 +25,7 @@ None of this weakens MeshCore's own encryption over the air: direct messages and
 
 ## Signing in
 
-Signing in is mandatory and uses accounts: a password of at least 12 characters, optionally a second factor (an authenticator app, recovery codes) and passkeys. Wrong passwords slow the next attempts down without ever locking an account, and sensitive actions are written to an audit log that administrators read. All of it is in [Accounts and access](/en/docs/deep/access/). Without HTTPS the password travels in clear text on every sign-in, so pair it with [HTTPS](/en/docs/deep/https/) beyond a network you trust.
+Signing in is mandatory and uses accounts: a password of at least 10 characters, optionally a second factor (an authenticator app, recovery codes) and passkeys. Wrong passwords slow the next attempts down without ever locking an account, and sensitive actions are written to an audit log that administrators read. All of it is in [Accounts and access](/en/docs/deep/access/). Without HTTPS the password travels in clear text on every sign-in, so pair it with [HTTPS](/en/docs/deep/https/) beyond a network you trust.
 
 Up to 4.18 the only lock was a shared HTTP Basic login (`MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD`). It no longer exists: Meshloom ignores the variables (with a warning while they are set) and any `Authorization: Basic` header gets a plain 401. Browsers sign in with an account, scripts use an API token ([The 4.x Basic login](/en/docs/deep/access/#the-4x-basic-login)). On the Home Assistant add-on, Home Assistant signs you in through the sidebar; its port 8000 is not published by default, and where you publish it a Meshloom account is asked.
 

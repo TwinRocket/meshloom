@@ -808,8 +808,8 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
 - `rotate-device-key` replaces `auth_settings.device_cookie_key` (every known-device
   cookie becomes unknown; `settings.changed` row, target
   `auth_settings.device_cookie_key`); it refuses a database not migrated to 119 yet.
-- Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
-  policy belongs to the login routes, which should share it with this file.
+- Passwords come from a prompt or `--stdin`, never argv, minimum 10 characters. The full policy
+  comes from `password_policy_violation()`, shared with the login routes.
 - Tests: `tests/test_cli.py`. User docs: `docs/user/{en,fr}/deep/access.md`.
 
 ## Process hardening

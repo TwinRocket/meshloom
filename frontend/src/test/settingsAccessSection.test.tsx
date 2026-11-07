@@ -299,9 +299,9 @@ describe('SettingsAccessSection', () => {
   it('explains password policy, 429 and 503 errors', () => {
     const policy = new ApiError('x', 400, {
       code: 'auth_password_policy',
-      params: { reason: 'common', min_length: 12 },
+      params: { reason: 'too_common', min_length: 10 },
     });
-    expect(formatAccessError(policy, t)).toContain('12');
+    expect(formatAccessError(policy, t)).toContain('10');
     const limited = new ApiError('x', 429, { code: 'auth_rate_limited' }, 30);
     expect(formatAccessError(limited, t)).toContain('30');
     expect(formatAccessError(new ApiError('x', 429, 'slow down'), t)).toBe(
