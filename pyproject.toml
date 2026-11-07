@@ -1,6 +1,6 @@
 [project]
 name = "meshloom"
-version = "5.0.0-rc.1"
+version = "5.0.0-rc.2"
 description = "Meshloom - Web interface for MeshCore radio mesh networks"
 readme = "README.md"
 license = "MIT"

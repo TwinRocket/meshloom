@@ -2,7 +2,7 @@
   "name": "meshloom-frontend",
   "private": true,
   "license": "MIT",
-  "version": "5.0.0-rc.1",
+  "version": "5.0.0-rc.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
