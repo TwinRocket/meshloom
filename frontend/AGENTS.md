@@ -204,8 +204,14 @@ purpose.
 
 ### Updates UI
 
-The browser never calls GitHub. Install / auto-update show only when
-`apply_supported` is true.
+The browser never calls Community or GitHub for this: it reads `GET /api/updates`.
+Install / auto-update show only when `apply_supported` is true.
+
+`auto_update_held` means Community asked not to auto-apply this update.
+`UpdateHoldBanner` (auto-update on, dismissal remembered per target version in
+`localStorage`) replaces the toast for that update, and the update settings and
+`UpdateAvailableDialog` show why. Community's `auto_update_hold_reason` goes through
+`utils/updateHold.ts` and is only ever rendered as plain text; no link from it is used.
 
 ### Web Push
 

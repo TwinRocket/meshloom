@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { OssUpdateJobPhase, OssUpdateStatus } from '../types';
+import { resolveHoldReason } from '../utils/updateHold';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
@@ -86,7 +87,7 @@ export function UpdateAvailableDialog({
   onApply,
   onAutoUpdate,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const current = updates?.current ?? '—';
   const latest = updates?.latest ?? '—';
   const htmlUrl = updates?.html_url;
@@ -98,6 +99,8 @@ export function UpdateAvailableDialog({
   const showInstall = applySupported && updates?.update_available === true && Boolean(onApply);
   const blocking = applying && !applyError;
   const showProgress = applying || Boolean(applyError);
+  const held =
+    applySupported && updates?.update_available === true && updates?.auto_update_held === true;
 
   return (
     <Dialog
@@ -178,6 +181,18 @@ export function UpdateAvailableDialog({
                   </p>
                 </div>
               </div>
+            ) : null}
+            {held ? (
+              <p
+                data-testid="dialog-hold-reason"
+                className="text-[0.8125rem] text-muted-foreground"
+              >
+                {resolveHoldReason(
+                  updates?.auto_update_hold_reason,
+                  i18n.language,
+                  t('updates.holdFallback')
+                )}
+              </p>
             ) : null}
           </div>
         )}

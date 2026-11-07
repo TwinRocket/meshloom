@@ -2,9 +2,11 @@
 
 Community is an explicit opt-in from the UI (a new database starts off). Off
 means no connection at all to the Community hosts (HTTP API, Live WS, MQTT
-broker, release mirror). Four exceptions, each bounded: if the opt-out could
-not clear the retained MQTT status, ``community_status_clear`` reconnects to
-the broker only to clear it, then never again; a join sends its
+broker). Five exceptions, each bounded: every instance asks the public
+``GET /v1/meshloom/latest`` for the latest release every 6 hours
+(``fetch_meshloom_latest``: a plain GET, no JWT, nothing identifying it beyond
+its IP); if the opt-out could not clear the retained MQTT status,
+``community_status_clear`` reconnects to the broker only to clear it, then never again; a join sends its
 ``PUT /v1/me/iata`` before the database says on (``_bind_state``); an
 opt-out Community did not confirm can be sent again, by hand only, with
 ``retry_opt_out()`` (``_opt_out_state``, ``POST /v1/me/opt-out`` alone); and
@@ -20,7 +22,7 @@ flight.
 
 Waiting for a position: Community on, but the radio has no position it may
 publish (``observer_position.publishable_position`` is None). The egress guard
-then answers None too (no Live, no HTTP, no release mirror). Only the Community
+then answers None too (no Live, no HTTP but the release check). Only the Community
 MQTT publisher (its retained status says ``state: waiting_for_position``, and
 it sends no packets) and the ``PUT /v1/me/iata`` binds go through the
 enrolled-level check, ``community_enrolled_state()``, so a position chosen
@@ -37,6 +39,7 @@ existing database, then a startup warning).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -88,6 +91,11 @@ _IATA_RE = re.compile(r"^[A-Z]{3}$")
 IATA_SUGGEST_PATH = "/v1/iata/suggest"
 IATA_SUGGEST_TIMEOUT_SECONDS = 5.0
 _STATS_TIMEOUT_SECONDS = 8.0
+# Opted-out instances use this route: no version, nothing that tells them apart.
+RELEASE_CHECK_USER_AGENT = "Meshloom"
+# The only source of update information: bounded in time and size whatever answers.
+RELEASE_CHECK_TOTAL_SECONDS = 15.0
+RELEASE_CHECK_MAX_BYTES = 64 * 1024
 # Stats sample upserts are 30/hour/pubkey. After a 429, stop POSTing until that
 # window has elapsed instead of retrying every catalogue pass.
 SAMPLE_QUOTA_BACKOFF_SECONDS = 3600.0
@@ -135,7 +143,7 @@ _sample_quota_until = 0.0
 # Bumped by community_teardown(): a request that passed the enabled check
 # before the opt-out must not leave afterwards.
 _egress_generation = 0
-_inflight: set[asyncio.Future[httpx.Response]] = set()
+_inflight: set[asyncio.Future[Any]] = set()
 # One Community state change at a time: an opt-in sent while the opt-out
 # teardown still runs would otherwise be undone by it (Live closed, publisher
 # stopped while the database says on).
@@ -583,10 +591,6 @@ async def _update_community_locked(
         await get_live_relay().close_stats()
     # Waiting for a position counts as off for Live.
     await sync_community_live(community_state_of(state) == "active")
-    if state.enabled and not before.enabled:
-        from app.services.oss_updates import nudge_oss_update_poll
-
-        nudge_oss_update_poll()
     return state
 
 
@@ -1289,10 +1293,6 @@ async def _apply_position_state() -> None:
             await _bounded_step("in-flight requests", _cancel_inflight_requests)
         await _bounded_step("Live relay", lambda: sync_community_live(active))
         await _bounded_step("MQTT status", _republish_system_status)
-    if active:
-        from app.services.oss_updates import nudge_oss_update_poll
-
-        nudge_oss_update_poll()
 
 
 async def _republish_system_status() -> None:
@@ -1319,9 +1319,10 @@ async def community_enrolled_state() -> CommunityEffective | None:
 async def community_egress_state() -> CommunityEffective | None:
     """The effective config when Community connections are allowed, else None.
 
-    The one check every Community egress makes: HTTP (``stats_request``), the
-    Live socket and the release mirror. None while off and
-    while Community waits for a position (``waiting_for_position``).
+    The one check every Community egress makes: HTTP (``stats_request``) and the
+    Live socket. None while off and while Community waits for a position
+    (``waiting_for_position``). The public release check does not ask it
+    (``fetch_meshloom_latest``).
     """
     state = await community_enrolled_state()
     if state is None or community_state_of(state) != "active":
@@ -1343,6 +1344,16 @@ async def _community_http(
     follow_redirects: bool = False,
     **kwargs: Any,
 ) -> httpx.Response:
+    """Every Community request but the release check, which streams its answer."""
+
+    async def _send() -> httpx.Response:
+        async with httpx.AsyncClient(follow_redirects=follow_redirects, timeout=timeout) as client:
+            return await client.request(method, url, **kwargs)
+
+    return await _run_cancellable(_send, generation=generation)
+
+
+async def _run_cancellable(send: Callable[[], Coroutine[Any, Any, _T]], *, generation: int) -> _T:
     """The only place an HTTP request to Community leaves.
 
     The request runs as its own task so ``community_teardown()`` can cancel it;
@@ -1351,11 +1362,7 @@ async def _community_http(
     if generation != _egress_generation:
         raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
 
-    async def _send() -> httpx.Response:
-        async with httpx.AsyncClient(follow_redirects=follow_redirects, timeout=timeout) as client:
-            return await client.request(method, url, **kwargs)
-
-    task = asyncio.ensure_future(_send())
+    task = asyncio.ensure_future(send())
     _inflight.add(task)
     try:
         return await task
@@ -1368,36 +1375,63 @@ async def _community_http(
         _inflight.discard(task)
 
 
-async def fetch_meshloom_latest() -> dict[str, Any] | None:
-    """GET the Community release mirror. No JWT; never called when opted out.
+async def _read_release_answer(url: str) -> bytes | None:
+    """The body of a 200, or None. Never holds more than the cap in memory.
 
-    Only a fallback since the update check reads GitHub first
-    (``app.services.oss_updates``). Skipped while the Community breaker is open.
-    Not routed through ``stats_request``: the mirror needs no JWT and must not
-    feed the breaker.
+    ``identity`` is asked and anything else refused, so nothing is decompressed: a
+    small compressed body cannot grow past the cap inside a single read.
     """
-    generation = _egress_generation
-    state = await community_egress_state()
-    if state is None:
-        return None
-    if _breaker.is_open and time.monotonic() < _breaker.open_until:
-        return None
-    url = f"{state.api_base}/v1/meshloom/latest"
+    async with httpx.AsyncClient(follow_redirects=False, timeout=_STATS_TIMEOUT_SECONDS) as client:
+        async with client.stream(
+            "GET",
+            url,
+            headers={"User-Agent": RELEASE_CHECK_USER_AGENT, "Accept-Encoding": "identity"},
+        ) as response:
+            if response.status_code != 200:
+                logger.warning("Meshloom latest release HTTP %s", response.status_code)
+                return None
+            encoding = response.headers.get("content-encoding", "identity").strip().lower()
+            if encoding != "identity":
+                logger.warning("Meshloom latest release refused: encoded as %.40r", encoding)
+                return None
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                body += chunk
+                if len(body) > RELEASE_CHECK_MAX_BYTES:
+                    logger.warning("Meshloom latest release refused: too large")
+                    return None
+            return bytes(body)
+
+
+async def fetch_meshloom_latest() -> dict[str, Any] | None:
+    """GET the public latest-release route. None without a usable answer.
+
+    The one call that does not ask the egress guard: the owner authorised this
+    route for every instance, opted out or waiting for a position included. So it
+    reads no Community state, sends no JWT, no parameter and no body, says only
+    ``User-Agent: Meshloom`` (no version), and goes neither through
+    ``stats_request`` nor near the breaker, which it can neither feed nor be
+    stopped by. ``community_teardown()`` can still cancel it.
+    """
+    url = f"{normalize_api_base(DEFAULT_API_BASE)}/v1/meshloom/latest"
     try:
-        response = await _community_http(
-            "GET", url, generation=generation, timeout=_STATS_TIMEOUT_SECONDS
+        body = await asyncio.wait_for(
+            _run_cancellable(lambda: _read_release_answer(url), generation=_egress_generation),
+            RELEASE_CHECK_TOTAL_SECONDS,
         )
     except HTTPException:
+        return None
+    except TimeoutError:
+        logger.warning("Meshloom latest release fetch timed out")
         return None
     except httpx.RequestError as exc:
         logger.warning("Meshloom latest release fetch failed: %s", exc)
         return None
-    if response.status_code != 200:
-        logger.warning("Meshloom latest release HTTP %s", response.status_code)
+    if body is None:
         return None
     try:
-        payload = response.json()
-    except ValueError:
+        payload = json.loads(body)
+    except (ValueError, RecursionError):
         logger.warning("Meshloom latest release returned non-JSON")
         return None
     return payload if isinstance(payload, dict) else None
@@ -1448,7 +1482,7 @@ async def stats_request(
         raise banned_http_exception()
     url = f"{state.api_base}{path}"
     # The public IATA suggestion never touches the breaker (like the release
-    # mirror): it can neither open it nor spend the half-open trial a join needs.
+    # check): it can neither open it nor spend the half-open trial a join needs.
     uses_breaker = path != IATA_SUGGEST_PATH
     # Checked last: a half-open trial granted here must reach the network.
     if uses_breaker and not _breaker.allow():

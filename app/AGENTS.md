@@ -447,8 +447,8 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
 - **Fixed addresses.** `DEFAULT_BROKER_HOST` / `DEFAULT_API_BASE` are read at call
   time by `get_community_effective()` (tests monkeypatch them; never import them by
   value). No env var is read; a new DB starts off.
-- **One guard for every egress.** HTTP (`stats_request`), the Live socket, the
-  release mirror, hashtags, the directory and observer reach all go through
+- **One guard for every egress.** HTTP (`stats_request`), the Live socket,
+  hashtags, the directory and observer reach all go through
   `community_egress_state()`, which answers None while off **and while waiting for
   a position**. `community_enrolled_state()` (on, waiting or not) is reserved to
   `FanoutManager.sync_system_modules()`, the Stats publisher and the
@@ -457,7 +457,8 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
   `stats_request`: the leftover status clear (`community_status_clear.py`), the
   join bind (`_bind_state`), the opt-out call and its manual retry
   (`_opt_out_state`), and the on-click IATA suggestion (`_iata_suggest_state`,
-  never during an opt-out). Do not add a fifth without an owner decision.
+  never during an opt-out). Do not add a fifth without an owner decision. Separately,
+  `fetch_meshloom_latest` never asks the guard (see Updates).
 - **IATA changes.** `PATCH /community` never changes the IATA (another code →
   409 `iata_requires_bind`) and never turns Community on (off → on: 409
   `join_requires_bind`, nothing written, nothing sent). An IATA change, or a
@@ -518,8 +519,22 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   installs: they only report the available version. `addon` is declared by
   `MESHLOOM_INSTALL_KIND`, never inferred; `MESHLOOM_UPDATE_HELPER=none` forces
   apply off (`services/install_kind.py`).
-- The browser never calls GitHub; `services/oss_updates.py` does, and uses the
-  Community mirror only while Community is on.
+- **What the app shows** comes from Community only: `services/oss_updates.py` asks
+  the public `GET /v1/meshloom/latest` every 6 h, on every instance, joined or not
+  (`fetch_meshloom_latest`, the one call that skips the egress guard: plain GET, no
+  JWT, no breaker, `User-Agent: Meshloom` with no version, 15 s and 64 KB in all, no
+  compressed answer). Only a strict `X.Y.Z` or `X.Y.Z-rc.N` counts as an answer. The browser calls nothing. `MESHLOOM_UPDATE_LATEST` pins it.
+- **Hold.** `auto_update_hold: {below, reason: {fr, en}}` applies when
+  `current < below <= latest`, compared without pre-release parts (a `5.0.0-rc.3`
+  instance is not below `5.0.0`); an unreadable `below` applies to a major crossing
+  (fail closed). While it applies nothing auto-applies, no window timer is armed
+  and `next_auto_apply_at` is null; a manual apply stays allowed.
+- **No answer from Community** keeps the last status, but nothing auto-applies on
+  it (`check_stale`). The window timer re-reads Community before applying.
+- **`latest` is not what gets installed.** `start_apply(target=...)` only records the
+  target in the app's `update-attempt.json`: the helpers resolve theirs on their own,
+  so a Community answer behind the signed source installs something newer, across a
+  hold if `below` is above the cached `latest`.
 - Tests: `tests/test_update_apply.py`, `tests/test_install_kind.py`,
   `tests/test_oss_updates.py`, `tests/test_update_helpers_exec.py` (runs the real
   helpers against hostile inputs).
