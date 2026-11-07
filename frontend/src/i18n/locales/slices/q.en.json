@@ -1,0 +1,30 @@
+{
+  "sidebar": {
+    "feed": "Feed"
+  },
+  "toolsView": {
+    "feedDescription": "Every channel and direct message in one timeline, live"
+  },
+  "conversation": {
+    "loadingFeed": "Loading the feed..."
+  },
+  "feed": {
+    "title": "Activity feed",
+    "listLabel": "Messages, oldest first",
+    "empty": "No messages yet. They appear here as they arrive.",
+    "follow": "Follow",
+    "followNew_one": "Follow ({{formatted}} new message)",
+    "followNew_other": "Follow ({{formatted}} new messages)",
+    "loadingOlder": "Loading older messages...",
+    "beginning": "Beginning of history",
+    "loadError": "The feed could not be loaded: {{error}}",
+    "loadOlderError": "Older messages could not be loaded: {{error}}",
+    "retry": "Retry",
+    "controlHistoryMore": "Load earlier control packets",
+    "controlHistoryLoading": "Loading earlier control packets...",
+    "controlHistoryError": "Earlier control packets could not be loaded.",
+    "controlHistoryTruncated": "Scan limit reached ({{formatted}} stored packets checked): older control packets may exist.",
+    "controlHistoryEnd": "No earlier control packets stored.",
+    "controlReplayed": "Earlier"
+  }
+}

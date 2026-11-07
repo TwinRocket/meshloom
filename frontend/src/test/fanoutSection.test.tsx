@@ -5,12 +5,27 @@ import type { HealthStatus, FanoutConfig } from '../types';
 import i18n from '../i18n';
 import fanoutEn from '../i18n/locales/slices/d.en.json';
 import fanoutFr from '../i18n/locales/slices/d.fr.json';
+import egressEn from '../i18n/locales/slices/p.en.json';
+import egressFr from '../i18n/locales/slices/p.fr.json';
+import convertEn from '../i18n/locales/slices/fanoutconvert.en.json';
+import convertFr from '../i18n/locales/slices/fanoutconvert.fr.json';
 
 i18n.addResourceBundle('en', 'translation', fanoutEn, true, true);
 i18n.addResourceBundle('fr', 'translation', fanoutFr, true, true);
+i18n.addResourceBundle('en', 'translation', egressEn, true, true);
+i18n.addResourceBundle('fr', 'translation', egressFr, true, true);
+i18n.addResourceBundle('en', 'translation', convertEn, true, true);
+i18n.addResourceBundle('fr', 'translation', convertFr, true, true);
 
 function tf(key: string, options?: Record<string, unknown>) {
   return i18n.t(`settings.fanout.${key}`, options);
+}
+
+/** A paragraph by its copy: French text reaches the DOM with a no-break space before ":". */
+function byCopy(text: string) {
+  const wanted = text.replace(/\s/g, ' ');
+  return (_: string, element: Element | null) =>
+    element?.tagName === 'P' && (element.textContent ?? '').replace(/\s/g, ' ') === wanted;
 }
 
 // Mock the api module
@@ -20,19 +35,21 @@ vi.mock('../api', () => ({
     createFanoutConfig: vi.fn(),
     updateFanoutConfig: vi.fn(),
     deleteFanoutConfig: vi.fn(),
+    convertFanoutToChannel: vi.fn(),
     getChannels: vi.fn(),
     getContacts: vi.fn(),
     getSettings: vi.fn(),
     getRadioConfig: vi.fn(),
   },
+  formatApiError: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
-// Suppress BotCodeEditor lazy load in tests
-vi.mock('../components/BotCodeEditor', () => ({
-  BotCodeEditor: () => <textarea data-testid="bot-code-editor" />,
+vi.mock('../components/ui/sonner', () => ({
+  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn() }),
 }));
 
 import { api } from '../api';
+import { toast } from '../components/ui/sonner';
 
 const mockedApi = vi.mocked(api);
 
@@ -44,7 +61,6 @@ const baseHealth: HealthStatus = {
   database_size_mb: 1.2,
   oldest_undecrypted_timestamp: null,
   fanout_statuses: {},
-  bots_disabled: false,
 };
 
 const webhookConfig: FanoutConfig = {
@@ -140,14 +156,14 @@ beforeEach(() => {
 });
 
 describe('SettingsFanoutSection', () => {
-  it('shows add integration dialog with all integration types', async () => {
+  it('shows add integration dialog with every type but the deprecated Apprise', async () => {
     renderSection();
     const dialog = await openCreateIntegrationDialog();
 
     const optionButtons = within(dialog)
       .getAllByRole('button')
       .filter((button) => button.hasAttribute('aria-pressed'));
-    expect(optionButtons).toHaveLength(11);
+    expect(optionButtons).toHaveLength(9);
     expect(within(dialog).getByRole('button', { name: tf('create.close') })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: tf('create.create') })).toBeInTheDocument();
     expect(
@@ -181,15 +197,12 @@ describe('SettingsFanoutSection', () => {
       })
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole('button', {
+      within(dialog).queryByRole('button', {
         name: startsWithAccessibleName(tf('create.apprise.label')),
       })
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(
       within(dialog).getByRole('button', { name: startsWithAccessibleName(tf('create.sqs.label')) })
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole('button', { name: startsWithAccessibleName(tf('create.bot.label')) })
     ).toBeInTheDocument();
     expect(
       within(dialog).getByRole('button', {
@@ -209,36 +222,15 @@ describe('SettingsFanoutSection', () => {
     expect(genericCommunityIndex).toBeLessThan(meshRankIndex);
   });
 
-  it('shows bot option in add integration dialog when bots are enabled', async () => {
+  it('has no bot option in the add integration dialog and points to Extensions', async () => {
     renderSection();
-    const dialog = await openCreateIntegrationDialog();
-    expect(
-      within(dialog).getByRole('button', { name: startsWithAccessibleName(tf('create.bot.label')) })
-    ).toBeInTheDocument();
-  });
-
-  it('shows bots disabled banner when bots_disabled', async () => {
-    renderSection({ health: { ...baseHealth, bots_disabled: true } });
-    await waitFor(() => {
-      expect(screen.getByText(tf('list.botsDisabled'))).toBeInTheDocument();
-    });
-  });
-
-  it('shows restart-scoped bots disabled messaging when disabled until restart', async () => {
-    renderSection({
-      health: { ...baseHealth, bots_disabled: true, bots_disabled_source: 'until_restart' },
-    });
-    await waitFor(() => {
-      expect(screen.getByText(tf('list.botsDisabledUntilRestart'))).toBeInTheDocument();
-    });
-  });
-
-  it('hides bot option from add integration dialog when bots_disabled', async () => {
-    renderSection({ health: { ...baseHealth, bots_disabled: true } });
+    expect(await screen.findByTestId('fanout-bots-moved')).toHaveTextContent(tf('list.botsMoved'));
     const dialog = await openCreateIntegrationDialog();
     expect(
       within(dialog).queryByRole('button', {
-        name: startsWithAccessibleName(tf('create.bot.label')),
+        name: startsWithAccessibleName(
+          i18n.t('settings.fanout.types.bot', { defaultValue: 'Bot' })
+        ),
       })
     ).not.toBeInTheDocument();
   });
@@ -279,6 +271,34 @@ describe('SettingsFanoutSection', () => {
       screen.getByRole('dialog', { name: tf('list.errorTitle', { name: 'Test Hook' }) })
     ).toBeInTheDocument();
     expect(screen.getByText('HTTP 500')).toBeInTheDocument();
+  });
+
+  it('translates a missing radio key and links the docs', async () => {
+    mockedApi.getFanoutConfigs.mockResolvedValue([webhookConfig]);
+    renderSection({
+      health: {
+        ...baseHealth,
+        fanout_statuses: {
+          'wh-1': {
+            name: 'Test Hook',
+            type: 'webhook',
+            status: 'error',
+            last_error: 'radio_key_behind_proxy',
+          },
+        },
+      },
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: tf('list.viewErrorAria', { name: 'Test Hook' }) })
+    );
+
+    expect(screen.getByText(i18n.t('errors.radio_key_behind_proxy'))).toBeInTheDocument();
+    expect(screen.queryByText('radio_key_behind_proxy')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: i18n.t('settings.common.learnMore') })).toHaveAttribute(
+      'href',
+      expect.stringContaining('docs/deep/radio/')
+    );
   });
 
   it('does not show an error info button when the integration has no retained error', async () => {
@@ -597,55 +617,82 @@ describe('SettingsFanoutSection', () => {
     );
   });
 
-  it('creates Apprise with outgoing forwarding disabled by default', async () => {
-    const createdApprise: FanoutConfig = {
-      id: 'ap-new',
+  it('converts an Apprise row to a notification channel and toasts a link', async () => {
+    const row: FanoutConfig = {
+      id: 'ap-1',
       type: 'apprise',
-      name: 'Apprise #1',
+      name: 'Apprise Feed',
       enabled: true,
-      config: {
-        urls: '',
-        preserve_identity: true,
-        include_outgoing: false,
-        markdown_format: true,
-        body_format_dm: '**DM:** {sender_name}: {text} **via:** [{hops_backticked}]',
-        body_format_channel:
-          '**{channel_name}:** {sender_name}: {text} **via:** [{hops_backticked}]',
-      },
+      config: { urls: '********', markdown_format: true },
       scope: { messages: 'all', raw_packets: 'none' },
       sort_order: 0,
-      created_at: 2000,
+      created_at: 1000,
     };
-    mockedApi.createFanoutConfig.mockResolvedValue(createdApprise);
-    mockedApi.getFanoutConfigs.mockResolvedValueOnce([]).mockResolvedValueOnce([createdApprise]);
+    const converted = { ...row, enabled: false, config: { ...row.config, converted_to: 'ch-1' } };
+    mockedApi.getFanoutConfigs.mockResolvedValueOnce([row]).mockResolvedValue([converted]);
+    mockedApi.convertFanoutToChannel.mockResolvedValue({
+      channel: { id: 'ch-1', name: 'Apprise Feed' } as never,
+      fanout: {
+        id: 'ap-1',
+        name: 'Apprise Feed',
+        type: 'apprise',
+        enabled: false,
+        converted_to: 'ch-1',
+      },
+      already_converted: false,
+      notes: [],
+    });
 
     renderSection();
-    await openCreateIntegrationDialog();
-    selectCreateIntegration(tf('create.apprise.label'));
-    confirmCreateIntegration();
-    await waitFor(() => expect(screen.getByText(tf('list.backToList'))).toBeInTheDocument());
+    const group = await screen.findByRole('group', {
+      name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+    });
+    expect(within(group).getByText(tf('convert.deprecated'))).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('button', { name: tf('convert.button') }));
 
-    expect(screen.getByLabelText(tf('apprise.includeOutgoing'))).not.toBeChecked();
-    expect(screen.getByText(tf('apprise.includeOutgoingHelp'))).toBeInTheDocument();
+    await waitFor(() => expect(mockedApi.convertFanoutToChannel).toHaveBeenCalledWith('ap-1'));
+    const after = await screen.findByRole('group', {
+      name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+    });
+    await waitFor(() => expect(within(after).getByText(tf('convert.badge'))).toBeInTheDocument());
+    expect(within(after).queryByRole('button', { name: tf('convert.button') })).toBeNull();
+    const calls = vi.mocked(toast.success).mock.calls;
+    const [message, options] = calls[calls.length - 1] ?? [];
+    expect(message).toBe(tf('convert.done', { name: 'Apprise Feed' }));
+    const action = (options as { action: { label: string; onClick: () => void } }).action;
+    expect(action.label).toBe(tf('convert.openChannels'));
+    action.onClick();
+    expect(window.location.hash).toBe('#settings/notifications');
+    window.location.hash = '';
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+  it('asks before turning a converted row back on', async () => {
+    const row: FanoutConfig = {
+      id: 'ap-2',
+      type: 'apprise',
+      name: 'Old Feed',
+      enabled: false,
+      config: { urls: '********', converted_to: 'ch-1' },
+      scope: { messages: 'all', raw_packets: 'none' },
+      sort_order: 0,
+      created_at: 1000,
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValue([row]);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
+    renderSection();
+    const checkbox = await screen.findByRole('checkbox', {
+      name: tf('list.enableAria', { name: 'Old Feed' }),
+    });
+    fireEvent.click(checkbox);
+    expect(confirmSpy).toHaveBeenCalledWith(tf('convert.confirmReenable'));
+    expect(mockedApi.updateFanoutConfig).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    mockedApi.updateFanoutConfig.mockResolvedValue({ ...row, enabled: true });
+    fireEvent.click(checkbox);
     await waitFor(() =>
-      expect(mockedApi.createFanoutConfig).toHaveBeenCalledWith({
-        type: 'apprise',
-        name: tf('defaultNameCounted', { label: tf('types.apprise'), n: 1 }),
-        config: {
-          urls: '',
-          preserve_identity: true,
-          include_outgoing: false,
-          markdown_format: true,
-          body_format_dm: '**DM:** {sender_name}: {text} **via:** [{hops_backticked}]',
-          body_format_channel:
-            '**{channel_name}:** {sender_name}: {text} **via:** [{hops_backticked}]',
-        },
-        scope: { messages: 'all', raw_packets: 'none' },
-        enabled: true,
-      })
+      expect(mockedApi.updateFanoutConfig).toHaveBeenCalledWith('ap-2', { enabled: true })
     );
   });
 
@@ -1155,7 +1202,7 @@ describe('SettingsFanoutSection', () => {
     );
   });
 
-  it('shows Home Assistant topic summary with device-key-derived node ids', async () => {
+  it('saves the Home Assistant contacts and repeaters picked in the form', async () => {
     mockedApi.getContacts.mockResolvedValue([
       {
         public_key: 'bb'.repeat(32),
@@ -1226,23 +1273,23 @@ describe('SettingsFanoutSection', () => {
     selectCreateIntegration(tf('create.mqtt_ha.label'));
     confirmCreateIntegration();
 
-    expect(await screen.findByText(tf('ha.publishedTopicSummary'))).toBeInTheDocument();
+    expect(await screen.findByText(tf('ha.title'))).toBeInTheDocument();
 
     fireEvent.click(await screen.findByLabelText(/Alice/));
     fireEvent.click(await screen.findByLabelText(/Repeater One/));
+    fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
 
-    await waitFor(() => {
-      expect(
-        screen.getAllByText(tf('ha.nodeId', { id: 'aaaaaaaaaaaa' })).length
-      ).toBeGreaterThanOrEqual(2);
-      expect(screen.getByText(tf('ha.nodeId', { id: 'bbbbbbbbbbbb' }))).toBeInTheDocument();
-      expect(screen.getByText(tf('ha.nodeId', { id: 'cccccccccccc' }))).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('meshcore/aaaaaaaaaaaa/health')).toBeInTheDocument();
-    expect(screen.getByText('meshcore/aaaaaaaaaaaa/events/message')).toBeInTheDocument();
-    expect(screen.getByText('meshcore/bbbbbbbbbbbb/gps')).toBeInTheDocument();
-    expect(screen.getByText('meshcore/cccccccccccc/telemetry')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockedApi.createFanoutConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mqtt_ha',
+          config: expect.objectContaining({
+            tracked_contacts: ['bb'.repeat(32)],
+            tracked_repeaters: ['cc'.repeat(32)],
+          }),
+        })
+      )
+    );
   });
 
   it('LetsMesh (US) preset pre-fills the expected broker defaults', async () => {
@@ -1473,13 +1520,18 @@ describe('SettingsFanoutSection', () => {
     ).toBeInTheDocument();
   });
 
-  it('webhook list shows destination URL', async () => {
+  it('webhook list shows the redacted destination URL', async () => {
     const config: FanoutConfig = {
       id: 'wh-1',
       type: 'webhook',
       name: 'Webhook Feed',
       enabled: true,
-      config: { url: 'https://example.com/hook', method: 'POST', headers: {} },
+      config: {
+        url: '********',
+        url_redacted: 'https://example.com/****',
+        method: 'POST',
+        headers: {},
+      },
       scope: { messages: 'all', raw_packets: 'none' },
       sort_order: 0,
       created_at: 1000,
@@ -1490,7 +1542,8 @@ describe('SettingsFanoutSection', () => {
     const group = await screen.findByRole('group', {
       name: tf('list.integrationAria', { name: 'Webhook Feed' }),
     });
-    expect(within(group).getByText('https://example.com/hook')).toBeInTheDocument();
+    expect(within(group).getByText('https://example.com/****')).toBeInTheDocument();
+    expect(within(group).queryByText('********')).not.toBeInTheDocument();
   });
 
   it('apprise list shows compact target summary', async () => {
@@ -1517,6 +1570,214 @@ describe('SettingsFanoutSection', () => {
     expect(
       within(group).getByText(/discord:\/\/\*{8}, mailto:\/\/\*{8}, mailto:\/\/\*{8}/)
     ).toBeInTheDocument();
+  });
+
+  it('apprise list shows the redacted summary the API sends', async () => {
+    const config: FanoutConfig = {
+      id: 'ap-1',
+      type: 'apprise',
+      name: 'Apprise Feed',
+      enabled: true,
+      config: { urls: '********', urls_redacted: ['tgram://********', 'ntfy://ntfy.sh/****'] },
+      scope: { messages: 'all', raw_packets: 'none' },
+      sort_order: 0,
+      created_at: 1000,
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValue([config]);
+    renderSection();
+
+    const group = await screen.findByRole('group', {
+      name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+    });
+    expect(within(group).getByText('tgram://********, ntfy://ntfy.sh/****')).toBeInTheDocument();
+  });
+
+  describe('write-only secrets', () => {
+    const signedHook: FanoutConfig = {
+      ...webhookConfig,
+      config: { ...webhookConfig.config, hmac_secret: '********', hmac_header: '' },
+    };
+
+    async function openSignedHook() {
+      mockedApi.getFanoutConfigs.mockResolvedValue([signedHook]);
+      mockedApi.updateFanoutConfig.mockResolvedValue(signedHook);
+      renderSection();
+      const group = await screen.findByRole('group', {
+        name: tf('list.integrationAria', { name: 'Test Hook' }),
+      });
+      fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+      const input = (await screen.findByLabelText(tf('webhook.hmacSecret'))) as HTMLInputElement;
+      return input;
+    }
+
+    async function savedSecret() {
+      fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+      await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+      const [, body] = mockedApi.updateFanoutConfig.mock.calls[0];
+      return (body.config as Record<string, unknown>).hmac_secret;
+    }
+
+    it('shows a set secret as unchanged and sends the sentinel back', async () => {
+      const input = await openSignedHook();
+      expect(input.value).toBe('');
+      expect(input.placeholder).toBe(tf('secret.kept'));
+      expect(await savedSecret()).toBe('********');
+    });
+
+    it('replaces the secret with a typed value', async () => {
+      const input = await openSignedHook();
+      fireEvent.change(input, { target: { value: 'n3w' } });
+      expect(await savedSecret()).toBe('n3w');
+    });
+
+    it('an emptied field keeps the stored secret', async () => {
+      const input = await openSignedHook();
+      fireEvent.change(input, { target: { value: 'typo' } });
+      fireEvent.change(input, { target: { value: '' } });
+      expect(input.placeholder).toBe(tf('secret.kept'));
+      expect(await savedSecret()).toBe('********');
+    });
+
+    it('Clear sends an empty secret, Keep undoes it', async () => {
+      const input = await openSignedHook();
+      fireEvent.click(screen.getByRole('button', { name: tf('secret.clear') }));
+      expect(input.placeholder).toBe(tf('secret.cleared'));
+      expect(screen.getByText(tf('secret.clearedHelp'))).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: tf('secret.keep') }));
+      expect(input.placeholder).toBe(tf('secret.kept'));
+      fireEvent.click(screen.getByRole('button', { name: tf('secret.clear') }));
+      expect(await savedSecret()).toBe('');
+    });
+
+    it('marks the kept secret required once the destination changes', async () => {
+      const input = await openSignedHook();
+      expect(input.required).toBe(false);
+      fireEvent.change(screen.getByLabelText(tf('webhook.url')), {
+        target: { value: 'https://other.example.org/hook' },
+      });
+      expect(input.required).toBe(true);
+      expect(input.placeholder).toBe(tf('secret.required'));
+      expect(screen.getByText(tf('secret.requiredAfterDestination'))).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: 'n3w' } });
+      expect(input.required).toBe(false);
+      expect(screen.queryByText(tf('secret.requiredAfterDestination'))).not.toBeInTheDocument();
+    });
+
+    describe('webhook URL and headers, SQS access key (MSHL-275)', () => {
+      const storedHook: FanoutConfig = {
+        ...webhookConfig,
+        config: {
+          url: '********',
+          url_redacted: 'https://hooks.example.org/****',
+          method: 'POST',
+          headers: { Authorization: '********', 'X-Plain': '' },
+        },
+      };
+
+      async function openStoredHook() {
+        mockedApi.getFanoutConfigs.mockResolvedValue([storedHook]);
+        mockedApi.updateFanoutConfig.mockResolvedValue(storedHook);
+        renderSection();
+        const group = await screen.findByRole('group', {
+          name: tf('list.integrationAria', { name: 'Test Hook' }),
+        });
+        fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+        return (await screen.findByLabelText(tf('webhook.url'))) as HTMLInputElement;
+      }
+
+      async function savedConfig() {
+        fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+        await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+        const [, body] = mockedApi.updateFanoutConfig.mock.calls[0];
+        return body.config as Record<string, unknown>;
+      }
+
+      it('shows a stored URL by its host and sends the sentinels back', async () => {
+        const url = await openStoredHook();
+        expect(url.value).toBe('');
+        expect(url.placeholder).toBe(
+          tf('webhook.urlKept', { url: 'https://hooks.example.org/****' })
+        );
+        expect(screen.getByText(byCopy(tf('webhook.headersKept')))).toBeInTheDocument();
+        const config = await savedConfig();
+        expect(config.url).toBe('********');
+        expect(config.headers).toEqual({ Authorization: '********', 'X-Plain': '' });
+      });
+
+      it('asks for the header values again after a URL change', async () => {
+        const url = await openStoredHook();
+        fireEvent.change(url, { target: { value: 'https://other.example.org/hook' } });
+        expect(
+          screen.getByText(byCopy(tf('webhook.headersRequiredAfterDestination')))
+        ).toBeInTheDocument();
+        const headers = screen.getByLabelText(tf('webhook.extraHeaders'));
+        expect(headers.getAttribute('aria-invalid')).toBe('true');
+        fireEvent.change(headers, { target: { value: '{"Authorization": "Bearer new"}' } });
+        expect(
+          screen.queryByText(byCopy(tf('webhook.headersRequiredAfterDestination')))
+        ).not.toBeInTheDocument();
+        const config = await savedConfig();
+        expect(config.url).toBe('https://other.example.org/hook');
+        expect(config.headers).toEqual({ Authorization: 'Bearer new' });
+      });
+
+      it('keeps a stored SQS access key id unless a new one is typed', async () => {
+        const queue: FanoutConfig = {
+          id: 'sqs-1',
+          type: 'sqs',
+          name: 'Queue Feed',
+          enabled: true,
+          config: {
+            queue_url: 'https://sqs.us-east-1.amazonaws.com/1/q',
+            region_name: 'us-east-1',
+            access_key_id: '********',
+            secret_access_key: '********',
+          },
+          scope: { messages: 'all', raw_packets: 'none' },
+          sort_order: 0,
+          created_at: 1000,
+        };
+        mockedApi.getFanoutConfigs.mockResolvedValue([queue]);
+        mockedApi.updateFanoutConfig.mockResolvedValue(queue);
+        renderSection();
+        const group = await screen.findByRole('group', {
+          name: tf('list.integrationAria', { name: 'Queue Feed' }),
+        });
+        fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+        const key = (await screen.findByLabelText(tf('sqs.accessKey'))) as HTMLInputElement;
+        expect(key.value).toBe('');
+        expect(key.placeholder).toBe(tf('secret.kept'));
+        const config = await savedConfig();
+        expect(config.access_key_id).toBe('********');
+      });
+    });
+
+    it('keeps redacted Apprise URLs unless new ones are typed', async () => {
+      const apprise: FanoutConfig = {
+        id: 'ap-1',
+        type: 'apprise',
+        name: 'Apprise Feed',
+        enabled: true,
+        config: { urls: '********', urls_redacted: ['tgram://********'] },
+        scope: { messages: 'all', raw_packets: 'none' },
+        sort_order: 0,
+        created_at: 1000,
+      };
+      mockedApi.getFanoutConfigs.mockResolvedValue([apprise]);
+      mockedApi.updateFanoutConfig.mockResolvedValue(apprise);
+      renderSection();
+      const group = await screen.findByRole('group', {
+        name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+      });
+      fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+      const urls = (await screen.findByLabelText(tf('apprise.urls'))) as HTMLTextAreaElement;
+      expect(urls.value).toBe('');
+      expect(urls.placeholder).toBe(tf('apprise.urlsKept', { targets: 'tgram://********' }));
+      fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+      await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+      const [, body] = mockedApi.updateFanoutConfig.mock.calls[0];
+      expect((body.config as Record<string, unknown>).urls).toBe('********');
+    });
   });
 
   it('sqs list shows queue url summary', async () => {
@@ -1588,5 +1849,114 @@ describe('SettingsFanoutSection', () => {
     const alpha = within(webhookGroup).getByText('Alpha Hook');
     const zulu = within(webhookGroup).getByText('Zulu Hook');
     expect(alpha.compareDocumentPosition(zulu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('private network opt-in (egress guard)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedApi.getChannels.mockResolvedValue([]);
+    mockedApi.getContacts.mockResolvedValue([]);
+  });
+
+  it.each([
+    ['webhook', 'fanout-webhook-allow-private', { url: 'http://192.168.1.5/hook' }],
+    ['apprise', 'fanout-apprise-allow-private', { urls: 'json://192.168.1.5' }],
+    ['sqs', 'fanout-sqs-allow-private', { queue_url: 'https://sqs.local/q' }],
+    ['map_upload', 'fanout-map-allow-private', { api_url: '' }],
+  ])('%s editor saves allow_private_network', async (type, checkboxId, config) => {
+    const cfg: FanoutConfig = { ...webhookConfig, id: 'x-1', type, name: 'Target', config };
+    mockedApi.getFanoutConfigs.mockResolvedValue([cfg]);
+    mockedApi.updateFanoutConfig.mockResolvedValue(cfg);
+    renderSection();
+    await waitFor(() => expect(screen.getByText('Target')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: tf('list.edit') }));
+
+    const checkbox = await screen.findByLabelText(tf('privateNetwork.label'), { exact: false });
+    expect(checkbox.id).toBe(checkboxId);
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: tf('list.saveDisabled') }));
+    await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+    const update = mockedApi.updateFanoutConfig.mock.calls[0][1] as {
+      config: Record<string, unknown>;
+    };
+    expect(update.config.allow_private_network).toBe(true);
+  });
+
+  it('unticks a grandfathered opt-in when the destination changes', async () => {
+    const grandfathered: FanoutConfig = {
+      ...webhookConfig,
+      config: {
+        ...webhookConfig.config,
+        allow_private_network: true,
+        private_network_grandfathered: true,
+      },
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValue([grandfathered]);
+    mockedApi.updateFanoutConfig.mockResolvedValue(grandfathered);
+    renderSection();
+    await waitFor(() => expect(screen.getByText('Test Hook')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: tf('list.edit') }));
+
+    const checkbox = await screen.findByLabelText(tf('privateNetwork.label'), { exact: false });
+    expect(checkbox).toBeChecked();
+    fireEvent.change(document.getElementById('fanout-webhook-url')!, {
+      target: { value: 'http://192.168.1.9/hook' },
+    });
+    expect(checkbox).not.toBeChecked();
+
+    // Ticked again by the user: an explicit opt-in, sent with the flag false.
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+    await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+    const update = mockedApi.updateFanoutConfig.mock.calls[0][1] as {
+      config: Record<string, unknown>;
+    };
+    expect(update.config).toMatchObject({
+      url: 'http://192.168.1.9/hook',
+      allow_private_network: true,
+      private_network_grandfathered: false,
+    });
+  });
+
+  it('shows the grandfathered banner once and clears the flag on "Got it"', async () => {
+    const grandfathered: FanoutConfig = {
+      ...webhookConfig,
+      config: {
+        ...webhookConfig.config,
+        allow_private_network: true,
+        private_network_grandfathered: true,
+      },
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValueOnce([grandfathered]);
+    mockedApi.getFanoutConfigs.mockResolvedValue([webhookConfig]);
+    mockedApi.updateFanoutConfig.mockResolvedValue(webhookConfig);
+    renderSection();
+
+    const banner = await screen.findByText(
+      tf('privateNetwork.grandfathered', { names: 'Test Hook' })
+    );
+    expect(banner).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: tf('privateNetwork.grandfatheredDismiss') })
+    );
+
+    await waitFor(() =>
+      expect(mockedApi.updateFanoutConfig).toHaveBeenCalledWith('wh-1', {
+        config: expect.objectContaining({
+          allow_private_network: true,
+          private_network_grandfathered: false,
+        }),
+      })
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: tf('privateNetwork.grandfatheredDismiss') })
+      ).not.toBeInTheDocument()
+    );
   });
 });

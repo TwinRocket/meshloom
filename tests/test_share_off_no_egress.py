@@ -1,0 +1,336 @@
+"""Sharing off means no connection to the share service; on, only ``SHARE_HOST`` and no secret.
+
+A recorder replaces ``httpx.AsyncClient`` for the whole test (the egress guard's
+pinned clients are ``httpx.AsyncClient`` too). With ``share_enabled`` false, every
+network function of ``app.services.share``, ``share_secrets`` and ``share_upload``
+(found from the modules, so a new one must be added to ``SERVICE_CALLS``) and every ``/api/share/*`` route (found from
+``app.routes``) answers without any request.
+Community is on in every test here (sharing needs it, MSHL-445; Community off is
+``tests/test_community_required.py``). With it on, requests go only to ``SHARE_HOST``, and none of them carries the
+instance seed, a channel key, the radio private key or a DM shared secret, in
+any form (hex either case, or the raw bytes): an encrypted upload sends only
+the sealed envelope.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import inspect
+import re
+import tempfile
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi.routing import APIRoute
+
+from app import keystore
+from app.decoder import derive_public_key, derive_shared_secret
+from app.repository import AppSettingsRepository, ChannelRepository
+from app.services import share, share_secrets, share_upload
+from app.services.instance_identity import ensure_instance_key
+from app.services.share import ShareError
+from tests.share_fakes import Dns, Recorder, json_response
+
+_RealAsyncClient = httpx.AsyncClient
+
+
+@pytest.fixture(autouse=True)
+def _community_on(community_on):
+    """Sharing needs Community on (MSHL-445): off is ``share_enabled`` false here.
+    Community off is ``tests/test_community_required.py``."""
+
+
+CHANNEL_KEY = "8B3387E9C5CDEA6AC9E5EDBAA115CD72"
+RADIO_PRIVATE_KEY = bytes(range(64))
+CONTACT_PUBLIC_KEY = derive_public_key(bytes(range(64, 128)))
+DM_SECRET = derive_shared_secret(RADIO_PRIVATE_KEY, CONTACT_PUBLIC_KEY)
+
+# A valid 1x1 PNG (the links-files vectors' ``png_1x1``): read_object checks it.
+PNG_1X1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082"
+)
+_UPLOAD_DIR = tempfile.TemporaryDirectory(prefix="share-sweep-")
+
+
+def _staged_png() -> share_upload.StagedFile:
+    """A staged upload of ``PNG_1X1`` (``upload_file`` streams it from disk)."""
+    path = Path(_UPLOAD_DIR.name) / "upload.png"
+    path.write_bytes(PNG_1X1)
+    return share_upload.StagedFile(
+        path=path,
+        size=len(PNG_1X1),
+        sha256=hashlib.sha256(PNG_1X1).hexdigest(),
+        content_type="image/png",
+    )
+
+
+# Every network function of the share client, with arguments.
+SERVICE_CALLS = {
+    "create_link": lambda: share.create_link("https://example.com/a"),
+    "get_meta": lambda: share.get_meta("AbCdEfG"),
+    "fetch_object": lambda: share.fetch_object("AbCdEfG"),
+    "read_object": lambda: share.read_object("AbCdEfG"),
+    "report_object": lambda: share.report_object("AbCdEfG", "spam", "details"),
+    "share_request": lambda: share.share_request("GET", "/v1/meta/AbCdEfG", binding=None),
+    "_share_request_once": lambda: share._share_request_once(
+        "POST", "/v1/links", binding="x", json_body={"url": "https://example.com/a"}
+    ),
+    "upload_file": lambda: share_upload.upload_file(_staged_png()),
+    "upload_encrypted": lambda: share_upload.upload_encrypted(_staged_png(), DM_SECRET, "a.png"),
+    "list_mine": lambda: share.list_mine(50, "c1"),
+    # Last: a deleted id is then remembered as gone.
+    "delete_object": lambda: share.delete_object("AbCdEfG"),
+}
+# Coroutine functions of the modules that never connect (``_seal`` encrypts
+# locally, ``upload_secret`` and ``_channel_by_conversation_id`` read the database
+# and the keystore, ``_forget_object`` drops local copies).
+_LOCAL = {
+    "share_egress_state",
+    "community_on",
+    "_on_community_change",
+    "clear_object_cache",
+    "_seal",
+    "upload_secret",
+    "_channel_by_conversation_id",
+    "_forget_object",
+}
+
+
+def _answer(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    if path == "/v1/links":
+        return json_response(
+            201, {"id": "AbCdEfG", "url": "https://meshl.ink/AbCdEfG", "expires_at": 1}
+        )
+    if path.startswith("/v1/meta/"):
+        return json_response(200, {"id": "AbCdEfG", "kind": "link", "target_host": "example.com"})
+    if path == "/v1/reports":
+        return httpx.Response(202)
+    if path == "/v1/mine":
+        return json_response(200, {"objects": [], "next_cursor": None})
+    if request.method == "DELETE" and path.startswith("/v1/objects/"):
+        return httpx.Response(204)
+    if path == "/v1/files":
+        # An encrypted upload proposes its id, which the answer must echo.
+        share_id = request.headers.get("x-share-id", "AbCdEfG")
+        return json_response(
+            201,
+            {
+                "id": share_id,
+                "url": f"https://meshl.ink/{share_id}",
+                "expires_at": 1,
+                "size": int(request.headers["content-length"]),
+            },
+        )
+    return httpx.Response(200, content=PNG_1X1, headers={"Content-Type": "image/png"})
+
+
+def _share_routes() -> list[tuple[str, str]]:
+    from app.main import app
+
+    out = []
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.path.startswith("/api/share"):
+            for method in sorted(route.methods - {"HEAD"}):
+                out.append((method, re.sub(r"\{[^}]+\}", "AbCdEfG", route.path)))
+    return out
+
+
+def test_every_network_function_is_swept():
+    coroutines = {
+        name
+        for module in (share, share_secrets, share_upload)
+        for name, fn in inspect.getmembers(module, inspect.iscoroutinefunction)
+        if fn.__module__ == module.__name__
+    }
+    assert coroutines - _LOCAL == set(SERVICE_CALLS)
+
+
+class TestShareOff:
+    @pytest.mark.parametrize("name", sorted(SERVICE_CALLS))
+    async def test_service_function_makes_no_request(self, test_db, monkeypatch, name):
+        dns = Dns(monkeypatch)
+        recorder = Recorder(monkeypatch, _answer)
+        with pytest.raises(ShareError) as info:
+            await SERVICE_CALLS[name]()
+        assert (info.value.status_code, info.value.code) == (403, "share_disabled")
+        assert recorder.requests == []
+        assert dns.lookups == []
+
+    async def test_share_routes_make_no_request(self, test_db, monkeypatch):
+        routes = _share_routes()
+        dns = Dns(monkeypatch)
+        recorder = Recorder(monkeypatch, _answer)
+        from app.main import app
+
+        async with _RealAsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            for method, path in routes:
+                await client.request(method, path, json={"url": "https://example.com/a"})
+        assert recorder.requests == []
+        assert dns.lookups == []
+
+    async def test_turning_it_off_stops_requests(self, test_db, monkeypatch):
+        Dns(monkeypatch)
+        recorder = Recorder(monkeypatch, _answer)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+        await share.get_meta("AbCdEfG")
+        await AppSettingsRepository.update(share_enabled=False)
+        for call in SERVICE_CALLS.values():
+            with pytest.raises(ShareError):
+                await call()
+        assert len(recorder.requests) == 1
+
+
+class TestShareOn:
+    async def test_only_share_host_and_no_secret(self, test_db, monkeypatch):
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+        await ensure_instance_key("share")
+        seed = await AppSettingsRepository.get_instance_seed("share")
+        assert seed
+        await ChannelRepository.upsert(CHANNEL_KEY, "#secret-room")
+        keystore.set_private_key(RADIO_PRIVATE_KEY)
+        try:
+            dns = Dns(monkeypatch)
+            recorder = Recorder(monkeypatch, _answer)
+            for call in SERVICE_CALLS.values():
+                await call()
+            channel_secret = bytes.fromhex(CHANNEL_KEY)
+            await share_upload.upload_encrypted(_staged_png(), channel_secret, "b.png")
+            assert recorder.hosts() == [share.SHARE_HOST] * (len(SERVICE_CALLS) + 1)
+            assert set(dns.lookups) == {share.SHARE_HOST}
+            assert all(r.url.scheme == "https" for r in recorder.requests)
+            secrets = {
+                seed.lower(),
+                seed.upper(),
+                CHANNEL_KEY.lower(),
+                CHANNEL_KEY.upper(),
+                RADIO_PRIVATE_KEY.hex(),
+                RADIO_PRIVATE_KEY.hex().upper(),
+                DM_SECRET.hex(),
+                DM_SECRET.hex().upper(),
+            }
+            for text in recorder.dumps():
+                for secret in secrets:
+                    assert secret not in text
+            raw = (channel_secret, DM_SECRET, RADIO_PRIVATE_KEY[:32])
+            for request in recorder.requests:
+                wire = bytes(request.url.raw_path) + b"".join(
+                    key + value for key, value in request.headers.raw
+                )
+                body = request.content
+                for secret in raw:
+                    assert secret not in wire
+                    assert secret not in body
+        finally:
+            keystore.clear_keys()
+
+
+class SlowServer:
+    """An ``httpx.AsyncClient`` whose server takes the request, then never answers."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.requests: list[httpx.Request] = []
+        self.started = asyncio.Event()
+        outer = self
+
+        async def hang(request: httpx.Request) -> httpx.Response:
+            outer.requests.append(request)
+            outer.started.set()
+            await asyncio.sleep(3600)
+            raise AssertionError("unreachable")
+
+        class Slow(_RealAsyncClient):
+            def __init__(self, **kwargs):
+                kwargs["transport"] = httpx.MockTransport(hang)
+                super().__init__(**kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", Slow)
+
+
+class TestTurningOffCutsInFlight:
+    @pytest.mark.parametrize(
+        "name", ["create_link", "get_meta", "fetch_object", "upload_file", "upload_encrypted"]
+    )
+    async def test_request_in_flight_is_cut(self, test_db, monkeypatch, name):
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+        Dns(monkeypatch)
+        server = SlowServer(monkeypatch)
+        call = asyncio.ensure_future(SERVICE_CALLS[name]())
+        await asyncio.wait_for(server.started.wait(), 5)
+        await AppSettingsRepository.update(share_enabled=False)
+        with pytest.raises(ShareError) as info:
+            await asyncio.wait_for(call, 2)
+        assert info.value.code == "share_disabled"
+        assert share._state.inflight == set()
+        # The cut is not a service failure.
+        assert share.share_breaker().failures == 0
+        for other in SERVICE_CALLS.values():
+            with pytest.raises(ShareError):
+                await other()
+        assert len(server.requests) == 1
+
+    async def test_other_settings_do_not_cut(self, test_db, monkeypatch):
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+        Dns(monkeypatch)
+        server = SlowServer(monkeypatch)
+        call = asyncio.ensure_future(share.get_meta("AbCdEfG"))
+        await asyncio.wait_for(server.started.wait(), 5)
+        await AppSettingsRepository.update(share_preview_policy="never")
+        await asyncio.sleep(0.05)
+        assert not call.done()
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+
+    async def test_caller_cancellation_stays_a_cancellation(self, test_db, monkeypatch):
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+        Dns(monkeypatch)
+        server = SlowServer(monkeypatch)
+        call = asyncio.ensure_future(share.get_meta("AbCdEfG"))
+        await asyncio.wait_for(server.started.wait(), 5)
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+        assert share._state.inflight == set()
+
+    async def test_off_and_on_during_minting_sends_nothing(self, test_db, monkeypatch):
+        """Turned off (then on again) while the token is minted: the old request never leaves."""
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+        Dns(monkeypatch)
+        recorder = Recorder(monkeypatch, _answer)
+        real_mint = share.mint_share_jwt
+
+        async def mint_then_toggle(binding: str, *, account_id: int | None = None) -> str:
+            token = await real_mint(binding, account_id=account_id)
+            await AppSettingsRepository.update(share_enabled=False)
+            await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+            return token
+
+        monkeypatch.setattr(share, "mint_share_jwt", mint_then_toggle)
+        with pytest.raises(ShareError) as info:
+            await share.create_link("https://example.com/a")
+        assert info.value.code == "share_disabled"
+        assert recorder.requests == []
+
+    async def test_answer_from_before_the_cut_is_never_used(self, test_db, monkeypatch):
+        """The answer arrives, but sharing was turned off while it was on its way."""
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+        Dns(monkeypatch)
+        real_follow = share.follow_checked_redirects
+
+        async def answer_after_cut(*args, **kwargs):
+            response = await real_follow(*args, **kwargs)
+            # Off without the cancel reaching this task (it is already done).
+            share._state.generation += 1
+            return response
+
+        Recorder(monkeypatch, _answer)
+        monkeypatch.setattr(share, "follow_checked_redirects", answer_after_cut)
+        with pytest.raises(ShareError) as info:
+            await share.get_meta("AbCdEfG")
+        assert info.value.code == "share_disabled"

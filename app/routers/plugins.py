@@ -1,0 +1,1613 @@
+"""REST API of the plugin instances (``/api/plugins``; docs/dev/plugins.md, "API").
+
+Reads need ``send`` (member and up, never ``kiosk`` or ``viewer``; ``config``,
+``source`` and errors are admin-only fields). Everything that installs, changes, runs
+or reads the logs of an instance is ``admin``, and every such change writes an audit
+row (``app/auth/audit.py``: actor, ``plugin:<instance_id>``, the plugin id and the
+names of the changed fields, never a value or the source). The host lock
+(``MESHCORE_DISABLE_PLUGINS``) refuses every write but the deletion and the global
+pause with 403 ``plugins_disabled``. The global pause (``/plugins/pause``,
+``app/plugins/pause.py``) holds every instance without touching ``enabled``. Secrets of a plugin config are write-only: a
+read shows ``********`` (``app/repository/plugins.py``), the logs, the diagnostic and
+the captured sends are scrubbed of their values, and no route returns
+``config_for_init()``. The supervisor is ``app/plugins/host.py``; each change of status
+reaches the admins as a ``plugin_status`` event.
+"""
+
+import ast
+import asyncio
+import ipaddress
+import logging
+import platform
+import re
+import shutil
+import uuid
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.auth import audit
+from app.auth.permissions import has_permission, require
+from app.auth.principal import get_principal
+from app.log_redaction import redact_text
+from app.net.egress_guard import is_self_address
+from app.plugins import bot_conversion, custom_repos, installer
+from app.plugins import pause as plugin_pause
+from app.plugins.attention import AttentionReport, scan_source
+from app.plugins.capabilities.grants import dropped_for_supervisor, effective_permissions
+from app.plugins.config_schema import secret_fields, validate_config_values
+from app.plugins.errors import PluginIssue, PluginValidationError
+from app.plugins.host import (
+    LANGUAGES,
+    PluginCapacityError,
+    PluginHostError,
+    isolation_level,
+    plugin_manager,
+)
+from app.plugins.manifest import parse_manifest
+from app.plugins.permissions import (
+    MESSAGES_SEND_MAX_PER_DAY,
+    MESSAGES_SEND_MAX_PER_HOUR,
+    split_lan_host,
+)
+from app.repository.plugins import (
+    PluginKeptDataRepository,
+    PluginRepository,
+    PluginStoreError,
+)
+from app.secret_fields import REDACTED, scrub_error
+from app.version_info import get_app_build_info
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/plugins", tags=["plugins"])
+
+LOG_DEFAULT_LIMIT = 200
+LOG_MAX_LIMIT = 500
+LOG_LINE_CHARS = 1000
+DIAGNOSTIC_LOG_LINES = 50
+MAX_SOURCE_BYTES = 1024 * 1024
+MAX_TEST_TEXT_BYTES = 1024
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]+")
+
+Reader = Depends(require("send"))
+Admin = Depends(require("admin"))
+
+
+# --- errors ----------------------------------------------------------------------
+
+
+def _error(status: int, code: str, message: str, **params: Any) -> HTTPException:
+    detail: dict[str, Any] = {"code": code, "message": message}
+    if params:
+        detail["params"] = params
+    return HTTPException(status_code=status, detail=detail)
+
+
+def _issues(issues: list[PluginIssue]) -> list[dict[str, str]]:
+    """Issues for a response: code and path (a field name), never a value."""
+    return [{"code": i.code, "path": i.path} for i in issues][:50]
+
+
+def _manifest_error(
+    exc: PluginValidationError, message: str, default: str = "manifest_invalid"
+) -> HTTPException:
+    """400 ``manifest_invalid`` (``default``); ``lan_host_supervisor`` when a ``lan_hosts``
+    entry is on the Home Assistant supervisor network (add-on only, MSHL-350), so the UI can
+    say why."""
+    issues = _issues(exc.issues)
+    code = (
+        "lan_host_supervisor"
+        if any(i["code"] == "lan_host_supervisor" for i in issues)
+        else default
+    )
+    return _error(400, code, message, issues=issues)
+
+
+def _unlocked() -> None:
+    """Dependency of the write routes: 403 while the host lock or the platform turns
+    the plugin system off."""
+    source = plugin_manager.disabled_source()
+    if source is not None:
+        raise _error(403, "plugins_disabled", "Plugins are disabled on this server", source=source)
+
+
+Writable = Depends(_unlocked)
+
+
+def _uuid(instance_id: str) -> str:
+    """The canonical form of an instance id (a uuid), 404 for anything else."""
+    try:
+        return str(uuid.UUID(instance_id))
+    except ValueError:
+        raise _error(404, "plugin_not_found", "No such plugin instance") from None
+
+
+async def _row(instance_id: str) -> dict[str, Any]:
+    row = await PluginRepository.get(_uuid(instance_id))
+    if row is None:
+        raise _error(404, "plugin_not_found", "No such plugin instance")
+    return row
+
+
+def _target(instance_id: str) -> str:
+    return f"plugin:{instance_id}"
+
+
+def _audit_details(row: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    """What an audit row says of an instance: never a config value or the source."""
+    return {"plugin_id": row["plugin_id"], "kind": row["kind"], **extra}
+
+
+# PATCH fields that change what an instance may see, do or runs with.
+_CONFIG_FIELDS = frozenset({"config", "scope", "granted_permissions", "quotas", "hooks"})
+
+
+def _paused_error() -> HTTPException:
+    return _error(409, "plugins_paused", "All plugins are paused")
+
+
+def _store_error(exc: PluginStoreError) -> HTTPException:
+    return _error(400, exc.code, "The plugin store refused the change", fields=exc.fields)
+
+
+# --- models ----------------------------------------------------------------------
+
+
+class _Body(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PluginInstanceView(BaseModel):
+    instance_id: str
+    plugin_id: str
+    label: str
+    kind: Literal["bundled", "store", "custom", "local"]
+    version: str
+    enabled: bool
+    manifest: dict[str, Any]
+    config: dict[str, Any] = Field(description="Secret fields read ``********``; admin only.")
+    config_schema: dict[str, Any]
+    secret_fields: list[str]
+    scope: dict[str, Any]
+    granted_permissions: dict[str, Any]
+    quotas: dict[str, Any]
+    auto_update: bool
+    source: str | None = Field(description="A local plugin's code; admin only.")
+    installed_at: int
+    updated_at: int
+    status: str
+    last_error: str | None = Field(description="Admin only.")
+    attention: dict[str, Any] | None
+    sort_order: int
+    summary: str | None = None
+    notices: list[str] = Field(
+        default_factory=list,
+        description="Admin only. ``permission_dropped_supervisor``: a permission the manifest "
+        "declares is dropped because it lists a Home Assistant supervisor network address.",
+    )
+    restarts: int = 0
+    dropped_events: int = 0
+    reinstallable: bool = Field(
+        default=False,
+        description="Admin only. An instance restored without its code whose source exists "
+        "here, so ``POST /reinstall`` can try it. Reaches no network.",
+    )
+    repository: str | None = Field(
+        default=None, description="Admin only. The repository a custom instance comes from."
+    )
+
+
+class BundledPluginView(BaseModel):
+    plugin_id: str
+    version: str
+    name: dict[str, str]
+    summary: dict[str, str]
+    icon: str | None
+    categories: list[str]
+    hooks: list[str]
+    permissions: dict[str, Any]
+    privacy: dict[str, Any]
+    config_schema: dict[str, Any]
+    instances: int
+
+
+class InstallRequest(_Body):
+    kind: Literal["bundled", "custom", "store"]
+    plugin_id: str = Field(max_length=64, pattern=f"^{installer._PLUGIN_ID_RE}$")
+    version: str | None = Field(default=None, min_length=1, max_length=64)
+    repository: str | None = Field(
+        default=None, min_length=1, max_length=200, description="A custom repository."
+    )
+    label: str | None = Field(default=None, min_length=1, max_length=80)
+    granted_permissions: dict[str, Any]
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreateLocalRequest(_Body):
+    label: str = Field(min_length=1, max_length=80)
+    hooks: list[Literal["message", "raw_packet", "contact", "telemetry", "health", "timer"]] = (
+        Field(default_factory=lambda: ["message"], max_length=6)
+    )
+    permissions: dict[str, Any] = Field(default_factory=dict)
+    template: Literal["blank", "echo"] = "echo"
+
+
+class PatchRequest(_Body):
+    enabled: bool | None = None
+    label: str | None = Field(default=None, min_length=1, max_length=80)
+    config: dict[str, Any] | None = Field(
+        default=None,
+        description="Replaces the plain fields; a secret field that is omitted, null or "
+        '``********`` keeps its value, ``""`` clears it.',
+    )
+    scope: dict[str, Any] | None = None
+    granted_permissions: dict[str, Any] | None = None
+    quotas: dict[str, Any] | None = None
+    auto_update: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=100_000)
+    hooks: (
+        list[Literal["message", "raw_packet", "contact", "telemetry", "health", "timer"]] | None
+    ) = Field(default=None, max_length=6, description="A local plugin's subscriptions.")
+
+
+class UpdateRequest(_Body):
+    version: str | None = Field(
+        default=None, min_length=1, max_length=64, description="The latest release when omitted."
+    )
+    granted_permissions: dict[str, Any] | None = Field(
+        default=None,
+        description="Consent to the new manifest for this instance; it must cover it.",
+    )
+    config: dict[str, Any] | None = Field(
+        default=None, description="This instance's config under the new schema (PATCH rules)."
+    )
+
+
+class SourceRequest(_Body):
+    source: str = Field(max_length=MAX_SOURCE_BYTES)
+
+
+class LanHostSuggestionView(BaseModel):
+    host: str = Field(description="A ``lan_hosts`` entry (no credentials, no default port).")
+    line: int = Field(description="The first source line that mentions it.")
+    service_port: bool = Field(
+        description="Its port is a known service port (Home Assistant, radio proxy, web app)."
+    )
+
+
+class SourceResult(BaseModel):
+    instance: PluginInstanceView
+    scan: list[dict[str, Any]]
+    http_hosts: list[str] = Field(
+        default_factory=list, description="``https://`` hosts found in the code (to accept)."
+    )
+    lan_hosts: list[LanHostSuggestionView] = Field(
+        default_factory=list,
+        description="Local-network devices found in the code (suggestions, at most 10).",
+    )
+    lan_hosts_truncated: bool = Field(
+        default=False, description="More devices may exist past the bounds."
+    )
+
+
+class TestRequest(_Body):
+    text: str = Field(min_length=1, max_length=MAX_TEST_TEXT_BYTES)
+    channel: str | None = Field(default=None, description="A channel key; default: a test channel.")
+    contact: str | None = Field(
+        default=None, description="A contact public key (a direct message)."
+    )
+
+
+class TestResult(BaseModel):
+    result: Any
+    sends: list[dict[str, Any]]
+    truncated: bool
+    logs: list[str]
+
+
+class CheckFinding(BaseModel):
+    stage: str
+    code: str
+    message: str
+    path: str = ""
+    line: int | None = None
+    informative: bool = False
+
+
+class CheckResult(BaseModel):
+    ok: bool
+    errors: list[CheckFinding]
+    warnings: list[CheckFinding]
+    http_hosts: list[str] = Field(
+        default_factory=list,
+        description="A local plugin: ``https://`` hosts found in the code, to accept.",
+    )
+    lan_hosts: list[LanHostSuggestionView] = Field(
+        default_factory=list,
+        description="A local plugin: local-network devices found in the code (suggestions).",
+    )
+    lan_hosts_truncated: bool = False
+
+
+class LogsResult(BaseModel):
+    lines: list[str]
+    truncated: bool
+
+
+class DiagnosticResult(BaseModel):
+    plugin_id: str
+    plugin_version: str
+    kind: str
+    meshloom_version: str
+    python_version: str
+    isolation: str
+    status: str
+    last_error: str | None
+    restarts: int
+    dropped_events: int
+    granted_permissions: list[str]
+    logs: list[str]
+
+
+class PauseView(BaseModel):
+    paused: bool
+    since: int | None = Field(description="When the pause started (unix seconds).")
+    by: str | None = Field(description="The username of the admin who paused.")
+
+
+class PauseRequest(_Body):
+    paused: bool
+
+
+# --- helpers ---------------------------------------------------------------------
+
+
+def _live(instance_id: str) -> dict[str, Any]:
+    return plugin_manager.statuses().get(instance_id) or {}
+
+
+async def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
+    live = _live(row["instance_id"])
+    status = live.get("status") or row["status"]
+    secrets = await _clear_secrets(row["instance_id"]) if row["secret_fields"] else []
+    last_error = (live.get("last_error") if live else row["last_error"]) if admin else None
+    summary = live.get("summary")
+    return PluginInstanceView(
+        instance_id=row["instance_id"],
+        plugin_id=row["plugin_id"],
+        label=row["label"],
+        kind=row["kind"],
+        version=row["version"],
+        enabled=row["enabled"],
+        manifest=row["manifest"],
+        config=row["config"] if admin else {},
+        config_schema=row["config_schema"],
+        secret_fields=row["secret_fields"] if admin else [],
+        scope=row["scope"] if admin else {},
+        granted_permissions=row["granted_permissions"],
+        quotas=row["quotas"] if admin else {},
+        auto_update=row["auto_update"],
+        source=row["source"] if admin else None,
+        installed_at=row["installed_at"],
+        updated_at=row["updated_at"],
+        status=status,
+        last_error=_clean_line(last_error, secrets) if last_error else None,
+        attention=row["attention"] if admin else None,
+        sort_order=row["sort_order"],
+        summary=_clean_line(summary, secrets) if summary else None,
+        notices=["permission_dropped_supervisor"]
+        if admin and dropped_for_supervisor(row["manifest"])
+        else [],
+        restarts=live.get("restarts", 0),
+        dropped_events=live.get("dropped_events", 0),
+        reinstallable=admin and await _reinstallable(row),
+        repository=row["repository"] if admin else None,
+    )
+
+
+async def _reinstallable(row: dict[str, Any]) -> bool:
+    """Whether ``POST /reinstall`` can work for this row, so the UI does not offer an action
+    that can only fail: no sibling rules it out (``_check_reinstall``), a bundled plugin
+    ships with this release (the restore hook brought back the ones that do, unless it
+    failed), a custom one has a valid repository, and no resolver serves ``store`` yet. What
+    only the network can tell (Store off, release gone, a latest release that does not fit
+    this Meshloom) is the route's answer."""
+    if (row["attention"] or {}).get("type") != "reinstall":
+        return False
+    try:
+        _check_reinstall(row, await _others(row))
+    except HTTPException:
+        return False
+    kind = row["kind"]
+    if kind == "bundled":
+        return row["plugin_id"] in await asyncio.to_thread(installer.list_bundled)
+    if kind == "custom":
+        try:
+            custom_repos.parse_repository(row["repository"])
+        except installer.InstallError:
+            return False
+    return kind != "local" and installer.has_resolver(kind)
+
+
+def _is_admin(request: Request) -> bool:
+    return has_permission(get_principal(request), "admin")
+
+
+async def _clear_secrets(instance_id: str) -> list[str]:
+    """The instance's secret values in clear, for scrubbing output. Never returned."""
+    config = await PluginRepository.config_for_init(instance_id) or {}
+    row = await PluginRepository.get(instance_id)
+    names = set((row or {}).get("secret_fields") or [])
+    return [str(v) for k, v in config.items() if k in names and v]
+
+
+def _clean_line(line: str, secrets: list[str]) -> str:
+    text = scrub_error(line, secrets) or ""
+    text = redact_text(text, unanchored=True)
+    text = _CONTROL_RE.sub(" ", text)
+    return text if len(text) <= LOG_LINE_CHARS else text[:LOG_LINE_CHARS] + " [truncated]"
+
+
+def _scrub_value(value: Any, secrets: list[str]) -> Any:
+    if isinstance(value, str):
+        return _clean_line(value, secrets)
+    if isinstance(value, list):
+        return [_scrub_value(v, secrets) for v in value]
+    if isinstance(value, dict):
+        return {k: _scrub_value(v, secrets) for k, v in value.items()}
+    return value
+
+
+async def _log_tail(instance_id: str, limit: int) -> tuple[list[str], bool]:
+    secrets = await _clear_secrets(instance_id)
+    lines = plugin_manager.logs(instance_id)
+    tail = lines[-limit:]
+    return [_clean_line(line, secrets) for line in tail], len(lines) > limit
+
+
+def _check_config(
+    schema: dict[str, Any], provided: dict[str, Any], stored_secrets: frozenset[str]
+) -> tuple[list[PluginIssue], list[str]]:
+    """``(invalid, missing)`` for a config against its schema. A secret kept by omission
+    or the mask counts as present; ``language`` is a standard field of every instance."""
+    props = schema.get("properties", {})
+    secrets = secret_fields(schema)
+    invalid: list[PluginIssue] = []
+    values: dict[str, Any] = {}
+    for key, value in provided.items():
+        if key == "language" and key not in props:
+            if value not in LANGUAGES:
+                invalid.append(PluginIssue("config_value_invalid", key, "unsupported language"))
+        elif key not in props:
+            invalid.append(PluginIssue("config_field_unknown", key, "unknown field"))
+        elif key in secrets:
+            if value is None or value == REDACTED:
+                if key in stored_secrets:
+                    values[key] = REDACTED
+            elif value != "":
+                values[key] = value
+        else:
+            values[key] = value
+    for key in stored_secrets & secrets:
+        if key not in provided:
+            values[key] = REDACTED
+    issues = validate_config_values(schema, values)
+    invalid.extend(i for i in issues if i.code == "config_value_invalid")
+    missing = [name for name in schema.get("required", []) if name not in values]
+    return invalid, missing
+
+
+def _config_invalid(invalid: list[PluginIssue]) -> HTTPException:
+    return _error(
+        400,
+        "config_invalid",
+        "The config does not match the plugin's schema",
+        issues=_issues(invalid),
+    )
+
+
+def _check_scope(scope: dict[str, Any]) -> bool:
+    def filter_ok(value: Any) -> bool:
+        if value in ("all", "none"):
+            return True
+        if isinstance(value, list):
+            return len(value) <= 500 and all(isinstance(k, str) for k in value)
+        if isinstance(value, dict):
+            other = value.get("except")
+            return set(value) == {"except"} and filter_ok(other) and isinstance(other, list)
+        return False
+
+    if not scope:
+        return True
+    if set(scope) != {"messages"}:
+        return False
+    messages = scope["messages"]
+    if messages in ("all", "none"):
+        return True
+    return (
+        isinstance(messages, dict)
+        and set(messages) <= {"channels", "contacts"}
+        and all(filter_ok(v) for v in messages.values())
+    )
+
+
+def _check_quotas(quotas: dict[str, Any]) -> list[str]:
+    """The offending paths of a ``quotas`` value (never above the caps)."""
+    caps = {"per_hour": MESSAGES_SEND_MAX_PER_HOUR, "per_day": MESSAGES_SEND_MAX_PER_DAY}
+    bad: list[str] = []
+    for name, value in quotas.items():
+        if name != "messages.send" or not isinstance(value, dict):
+            bad.append(name)
+            continue
+        for key, limit in value.items():
+            if key not in caps or type(limit) is not int or not 1 <= limit <= caps[key]:
+                bad.append(f"{name}.{key}")
+    return bad
+
+
+def _capacity_error(exc: PluginCapacityError) -> HTTPException:
+    return _error(409, exc.code, "Too many plugin instances are running", cap=exc.cap)
+
+
+def _status_block(row: dict[str, Any], *, acknowledged: bool = False) -> HTTPException | None:
+    """Why a start is refused by the row's status (cadrage 4.2): ``revoked`` and
+    ``incompatible`` never run; ``needs_attention`` for a reason other than
+    ``config_required`` (``review_permissions``, ``consent_required``, ...) needs the
+    admin to acknowledge it by sending ``granted_permissions`` again; ``reinstall`` (an
+    instance restored from a backup without its code) never starts."""
+    status = row["status"]
+    if status in ("revoked", "incompatible"):
+        return _error(409, f"plugin_{status}", f"The instance is {status} and cannot start")
+    attention = row["attention"] or {}
+    kind = attention.get("type")
+    if status == "needs_attention" and kind == "reinstall":
+        # Restored from a backup without its code (services/backup_plugins.py): no
+        # acknowledgement can start it, only a reinstall or an uninstall.
+        return _error(
+            409, "plugin_reinstall_required", "The instance must be reinstalled before it starts"
+        )
+    if status == "needs_attention" and kind not in (None, "config_required") and not acknowledged:
+        return _error(
+            409, "attention_required", "The instance needs a review before it starts", type=kind
+        )
+    return None
+
+
+def _status_changes(
+    row: dict[str, Any],
+    *,
+    missing: list[str],
+    will_run: bool,
+    acknowledged: bool,
+    config_changed: bool,
+) -> dict[str, Any]:
+    """The one place a PATCH may move ``status``/``attention`` (the supervisor owns the
+    rest). ``revoked`` and ``incompatible`` are frozen: only an update
+    (``app/plugins/updates.py``) or, for ``incompatible``, a start where the instance
+    fits ``compat.meshloom`` again leaves them."""
+    status = row["status"]
+    if status in ("revoked", "incompatible"):
+        return {}
+    # A value reset by an update or a reinstall stays named until the config is saved.
+    dropped = (row["attention"] or {}).get("config_dropped")
+    notice = (
+        {"type": "config_dropped", "fields": dropped} if dropped and not config_changed else None
+    )
+    cleared = {"attention": notice, "status": "installed"}
+    kind = (row["attention"] or {}).get("type")
+    if kind == "config_required" and not missing:
+        return cleared
+    if kind == "config_dropped" and config_changed and not missing:
+        # An update's notice (app/plugins/updates.py): saving the config answers it.
+        return {"attention": None}
+    if will_run and acknowledged and status == "needs_attention":
+        return cleared
+    if config_changed and "config_dropped" in (row["attention"] or {}):
+        # The same notice on a hold (an update's, a reinstall's): the hold stays.
+        kept = {k: v for k, v in row["attention"].items() if k != "config_dropped"}
+        return {"attention": kept}
+    if not will_run and missing and config_changed and status != "needs_attention":
+        # Cleared a required field on a stopped instance: it waits for its config.
+        return {
+            "attention": {"type": "config_required", "fields": missing},
+            "status": "needs_attention",
+        }
+    return {}
+
+
+def _stored_missing(row: dict[str, Any]) -> list[str]:
+    """The required config fields the stored config lacks (checked at every start)."""
+    return _check_config(row["config_schema"], row["config"], frozenset(row["secret_fields"]))[1]
+
+
+async def _apply_runtime(instance_id: str, row: dict[str, Any], *, restart: bool) -> None:
+    """Make the process match the row: stop when disabled, (re)start when enabled and
+    asked to. Raises ``HTTPException`` on a refusal of the host."""
+    if row["enabled"]:
+        blocked = _status_block(row)
+        if blocked is not None:
+            raise blocked
+        missing = _stored_missing(row)
+        if missing:
+            raise _error(
+                409, "config_required", "Required config fields are missing", fields=missing
+            )
+    try:
+        if not row["enabled"]:
+            await plugin_manager.stop(instance_id)
+        elif restart or plugin_manager.get(instance_id) is None:
+            await plugin_manager.restart(instance_id)
+    except PluginCapacityError as exc:
+        raise _capacity_error(exc) from None
+    except PluginHostError as exc:
+        raise _error(409, exc.code, "The plugin host refused to start the instance") from None
+
+
+# --- reads -----------------------------------------------------------------------
+
+
+@router.get("", response_model=list[PluginInstanceView], dependencies=[Reader])
+async def list_plugins(request: Request) -> list[PluginInstanceView]:
+    admin = _is_admin(request)
+    return [await _view(row, admin) for row in await PluginRepository.get_all()]
+
+
+@router.get("/bundled", response_model=list[BundledPluginView], dependencies=[Reader])
+async def list_bundled() -> list[BundledPluginView]:
+    """The plugins shipped with this release, installable offline."""
+    counts: dict[str, int] = {}
+    for row in await PluginRepository.get_all():
+        counts[row["plugin_id"]] = counts.get(row["plugin_id"], 0) + 1
+    result = []
+    for plugin_id, bundled in (await asyncio.to_thread(installer.list_bundled)).items():
+        manifest = bundled.package.manifest
+        result.append(
+            BundledPluginView(
+                plugin_id=plugin_id,
+                version=manifest.version,
+                name=manifest.name,
+                summary=manifest.summary,
+                icon=manifest.icon,
+                categories=list(manifest.categories),
+                hooks=list(manifest.hooks),
+                permissions=manifest.permissions.declared(),
+                privacy=manifest.privacy.model_dump(mode="json"),
+                config_schema=bundled.config_schema,
+                instances=counts.get(plugin_id, 0),
+            )
+        )
+    return result
+
+
+# --- global pause ----------------------------------------------------------------
+
+
+def _pause_view() -> PauseView:
+    state = plugin_pause.state()
+    return PauseView(paused=state.paused, since=state.since, by=state.by)
+
+
+@router.get("/pause", response_model=PauseView, dependencies=[Reader])
+async def get_pause() -> PauseView:
+    """The global pause: whether every plugin is held, since when and by whom."""
+    return _pause_view()
+
+
+@router.put("/pause", response_model=PauseView, dependencies=[Admin])
+async def put_pause(
+    body: PauseRequest, request: Request, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PauseView:
+    """Pause or resume every plugin (idempotent). Pausing stops the running instances
+    cleanly and starts none until resumed; the per-instance ``enabled`` flags stay.
+    Allowed under the host lock, which keeps precedence."""
+    principal = get_principal(request)
+    by = principal.user.username if principal is not None else None
+    _, changed = await plugin_pause.set_paused(body.paused, by, plugin_manager)
+    if changed:
+        await audit.record(
+            "plugins.paused" if body.paused else "plugins.resumed", "success", actor=actor
+        )
+        from app.services.radio_runtime import radio_runtime
+        from app.websocket import broadcast_health
+
+        broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
+    return _pause_view()
+
+
+# --- converted bots (MSHL-192) ----------------------------------------------------
+
+
+class ConvertedBotsAck(BaseModel):
+    acknowledged: bool
+
+
+@router.post(
+    "/converted-bots/acknowledge", response_model=ConvertedBotsAck, dependencies=[Admin, Writable]
+)
+async def acknowledge_converted_bots() -> ConvertedBotsAck:
+    """Dismiss the "N bots converted" notice of ``/api/health`` (``converted_bots``).
+    Idempotent. Each converted instance keeps its own ``review_permissions`` attention
+    until its grant is accepted (``PATCH`` with ``granted_permissions``)."""
+    if await bot_conversion.acknowledge():
+        from app.services.radio_runtime import radio_runtime
+        from app.websocket import broadcast_health
+
+        broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
+    return ConvertedBotsAck(acknowledged=True)
+
+
+# --- install and create ----------------------------------------------------------
+
+
+@router.post(
+    "/install",
+    status_code=201,
+    response_model=PluginInstanceView,
+    dependencies=[Admin, Writable],
+)
+async def install_plugin(
+    body: InstallRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
+    """Install a plugin from its source (``bundled``; ``custom`` and ``store`` once a
+    resolver provides them, else 404 ``plugin_source_unavailable``).
+    ``granted_permissions`` must cover the manifest (400 ``consent_required`` lists what
+    is missing); a remote archive is checked (size, sha256, manifest equal to the
+    source's entry: 400 ``archive_mismatch``) before it is extracted; a ``compat`` range
+    this meshloom is outside of is 409 ``incompatible``; a required config field that is
+    missing creates the instance disabled with ``attention.type = "config_required"``. A
+    second instance of an installed plugin reuses its code, without a download. The data
+    an uninstall with ``keep_data`` kept for the same plugin and source (``kind`` and
+    ``repository``) goes to the new instance (audit ``reattached_data``). While the
+    global pause holds, the instance is created but does not start."""
+    async with audit.audited(
+        actor, "plugin.installed", details={"plugin_id": body.plugin_id, "kind": body.kind}
+    ) as scope:
+        view = await _install(body, scope.details)
+        scope.target = _target(view.instance_id)
+        scope.details["enabled"] = view.enabled
+    return view
+
+
+def _install_error(exc: installer.InstallError) -> HTTPException:
+    messages = {
+        "archive_mismatch": "The archive is not the one the source announced",
+        "archive_too_large": "The archive is too large",
+        "store_offline": "Downloading plugins is turned off",
+        "download_blocked": "The download was refused",
+        "download_failed": "The archive could not be downloaded",
+        "repository_no_release": "The repository has no release",
+        "repository_moved": "The repository moved: add it under its new name",
+        "repository_assets_missing": "The latest release lacks a required asset",
+        "repository_manifest_invalid": "The release's manifest.json is invalid",
+        "repository_sha256_invalid": "The release's plugin.zip.sha256 holds no sha256",
+        "repository_tag_invalid": "The latest release has an unusable tag",
+        "repository_asset_too_large": "A release asset is too large",
+    }
+    return _error(
+        exc.status,
+        exc.code,
+        messages.get(exc.code, "The plugin could not be installed"),
+        **exc.params,
+    )
+
+
+async def _source(
+    kind: str, plugin_id: str, version: str | None, repository: str | None
+) -> installer.ArchiveSource:
+    try:
+        source = await installer.resolve_source(kind, plugin_id, version, repository)  # type: ignore[arg-type]
+    except installer.InstallError as exc:
+        raise _install_error(exc) from None
+    if source is None:
+        if kind == "bundled":
+            raise _error(404, "plugin_not_bundled", "No such bundled plugin")
+        raise _error(404, "plugin_source_unavailable", "No source provides this plugin")
+    return source
+
+
+async def _prepare(source: installer.ArchiveSource, plugin_id: str) -> installer.PreparedInstall:
+    try:
+        return await installer.prepare_install(
+            source, plugin_manager.plugins_root(), plugin_id=plugin_id
+        )
+    except installer.InstallError as exc:
+        raise _install_error(exc) from None
+    except PluginValidationError as exc:
+        raise _manifest_error(
+            exc, "The plugin package is invalid", default="package_invalid"
+        ) from None
+    except OSError:
+        logger.exception("Preparing plugin %s failed", plugin_id)
+        raise _error(500, "install_failed", "The plugin could not be installed") from None
+
+
+def _refuse_revoked(siblings: list[dict[str, Any]]) -> None:
+    """The code of a revoked instance gives no other instance a way to run it."""
+    if any(r["status"] == "revoked" for r in siblings):
+        raise _error(409, "plugin_revoked", "This plugin was revoked")
+
+
+def _consent(manifest: dict[str, Any], granted: dict[str, Any]) -> None:
+    missing = installer.consent_missing(manifest, granted)
+    if missing:
+        raise _error(
+            400, "consent_required", "Consent does not cover the manifest", missing=missing
+        )
+
+
+def _repository_key(repository: str) -> str:
+    """The lowercase ``owner/name`` key of a custom repository, as stored on an instance."""
+    try:
+        return custom_repos.parse_repository(repository).key
+    except installer.InstallError:
+        return repository.strip().lower()
+
+
+async def _install(body: InstallRequest, details: dict[str, Any]) -> PluginInstanceView:
+    async with installer.plugin_lock(body.plugin_id):
+        return await _install_locked(body, details)
+
+
+async def _install_locked(body: InstallRequest, details: dict[str, Any]) -> PluginInstanceView:
+    siblings = await PluginRepository.get_by_plugin_id(body.plugin_id)
+    if any(row["kind"] != body.kind for row in siblings):
+        raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
+    _refuse_revoked(siblings)
+    prepared: installer.PreparedInstall | None = None
+    shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
+    if body.kind != "bundled" and shared is not None:
+        # A second instance: the code directory is shared, nothing is downloaded.
+        if body.version is not None and body.version != shared["version"]:
+            raise _error(
+                409, "plugin_version_conflict", "Another version of this plugin is installed"
+            )
+        if (
+            body.kind == "custom"
+            and body.repository is not None
+            and _repository_key(body.repository) != shared["repository"]
+        ):
+            raise _error(
+                409,
+                "plugin_repository_conflict",
+                "This plugin is installed from another repository",
+                repository=shared["repository"],
+            )
+        if not installer.code_installed(
+            plugin_manager.plugins_root(), body.plugin_id, shared["version"]
+        ):
+            raise _error(409, "plugin_code_missing", "The installed code of this plugin is missing")
+        manifest, schema = shared["manifest"], shared["config_schema"]
+        archive_sha256, repository = shared["archive_sha256"], shared["repository"]
+        _consent(manifest, body.granted_permissions)
+    else:
+        source = await _source(body.kind, body.plugin_id, body.version, body.repository)
+        _consent(await source.fetch_manifest(), body.granted_permissions)
+        prepared = await _prepare(source, body.plugin_id)
+        manifest, schema = prepared.manifest, prepared.config_schema
+        archive_sha256 = prepared.archive_sha256 if body.kind != "bundled" else None
+        repository = prepared.repository
+    fresh = shared is None
+    # Data an uninstall kept for this plugin and source (MSHL-366): its secrets count as
+    # stored, and create() moves them and the KV to the new instance.
+    kept = await PluginKeptDataRepository.find(body.plugin_id, body.kind, repository)
+    stored = kept.secret_fields & secret_fields(schema) if kept is not None else frozenset()
+    try:
+        _consent(manifest, body.granted_permissions)
+        if body.kind != "bundled" and not installer.compatible(manifest):
+            raise _error(
+                409,
+                "incompatible",
+                "This plugin does not support this version of Meshloom",
+                compat=(manifest.get("compat") or {}).get("meshloom"),
+            )
+        invalid, missing = _check_config(schema, body.config, stored)
+        if invalid:
+            raise _config_invalid(invalid)
+        if prepared is not None:
+            await asyncio.to_thread(prepared.commit)
+    except OSError:
+        logger.exception("Installing plugin %s failed", body.plugin_id)
+        raise _error(500, "install_failed", "The plugin could not be installed") from None
+    finally:
+        if prepared is not None:
+            await asyncio.to_thread(prepared.discard)
+    needs_config = bool(missing)
+    try:
+        row = await PluginRepository.create(
+            plugin_id=body.plugin_id,
+            label=body.label or manifest["name"]["en"],
+            kind=body.kind,
+            version=manifest["version"],
+            manifest=manifest,
+            config_schema=schema,
+            config=body.config,
+            granted_permissions=installer.declared_permissions(manifest),
+            enabled=not needs_config,
+            status="needs_attention" if needs_config else "installed",
+            attention={"type": "config_required", "fields": missing} if needs_config else None,
+            archive_sha256=archive_sha256,
+            repository=repository,
+            kept=kept,
+        )
+    except PluginStoreError as exc:
+        await _drop_code_if_unused(body.plugin_id, fresh)
+        raise _store_error(exc) from None
+    instance_id = row["instance_id"]
+    if kept is not None:
+        details["reattached_data"] = True
+    if not needs_config:
+        try:
+            await plugin_manager.start(instance_id)
+        except (PluginCapacityError, PluginHostError) as exc:
+            # Data taken back from an uninstall stays kept (under the new id).
+            await PluginRepository.delete(instance_id, keep_data=kept is not None)
+            await _drop_code_if_unused(body.plugin_id, fresh)
+            if isinstance(exc, PluginCapacityError):
+                raise _capacity_error(exc) from None
+            raise _error(409, exc.code, "The plugin host refused to start the instance") from None
+    plugin_manager.announce(instance_id)
+    return await _view(await _row(instance_id), True)
+
+
+async def _drop_code_if_unused(plugin_id: str, fresh: bool = True) -> None:
+    """Remove a plugin's shared code once no instance uses it (caller holds the lock). An
+    instance restored without its code (``reinstall``) does not use it."""
+    if not fresh:
+        return
+    rows = await PluginRepository.get_by_plugin_id(plugin_id)
+    if all((r["attention"] or {}).get("type") == "reinstall" for r in rows):
+        await asyncio.to_thread(installer.remove_code, plugin_manager.plugins_root(), plugin_id)
+
+
+@router.post(
+    "/{instance_id}/reinstall",
+    response_model=PluginInstanceView,
+    dependencies=[Admin, Writable],
+)
+async def reinstall_plugin(
+    instance_id: str, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
+    """Bring back the code of an instance restored from a backup without it
+    (``attention.type = "reinstall"``, 409 ``plugin_not_reinstallable`` otherwise): the
+    same source, checked like an install. A custom repository only serves its latest
+    release, which can be newer or older than the restored version; another instance of
+    the plugin gives its code and version instead, nothing is downloaded (409
+    ``incompatible`` or ``plugin_revoked`` when it cannot). The instance stays disabled
+    with ``attention.type = "restored"``, its grants kept only when the manifest covers
+    them, for the admin to review before it starts: ``attention.previous_version`` when
+    the version changed, ``attention.config_dropped`` for the settings the schema rejects.
+    Audited with ``from_version`` and ``to_version``."""
+    row = await _row(instance_id)
+    async with audit.audited(
+        actor,
+        "plugin.installed",
+        target=_target(row["instance_id"]),
+        details=_audit_details(
+            row, reinstall=True, from_version=row["version"], repository=row["repository"]
+        ),
+    ) as scope:
+        async with installer.plugin_lock(row["plugin_id"]):
+            version, dropped = await _reinstall(row["instance_id"])
+        scope.details["to_version"] = version
+        scope.details["config_dropped"] = dropped
+    return await _view(await _row(row["instance_id"]), True)
+
+
+async def _others(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """The other instances of the row's plugin."""
+    rows = await PluginRepository.get_by_plugin_id(row["plugin_id"])
+    return [r for r in rows if r["instance_id"] != row["instance_id"]]
+
+
+def _check_reinstall(row: dict[str, Any], siblings: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Raise what the other instances of the plugin rule out for a reinstall (no network).
+    Returns the sibling whose code a remote plugin shares, nothing being downloaded then."""
+    if any(r["kind"] != row["kind"] for r in siblings):
+        raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
+    _refuse_revoked(siblings)
+    shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
+    if row["kind"] == "bundled" or shared is None:
+        return None
+    # The code directory is shared: replacing it would pull it from under that instance.
+    if row["kind"] == "custom" and _repository_key(row["repository"] or "") != shared["repository"]:
+        raise _error(
+            409,
+            "plugin_repository_conflict",
+            "This plugin is installed from another repository",
+            repository=shared["repository"],
+        )
+    if not installer.code_installed(
+        plugin_manager.plugins_root(), row["plugin_id"], shared["version"]
+    ):
+        raise _error(409, "plugin_code_missing", "The installed code of this plugin is missing")
+    if not installer.compatible(shared["manifest"]):
+        raise _error(
+            409,
+            "incompatible",
+            "This plugin does not support this version of Meshloom",
+            compat=(shared["manifest"].get("compat") or {}).get("meshloom"),
+        )
+    return shared
+
+
+async def _reinstall(instance_id: str) -> tuple[str, list[str]]:
+    """The version now installed and the config fields it dropped (caller holds the lock)."""
+    from app.plugins import updates
+    from app.services.backup_plugins import (
+        RESTORED,
+        config_for_schema,
+        granted_within,
+        public_config,
+    )
+
+    row = await _row(instance_id)
+    if row["kind"] == "local" or (row["attention"] or {}).get("type") != "reinstall":
+        raise _error(409, "plugin_not_reinstallable", "The instance has its code")
+    shared = _check_reinstall(row, await _others(row))
+    if shared is not None:
+        manifest, schema = shared["manifest"], shared["config_schema"]
+        archive_sha256, repository = shared["archive_sha256"], shared["repository"]
+    else:
+        manifest, schema, archive_sha256, repository = await _fetch_code(row)
+    version = manifest["version"]
+    kept_config = public_config(row)
+    config = config_for_schema(schema, kept_config)
+    dropped = sorted(set(kept_config) - set(config))
+    attention = {**(row["attention"] or {}), "type": RESTORED}
+    if version != row["version"]:
+        attention["previous_version"] = row["version"]
+    if dropped:
+        attention[updates.CONFIG_DROPPED] = dropped
+    try:
+        await PluginRepository.update(
+            instance_id,
+            manifest=manifest,
+            version=version,
+            config_schema=schema,
+            config=config,
+            granted_permissions=granted_within(manifest, row["granted_permissions"]),
+            attention=attention,
+            archive_sha256=archive_sha256,
+            repository=repository,
+        )
+    except PluginStoreError as exc:
+        raise _store_error(exc) from None
+    plugin_manager.announce(instance_id)
+    return version, dropped
+
+
+async def _fetch_code(
+    row: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str | None, str | None]:
+    """Install the code of a restored row from its source (caller holds the lock):
+    ``(manifest, config schema, archive sha256, repository)``."""
+    # A bundled plugin is what this release ships, and a custom repository only serves its
+    # latest release (`resolve_custom`): asking for the restored version would refuse every
+    # instance whose repository moved on. No sha256 pins it: a backup does not hold one.
+    version = row["version"] if row["kind"] == "store" else None
+    source = await _source(row["kind"], row["plugin_id"], version, row["repository"])
+    prepared = await _prepare(source, row["plugin_id"])
+    try:
+        if row["kind"] != "bundled" and not installer.compatible(prepared.manifest):
+            raise _error(
+                409, "incompatible", "This plugin does not support this version of Meshloom"
+            )
+        await asyncio.to_thread(prepared.commit)
+    except OSError:
+        logger.exception("Reinstalling plugin %s failed", row["plugin_id"])
+        raise _error(500, "install_failed", "The plugin could not be installed") from None
+    finally:
+        await asyncio.to_thread(prepared.discard)
+    archive_sha256 = prepared.archive_sha256 if row["kind"] != "bundled" else None
+    return prepared.manifest, prepared.config_schema, archive_sha256, prepared.repository
+
+
+@router.post(
+    "/{instance_id}/update",
+    response_model=PluginInstanceView,
+    dependencies=[Admin, Writable],
+)
+async def update_plugin(
+    instance_id: str, body: UpdateRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
+    """Update a ``custom`` plugin to a newer release of its source (MSHL-197,
+    ``app/plugins/updates.py``): checked exactly like an install (409 ``store_offline``,
+    400 ``archive_mismatch``, 400 ``consent_required`` when ``granted_permissions`` do
+    not cover the new manifest, 409 ``incompatible``, 400 ``config_invalid``). The code
+    directory is shared: every instance of the plugin moves to the new version and keeps
+    its config, secrets and KV. An instance whose grants do not cover new or changed
+    permissions is held (``attention.type = "consent_required"``), one missing a new
+    required config field too (``config_required``); a kept config value the new schema
+    rejects is dropped and reported in ``attention`` (``config_dropped``: a notice on a
+    running instance, a key on a hold); ``granted_permissions`` and ``config`` apply to
+    this instance only. 409 ``plugin_not_updatable`` (not from a
+    custom repository), ``plugin_reinstall_required``, ``plugin_up_to_date``."""
+    from app.plugins import updates
+
+    row = await _row(instance_id)
+    async with audit.audited(
+        actor,
+        "plugin.updated",
+        target=_target(row["instance_id"]),
+        details=_audit_details(row, fields=["version"], from_version=row["version"]),
+    ) as scope:
+        written = await updates.update_plugin(
+            row["instance_id"],
+            version=body.version,
+            granted=body.granted_permissions,
+            config=body.config,
+            actor=actor,
+            audit_self=False,
+        )
+        fields = (written or {}).get(row["instance_id"]) or {}
+        scope.details["to_version"] = fields.get("version")
+        held = (fields.get("attention") or {}).get("type")
+        scope.details["held"] = held if held in ("consent_required", "config_required") else None
+        scope.details["config_dropped"] = updates.config_dropped(fields)
+    return await _view(await _row(row["instance_id"]), True)
+
+
+@router.post("", status_code=201, response_model=PluginInstanceView, dependencies=[Admin, Writable])
+async def create_local_plugin(
+    body: CreateLocalRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
+    """Create a local plugin (code kept in the database, started disabled)."""
+    async with audit.audited(actor, "plugin.created", details={"kind": "local"}) as scope:
+        view = await _create_local(body)
+        scope.target = _target(view.instance_id)
+        scope.details["plugin_id"] = view.plugin_id
+    return view
+
+
+async def _create_local(body: CreateLocalRequest) -> PluginInstanceView:
+    hooks = list(dict.fromkeys(body.hooks))
+    data = installer.local_manifest(body.label, hooks, body.permissions)
+    try:
+        manifest = parse_manifest(data, origin="local")
+    except PluginValidationError as exc:
+        raise _manifest_error(exc, "The manifest is invalid") from None
+    stored = manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
+    stored["permissions"] = manifest.permissions.declared()
+    row = await PluginRepository.create(
+        plugin_id=manifest.id,
+        label=body.label,
+        kind="local",
+        version=manifest.version,
+        manifest=stored,
+        granted_permissions=stored["permissions"],
+        source=installer.local_template_source(body.template),
+    )
+    plugin_manager.announce(row["instance_id"])
+    return await _view(row, True)
+
+
+# --- change ----------------------------------------------------------------------
+
+
+@router.patch("/{instance_id}", response_model=PluginInstanceView, dependencies=[Admin, Writable])
+async def patch_plugin(
+    instance_id: str, body: PatchRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
+    """Change an instance. Enabling starts its process, disabling stops it; a change of
+    config, scope, grants, quotas or label restarts a running one (none starts while
+    the global pause holds). ``config`` replaces the plain fields and merges the
+    secrets (write-only).
+
+    Audit: ``plugin.enabled`` / ``plugin.disabled`` for a change of ``enabled``,
+    ``plugin.config_changed`` for config, scope, grants, quotas or hooks, otherwise
+    ``plugin.changed``; one row per kind, the changed field names only."""
+    row = await _row(instance_id)
+    fields = {f for f in body.model_fields_set if getattr(body, f) is not None}
+    toggled = "enabled" in fields and body.enabled != row["enabled"]
+    actions: list[tuple[audit.AuditAction, list[str]]] = []
+    if toggled:
+        actions.append(("plugin.enabled" if body.enabled else "plugin.disabled", ["enabled"]))
+    if config_fields := sorted(fields & _CONFIG_FIELDS):
+        actions.append(("plugin.config_changed", config_fields))
+    if other := sorted(fields - _CONFIG_FIELDS - {"enabled"}):
+        actions.append(("plugin.changed", other))
+    if not actions:
+        return await _patch(instance_id, row, body)
+    first, first_fields = actions[0]
+    async with audit.audited(
+        actor, first, target=_target(row["instance_id"]), details=_audit_details(row)
+    ) as scope:
+        scope.details["fields"] = first_fields
+        view = await _patch(instance_id, row, body)
+    for action, names in actions[1:]:
+        await audit.record(
+            action,
+            "success",
+            actor=actor,
+            target=_target(row["instance_id"]),
+            details=_audit_details(row, fields=names),
+        )
+    return view
+
+
+async def _patch(instance_id: str, row: dict[str, Any], body: PatchRequest) -> PluginInstanceView:
+    instance_id = row["instance_id"]
+    fields = body.model_fields_set
+    changes: dict[str, Any] = {}
+    stored_secrets = frozenset(row["secret_fields"])
+    schema = row["config_schema"]
+    # Re-evaluated from the stored config on every call, never trusted from the flag.
+    missing = _stored_missing(row)
+    if "config" in fields and body.config is not None:
+        invalid, missing = _check_config(schema, body.config, stored_secrets)
+        if invalid:
+            raise _config_invalid(invalid)
+        changes["config"] = body.config
+    if "granted_permissions" in fields and body.granted_permissions is not None:
+        if row["kind"] == "local":
+            # A local plugin declares and grants together: editing its permissions
+            # rewrites its manifest, revalidated (consent is the admin's request).
+            draft = {**row["manifest"], "permissions": body.granted_permissions}
+            try:
+                parsed = parse_manifest(draft, origin="local")
+            except PluginValidationError as exc:
+                raise _manifest_error(exc, "The permissions are invalid") from None
+            declared = parsed.permissions.declared()
+            changes["manifest"] = {**row["manifest"], "permissions": declared}
+            changes["granted_permissions"] = declared
+        elif problems := installer.grant_problems(row["manifest"], body.granted_permissions):
+            raise _error(
+                400,
+                "permission_exceeds_manifest",
+                "A grant must be a subset of the manifest's permissions",
+                fields=problems,
+            )
+        else:
+            changes["granted_permissions"] = body.granted_permissions
+    if "hooks" in fields and body.hooks is not None:
+        if row["kind"] != "local":
+            raise _error(409, "not_local", "Only a local plugin has editable hooks")
+        draft = {
+            **(changes.get("manifest") or row["manifest"]),
+            "hooks": list(dict.fromkeys(body.hooks)),
+        }
+        try:
+            parse_manifest(draft, origin="local")
+        except PluginValidationError as exc:
+            raise _manifest_error(exc, "The hooks are invalid") from None
+        changes["manifest"] = draft
+    if "scope" in fields and body.scope is not None:
+        if not _check_scope(body.scope):
+            raise _error(400, "scope_invalid", "The scope is not valid")
+        changes["scope"] = body.scope
+    if "quotas" in fields and body.quotas is not None:
+        bad = _check_quotas(body.quotas)
+        if bad:
+            raise _error(400, "quota_invalid", "A quota is invalid or above its cap", fields=bad)
+        changes["quotas"] = body.quotas
+    for name in ("label", "auto_update", "sort_order"):
+        if name in fields and getattr(body, name) is not None:
+            changes[name] = getattr(body, name)
+    enabling = body.enabled is True and not row["enabled"]
+    will_run = row["enabled"] if body.enabled is None else body.enabled
+    acknowledged = "granted_permissions" in fields
+    if will_run:
+        blocked = _status_block(row, acknowledged=acknowledged)
+        if blocked is not None:
+            raise blocked
+        if missing:
+            raise _error(
+                409, "config_required", "Required config fields are missing", fields=missing
+            )
+    if body.enabled is not None:
+        changes["enabled"] = body.enabled
+    changes.update(
+        _status_changes(
+            row,
+            missing=missing,
+            will_run=will_run,
+            acknowledged=acknowledged,
+            config_changed="config" in changes,
+        )
+    )
+    if not changes:
+        return await _view(row, True)
+    try:
+        updated = await PluginRepository.update(instance_id, **changes)
+    except PluginStoreError as exc:
+        raise _store_error(exc) from None
+    if updated is None:
+        raise _error(404, "plugin_not_found", "No such plugin instance")
+    restart = enabling or bool(
+        set(changes) & {"config", "scope", "granted_permissions", "quotas", "label", "manifest"}
+    )
+    if updated["enabled"] != row["enabled"] or (restart and updated["enabled"]):
+        try:
+            await _apply_runtime(instance_id, updated, restart=restart)
+        except HTTPException:
+            if enabling:
+                await PluginRepository.update(instance_id, enabled=False)
+            plugin_manager.announce(instance_id)
+            raise
+    plugin_manager.announce(instance_id)
+    return await _view(await _row(instance_id), True)
+
+
+@router.put("/{instance_id}/source", response_model=SourceResult, dependencies=[Admin, Writable])
+async def put_source(
+    instance_id: str, body: SourceRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> SourceResult:
+    """Replace a local plugin's code (``ast.parse`` first) and restart it when enabled.
+    Audited as ``plugin.updated`` with the source's size in bytes (``source_bytes``),
+    never its text."""
+    row = await _row(instance_id)
+    async with audit.audited(
+        actor,
+        "plugin.updated",
+        target=_target(row["instance_id"]),
+        details=_audit_details(
+            row, fields=["source"], source_bytes=len(body.source.encode("utf-8"))
+        ),
+    ):
+        return await _put_source(row["instance_id"], row, body)
+
+
+def _lan_suggestions(report: AttentionReport) -> list[LanHostSuggestionView]:
+    """The scanner's LAN suggestions minus the IP literals of this machine (a bind probe,
+    nothing is sent; names were dropped by the scanner, never resolved here)."""
+    kept: list[LanHostSuggestionView] = []
+    for suggestion in report.lan_hosts:
+        host, _port = split_lan_host(suggestion.host)
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            ip = None
+        if ip is not None and is_self_address(ip):
+            continue
+        kept.append(LanHostSuggestionView(**suggestion.to_json()))
+    return kept
+
+
+async def _put_source(instance_id: str, row: dict[str, Any], body: SourceRequest) -> SourceResult:
+    if row["kind"] != "local":
+        raise _error(409, "not_local", "Only a local plugin has editable source")
+    if len(body.source.encode("utf-8")) > MAX_SOURCE_BYTES:
+        raise _error(400, "source_too_large", "The source is over 1 MiB")
+    try:
+        ast.parse(body.source)
+    except SyntaxError as exc:
+        raise _error(
+            400, "source_syntax_error", "The source is not valid Python", line=exc.lineno
+        ) from None
+    except (ValueError, RecursionError, MemoryError):
+        raise _error(400, "source_invalid", "The source cannot be parsed") from None
+    updated = await PluginRepository.update(instance_id, source=body.source)
+    assert updated is not None
+    if updated["enabled"]:
+        await _apply_runtime(instance_id, updated, restart=True)
+    plugin_manager.announce(instance_id)
+    report = scan_source(body.source)
+    scan = [
+        {"code": r.code, "line": r.line, "detail": r.detail, "informative": r.informative}
+        for r in report.reasons
+    ]
+    return SourceResult(
+        instance=await _view(await _row(instance_id), True),
+        scan=scan,
+        http_hosts=report.http_hosts,
+        lan_hosts=_lan_suggestions(report),
+        lan_hosts_truncated=report.lan_truncated,
+    )
+
+
+# --- actions ---------------------------------------------------------------------
+
+
+@router.post(
+    "/{instance_id}/restart", response_model=PluginInstanceView, dependencies=[Admin, Writable]
+)
+async def restart_plugin(instance_id: str) -> PluginInstanceView:
+    """Restart an instance with a fresh failure count (also clears ``crash_loop``).
+    409 ``plugins_paused`` while the global pause holds."""
+    row = await _row(instance_id)
+    if plugin_manager.paused:
+        raise _paused_error()
+    if not row["enabled"]:
+        raise _error(409, "plugin_disabled", "The instance is disabled")
+    await _apply_runtime(instance_id, row, restart=True)
+    plugin_manager.announce(instance_id)
+    return await _view(await _row(instance_id), True)
+
+
+@router.post("/{instance_id}/check", response_model=CheckResult, dependencies=[Admin, Writable])
+async def check_plugin(instance_id: str) -> CheckResult:
+    """Validate the package and scan its code (``dev check``'s first two stages). Nothing
+    is executed here: the unsandboxed dry run stays a development tool, ``test`` is the
+    live check."""
+    from meshloom_plugin.dev import CheckReport, Finding, check_directory
+
+    row = await _row(instance_id)
+    http_hosts: list[str] = []
+    lan_hosts: list[LanHostSuggestionView] = []
+    lan_truncated = False
+    if row["kind"] == "local":
+        report = CheckReport()
+        try:
+            parse_manifest(row["manifest"], origin="local")
+        except PluginValidationError as exc:
+            for issue in exc.issues:
+                report.errors.append(Finding("package", issue.code, issue.message, issue.path))
+        scanned = scan_source(row["source"] or "")
+        http_hosts = list(scanned.http_hosts)
+        lan_hosts = _lan_suggestions(scanned)
+        lan_truncated = scanned.lan_truncated
+        for reason in scanned.reasons:
+            text = reason.code if reason.detail is None else f"{reason.code}: {reason.detail}"
+            report.warnings.append(
+                Finding(
+                    "scan",
+                    reason.code,
+                    text,
+                    line=reason.line or None,
+                    informative=reason.informative,
+                )
+            )
+    else:
+        directory = plugin_manager.plugins_root() / row["plugin_id"]
+        origin = "bundled" if row["kind"] == "bundled" else "third_party"
+        report = await asyncio.to_thread(check_directory, directory, origin=origin, dry_run=False)
+    body = report.to_json()
+    return CheckResult(
+        ok=body["ok"],
+        errors=[CheckFinding(**f) for f in body["errors"]],
+        warnings=[CheckFinding(**f) for f in body["warnings"]],
+        http_hosts=http_hosts,
+        lan_hosts=lan_hosts,
+        lan_hosts_truncated=lan_truncated,
+    )
+
+
+@router.post("/{instance_id}/test", response_model=TestResult, dependencies=[Admin, Writable])
+async def test_plugin(instance_id: str, body: TestRequest) -> TestResult:
+    """Inject a synthetic ``event.message`` (``test: true``) and return what the plugin
+    sent: the sends are captured by the host and never reach the radio. 409
+    ``plugins_paused`` while the global pause holds."""
+    from app.repository import ChannelRepository, ContactRepository
+
+    row = await _row(instance_id)
+    if plugin_manager.paused:
+        raise _paused_error()
+    if len(body.text.encode("utf-8")) > MAX_TEST_TEXT_BYTES:
+        raise _error(400, "test_text_too_long", "The test text is over 1 KiB")
+    if body.channel and body.contact:
+        raise _error(400, "test_target_ambiguous", "Give a channel or a contact, not both")
+    if "message" not in (row["manifest"].get("hooks") or []):
+        raise _error(409, "hook_not_declared", "The plugin does not subscribe to messages")
+    is_dm = body.contact is not None
+    sender_key = ("ab" * 32) if not is_dm else body.contact.lower()  # type: ignore[union-attr]
+    channel_key = ""
+    channel_name = None
+    if is_dm:
+        contact = await ContactRepository.get_by_key(sender_key)
+        if contact is None:
+            raise _error(404, "contact_not_found", "No such contact")
+        sender_name = contact.name or "Tester"
+        conversation_key = sender_key
+    else:
+        channel_key = (body.channel or "CD" * 16).upper()
+        if body.channel:
+            channel = await ChannelRepository.get_by_key(channel_key)
+            if channel is None:
+                raise _error(404, "channel_not_found", "No such channel")
+            channel_name = channel.name
+        else:
+            channel_name = "#test"
+        sender_name = "Tester"
+        conversation_key = channel_key
+    data = {
+        "sender_name": sender_name,
+        "sender_key": sender_key if is_dm else None,
+        "message_text": body.text,
+        "is_dm": is_dm,
+        "channel_key": None if is_dm else channel_key,
+        "channel_name": channel_name,
+        "conversation_key": conversation_key,
+        "is_public_channel": False,
+        "sender_timestamp": None,
+        "received_at": None,
+        "path": "",
+        "path_bytes_per_hop": 1,
+        "packet_hash": None,
+        "region": None,
+        "scoped": False,
+        "is_outgoing": False,
+    }
+    try:
+        outcome = await plugin_manager.dispatch_test(instance_id, "message", data)
+    except PluginHostError as exc:
+        status = 409 if exc.code in ("instance_not_running", "plugins_paused") else 502
+        raise _error(status, exc.code, "The test event failed") from None
+    except TimeoutError:
+        raise _error(504, "test_timeout", "The plugin did not answer in time") from None
+    secrets = await _clear_secrets(instance_id)
+    logs, _ = await _log_tail(instance_id, 20)
+    return TestResult(
+        result=_scrub_value(outcome.get("result"), secrets),
+        sends=_scrub_value(list(outcome.get("sends") or []), secrets),
+        truncated=bool(outcome.get("truncated")),
+        logs=logs,
+    )
+
+
+# --- logs, diagnostic, delete ----------------------------------------------------
+
+
+@router.get("/{instance_id}/logs", response_model=LogsResult, dependencies=[Admin])
+async def plugin_logs(
+    instance_id: str, limit: int = Query(LOG_DEFAULT_LIMIT, ge=1, le=LOG_MAX_LIMIT)
+) -> LogsResult:
+    """The tail of the instance's stderr ring: truncated, redacted lines. Never part of
+    ``/api/debug``."""
+    await _row(instance_id)
+    lines, truncated = await _log_tail(instance_id, limit)
+    return LogsResult(lines=lines, truncated=truncated)
+
+
+@router.get("/{instance_id}/diagnostic", response_model=DiagnosticResult, dependencies=[Admin])
+async def plugin_diagnostic(instance_id: str) -> DiagnosticResult:
+    """A block to paste in a report: versions, isolation, last error, the last log
+    lines. No config value and no secret."""
+    row = await _row(instance_id)
+    live = _live(instance_id)
+    lines, _ = await _log_tail(instance_id, DIAGNOSTIC_LOG_LINES)
+    secrets = await _clear_secrets(instance_id)
+    last_error = live.get("last_error") if live else row["last_error"]
+    return DiagnosticResult(
+        plugin_id=row["plugin_id"],
+        plugin_version=row["version"],
+        kind=row["kind"],
+        meshloom_version=get_app_build_info().version,
+        python_version=platform.python_version(),
+        isolation=isolation_level(),
+        status=live.get("status") or row["status"],
+        last_error=_clean_line(last_error, secrets) if last_error else None,
+        restarts=live.get("restarts", 0),
+        dropped_events=live.get("dropped_events", 0),
+        granted_permissions=sorted(
+            effective_permissions(row["manifest"], row["granted_permissions"])
+        ),
+        logs=lines,
+    )
+
+
+@router.delete("/{instance_id}", status_code=204, dependencies=[Admin])
+async def delete_plugin(
+    instance_id: str,
+    keep_data: bool = Query(False),
+    actor: audit.RequestActor = audit.SYSTEM_ACTOR,
+) -> Response:
+    """Uninstall an instance. ``keep_data`` keeps its key-value store and its secrets.
+    The shared code of a plugin stays while another instance uses it and goes with the
+    last one."""
+    row = await _row(instance_id)
+    instance_id = row["instance_id"]
+    async with audit.audited(
+        actor,
+        "plugin.removed",
+        target=_target(instance_id),
+        details=_audit_details(row, keep_data=keep_data),
+    ):
+        await _delete(row, keep_data)
+    return Response(status_code=204)
+
+
+async def _delete(row: dict[str, Any], keep_data: bool) -> None:
+    instance_id = row["instance_id"]
+    if row["kind"] == "local":
+        await plugin_manager.remove(instance_id, purge=True)
+        await PluginRepository.delete(instance_id, keep_data=keep_data)
+        shutil.rmtree(
+            plugin_manager.plugins_root() / "local" / row["instance_id"], ignore_errors=True
+        )
+        return
+    async with installer.plugin_lock(row["plugin_id"]):
+        await plugin_manager.remove(instance_id, purge=True)
+        await PluginRepository.delete(instance_id, keep_data=keep_data)
+        await _drop_code_if_unused(row["plugin_id"])

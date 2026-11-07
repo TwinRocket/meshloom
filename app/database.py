@@ -7,6 +7,7 @@ from pathlib import Path
 import aiosqlite
 
 from app.config import settings
+from app.database_copy import migrations_finished, prepare_for_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS raw_packets (
     data BLOB NOT NULL,
     message_id INTEGER,
     payload_hash BLOB,
+    payload_type INTEGER,
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
 );
 
@@ -178,6 +180,74 @@ CREATE TABLE IF NOT EXISTS fanout_configs (
     created_at INTEGER NOT NULL
 );
 
+-- Bots converted to local plugins by migration 122 (app/plugins/bot_conversion.py):
+-- the original rows, never exported nor shown in /api/debug; purged one release later.
+CREATE TABLE IF NOT EXISTS fanout_configs_bots_archive (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enabled INTEGER DEFAULT 0,
+    config TEXT NOT NULL DEFAULT '{}',
+    scope TEXT NOT NULL DEFAULT '{}',
+    sort_order INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    plugin_instance_id TEXT NOT NULL,
+    archived_at INTEGER NOT NULL,
+    notice_acknowledged INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS notification_channels (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    preset TEXT,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    language TEXT NOT NULL DEFAULT 'auto',
+    config TEXT NOT NULL DEFAULT '{}',
+    secrets TEXT NOT NULL DEFAULT '{}',
+    allow_private_network INTEGER NOT NULL DEFAULT 0,
+    include_message_text TEXT NOT NULL DEFAULT 'always',
+    verify_tls INTEGER NOT NULL DEFAULT 1,
+    quiet_hours_exempt INTEGER NOT NULL DEFAULT 0,
+    rate_per_min INTEGER,
+    rate_per_hour INTEGER,
+    rate_per_day INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_ok_at INTEGER,
+    last_error TEXT,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    paused_until INTEGER,
+    template_dm TEXT NOT NULL DEFAULT '',
+    template_channel TEXT NOT NULL DEFAULT '',
+    heartbeat_interval_s INTEGER NOT NULL DEFAULT 0,
+    heartbeat_method TEXT NOT NULL DEFAULT 'GET',
+    digest_interval_s INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    dedup_key TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_counters (
+    channel_id TEXT NOT NULL,
+    hour INTEGER NOT NULL,
+    sent INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (channel_id, hour)
+);
+
+CREATE TABLE IF NOT EXISTS notification_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    expires_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS repeater_telemetry_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     public_key TEXT NOT NULL,
@@ -196,7 +266,236 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     created_at INTEGER NOT NULL,
     last_success_at INTEGER,
     failure_count INTEGER DEFAULT 0,
+    -- The account that owns the device (migration 118). Keep identical to the migration.
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE(endpoint)
+);
+
+-- Local accounts (migration 101, docs/dev/auth.md). Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    username_key TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL DEFAULT '',
+    password_hash TEXT,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'member', 'viewer', 'kiosk')),
+    provider TEXT NOT NULL DEFAULT 'local' CHECK (provider IN ('local', 'ingress', 'system')),
+    external_id TEXT,
+    disabled INTEGER NOT NULL DEFAULT 0,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    totp_secret TEXT,
+    totp_enabled_at INTEGER,
+    totp_last_counter INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(provider, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    ip TEXT,
+    user_agent TEXT,
+    via TEXT,
+    revoked_at INTEGER,
+    remember INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS auth_audit (
+    id INTEGER PRIMARY KEY,
+    ts INTEGER NOT NULL,
+    actor_user_id INTEGER,
+    actor_token_id TEXT,
+    action TEXT NOT NULL,
+    target TEXT,
+    ip TEXT,
+    via TEXT,
+    outcome TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS auth_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    trusted_networks TEXT NOT NULL DEFAULT '[]',
+    trusted_proxies TEXT NOT NULL DEFAULT '[]',
+    public_urls TEXT NOT NULL DEFAULT '[]',
+    host_guard_mode TEXT NOT NULL DEFAULT 'observe'
+        CHECK (host_guard_mode IN ('observe', 'enforce')),
+    ingress_default_role TEXT NOT NULL DEFAULT 'member'
+        CHECK (ingress_default_role IN ('admin', 'member', 'viewer', 'kiosk')),
+    session_lifetime_days INTEGER NOT NULL DEFAULT 30,
+    audit_retention_days INTEGER NOT NULL DEFAULT 366
+);
+
+INSERT OR IGNORE INTO auth_settings (id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS plugins (
+    instance_id TEXT PRIMARY KEY,
+    plugin_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('bundled', 'store', 'custom', 'local')),
+    version TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    manifest TEXT NOT NULL DEFAULT '{}',
+    config_schema TEXT NOT NULL DEFAULT '{}',
+    config TEXT NOT NULL DEFAULT '{}',
+    scope TEXT NOT NULL DEFAULT '{}',
+    granted_permissions TEXT NOT NULL DEFAULT '{}',
+    quotas TEXT NOT NULL DEFAULT '{}',
+    auto_update INTEGER NOT NULL DEFAULT 0,
+    source TEXT,
+    archive_sha256 TEXT,
+    repository TEXT,
+    installed_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'installed',
+    last_error TEXT,
+    attention TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS plugin_kv (
+    instance_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (instance_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_secrets (
+    instance_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (instance_id, field)
+);
+
+-- What an uninstall with keep_data kept (migration 125, MSHL-366). Keep identical to
+-- the migration.
+CREATE TABLE IF NOT EXISTS plugin_kept_data (
+    instance_id TEXT PRIMARY KEY,
+    plugin_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    repository TEXT,
+    kept_at INTEGER NOT NULL
+);
+
+-- Custom GitHub repositories of the Store (migration 126, MSHL-196; config_schema:
+-- migration 127, MSHL-197; readme: migration 128, MSHL-198). Same columns as the migrations.
+CREATE TABLE IF NOT EXISTS store_repositories (
+    repository TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    added_at INTEGER NOT NULL,
+    checked_at INTEGER,
+    last_error TEXT,
+    tag TEXT,
+    plugin_id TEXT,
+    version TEXT,
+    manifest TEXT,
+    archive_sha256 TEXT,
+    archive_size INTEGER,
+    config_schema TEXT,
+    readme TEXT
+);
+
+CREATE TABLE IF NOT EXISTS plugin_send_quota (
+    instance_id TEXT NOT NULL,
+    period TEXT NOT NULL CHECK (period IN ('hour', 'day')),
+    period_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (instance_id, period)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_send_guard (
+    scope TEXT NOT NULL CHECK (scope IN ('instance', 'destination', 'cooldown', 'quiet')),
+    subject TEXT NOT NULL,
+    period_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (scope, subject)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_send_limits (
+    name TEXT PRIMARY KEY CHECK (name IN ('instance_per_hour', 'channel_per_hour', 'contact_per_hour')),
+    value INTEGER NOT NULL CHECK (value >= 1)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_uids (
+    instance_id TEXT PRIMARY KEY,
+    uid INTEGER NOT NULL UNIQUE CHECK (uid > 0),
+    allocated_at INTEGER NOT NULL
+);
+
+-- One account's notification choices for its own devices (migration 123, MSHL-321).
+-- Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS user_notification_rules (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    rules TEXT NOT NULL DEFAULT '{}',
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    scopes TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    expires_at INTEGER,
+    revoked_at INTEGER,
+    origin TEXT NOT NULL DEFAULT 'ui' CHECK (origin IN ('ui', 'pairing')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- TOTP recovery codes (migration 109, docs/dev/auth.md). Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS recovery_codes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    code_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    used_at INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Passkeys (migration 110, docs/dev/auth.md). Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    credential_id BLOB NOT NULL UNIQUE,
+    public_key BLOB NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    transports TEXT NOT NULL DEFAULT '[]',
+    aaguid TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL,
+    backup_eligible INTEGER NOT NULL DEFAULT 0,
+    backed_up INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Device pairing codes (migration 112, docs/dev/device-pairing.md). Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS pairing_codes (
+    id TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL UNIQUE,
+    created_by INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    urls TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER,
+    revoked_at INTEGER,
+    token_id TEXT,
+    device_name TEXT,
+    extensions TEXT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (token_id) REFERENCES api_tokens(id) ON DELETE SET NULL
 );
 """
 
@@ -204,7 +503,10 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 # required columns (e.g. sender_key, added by migration 25) before index
 # creation runs.
 SCHEMA_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
+    ON notification_deliveries(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_null_safe
     ON messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))
     WHERE type = 'CHAN';
@@ -221,6 +523,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_packet_hash
 CREATE INDEX IF NOT EXISTS idx_raw_packets_message_id ON raw_packets(message_id);
 CREATE INDEX IF NOT EXISTS idx_raw_packets_timestamp ON raw_packets(timestamp);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_packets_payload_hash ON raw_packets(payload_hash);
+CREATE INDEX IF NOT EXISTS idx_raw_packets_payload_type_timestamp
+    ON raw_packets(payload_type, timestamp);
 CREATE INDEX IF NOT EXISTS idx_contacts_type_last_seen ON contacts(type, last_seen);
 CREATE INDEX IF NOT EXISTS idx_messages_type_received_conversation
     ON messages(type, received_at, conversation_key);
@@ -232,8 +536,20 @@ CREATE INDEX IF NOT EXISTS idx_repeater_telemetry_pk_ts
     ON repeater_telemetry_history(public_key, timestamp);
 CREATE INDEX IF NOT EXISTS idx_contact_group_members_key
     ON contact_group_members(public_key);
+CREATE INDEX IF NOT EXISTS idx_messages_feed_type ON messages(type, received_at);
+CREATE INDEX IF NOT EXISTS idx_messages_feed_outgoing ON messages(outgoing, received_at);
+CREATE INDEX IF NOT EXISTS idx_messages_feed_type_outgoing
+    ON messages(type, outgoing, received_at);
 CREATE INDEX IF NOT EXISTS idx_messages_chan_unattributed_sender
     ON messages(sender_name) WHERE type = 'CHAN' AND sender_key IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_auth_audit_ts ON auth_audit(ts);
+CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON recovery_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_pairing_codes_user ON pairing_codes(created_by, created_at);
+CREATE INDEX IF NOT EXISTS idx_plugins_plugin_id ON plugins(plugin_id);
 """
 
 
@@ -316,34 +632,14 @@ class Database:
     async def _connect_unlocked(self) -> None:
         logger.info("Connecting to database at %s", self.db_path)
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Before anything can write: SCHEMA_TABLES below already adds tables.
+        await asyncio.to_thread(prepare_for_migrations, self.db_path)
+
         self._connection = await aiosqlite.connect(self.db_path)
         self._connection.row_factory = aiosqlite.Row
 
-        # WAL mode: faster writes, concurrent readers during writes, no journal file churn.
-        # Persists in the DB file but we set it explicitly on every connection.
-        await self._connection.execute("PRAGMA journal_mode = WAL")
-
-        # synchronous = NORMAL is safe with WAL — only the most recent
-        # transaction can be lost on an OS crash (no corruption risk).
-        # Reduces fsync overhead vs. the default FULL.
-        await self._connection.execute("PRAGMA synchronous = NORMAL")
-
-        # Retry for up to 5s on lock contention instead of failing instantly.
-        # Matters when a second connection (e.g. VACUUM) touches the DB.
-        await self._connection.execute("PRAGMA busy_timeout = 5000")
-
-        # Bump page cache to ~64 MB (negative value = KB). Keeps hot pages
-        # in memory for read-heavy queries (unreads, pagination, search).
-        await self._connection.execute("PRAGMA cache_size = -64000")
-
-        # Keep temp tables and sort spills in memory instead of on disk.
-        await self._connection.execute("PRAGMA temp_store = MEMORY")
-
-        # Incremental auto-vacuum: freed pages are reclaimable via
-        # PRAGMA incremental_vacuum without a full VACUUM. Must be set before
-        # the first table is created (for new databases); for existing databases
-        # migration 20 handles the one-time VACUUM to restructure the file.
-        await self._connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+        await self._apply_connection_pragmas(self._connection)
 
         # Foreign key enforcement: must be set per-connection (not persisted).
         # Disabled during schema init and migrations to avoid issues with
@@ -355,11 +651,28 @@ class Database:
         await self._connection.commit()
         logger.debug("Database tables initialized")
 
+        # The secrets key file (MSHL-133) exists before the migrations, so the
+        # one that encrypts the stored secrets has a key. Never raises: without
+        # a key the secrets stay as they are and read as unreadable.
+        from app import secret_store
+
+        secret_store.ensure_key()
+
         # Run any pending migrations before creating indexes, so that
         # legacy databases have all required columns first.
         from app.migrations import run_migrations
 
         await run_migrations(self._connection)
+        migrations_finished(self.db_path)
+
+        # Secrets left plain (migration 129 ran without a key, or a row written by an
+        # older build): encrypted as soon as a key is available. Never blocks startup.
+        from app.services.secrets_backfill import encrypt_plain_secrets
+
+        try:
+            await encrypt_plain_secrets(self._connection)
+        except Exception as exc:
+            logger.error("The stored secrets could not be encrypted (%s)", type(exc).__name__)
 
         await self._connection.executescript(SCHEMA_INDEXES)
         await self._connection.commit()
@@ -368,6 +681,39 @@ class Database:
         # Enable FK enforcement for all application queries from this point on.
         await self._connection.execute("PRAGMA foreign_keys = ON")
         logger.debug("Foreign key enforcement enabled")
+
+    @staticmethod
+    async def _apply_connection_pragmas(conn: aiosqlite.Connection) -> None:
+        """Per-connection tuning shared by ``connect`` and ``connect_from_snapshot``.
+
+        Foreign keys are not part of it: callers switch them on once the schema
+        and migrations are in place.
+        """
+        # WAL mode: faster writes, concurrent readers during writes, no journal file churn.
+        # Persists in the DB file but we set it explicitly on every connection.
+        await conn.execute("PRAGMA journal_mode = WAL")
+
+        # synchronous = NORMAL is safe with WAL — only the most recent
+        # transaction can be lost on an OS crash (no corruption risk).
+        # Reduces fsync overhead vs. the default FULL.
+        await conn.execute("PRAGMA synchronous = NORMAL")
+
+        # Retry for up to 5s on lock contention instead of failing instantly.
+        # Matters when a second connection (e.g. VACUUM) touches the DB.
+        await conn.execute("PRAGMA busy_timeout = 5000")
+
+        # Bump page cache to ~64 MB (negative value = KB). Keeps hot pages
+        # in memory for read-heavy queries (unreads, pagination, search).
+        await conn.execute("PRAGMA cache_size = -64000")
+
+        # Keep temp tables and sort spills in memory instead of on disk.
+        await conn.execute("PRAGMA temp_store = MEMORY")
+
+        # Incremental auto-vacuum: freed pages are reclaimable via
+        # PRAGMA incremental_vacuum without a full VACUUM. Must be set before
+        # the first table is created (for new databases); for existing databases
+        # migration 20 handles the one-time VACUUM to restructure the file.
+        await conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
 
     async def incremental_vacuum(self, max_pages: int) -> int:
         """Return up to ``max_pages`` free pages to the OS; returns pages freed.
@@ -382,22 +728,52 @@ class Database:
             before = int(row[0]) if row else 0
             if before == 0:
                 return 0
-            # Python 3.11's sqlite3 resets a PRAGMA statement after its first
-            # row, so one call frees a single page there (3.12+ frees them all).
-            # Repeat until the budget is spent or a call frees nothing.
             budget = min(max(1, int(max_pages)), before)
-            after = before
-            while before - after < budget:
-                remaining = budget - (before - after)
-                async with conn.execute(f"PRAGMA incremental_vacuum({remaining})") as c:
-                    await c.fetchall()
-                async with conn.execute("PRAGMA freelist_count") as cursor:
-                    row = await cursor.fetchone()
-                now = int(row[0]) if row else 0
-                if now >= after:
-                    break
-                after = now
+            async with conn.execute(f"PRAGMA incremental_vacuum({budget})") as c:
+                await c.fetchall()
+            async with conn.execute("PRAGMA freelist_count") as cursor:
+                row = await cursor.fetchone()
+            after = int(row[0]) if row else 0
         return before - after
+
+    async def export_snapshot(self) -> bytes:
+        """Serialize the connected database to an immutable byte image.
+
+        Test seam: a fully migrated image is built once per process and each test
+        opens a fresh in-memory database from it (``connect_from_snapshot``)
+        instead of replaying every migration. Production never calls it.
+        """
+        async with self._lock:
+            if self._connection is None:
+                raise RuntimeError("Database not connected")
+            conn = self._connection
+            # aiosqlite has no public serialize(); this is the one place it is reached into.
+            return bytes(await conn._execute(conn._conn.serialize))
+
+    async def connect_from_snapshot(self, snapshot: bytes) -> None:
+        """Connect a fresh in-memory database loaded from ``export_snapshot`` bytes.
+
+        Same end state as ``connect()`` on ``:memory:`` (schema, migrations,
+        indexes, pragmas, secrets key) without running them again.
+        """
+        async with self._lock:
+            if self._connection is not None:
+                return
+            if self.db_path != ":memory:":
+                raise ValueError("connect_from_snapshot only supports :memory:")
+            conn = await aiosqlite.connect(":memory:")
+            try:
+                conn.row_factory = aiosqlite.Row
+                await conn._execute(conn._conn.deserialize, snapshot)
+                await self._apply_connection_pragmas(conn)
+                from app import secret_store
+
+                secret_store.ensure_key()
+                await conn.execute("PRAGMA foreign_keys = ON")
+            except BaseException:
+                await conn.close()
+                raise
+            self._connection = conn
 
     async def disconnect(self) -> None:
         async with self._lock:

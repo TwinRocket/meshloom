@@ -1,0 +1,155 @@
+"""Kiosk host marker (app/services/kiosk.py): the account, the banner, the packaging."""
+
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from app.auth import first_run
+from app.repository.auth import AuthSettingsRepository, UserRepository
+from app.services import kiosk
+from tests.auth_helpers import ADMIN, PASSWORD, make_client
+
+LOOP = "http://127.0.0.1:8000"
+REPO = Path(__file__).resolve().parents[1]
+
+real_auth = [pytest.mark.real_auth, pytest.mark.usefixtures("test_db", "fast_argon2")]
+
+
+@pytest.fixture
+def marker(tmp_path, monkeypatch):
+    path = tmp_path / "kiosk"
+    monkeypatch.setattr(kiosk, "KIOSK_MARKER", path)
+    return path
+
+
+async def _prepare() -> None:
+    await first_run.prepare_first_run()
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_without_the_marker_nothing_is_created(marker):
+    await _prepare()
+    assert await UserRepository.list_all() == []
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_marker_creates_the_kiosk_user_once_and_no_trusted_network(marker):
+    marker.touch()
+    await _prepare()
+    await _prepare()
+    [user] = await UserRepository.list_all()
+    assert (user.username, user.role, user.has_password) == ("kiosk", "kiosk", False)
+    assert (await AuthSettingsRepository.get()).trusted_networks == []
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_kiosk_account_does_not_close_setup_and_loopback_is_the_screen(marker):
+    marker.touch()
+    await _prepare()
+    async with make_client(base_url=LOOP) as client:
+        session = (await client.get("/api/auth/session")).json()
+        assert session["setup_required"] is True
+        assert session["setup_local_only"] is False
+        assert session["kiosk_screen"] is True
+
+        # Not through a proxy, not from another machine.
+        proxied = await client.get("/api/auth/session", headers={"X-Forwarded-For": "8.8.8.8"})
+        assert proxied.json()["kiosk_screen"] is False
+    async with make_client(base_url=LOOP, client=("192.168.1.20", 50000)) as lan:
+        session = (await lan.get("/api/auth/session")).json()
+        assert session["kiosk_screen"] is False
+        assert session["setup_local_only"] is False
+        # The phone on the network creates the administrator, without a code.
+        response = await lan.post("/api/auth/setup", json={"username": ADMIN, "password": PASSWORD})
+        assert response.status_code == 200, response.text
+    async with make_client(base_url=LOOP) as client:
+        assert (await client.get("/api/auth/session")).json()["kiosk_screen"] is False
+    assert {u.username for u in await UserRepository.list_all()} == {"kiosk", ADMIN}
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_plain_host_has_no_kiosk_screen(marker):
+    await _prepare()
+    async with make_client(base_url=LOOP) as client:
+        session = (await client.get("/api/auth/session")).json()
+    assert session["kiosk_screen"] is False
+
+
+def test_deb_ships_the_launcher_and_postinstall_marks_existing_kiosks():
+    nfpm = (REPO / "pkg/nfpm/nfpm.yaml.tmpl").read_text(encoding="utf-8")
+    assert "__RPIDIR__/meshloom-kiosk" in nfpm
+    assert "dst: /usr/lib/meshloom/meshloom-kiosk" in nfpm
+    post = (REPO / "pkg/nfpm/postinstall.sh").read_text(encoding="utf-8")
+    assert "/etc/xdg/autostart/meshloom-kiosk.desktop" in post
+    assert "/var/lib/meshloom/kiosk" in post
+    build = (REPO / "scripts/build/build_rpi_kiosk_image.sh").read_text(encoding="utf-8")
+    assert "/var/lib/meshloom/kiosk" in build
+
+
+def _run_postinstall(
+    tmp_path: Path, with_autostart: bool, with_setup: bool = False, planted: Path | None = None
+):
+    root = tmp_path / "root"
+    (root / "etc/xdg/autostart").mkdir(parents=True)
+    (root / "usr/lib/meshloom").mkdir(parents=True)
+    (root / "var/lib/meshloom").mkdir(parents=True)
+    (root / "var/lib/meshloom-update").mkdir(parents=True)
+    if planted is not None:
+        (root / "var/lib/meshloom/kiosk").symlink_to(planted)
+    if with_autostart:
+        (root / "etc/xdg/autostart/meshloom-kiosk.desktop").touch()
+    if with_setup:
+        (root / "usr/lib/meshloom/meshloom-kiosk-setup").touch()
+    script = (REPO / "pkg/nfpm/postinstall.sh").read_text(encoding="utf-8")
+    start = script.index("mark_kiosk_host()")
+    end = script.index("\nmark_kiosk_host || true", start)
+    func = script[start:end]
+    func = func.replace("/etc/xdg", f"{root}/etc/xdg").replace("/usr/lib", f"{root}/usr/lib")
+    func = func.replace("/var/lib", f"{root}/var/lib")
+    if sys.platform != "linux":
+        func = func.replace("mv -fT", "mv -f")  # BSD mv has no -T; the packages are Linux only
+    subprocess.run(["sh", "-c", f"{func}\nmark_kiosk_host\nmark_kiosk_host"], check=True)
+    return root / "var/lib/meshloom/kiosk"
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
+def test_postinstall_marker_follows_the_kiosk_files(tmp_path):
+    assert not _run_postinstall(tmp_path / "plain", with_autostart=False).exists()
+    assert _run_postinstall(tmp_path / "a", with_autostart=True).exists()
+    assert _run_postinstall(tmp_path / "b", with_autostart=False, with_setup=True).exists()
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
+def test_postinstall_marker_replaces_a_planted_link_and_never_writes_through_it(tmp_path):
+    target = tmp_path / "elsewhere"
+    marker = _run_postinstall(tmp_path / "a", with_autostart=True, planted=target)
+    assert not target.exists()
+    assert marker.is_file() and not marker.is_symlink()
+    assert stat.S_IMODE(marker.stat().st_mode) == 0o644
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
+def test_launcher_and_postinstall_parse():
+    for rel in ("pkg/rpi/meshloom-kiosk", "pkg/nfpm/postinstall.sh"):
+        subprocess.run(["sh", "-n", str(REPO / rel)], check=True)
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_the_screen_is_not_a_foreign_host_or_relay_marker(marker):
+    marker.touch()
+    await _prepare()
+    async with make_client(base_url=LOOP) as client:
+        assert (await client.get("/api/auth/session")).json()["kiosk_screen"] is True
+        rebinding = await client.get("/api/auth/session", headers={"Host": "evil.example.com"})
+        assert rebinding.json()["kiosk_screen"] is False
+        via = await client.get("/api/auth/session", headers={"Via": "1.1 tunnel"})
+        assert via.json()["kiosk_screen"] is False

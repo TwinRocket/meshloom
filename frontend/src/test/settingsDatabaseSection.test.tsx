@@ -122,6 +122,20 @@ describe('SettingsDatabaseSection backups', () => {
     expect(screen.queryByLabelText(i18n.t('settings.fullBackup.passphrase'))).toBeNull();
   });
 
+  it('includes the accounts by default and warns about the password hashes', async () => {
+    renderSection();
+    const accounts = screen.getByLabelText(
+      i18n.t('settings.fullBackup.includeAccounts')
+    ) as HTMLInputElement;
+    expect(accounts.checked).toBe(true);
+    expect(screen.getByText(i18n.t('settings.fullBackup.accountsWarning'))).toBeVisible();
+    fireEvent.click(accounts);
+    expect(screen.queryByText(i18n.t('settings.fullBackup.accountsWarning'))).toBeNull();
+    expect(screen.getByText(i18n.t('settings.fullBackup.accountsLeftOut'))).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullBackup.download') }));
+    await waitFor(() => expect(mocks.exportFullBackup).toHaveBeenCalledWith(undefined, false));
+  });
+
   it('replaces the old JSON export by the full backup', () => {
     renderSection();
     expect(
@@ -141,7 +155,7 @@ describe('SettingsDatabaseSection backups', () => {
     });
     renderSection();
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullBackup.download') }));
-    await waitFor(() => expect(mocks.exportFullBackup).toHaveBeenCalledWith(undefined));
+    await waitFor(() => expect(mocks.exportFullBackup).toHaveBeenCalledWith(undefined, true));
     expect(
       await screen.findByText(i18n.t('settings.fullBackup.warningIdentityDisabled'))
     ).toBeVisible();
@@ -222,7 +236,9 @@ describe('SettingsDatabaseSection backups', () => {
     });
     expect(download).toBeEnabled();
     fireEvent.click(download);
-    await waitFor(() => expect(mocks.exportFullBackup).toHaveBeenCalledWith('a long passphrase'));
+    await waitFor(() =>
+      expect(mocks.exportFullBackup).toHaveBeenCalledWith('a long passphrase', true)
+    );
     // The passphrase does not outlive the download.
     await waitFor(() =>
       expect(

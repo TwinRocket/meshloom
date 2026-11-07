@@ -10,6 +10,12 @@ import logging
 import httpx
 
 from app.fanout.base import FanoutModule
+from app.net.egress_guard import (
+    EgressBlocked,
+    error_code,
+    pinned_async_client,
+    validate_destination,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,22 +25,20 @@ class WebhookModule(FanoutModule):
 
     def __init__(self, config_id: str, config: dict, *, name: str = "") -> None:
         super().__init__(config_id, config, name=name)
-        self._client: httpx.AsyncClient | None = None
+        self._running = False
 
     async def start(self) -> None:
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
+        self._running = True
         self._last_error = None
 
     async def stop(self) -> None:
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        self._running = False
 
     async def on_message(self, data: dict) -> None:
         await self._send(data, event_type="message")
 
     async def _send(self, data: dict, *, event_type: str) -> None:
-        if not self._client:
+        if not self._running:
             return
 
         url = self.config.get("url", "")
@@ -59,20 +63,35 @@ class WebhookModule(FanoutModule):
             headers[hmac_header or "X-Webhook-Signature"] = f"sha256={sig}"
 
         try:
-            resp = await self._client.request(method, url, content=body_bytes, headers=headers)
+            # Checked again before every send, then sent pinned to a validated
+            # IP: the DNS answer cannot change between the check and the send.
+            dest = await validate_destination(
+                url, allow_private_network=bool(self.config.get("allow_private_network", False))
+            )
+            async with pinned_async_client(dest, timeout=httpx.Timeout(10.0)) as client:
+                resp = await client.request(method, content=body_bytes, headers=headers)
             resp.raise_for_status()
             self._set_last_error(None)
+        except EgressBlocked as exc:
+            self._set_last_error(exc.code)
+            logger.warning("Webhook %s destination refused (%s)", self.config_id, exc.code)
         except httpx.HTTPStatusError as exc:
             self._set_last_error(f"HTTP {exc.response.status_code}")
+            # The URL may carry a token: log the host only.
             logger.warning(
-                "Webhook %s returned %s for %s",
+                "Webhook %s returned %s from %s",
                 self.config_id,
                 exc.response.status_code,
-                url,
+                httpx.URL(url).host,
             )
         except httpx.RequestError as exc:
-            self._set_last_error(str(exc))
-            logger.warning("Webhook %s request error: %s", self.config_id, exc)
+            self._set_last_error(error_code(exc))
+            logger.warning(
+                "Webhook %s request error (%s): %s",
+                self.config_id,
+                error_code(exc),
+                type(exc).__name__,
+            )
 
     @property
     def status(self) -> str:

@@ -1,0 +1,746 @@
+"""Trusted networks (app/auth/providers/trusted_network.py) through the real gate."""
+
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+import httpx
+import pytest
+
+from app.auth.models import TrustedNetworkRule
+from app.auth.providers import trusted_network
+from app.net import local_address
+from app.repository.auth import AuthAuditRepository, AuthSettingsRepository, UserRepository
+from tests.auth_helpers import create_user, login, make_client
+
+pytestmark = [pytest.mark.real_auth, pytest.mark.usefixtures("test_db", "fast_argon2")]
+
+LAN_PEER = ("192.168.1.20", 40000)
+OTHER_LAN_PEER = ("192.168.1.21", 40000)
+OUTSIDE_PEER = ("10.9.9.9", 40000)
+LAN_URL = "http://192.168.1.10:8000"
+
+
+@pytest.fixture(autouse=True)
+def package(monkeypatch):
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+
+
+async def _rule(
+    cidr: str = "192.168.1.0/24",
+    role: str = "member",
+    username: str = "tablet",
+    *,
+    enabled: bool = True,
+):
+    await create_user()
+    user = await create_user(username, password=None, role=role)
+    await AuthSettingsRepository.update(
+        trusted_networks=[TrustedNetworkRule(cidr=cidr, user_id=user.id)],
+        lan_login_free=enabled,
+    )
+    return user
+
+
+async def _session(client: httpx.AsyncClient, headers: dict | None = None) -> dict:
+    return (await client.get("/api/auth/session", headers=headers or {})).json()
+
+
+def _code(response: httpx.Response) -> str:
+    return response.json()["detail"]["code"]
+
+
+async def test_a_listed_network_without_forwarding_headers_is_signed_in():
+    tablet = await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        body = await _session(client)
+        assert body["authenticated"] is True
+        assert body["via"] == "trusted"
+        assert body["user"]["id"] == tablet.id
+        assert (await client.get("/api/contacts")).status_code == 200
+        # No cookie: the address is the credential.
+        assert "set-cookie" not in (await client.get("/api/contacts")).headers
+    async with make_client(LAN_URL, OUTSIDE_PEER) as client:
+        assert (await _session(client))["authenticated"] is False
+        assert (await client.get("/api/contacts")).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "X-Forwarded-For",
+        "X-Forwarded-Proto",
+        "X-Forwarded-Host",
+        "Forwarded",
+        "X-Real-IP",
+        "CF-Connecting-IP",
+        "Via",
+    ],
+)
+async def test_any_forwarding_header_from_an_unlisted_peer_closes_the_rule(header):
+    await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        response = await client.get("/api/contacts", headers={header: "192.168.1.30"})
+        assert response.status_code == 401
+        assert _code(response) == "auth_required"
+
+
+async def test_a_peer_listed_as_trusted_proxy_is_never_auto_signed_in():
+    tablet = await _rule("192.168.1.0/24")
+    # Saved directly: the API refuses the overlap (tested below).
+    await AuthSettingsRepository.update(trusted_proxies=["192.168.2.5"])
+    proxied = {"X-Forwarded-For": "192.168.1.20"}
+    async with make_client(LAN_URL, ("192.168.2.5", 40000)) as client:
+        # The forwarded address is in the rule; the proxy rewrote the client to it.
+        assert (await client.get("/api/contacts", headers=proxied)).status_code == 401
+        assert (await client.get("/api/contacts")).status_code == 401
+    # Even a proxy inside the rule's network, without any header.
+    await AuthSettingsRepository.update(trusted_proxies=[], trusted_networks=[])
+    trusted_network.reset()
+    await AuthSettingsRepository.update(
+        trusted_proxies=["192.168.1.20"],
+        trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=tablet.id)],
+    )
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+
+
+async def test_a_relayed_request_is_not_auto_signed_in():
+    await _rule()
+    from app.main import app
+
+    async def relayed(scope, receive, send):
+        scope.setdefault("state", {})["via"] = "relay"
+        await app(scope, receive, send)
+
+    transport = httpx.ASGITransport(app=relayed, client=LAN_PEER)
+    async with httpx.AsyncClient(transport=transport, base_url=LAN_URL) as client:
+        response = await client.get("/api/contacts")
+        assert response.status_code == 401
+
+
+async def test_ingress_is_never_a_trusted_network(monkeypatch):
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    await _rule("172.30.32.0/24")
+    async with make_client(LAN_URL, ("172.30.32.2", 40000)) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+
+
+@pytest.mark.parametrize("kind", ["package", "source", "compose", "container"])
+async def test_loopback_never_matches_where_a_local_proxy_may_sit(monkeypatch, kind):
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", kind)
+    await _rule("127.0.0.0/8")
+    async with make_client("http://localhost:8000", ("127.0.0.1", 40000)) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+
+
+async def test_loopback_matches_inside_the_add_on(monkeypatch):
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    await _rule("127.0.0.0/8")
+    async with make_client("http://localhost:8000", ("127.0.0.1", 40000)) as client:
+        assert (await client.get("/api/contacts")).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "evil.example.com",
+        "192.168.1.10.nip.io",
+        "",
+        "user@192.168.1.10",
+        "meshloom.example.com:8000",
+    ],
+)
+async def test_the_host_guard_is_strict(host):
+    await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        response = await client.get("/api/contacts", headers={"Host": host})
+        assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["192.168.1.10:8000", "[fe80::1]:8000", "localhost", "meshloom.local", "pi.home.arpa", "x.lan"],
+)
+async def test_local_host_names_pass_the_guard(host):
+    await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        response = await client.get("/api/contacts", headers={"Host": host})
+        assert response.status_code == 200, host
+
+
+async def test_a_declared_public_url_passes_the_guard():
+    await _rule()
+    await AuthSettingsRepository.update(public_urls=["https://mesh.example.org"])
+    assert trusted_network.host_allowed("mesh.example.org", ["https://mesh.example.org"])
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        ok = await client.get("/api/contacts", headers={"Host": "mesh.example.org"})
+        assert ok.status_code == 200
+
+
+async def test_a_disabled_or_deleted_account_is_not_signed_in():
+    tablet = await _rule()
+    await UserRepository.update(tablet.id, disabled=True)
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+    await UserRepository.delete(tablet.id)
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+
+
+async def test_the_most_specific_rule_wins():
+    await create_user()
+    wide = await create_user("wide", password=None, role="viewer")
+    narrow = await create_user("narrow", password=None, role="member")
+    await AuthSettingsRepository.update(
+        trusted_networks=[
+            TrustedNetworkRule(cidr="192.168.0.0/16", user_id=wide.id),
+            TrustedNetworkRule(cidr="192.168.1.20/32", user_id=narrow.id),
+        ],
+        lan_login_free=True,
+    )
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await _session(client))["user"]["id"] == narrow.id
+    async with make_client(LAN_URL, OTHER_LAN_PEER) as client:
+        assert (await _session(client))["user"]["id"] == wide.id
+
+
+async def test_explicit_credentials_win_over_the_rule():
+    await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        await login(client)
+        body = await _session(client)
+        assert body["user"]["username"] == "owner"
+        assert body["via"] == "lan"
+        # A bad bearer token is a failure, never a fallback to the rule.
+        bad = await client.get("/api/contacts", headers={"Authorization": "Bearer nope"})
+        assert bad.status_code == 401
+
+
+async def test_unsafe_methods_keep_the_origin_rule():
+    await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        refused = await client.post(
+            "/api/auth/logout", headers={"Origin": "http://evil.example.com"}
+        )
+        assert refused.status_code == 403
+        assert _code(refused) == "auth_origin_rejected"
+
+
+async def test_auto_logins_are_audited_once_per_address_per_day():
+    tablet = await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        for _ in range(5):
+            assert (await client.get("/api/contacts")).status_code == 200
+    async with make_client(LAN_URL, OTHER_LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 200
+    rows = [r for r in await AuthAuditRepository.list_recent() if r.action == "login"]
+    assert sorted(r.ip for r in rows) == ["192.168.1.20", "192.168.1.21"]
+    assert all(r.via == "trusted" and r.actor_user_id == tablet.id for r in rows)
+    assert all(r.details == {"method": "trusted_network", "cidr": "192.168.1.0/24"} for r in rows)
+
+
+async def test_the_audit_memory_is_bounded(monkeypatch):
+    tablet = await _rule()
+    monkeypatch.setattr(trusted_network, "MAX_AUDITED", 3)
+    rule = TrustedNetworkRule(cidr="192.168.1.0/24", user_id=tablet.id)
+    for i in range(10):
+        await trusted_network._audit_login(f"192.168.1.{i}", tablet, rule)
+    assert len(trusted_network._audited) <= 3
+
+
+# ---------------------------------------------------------------- settings API
+
+
+@asynccontextmanager
+async def _admin_client():
+    await create_user()
+    async with make_client(LAN_URL, OUTSIDE_PEER) as client:
+        await login(client)
+        yield client
+
+
+async def test_settings_round_trip_and_audit():
+    async with _admin_client() as client:
+        tablet = await create_user("tablet", password=None, role="viewer")
+        response = await client.patch(
+            "/api/auth/settings",
+            json={
+                "trusted_networks": [{"cidr": "192.168.1.7", "user_id": tablet.id}],
+                "lan_login_free": True,
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["lan_login_free"] is True
+        assert body["trusted_networks"] == [{"cidr": "192.168.1.7/32", "user_id": tablet.id}]
+        assert body["security_notices"] == []
+        assert (await client.get("/api/auth/settings")).json()["trusted_networks"] == body[
+            "trusted_networks"
+        ]
+    rows = [r for r in await AuthAuditRepository.list_recent() if r.action == "settings.changed"]
+    assert {r.target for r in rows} == {
+        "auth_settings.trusted_networks",
+        "auth_settings.lan_login_free",
+    }
+    # Applied to the next request without a restart.
+    async with make_client(LAN_URL, ("192.168.1.7", 1)) as client:
+        assert (await _session(client))["via"] == "trusted"
+
+
+async def test_a_rule_overlapping_a_trusted_proxy_is_refused():
+    async with _admin_client() as client:
+        tablet = await create_user("tablet", password=None, role="viewer")
+        assert (
+            await client.patch("/api/auth/settings", json={"trusted_proxies": ["192.168.1.5"]})
+        ).status_code == 200
+        response = await client.patch(
+            "/api/auth/settings",
+            json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": tablet.id}]},
+        )
+        assert response.status_code == 400
+        assert _code(response) == "auth_trusted_network_overlaps_proxy"
+        assert response.json()["detail"]["params"] == {
+            "cidr": "192.168.1.0/24",
+            "proxy": "192.168.1.5/32",
+        }
+        # The other way round: a proxy inside a saved rule.
+        await client.patch("/api/auth/settings", json={"trusted_proxies": []})
+        ok = await client.patch(
+            "/api/auth/settings",
+            json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": tablet.id}]},
+        )
+        assert ok.status_code == 200
+        refused = await client.patch(
+            "/api/auth/settings", json={"trusted_proxies": ["192.168.1.0/28"]}
+        )
+        assert refused.status_code == 400
+        assert _code(refused) == "auth_trusted_network_overlaps_proxy"
+    settings = await AuthSettingsRepository.get()
+    assert settings.trusted_proxies == []
+
+
+@pytest.mark.parametrize(
+    ("rules", "code"),
+    [
+        ([{"cidr": "not-a-network", "user_id": 1}], "auth_trusted_networks_invalid"),
+        ([{"cidr": "0.0.0.0/0", "user_id": 1}], "auth_trusted_networks_invalid"),
+        ([{"cidr": "::ffff:192.168.1.0/120", "user_id": 1}], "auth_trusted_networks_invalid"),
+        (
+            [{"cidr": "192.168.1.0/24", "user_id": 1}, {"cidr": "192.168.1.9/24", "user_id": 1}],
+            "auth_trusted_networks_invalid",
+        ),
+        ([{"cidr": "192.168.1.0/24", "user_id": 999}], "auth_trusted_network_user_invalid"),
+        ([{"cidr": "127.0.0.1", "user_id": 1}], "auth_trusted_network_loopback"),
+        ([{"cidr": "::1", "user_id": 1}], "auth_trusted_network_loopback"),
+    ],
+)
+async def test_invalid_rules_are_refused_with_a_code(rules, code):
+    async with _admin_client() as client:
+        response = await client.patch("/api/auth/settings", json={"trusted_networks": rules})
+        assert response.status_code == 400, response.text
+        assert _code(response) == code
+    assert (await AuthSettingsRepository.get()).trusted_networks == []
+
+
+async def test_the_docker_gateway_is_always_refused_on_a_container(monkeypatch, tmp_path):
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "compose")
+    route = tmp_path / "route"
+    route.write_text(
+        "Iface\tDestination\tGateway\tFlags\n"
+        "eth0\t00000000\t010011AC\t0003\n"
+        "eth0\t000011AC\t00000000\t0001\n"
+    )
+    monkeypatch.setattr(trusted_network, "ROUTE_TABLE", route)
+    assert trusted_network.docker_gateways() == ("172.17.0.1",)
+    async with _admin_client() as client:
+        tablet = await create_user("tablet", password=None, role="viewer")
+        rules = {"trusted_networks": [{"cidr": "172.17.0.0/16", "user_id": tablet.id}]}
+        # No public address: still refused. Behind docker-proxy, every client of
+        # the published port (the internet included) arrives from the gateway.
+        response = await client.patch("/api/auth/settings", json=rules)
+        assert response.status_code == 400
+        assert _code(response) == "auth_trusted_network_overlaps_gateway"
+        assert (await AuthSettingsRepository.get()).trusted_networks == []
+        # A rule saved before (directly) still raises the notice once a public
+        # address exists.
+        await AuthSettingsRepository.update(
+            trusted_networks=[TrustedNetworkRule(cidr="172.17.0.0/16", user_id=tablet.id)],
+            public_urls=["https://mesh.example.org"],
+        )
+        notices = (await client.get("/api/auth/settings")).json()["security_notices"]
+        assert "trusted_loopback_or_gateway_public" in notices
+        response = await client.patch("/api/auth/settings", json=rules)
+        assert response.status_code == 400
+        assert _code(response) == "auth_trusted_network_overlaps_gateway"
+        # A rule beside the gateway is fine.
+        beside = {"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": tablet.id}]}
+        assert (await client.patch("/api/auth/settings", json=beside)).status_code == 200
+
+
+async def test_the_notice_names_an_admin_rule_with_reduced_plugin_isolation(monkeypatch):
+    from app.plugins import lifecycle
+
+    fields = {"plugins_disabled_source": None, "plugins_isolation": "none"}
+    monkeypatch.setattr(lifecycle, "health_fields", lambda: fields)
+    async with _admin_client() as client:
+        lanadmin = await create_user("lanadmin", password=None, role="admin")
+        # The API refuses such a rule; one left from before (or restored) is
+        # stored directly here and still named by the notice.
+        await AuthSettingsRepository.update(
+            trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=lanadmin.id)]
+        )
+        body = (await client.get("/api/auth/settings")).json()
+        assert body["security_notices"] == ["trusted_admin_reduced_plugin_isolation"]
+        # The global pause does not lift it: the risk is back on resume (MSHL-341).
+        fields["plugins_disabled_source"] = "paused"
+        notices = (await client.get("/api/auth/settings")).json()["security_notices"]
+        assert notices == ["trusted_admin_reduced_plugin_isolation"]
+        # The host lock does: no plugin can run until the server restarts.
+        fields["plugins_disabled_source"] = "env"
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+        fields["plugins_disabled_source"] = None
+        fields["plugins_isolation"] = "bwrap"
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+
+
+async def test_the_notice_names_remote_on_with_reduced_plugin_isolation(monkeypatch):
+    """Remote puts the admin accounts within reach of the internet: with reduced plugin
+    isolation the Access security notice says so, trusted networks or not (MSHL-82)."""
+    from app.plugins import lifecycle
+    from app.repository.remote import RemoteRepository
+
+    fields = {"plugins_disabled_source": None, "plugins_isolation": "none"}
+    monkeypatch.setattr(lifecycle, "health_fields", lambda: fields)
+    async with _admin_client() as client:
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+        await RemoteRepository.update_state(enabled=True)
+        body = (await client.get("/api/auth/settings")).json()
+        assert body["security_notices"] == ["remote_reduced_plugin_isolation"]
+        fields["plugins_disabled_source"] = "paused"
+        notices = (await client.get("/api/auth/settings")).json()["security_notices"]
+        assert notices == ["remote_reduced_plugin_isolation"]
+        fields["plugins_disabled_source"] = None
+        fields["plugins_isolation"] = "bwrap"
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+        fields["plugins_isolation"] = "none"
+        await RemoteRepository.update_state(enabled=False)
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+
+
+async def test_only_an_admin_reads_or_changes_the_rules():
+    await create_user()
+    await create_user("bob", role="member")
+    async with make_client(LAN_URL, OUTSIDE_PEER) as client:
+        await login(client, "bob")
+        assert (await client.get("/api/auth/settings")).status_code == 403
+        assert (
+            await client.patch("/api/auth/settings", json={"trusted_networks": []})
+        ).status_code == 403
+        assert (
+            await client.patch("/api/auth/settings", json={"lan_login_free": True})
+        ).status_code == 403
+    assert (await AuthSettingsRepository.get()).lan_login_free is False
+
+
+# ---------------------------------------------------------------- MSHL-100 guards
+
+
+async def test_the_switch_off_disables_every_rule():
+    await _rule(enabled=False)
+    assert (await AuthSettingsRepository.get()).lan_login_free is False
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await _session(client))["authenticated"] is False
+        assert (await client.get("/api/contacts")).status_code == 401
+    # Turning it on applies at once; off again closes it at once.
+    await AuthSettingsRepository.update(lan_login_free=True)
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 200
+    await AuthSettingsRepository.update(lan_login_free=False)
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+
+
+async def test_the_switch_is_off_by_default():
+    assert (await AuthSettingsRepository.get()).lan_login_free is False
+
+
+@pytest.mark.parametrize("trusted_proxy", [False, True])
+async def test_a_public_peer_with_a_spoofed_forwarded_for_is_never_signed_in(trusted_proxy):
+    # A rule naming the peer's own public network, saved directly: the API
+    # refuses public or wide networks only as a notice.
+    await _rule("203.0.113.0/24")
+    if trusted_proxy:
+        await AuthSettingsRepository.update(trusted_proxies=["203.0.113.7"])
+    peer = ("203.0.113.7", 40000)
+    spoofed = {"X-Forwarded-For": "192.168.1.20"}
+    async with make_client(LAN_URL, peer) as client:
+        assert (await client.get("/api/contacts", headers=spoofed)).status_code == 401
+        assert (await client.get("/api/contacts")).status_code == 401
+    # The same public network reached directly by the LAN rule's own peer: a
+    # forwarded address is never the address a rule matches.
+    await AuthSettingsRepository.update(
+        trusted_networks=[
+            TrustedNetworkRule(
+                cidr="192.168.1.0/24", user_id=(await UserRepository.get_by_username("tablet")).id
+            )
+        ]
+    )
+    async with make_client(LAN_URL, peer) as client:
+        assert (await client.get("/api/contacts", headers=spoofed)).status_code == 401
+
+
+async def test_a_basic_header_on_the_lan_is_a_clean_401_without_argon2(monkeypatch):
+    from app.auth import passwords
+
+    await _rule()
+    calls = 0
+    original = passwords.argon2id.verify
+
+    def counting(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(passwords.argon2id, "verify", counting)
+    basic = {"Authorization": "Basic b3duZXI6c2VjcmV0LXBhc3N3b3Jk"}
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        response = await client.get("/api/contacts", headers=basic)
+        assert response.status_code == 401
+        assert _code(response) == "auth_required"
+        assert "www-authenticate" not in response.headers
+    assert calls == 0
+
+
+# ---------------------------------------------------------------- units
+
+
+def test_rule_blocker_table():
+    headers = {"host": "192.168.1.10"}
+    scope = {"type": "http", "client": LAN_PEER}
+    kwargs = {"trusted_proxies": (), "install_kind": "package"}
+    assert trusted_network.rule_blocker(scope, headers, "lan", **kwargs) is None
+    assert trusted_network.rule_blocker(scope, headers, "relay", **kwargs) == "via"
+    assert trusted_network.rule_blocker(scope, headers, "ingress", **kwargs) == "via"
+    relayed = {**scope, "state": {"via": "relay"}}
+    assert trusted_network.rule_blocker(relayed, headers, "lan", **kwargs) == "via"
+    assert trusted_network.rule_blocker({"type": "http"}, headers, "lan", **kwargs) == "no_peer"
+    assert (
+        trusted_network.rule_blocker(
+            scope, headers, "lan", trusted_proxies=("192.168.1.0/24",), install_kind="package"
+        )
+        == "trusted_proxy"
+    )
+    mapped = {"type": "http", "client": ("::ffff:127.0.0.1", 1)}
+    assert trusted_network.rule_blocker(mapped, headers, "lan", **kwargs) == "loopback"
+    assert trusted_network.rule_blocker(scope, {}, "lan", **kwargs) == "host"
+    public = {"type": "http", "client": ("203.0.113.7", 1)}
+    assert trusted_network.rule_blocker(public, headers, "lan", **kwargs) == "not_local"
+
+
+def test_matching_maps_ipv4_mapped_peers():
+    rules = [TrustedNetworkRule(cidr="192.168.1.0/24", user_id=1)]
+    address = local_address.parse_address("::ffff:192.168.1.20")
+    assert address is not None
+    assert trusted_network.matching_rule(address, rules) == rules[0]
+
+
+def test_invalid_stored_rules_are_dropped():
+    rules = trusted_network.valid_stored_rules(
+        [
+            TrustedNetworkRule(cidr="10.0.0.0/8", user_id=1),
+            TrustedNetworkRule(cidr="0.0.0.0/0", user_id=1),
+        ]
+    )
+    assert [rule.cidr for rule in rules] == ["10.0.0.0/8"]
+
+
+async def test_request_checks_need_no_settings_read(monkeypatch):
+    """Once the rules are loaded, an unlisted or proxied peer costs no database
+    read, and the Host check uses the public URLs kept by ``apply()``."""
+    tablet = await _rule()
+    await AuthSettingsRepository.update(public_urls=["https://mesh.example.org"])
+
+    async def no_read(*args, **kwargs):
+        raise AssertionError("auth_settings read on the request path")
+
+    monkeypatch.setattr(AuthSettingsRepository, "get", staticmethod(no_read))
+    lan = {"type": "http", "client": LAN_PEER}
+    public_host = {"host": "mesh.example.org"}
+    resolved = await trusted_network.resolve_trusted_user(lan, public_host, "lan")
+    assert resolved is not None and resolved[0].id == tablet.id
+    outside = {"type": "http", "client": OUTSIDE_PEER}
+    assert await trusted_network.resolve_trusted_user(outside, public_host, "lan") is None
+    proxied = {**public_host, "x-forwarded-for": "1.2.3.4"}
+    assert await trusted_network.resolve_trusted_user(lan, proxied, "lan") is None
+    foreign = {"host": "evil.example"}
+    assert await trusted_network.resolve_trusted_user(lan, foreign, "lan") is None
+
+
+async def test_a_rule_for_an_account_that_must_change_its_password_is_refused():
+    async with _admin_client() as client:
+        member = await create_user("member1", role="member")
+        await UserRepository.update(member.id, must_change_password=True)
+        response = await client.patch(
+            "/api/auth/settings",
+            json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": member.id}]},
+        )
+        assert response.status_code == 400
+        assert _code(response) == "auth_trusted_network_user_must_change"
+        assert response.json()["detail"]["params"] == {"cidr": "192.168.1.0/24"}
+    assert (await AuthSettingsRepository.get()).trusted_networks == []
+
+
+@pytest.mark.parametrize(
+    ("cidr", "flagged"),
+    [
+        ("192.168.1.0/24", False),
+        ("10.0.0.0/16", False),
+        ("100.64.0.0/10", True),
+        ("100.64.0.0/24", True),
+        ("100.64.1.5/32", False),
+        ("fd00:1234::/48", False),
+        ("10.0.0.0/8", True),
+        ("8.8.8.0/24", True),
+        ("8.0.0.0/8", True),
+        # Documentation and reserved ranges are public (app/net/local_address.py).
+        ("2001:db8::/32", True),
+        ("192.0.2.0/24", True),
+        ("198.18.0.0/24", True),
+        ("fe80::/64", False),
+        ("169.254.0.0/24", False),
+        ("2a01:e0a::/32", True),
+        ("fd00::/16", True),
+    ],
+)
+def test_public_or_wide(cidr, flagged):
+    assert trusted_network.public_or_wide(cidr) is flagged
+
+
+async def test_the_notice_names_a_public_or_wide_network():
+    async with _admin_client() as client:
+        tablet = await create_user("tablet", password=None, role="viewer")
+        body = (
+            await client.patch(
+                "/api/auth/settings",
+                json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": tablet.id}]},
+            )
+        ).json()
+        assert body["security_notices"] == []
+        body = (
+            await client.patch(
+                "/api/auth/settings",
+                json={"trusted_networks": [{"cidr": "8.8.8.0/24", "user_id": tablet.id}]},
+            )
+        ).json()
+        assert body["security_notices"] == ["trusted_network_public_or_wide"]
+
+
+# ---------------------------------------------------------------- never an administrator
+
+
+async def test_a_rule_naming_an_admin_is_refused():
+    async with _admin_client() as client:
+        lanadmin = await create_user("lanadmin", password=None, role="admin")
+        response = await client.patch(
+            "/api/auth/settings",
+            json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": lanadmin.id}]},
+        )
+        assert response.status_code == 400, response.text
+        assert _code(response) == "auth_trusted_network_user_admin"
+        assert response.json()["detail"]["params"] == {"cidr": "192.168.1.0/24"}
+    assert (await AuthSettingsRepository.get()).trusted_networks == []
+
+
+async def test_the_switch_stays_off_while_a_rule_names_an_admin():
+    async with _admin_client() as client:
+        lanadmin = await create_user("lanadmin", password=None, role="admin")
+        tablet = await create_user("tablet", password=None, role="viewer")
+        await AuthSettingsRepository.update(
+            trusted_networks=[
+                TrustedNetworkRule(cidr="192.168.1.0/24", user_id=lanadmin.id),
+                TrustedNetworkRule(cidr="192.168.2.0/24", user_id=tablet.id),
+                TrustedNetworkRule(cidr="192.168.3.7/32", user_id=lanadmin.id),
+            ]
+        )
+        response = await client.patch("/api/auth/settings", json={"lan_login_free": True})
+        assert response.status_code == 409, response.text
+        assert _code(response) == "auth_lan_login_free_admin_rules"
+        assert response.json()["detail"]["params"] == {"cidrs": "192.168.1.0/24, 192.168.3.7/32"}
+        assert (await AuthSettingsRepository.get()).lan_login_free is False
+        # Other changes still go through while the switch stays off.
+        assert (
+            await client.patch("/api/auth/settings", json={"trusted_proxies": []})
+        ).status_code == 200
+        # Without the admin rules, the switch turns on.
+        response = await client.patch(
+            "/api/auth/settings",
+            json={
+                "lan_login_free": True,
+                "trusted_networks": [{"cidr": "192.168.2.0/24", "user_id": tablet.id}],
+            },
+        )
+        assert response.status_code == 200, response.text
+    assert (await AuthSettingsRepository.get()).lan_login_free is True
+
+
+async def test_an_account_promoted_to_admin_is_no_longer_signed_in():
+    tablet = await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await _session(client))["user"]["id"] == tablet.id
+    await UserRepository.update(tablet.id, role="admin")
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await _session(client))["authenticated"] is False
+        assert (await client.get("/api/contacts")).status_code == 401
+    scope = {"client": LAN_PEER, "headers": []}
+    assert (
+        await trusted_network.resolve_trusted_user(scope, {"host": "192.168.1.10:8000"}, "lan")
+        is None
+    )
+
+
+def test_login_free_is_off_by_default():
+    from app.auth.models import AuthSettings
+
+    assert AuthSettings().lan_login_free is False
+
+
+def _relayed_client(base_url: str, peer: tuple[str, int]) -> httpx.AsyncClient:
+    """A client whose requests the relay dispatched (``scope["state"]["via"]``)."""
+    from app.main import app
+
+    async def relayed(scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            scope.setdefault("state", {})["via"] = "relay"
+        await app(scope, receive, send)
+
+    transport = httpx.ASGITransport(app=relayed, client=peer)
+    return httpx.AsyncClient(transport=transport, base_url=base_url)
+
+
+@pytest.mark.parametrize(
+    ("kind", "cidr", "base_url", "peer"),
+    [
+        # Each would sign in without the relay (see the tests above).
+        ("addon", "127.0.0.0/8", "http://localhost:8000", ("127.0.0.1", 40000)),
+        ("package", "192.168.1.0/24", LAN_URL, LAN_PEER),
+    ],
+)
+async def test_a_relayed_request_never_reaches_the_rule(monkeypatch, kind, cidr, base_url, peer):
+    """MSHL-431: the relay's local end is loopback or a LAN address, never a LAN client."""
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", kind)
+    await _rule(cidr)
+    async with make_client(base_url, peer) as client:
+        assert (await client.get("/api/contacts")).status_code == 200
+    calls: list[object] = []
+    real = trusted_network.resolve_trusted_user
+
+    async def spy(*args, **kwargs):
+        calls.append(args)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(trusted_network, "resolve_trusted_user", spy)
+    async with _relayed_client(base_url, peer) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+        assert (await _session(client)).get("user") is None
+    assert calls == []

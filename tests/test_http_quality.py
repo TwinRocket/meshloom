@@ -39,6 +39,20 @@ def test_openapi_includes_docs_metadata():
     assert tags["radio"].startswith("Radio configuration")
 
 
+def test_openapi_declares_the_bearer_token_and_the_session_cookie():
+    with TestClient(app) as client:
+        data = client.get("/openapi.json").json()
+
+    schemes = data["components"]["securitySchemes"]
+    assert schemes["bearerToken"] == {**schemes["bearerToken"], "type": "http", "scheme": "bearer"}
+    assert schemes["sessionCookie"]["in"] == "cookie"
+    assert data["security"] == [{"bearerToken": []}, {"sessionCookie": []}]
+    assert data["paths"]["/api/auth/login"]["post"]["security"] == []
+    assert "security" not in data["paths"]["/api/auth/tokens"]["get"]
+    created = data["paths"]["/api/auth/tokens"]["post"]["responses"]["201"]
+    assert created["content"]["application/json"]["schema"]["$ref"].endswith("TokenCreatedDoc")
+
+
 def _assert_hardening_headers(response) -> None:
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"

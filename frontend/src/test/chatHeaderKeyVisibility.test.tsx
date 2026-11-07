@@ -11,6 +11,7 @@ i18n.addResourceBundle('en', 'translation', sliceEn, true, true);
 i18n.addResourceBundle('fr', 'translation', sliceFr, true, true);
 import { CONTACT_TYPE_ROOM } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
+import { isolateBidi } from '../utils/messageText';
 
 function makeChannel(key: string, name: string, isHashtag: boolean): Channel {
   return {
@@ -79,7 +80,7 @@ describe('ChatHeader key visibility', () => {
 
     const heading = screen.getByRole('heading', { name: /alice/i });
     const titleButton = within(heading).getByRole('button', {
-      name: i18n.t('chatHeader.viewInfoFor', { name: 'Alice' }),
+      name: i18n.t('chatHeader.viewInfoFor', { name: isolateBidi('Alice') }),
     });
 
     expect(heading).toContainElement(titleButton);
@@ -98,29 +99,6 @@ describe('ChatHeader key visibility', () => {
     render(<ChatHeader {...baseProps} conversation={conversation} channels={[channel]} />);
 
     expect(screen.getAllByText('#Esperance')).toHaveLength(2);
-  });
-
-  it('opens a notify menu and sets email for the conversation', () => {
-    const conversation: Conversation = { type: 'contact', id: '11'.repeat(32), name: 'Alice' };
-    const onSetConversationMedia = vi.fn();
-
-    render(
-      <ChatHeader
-        {...baseProps}
-        conversation={conversation}
-        channels={[]}
-        notifyMediaEnabled={{ push: true, email: false, webhook: false }}
-        emailReady
-        webhookReady
-        onSetConversationMedia={onSetConversationMedia}
-      />
-    );
-
-    const bellBtn = screen.getByRole('button', { name: i18n.t('chatHeader.notifications') });
-    expect(bellBtn).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(bellBtn);
-    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyEmail')));
-    expect(onSetConversationMedia).toHaveBeenCalledWith('email', true);
   });
 
   it('opens a mute menu and mutes for 15 minutes', () => {
@@ -166,14 +144,7 @@ describe('ChatHeader key visibility', () => {
     const conversation: Conversation = { type: 'contact', id: pubKey, name: 'Ops Board' };
 
     render(
-      <ChatHeader
-        {...baseProps}
-        conversation={conversation}
-        channels={[]}
-        contacts={[contact]}
-        notifyMediaEnabled={{ push: false, email: false, webhook: false }}
-        onSetConversationMedia={vi.fn()}
-      />
+      <ChatHeader {...baseProps} conversation={conversation} channels={[]} contacts={[contact]} />
     );
 
     expect(

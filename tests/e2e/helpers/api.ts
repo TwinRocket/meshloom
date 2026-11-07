@@ -23,9 +23,7 @@ export interface HealthStatus {
   radio_connected: boolean;
   radio_initializing: boolean;
   connection_info: string | null;
-  bots_disabled?: boolean;
-  bots_disabled_source?: 'env' | 'until_restart' | null;
-  basic_auth_enabled?: boolean;
+  converted_bots?: { converted: number; attention: number } | null;
 }
 
 export function getHealth(): Promise<HealthStatus> {

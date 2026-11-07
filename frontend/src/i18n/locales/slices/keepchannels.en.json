@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "radio": {
+      "keepChannels": {
+        "title": "Channels on the radio",
+        "label": "Keep channels on the radio",
+        "help": "On, the channels stay on the radio and follow it into another MeshCore app. Meshloom keeps the last slot for itself.",
+        "slots_one": "With this radio: {{count}} channel slot kept, plus 1 slot reserved for Meshloom.",
+        "slots_other": "With this radio: {{count}} channel slots kept, plus 1 slot reserved for Meshloom.",
+        "slotsUnknown": "Every channel slot but the last one is kept; the last one is reserved for Meshloom.",
+        "deleteNote": "Deleting a channel in Meshloom also empties its slot on the radio."
+      }
+    },
+    "fullRestore": {
+      "channelsKept": "The channels stay on the radio. The last slot is left free for Meshloom.",
+      "channelsOffloaded": "These channels stay on the radio only until the next connection. To keep them there, turn on Settings > Radio > Messaging > Keep channels on the radio.",
+      "warnings": {
+        "channels_offloaded_next_connect": "Channels written to the radio until the next connection. To keep them there, turn on Settings > Radio > Messaging > Keep channels on the radio."
+      }
+    }
+  }
+}

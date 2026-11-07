@@ -1,0 +1,51 @@
+{
+  "settings": {
+    "share": {
+      "cache": {
+        "title": "Copies locales",
+        "help": "Images partagées déjà récupérées. Les effacer libère de l'espace ; elles seront récupérées à nouveau si besoin.",
+        "clear": "Vider le cache",
+        "cleared": "Cache vidé : {{size}} libérés."
+      },
+      "uploads": {
+        "title": "Mes envois",
+        "intro": "Liens et fichiers partagés depuis ce Meshloom. En supprimer un le retire du service de partage et du cache de ce Meshloom.",
+        "off": "Le partage est désactivé. Les liens et fichiers déjà partagés restent en ligne jusqu'à leur expiration.",
+        "refresh": "Actualiser",
+        "loading": "Chargement…",
+        "empty": "Rien n'a encore été partagé depuis ce Meshloom.",
+        "error": "Impossible de charger la liste : {{error}}",
+        "more": "Afficher plus",
+        "columns": {
+          "kind": "Nature",
+          "what": "Type ou site",
+          "size": "Taille",
+          "expires": "Expiration",
+          "status": "État",
+          "actions": "Actions"
+        },
+        "kind": {
+          "link": "Lien",
+          "file": "Fichier",
+          "encrypted": "Fichier chiffré"
+        },
+        "status": {
+          "active": "En ligne",
+          "blocked": "Bloqué : {{category}}"
+        },
+        "blockedHelp": "Bloqué par le service de partage : il ne peut pas être supprimé. <contact>Contactez le service</contact> si vous contestez ce blocage.",
+        "never": "jamais",
+        "unknown": "—",
+        "delete": "Supprimer",
+        "deleteLabel": "Supprimer {{id}}",
+        "confirm": {
+          "title": "Supprimer cet envoi ?",
+          "body": "Le lien ne s'ouvrira plus pour personne. Cette action est irréversible.",
+          "cancel": "Annuler",
+          "confirm": "Supprimer"
+        },
+        "deleted": "Supprimé."
+      }
+    }
+  }
+}

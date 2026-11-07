@@ -1,0 +1,39 @@
+{
+  "settings": {
+    "access": {
+      "pairing": {
+        "title": "Appairer un appareil",
+        "help": "Appairez une application mobile comme meshenger en scannant un QR code. Le code ne sert qu'une fois et expire vite.",
+        "ingressNotice": "L'appareil ne peut pas s'appairer à travers Home Assistant : il joindra Meshloom à l'adresse du QR code.",
+        "none": "Aucun code d'appairage en attente.",
+        "add": "Appairer un appareil",
+        "createTitle": "Appairer un appareil",
+        "createHelp": "Nommez l'appareil, choisissez ce qu'il peut faire et la durée de validité du code. Meshloom affiche ensuite un QR code que l'appareil scanne.",
+        "label": "Nom de l'appareil",
+        "labelPlaceholder": "Téléphone de Nadia",
+        "scopes": "Portées",
+        "scopesHelp": "Cochez seulement ce dont l'appareil a besoin. Il n'obtient jamais plus que ce que votre rôle permet.",
+        "lifetime": "Le code est valable",
+        "lifetimeMinutes_one": "{{count}} minute",
+        "lifetimeMinutes_other": "{{count}} minutes",
+        "create": "Afficher le QR code",
+        "qrTitle": "Scanner pour appairer « {{label}} »",
+        "qrHelp": "Scannez ce QR code avec meshenger sur l'appareil. Il ne sera plus affiché.",
+        "secretWarning": "Ce QR code vaut un mot de passe : ne le partagez pas, et ne le scannez qu'avec votre propre appareil.",
+        "qrAlt": "QR code pour appairer un appareil à Meshloom",
+        "countdown": "Expire dans {{time}}",
+        "expired": "Ce code a expiré et le QR code est masqué. Créez-en un nouveau.",
+        "scopesGiven": "L'appareil obtiendra : {{scopes}}.",
+        "regenerate": "Créer un nouveau code",
+        "cancelCode": "Annuler le code",
+        "cancelNamed": "Annuler le code de {{label}}",
+        "cancelled": "Code d'appairage annulé.",
+        "done": "Fermer",
+        "owner": "Par {{user}}",
+        "expiresAt": "Expire {{when}}",
+        "used": "Ce code a été utilisé par l'appareil : l'appairage est fait. Créez un nouveau code pour appairer un autre appareil.",
+        "closeRevokes": "Fermer et annuler le code"
+      }
+    }
+  }
+}

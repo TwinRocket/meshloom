@@ -1,16 +1,27 @@
 name: Publish Linux apt/dnf repo
 
-# Rebuilds a static, SIGNED apt + dnf repository from one release's packages and
-# deploys it to GitHub Pages.
+# Rebuilds a static, SIGNED apt + dnf repository and deploys it to GitHub Pages.
+# Pages replaces the whole site on each deployment, so every run rebuilds both
+# suites from the published releases (scripts/build/resolve_linux_repo_channels.py),
+# whichever release started it:
+#
+#   apt stable,  rpm/$basearch          the last stable X.Y.Z release
+#   apt testing, rpm/testing/$basearch  the newest X.Y.Z-rc.N if it is newer than
+#                                       stable (no armhf), otherwise stable
 #
 # Fails closed: no signing key, a missing package (amd64, arm64 and, when
-# asked, armhf) or an unsigned .rpm stops the run instead of publishing a
-# repository that clients cannot verify.
+# asked, armhf), an unsigned package or one of another version in stable stops the run
+# instead of publishing a repository that clients cannot verify. Nothing is deployed
+# then, so the live repository stays as it was.
 #
 # Published next to the metadata: InRelease + Release.gpg (apt), repomd.xml.asc
 # (dnf), meshloom.gpg (binary) and meshloom.asc (armored), both copied from
 # pkg/keys so clients get the key committed in git, not whatever the secret
 # exports.
+#
+# The key and the Pages token are in separate jobs: `build` signs, `deploy` deploys.
+# A version of this file without the testing suite (main, until preversion-5 merges)
+# drops that suite when it runs: see docs/dev/releasing.md for the recovery.
 #
 # Existing clients (trusted=yes / gpgcheck=0) ignore all of that and keep
 # working; see pkg/keys/README.md ("Why publishing a signed repository cannot
@@ -39,6 +50,9 @@ on:
         description: "Fail unless the armhf .deb is attached"
         type: boolean
         default: false
+    secrets:
+      MESHLOOM_REPO_GPG_PRIVATE_KEY:
+        required: false
 
 permissions: {}
 
@@ -47,115 +61,79 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment: release-signing
     permissions:
       contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install repo tools
         run: sudo apt-get update && sudo apt-get install -y apt-utils dpkg-dev createrepo-c gnupg jq
 
-      # No key, no repository: this runs before any package is touched.
-      - name: Import signing key
-        id: key
-        uses: ./.github/actions/import-signing-key
-        with:
-          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
-
-      - name: Resolve release
+      - name: Resolve what each suite serves
         id: rel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}
           EVENT_TAG: ${{ github.event.release.tag_name }}
+          REQUIRE_ARMHF: ${{ inputs.require_armhf }}
         run: |
           VERSION="${INPUT_VERSION:-${EVENT_TAG:-}}"
-          if [ -z "$VERSION" ]; then
-            VERSION="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
-          fi
           VERSION="${VERSION#v}"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$VERSION' is not X.Y.Z"; exit 1; }
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | {tag_name, draft, prerelease, assets: [.assets[].name]}' > "$RUNNER_TEMP/releases.jsonl"
+          # Stable follows GitHub's latest release unless this run publishes an
+          # X.Y.Z. A failed lookup stops the run here.
+          LATEST=""
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          fi
+          ARGS=(--releases "$RUNNER_TEMP/releases.jsonl" --latest "$LATEST" --version "$VERSION")
+          if [ "$REQUIRE_ARMHF" = "true" ]; then ARGS+=(--require-armhf); fi
+          # Not piped: this step has no pipefail, and a refusal must stop it.
+          python3 -I scripts/build/resolve_linux_repo_channels.py "${ARGS[@]}" > "$RUNNER_TEMP/channels"
+          cat "$RUNNER_TEMP/channels"
+          cat "$RUNNER_TEMP/channels" >> "$GITHUB_OUTPUT"
 
-      # No error swallowing here: an empty or partial download used to publish an empty or
-      # stale repository and report success.
+      # Stable fails closed. An rc other than the one this run publishes is left out
+      # with a warning: it must not stop a stable publication.
       - name: Download release packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.rel.outputs.version }}
+          STABLE: ${{ steps.rel.outputs.stable }}
+          TESTING: ${{ steps.rel.outputs.testing }}
+          INPUT_VERSION: ${{ inputs.version }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
           REQUIRE_ARMHF: ${{ inputs.require_armhf }}
         run: |
-          mkdir -p incoming
-          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" --dir incoming \
-            --pattern "*.deb" --pattern "*.rpm"
-          ls -la incoming
-          need() { compgen -G "incoming/$1" >/dev/null || { echo "::error::release $VERSION has no package matching $1"; exit 1; }; }
-          need '*_amd64.deb'
-          need '*_arm64.deb'
-          need '*.x86_64.rpm'
-          need '*.aarch64.rpm'
-          if [ "$REQUIRE_ARMHF" = "true" ]; then need '*_armhf.deb'; fi
-
-      # Packages are signed by nFPM at build time (pkg/nfpm). Refuse anything
-      # else, so dnf with gpgcheck=1 can install every file we serve.
-      - name: Assert .rpm packages are signed
-        run: |
-          if ! python3 -I scripts/build/check_rpm_signed.py incoming/*.rpm; then
-            echo "::error::unsigned .rpm in release $VERSION: dnf with gpgcheck=1 could not install it. Publish a release built with signing enabled."
-            exit 1
-          fi
-        env:
-          VERSION: ${{ steps.rel.outputs.version }}
+          REQUESTED="${INPUT_VERSION:-${EVENT_TAG:-}}"
+          ARGS=(--stable "$STABLE" --testing "$TESTING" --requested "${REQUESTED#v}" \
+            --incoming incoming --keyring pkg/keys/meshloom-archive-keyring.gpg)
+          if [ "$REQUIRE_ARMHF" = "true" ]; then ARGS+=(--require-armhf); fi
+          scripts/build/fetch_linux_repo_packages.sh "${ARGS[@]}"
 
       - name: Build apt and rpm trees
+        env:
+          STABLE: ${{ steps.rel.outputs.stable }}
+          TESTING: ${{ steps.rel.outputs.testing }}
         run: |
-          mkdir -p public/apt/pool/main
-          mkdir -p public/rpm/x86_64 public/rpm/aarch64
-          shopt -s nullglob
-          for deb in incoming/*.deb; do
-            cp "$deb" public/apt/pool/main/
-          done
-          for rpm in incoming/*.rpm; do
-            case "$rpm" in
-              *aarch64*|*arm64*) cp "$rpm" public/rpm/aarch64/ ;;
-              *) cp "$rpm" public/rpm/x86_64/ ;;
-            esac
-          done
-          if compgen -G "public/apt/pool/main/*.deb" > /dev/null; then
-            (
-              cd public/apt
-              # Read from the packages rather than listed here. The list was
-              # written in three places, and an architecture missing from one of
-              # them is a repository that offers itself to a machine it cannot
-              # serve: that is what left a 32-bit Raspberry Pi with no candidate.
-              ARCHES="$(for d in pool/main/*.deb; do dpkg-deb -f "$d" Architecture; done | sort -u)"
-              for a in $ARCHES; do
-                mkdir -p "dists/stable/main/binary-$a"
-                dpkg-scanpackages --arch "$a" pool /dev/null > "dists/stable/main/binary-$a/Packages"
-                gzip -k -f "dists/stable/main/binary-$a/Packages"
-              done
-              apt-ftparchive -o APT::FTPArchive::Release::Origin=Meshloom \
-                -o APT::FTPArchive::Release::Label=Meshloom \
-                -o APT::FTPArchive::Release::Suite=stable \
-                -o APT::FTPArchive::Release::Codename=stable \
-                -o APT::FTPArchive::Release::Architectures="$(echo $ARCHES)" \
-                -o APT::FTPArchive::Release::Components=main \
-                release dists/stable > dists/stable/Release
-            )
+          ARGS=(--stable-dir incoming/stable --stable-version "$STABLE" --output public)
+          if [ -d incoming/testing ]; then
+            ARGS+=(--testing-dir incoming/testing --testing-version "$TESTING")
           fi
-          createrepo_c public/rpm/x86_64
-          createrepo_c public/rpm/aarch64
-          for f in public/apt/dists/stable/Release public/rpm/x86_64/repodata/repomd.xml public/rpm/aarch64/repodata/repomd.xml; do
-            [ -f "$f" ] || { echo "::error::$f was not generated"; exit 1; }
-          done
+          scripts/build/build_linux_repo.sh "${ARGS[@]}"
+
+      # Last thing before signing. No key, no repository: nothing was deployed yet.
+      - name: Import signing key
+        id: key
+        uses: ./.github/actions/import-signing-key
+        with:
+          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
 
       - name: Sign metadata and publish the public key
         env:
@@ -164,27 +142,42 @@ jobs:
         run: |
           set -euo pipefail
           sign() { gpg --batch --yes --pinentry-mode loopback --passphrase "" -u "$KEY_ID" "$@"; }
-          sign --clearsign -o public/apt/dists/stable/InRelease public/apt/dists/stable/Release
-          sign --detach-sign -a -o public/apt/dists/stable/Release.gpg public/apt/dists/stable/Release
+          for suite in stable testing; do
+            sign --clearsign -o "public/apt/dists/${suite}/InRelease" "public/apt/dists/${suite}/Release"
+            sign --detach-sign -a -o "public/apt/dists/${suite}/Release.gpg" "public/apt/dists/${suite}/Release"
+          done
           for arch in x86_64 aarch64; do
-            sign --detach-sign -a -o "public/rpm/${arch}/repodata/repomd.xml.asc" \
-              "public/rpm/${arch}/repodata/repomd.xml"
+            for dir in "public/rpm/${arch}" "public/rpm/testing/${arch}"; do
+              sign --detach-sign -a -o "${dir}/repodata/repomd.xml.asc" "${dir}/repodata/repomd.xml"
+            done
           done
           # The key clients download is the one committed in git.
           cp pkg/keys/meshloom-archive-keyring.gpg public/meshloom.gpg
           cp pkg/keys/meshloom.asc public/meshloom.asc
+
+      # Nothing after this step needs the key, and the actions below do not get to see it.
+      - name: Erase the key
+        if: always()
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          KEY_FILE: ${{ steps.key.outputs.key-file }}
+        run: rm -rf -- "${GNUPGHOME:-/nonexistent}" "${KEY_FILE:-/nonexistent}"
 
       # Verify like a client would, with the published key and nothing else.
       - name: Verify published signatures
         run: |
           set -euo pipefail
           K="$PWD/public/meshloom.gpg"
-          gpgv --keyring "$K" public/apt/dists/stable/InRelease
-          gpgv --keyring "$K" public/apt/dists/stable/Release.gpg public/apt/dists/stable/Release
-          for arch in x86_64 aarch64; do
-            gpgv --keyring "$K" "public/rpm/${arch}/repodata/repomd.xml.asc" "public/rpm/${arch}/repodata/repomd.xml"
+          for suite in stable testing; do
+            gpgv --keyring "$K" "public/apt/dists/${suite}/InRelease"
+            gpgv --keyring "$K" "public/apt/dists/${suite}/Release.gpg" "public/apt/dists/${suite}/Release"
+            ls "public/apt/dists/${suite}/main"
           done
-          ls public/apt/dists/stable/main
+          for arch in x86_64 aarch64; do
+            for dir in "public/rpm/${arch}" "public/rpm/testing/${arch}"; do
+              gpgv --keyring "$K" "${dir}/repodata/repomd.xml.asc" "${dir}/repodata/repomd.xml"
+            done
+          done
 
       - name: Write index
         run: |
@@ -193,6 +186,7 @@ jobs:
           <title>Meshloom Linux repo</title>
           <p>apt: <code>https://twinrocket.github.io/meshloom/apt</code></p>
           <p>dnf: <code>https://twinrocket.github.io/meshloom/rpm/\$basearch</code></p>
+          <p>Pre-releases, suite <code>testing</code> of the apt URL above, and dnf: <code>https://twinrocket.github.io/meshloom/rpm/testing/\$basearch</code></p>
           <p>keys: <a href="meshloom.asc">meshloom.asc</a>, <a href="meshloom.gpg">meshloom.gpg</a></p>
           EOF
 
@@ -200,6 +194,17 @@ jobs:
         with:
           path: public
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

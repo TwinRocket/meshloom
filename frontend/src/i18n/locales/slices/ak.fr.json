@@ -1,0 +1,25 @@
+{
+  "settings": {
+    "trustedProxies": {
+      "title": "Proxies de confiance",
+      "label": "Reverse proxies placés devant cette instance",
+      "help": "Une adresse par ligne : celle de votre reverse proxy (par exemple 127.0.0.1 sur la même machine). Jamais un réseau ni une passerelle Docker.",
+      "none": "Vide : aucun proxy n’est de confiance. Les en-têtes transmis sont ignorés et l’adresse du visiteur est celle de la connexion.",
+      "invalid": "Ni une adresse IP ni un réseau (une adresse, ou adresse/préfixe ; au plus /8 en IPv4, /16 en IPv6 ; pas de forme ::ffff:) : {{entries}}",
+      "save": "Enregistrer les proxies",
+      "saving": "Enregistrement…",
+      "saved": "Proxies de confiance enregistrés",
+      "saveFailed": "Impossible d’enregistrer les proxies de confiance",
+      "broadEntry": "Entrée risquée : {{entries}}. N’indiquez que l’adresse du proxy lui-même.",
+      "httpsNotTrusted": "Le proxy HTTPS placé devant Meshloom n’est pas encore de confiance : ajoutez son adresse ici."
+    }
+  },
+  "errors": {
+    "auth_trusted_proxies_invalid": "Ni une adresse IP ni un réseau, un réseau plus large que /8 (IPv4) ou /16 (IPv6), ou plus de 32 proxies de confiance"
+  },
+  "auth": {
+    "login": {
+      "untrustedProxy": "Le proxy placé devant Meshloom n’est pas encore de confiance. Un administrateur peut l’ajouter dans Réglages → Configuration locale → Proxies de confiance."
+    }
+  }
+}

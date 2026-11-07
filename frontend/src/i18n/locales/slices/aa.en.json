@@ -1,0 +1,68 @@
+{
+  "errors": {
+    "relay_login_challenge": "Too many failed sign-ins through Meshloom Remote from this network. Opening the check page…",
+    "auth_rate_limited": "Too many attempts. Try again in {{retry_after}} seconds.",
+    "request_timeout": "This request took too long to arrive. Try again.",
+    "server_busy": "Meshloom is busy. Try again in a moment.",
+    "request_too_large": "This request is too large for Meshloom.",
+    "auth_host_rejected": "Request refused: this address is not one this instance answers to.",
+    "auth_last_admin": "This is the last administrator: keep at least one.",
+    "auth_no_session": "Signing in did not open a session. Reload the page and try again.",
+    "auth_https_required": "HTTPS is required from the internet: open Meshloom with its https:// address (your reverse proxy, Tailscale or Meshloom Remote).",
+    "auth_https_would_lock_out": "A public address would block your current http:// connection. Open Meshloom over https:// or from the local network first."
+  },
+  "auth": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "sessionLoadFailed": "Meshloom could not reach the server.",
+    "username": "User name",
+    "password": "Password",
+    "language": {
+      "fr": "Français",
+      "en": "English"
+    },
+    "role": {
+      "admin": "Administrator",
+      "member": "Member",
+      "viewer": "Viewer",
+      "kiosk": "Kiosk"
+    },
+    "login": {
+      "title": "Sign in",
+      "description": "Sign in to use this Meshloom.",
+      "submit": "Sign in",
+      "remember": "Keep me signed in on this device",
+      "rememberHint": "Unchecked, you are signed out when you close the browser, and after 12 hours without activity.",
+      "insecureContext": "Unencrypted connection (HTTP): use your password only on a network you trust."
+    },
+    "relogin": {
+      "title": "Session ended",
+      "body": "Your session has ended. Sign in again to carry on where you were."
+    },
+    "setup": {
+      "title": "Create the administrator account",
+      "description": "This Meshloom has no account yet. The one you create here can manage everything.",
+      "displayName": "Display name (optional)",
+      "confirmPassword": "Confirm the password",
+      "passwordMismatch": "The two passwords differ.",
+      "passwordPolicy": "At least {{min_length}} characters, different from the user name. A few words in a row make a good password.",
+      "strength": {
+        "tooShort": "Too short",
+        "ok": "Acceptable",
+        "good": "Good",
+        "strong": "Strong"
+      },
+      "localOnly": {
+        "title": "Open Meshloom on your local network",
+        "description": "The administrator account is created from the local network. Open Meshloom from a phone or computer on the same network as this machine."
+      },
+      "submit": "Create the account"
+    },
+    "userMenu": {
+      "open": "Account of {{name}}",
+      "signOut": "Sign out",
+      "ingressNote": "Home Assistant signs you in: there is no Meshloom session to end.",
+      "stillSignedInNote": "This device stays signed in: the local network is set to login-free (Settings → Connection → Local network)."
+    }
+  }
+}

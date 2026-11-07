@@ -1,0 +1,37 @@
+{
+  "description": "Start a process: the subprocess module, os.system, os.posix_spawn and os.exec*.",
+  "events": [
+    {
+      "params": {
+        "how": "subprocess"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "system"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "posix_spawn"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "exec"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

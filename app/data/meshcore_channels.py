@@ -12,6 +12,8 @@ from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 
+from app.channel_constants import is_public_channel_key
+
 _REPO_SNAPSHOT = (
     Path(__file__).resolve().parents[2]
     / "frontend"
@@ -64,6 +66,44 @@ def is_public_hashtag_channel(name: str, key_hex: str) -> bool:
     except ValueError:
         return False
     return key == hashtag_key_from_name(name)
+
+
+def channel_key_is_name_derived(name: str, key_hex: str) -> bool:
+    """True when anyone who knows ``name`` can derive ``key_hex``, ``#`` prefix or not.
+
+    The key is ``SHA256(name)[:16]`` or ``SHA256("#" + name)[:16]``, whatever
+    the name starts with: ``POST /api/channels`` without a key and meshcore_py
+    ``set_channel(name, None)`` derive ``SHA256(name)`` even for ``Team``, and a
+    hashtag channel renamed locally from ``#foo`` to ``foo`` keeps the key of
+    ``#foo``. A rename to another case or an unrelated name cannot be detected.
+    This is the privacy test (the
+    share encryption refusal, ``Channel.key_derived``). It is deliberately
+    broader than ``is_public_hashtag_channel``, which also decides what is
+    published as a hashtag name and must keep requiring the ``#`` name.
+    """
+    text = name or ""
+    try:
+        key = bytes.fromhex(key_hex or "")
+    except ValueError:
+        return False
+    if len(key) != 16:
+        return False
+    return key in (
+        sha256(text.encode()).digest()[:16],
+        sha256(f"#{text}".encode()).digest()[:16],
+    )
+
+
+def channel_log_label(name: str | None, key_hex: str) -> str:
+    """The channel's name for a log line, only when the name is not private.
+
+    Those lines end up in bug reports. Public and name-derived channels keep their name.
+    """
+    if not name:
+        return "an unnamed channel"
+    if is_public_channel_key(key_hex) or channel_key_is_name_derived(name, key_hex):
+        return name
+    return "a private channel"
 
 
 def channel_key_hash_byte(key: bytes) -> str:

@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "notifications": {
+      "keywords": {
+        "title": "Mots-clés",
+        "help": "Notifie un canal quand un message contient un mot ou une expression.",
+        "forgery": "N’importe qui peut écrire un mot-clé dans un canal : ne vous y fiez pas pour quelque chose de critique.",
+        "empty": "Aucune règle de mot-clé pour l’instant.",
+        "count": "{{count}} règle(s) sur {{max}}",
+        "full": "Limite atteinte ({{max}} règles).",
+        "add": "Ajouter un mot-clé",
+        "addTitle": "Ajouter un mot-clé",
+        "editTitle": "Modifier le mot-clé",
+        "dialogHelp": "Le texte est comparé sans tenir compte de la casse. Pas d’expressions régulières.",
+        "edit": "Modifier le mot-clé {{pattern}}",
+        "remove": "Supprimer le mot-clé {{pattern}}",
+        "pattern": "Mot ou expression",
+        "patternHelp": "{{max}} caractères au plus.",
+        "match": "Correspondance",
+        "match_contains": "Contient le texte",
+        "match_word": "Mot entier",
+        "scope": "Où",
+        "scopeAll": "Toutes les conversations",
+        "scopeDms": "Messages privés uniquement",
+        "scopeChosen": "Conversations choisies",
+        "scopeFilter": "Filtrer les conversations",
+        "scopeNone": "Choisissez au moins une conversation.",
+        "channels": "Notifier ces canaux",
+        "channelsHelp": "Web Push n’atteint que les appareils des administrateurs.",
+        "noChannel": "aucun canal",
+        "cooldown": "Délai de récupération (minutes)",
+        "cooldownHelp": "Délai de silence après une correspondance. 0 le désactive.",
+        "save": "Enregistrer",
+        "cancel": "Annuler"
+      },
+      "log": {
+        "events": {
+          "message_keyword": "Mot-clé"
+        }
+      }
+    }
+  }
+}

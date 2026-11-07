@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth.permissions import require
 from app.models import (
     CONTACT_TYPE_ROOM,
     AclEntry,
@@ -30,7 +31,11 @@ def _require_room(contact) -> None:
     require_server_capable_contact(contact, allowed_types=(CONTACT_TYPE_ROOM,))
 
 
-@router.post("/{public_key}/room/login", response_model=RepeaterLoginResponse)
+@router.post(
+    "/{public_key}/room/login",
+    response_model=RepeaterLoginResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def room_login(public_key: str, request: RepeaterLoginRequest) -> RepeaterLoginResponse:
     """Attempt room-server login and report whether auth was confirmed."""
     radio_manager.require_connected()
@@ -50,7 +55,11 @@ async def room_login(public_key: str, request: RepeaterLoginRequest) -> Repeater
         )
 
 
-@router.post("/{public_key}/room/status", response_model=RepeaterStatusResponse)
+@router.post(
+    "/{public_key}/room/status",
+    response_model=RepeaterStatusResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def room_status(public_key: str) -> RepeaterStatusResponse:
     """Fetch status telemetry from a room server."""
     radio_manager.require_connected()
@@ -82,7 +91,11 @@ async def room_status(public_key: str) -> RepeaterStatusResponse:
     return RepeaterStatusResponse(**repeater_status_response_kwargs(snapshot))
 
 
-@router.post("/{public_key}/room/lpp-telemetry", response_model=RepeaterLppTelemetryResponse)
+@router.post(
+    "/{public_key}/room/lpp-telemetry",
+    response_model=RepeaterLppTelemetryResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def room_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryResponse:
     """Fetch CayenneLPP telemetry from a room server."""
     radio_manager.require_connected()
@@ -124,7 +137,11 @@ async def room_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryResponse:
     return RepeaterLppTelemetryResponse(sensors=sensors)
 
 
-@router.post("/{public_key}/room/acl", response_model=RepeaterAclResponse)
+@router.post(
+    "/{public_key}/room/acl",
+    response_model=RepeaterAclResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def room_acl(public_key: str) -> RepeaterAclResponse:
     """Fetch ACL entries from a room server."""
     radio_manager.require_connected()

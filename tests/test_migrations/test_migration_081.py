@@ -67,8 +67,7 @@ class TestMigration081:
             ).fetchone()
             rules = json.loads(row["telemetry_alert_rules"])
             assert "battery_volts_min" not in rules
-            assert rules["channels"]["push"] is False
-            assert rules["channels"]["email"] is False
+            assert "channels" not in rules  # the notification rules choose the channels
             assert rules["rules"]["battery"]["threshold"] == 3.4
             assert rules["rules"]["noise"]["threshold"] == -88
             assert rules["rules"]["silence"]["threshold"] == 3

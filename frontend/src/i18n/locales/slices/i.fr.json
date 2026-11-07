@@ -5,7 +5,7 @@
       "rebootingReconnectRequestedWifiConfig": "La radio redémarre pour appliquer ses réglages Wi-Fi. Meshloom se reconnecte automatiquement.",
       "wifi": {
         "title": "Wi-Fi",
-        "intro": "L’interface Wi-Fi de la radio (firmware compagnon 1.18 ou plus récent, compilé avec le Wi-Fi). Les changements s’appliquent après le redémarrage de la radio.",
+        "intro": "Le Wi-Fi de la radio. Les changements s’appliquent après son redémarrage.",
         "checking": "Vérification des réglages Wi-Fi de la radio…",
         "checkFailed": "Impossible de vérifier les réglages Wi-Fi de la radio.",
         "nextRetry": "Prochain essai automatique à {{time}}.",
@@ -48,7 +48,7 @@
         "ssidInvalid": "Le nom du réseau doit faire de 1 à 32 octets, sans caractère de contrôle.",
         "ssidReserved": "Un réseau nommé littéralement « (not set) » ne peut pas être utilisé : la radio affiche ce texte quand aucun nom n’est défini.",
         "openNetwork": "Réseau ouvert (sans mot de passe)",
-        "wrongPasswordWarning": "Un mauvais mot de passe, ou « Réseau ouvert » coché pour un réseau protégé, empêche la radio de rejoindre le Wi-Fi après son prochain redémarrage.",
+        "wrongPasswordWarning": "Avec un mauvais mot de passe, la radio ne rejoindra pas le Wi-Fi après son redémarrage.",
         "save": "Enregistrer dans la radio",
         "saving": "Enregistrement…",
         "cancel": "Annuler",
@@ -61,7 +61,7 @@
         "confirmRebootTitle": "Redémarrer la radio maintenant ?",
         "confirmRebootBody": "Les nouveaux réglages Wi-Fi s’appliquent au redémarrage de la radio. Meshloom se reconnecte tout seul.",
         "rebootLater": "Plus tard",
-        "tcpWarning": "Meshloom joint cette radio par le réseau : changer de réseau Wi-Fi ou désactiver le Wi-Fi peut la rendre injoignable. Reconnectez-la alors en USB ou en Bluetooth.",
+        "tcpWarning": "Changer de Wi-Fi peut rendre la radio injoignable : reconnectez-la alors en USB ou en Bluetooth.",
         "rebooting": "Redémarrage de la radio…",
         "storePartialWarning": "La radio contient peut-être des identifiants Wi-Fi incomplets. Vérifiez-les en USB ou en Bluetooth avant de la redémarrer.",
         "storeIncompleteWarning": "L’enregistrement des identifiants Wi-Fi pour « {{ssid}} » a été interrompu. Enregistrez-les de nouveau avant de redémarrer la radio.",
@@ -89,7 +89,7 @@
       },
       "factoryReset": {
         "wifiStoredWarning": "Les identifiants Wi-Fi enregistrés dans la radio seront effacés. Une radio jointe par le Wi-Fi peut devenir injoignable.",
-        "wifiTcpWarning": "Meshloom joint cette radio par le Wi-Fi : après la réinitialisation, elle peut rester injoignable jusqu’à ce que vous la reconnectiez en USB ou en Bluetooth, sauf si des identifiants Wi-Fi sont intégrés à son firmware."
+        "wifiTcpWarning": "Après la réinitialisation, la radio peut devenir injoignable en Wi-Fi : reconnectez-la en USB ou en Bluetooth."
       }
     }
   },
@@ -106,12 +106,12 @@
     "wifi_invalid_ssid": "Nom de réseau Wi-Fi invalide.",
     "wifi_invalid_password": "Mot de passe Wi-Fi invalide.",
     "wifi_store_unverified": "La radio n’a pas gardé les identifiants Wi-Fi envoyés ; les valeurs précédentes ont été rétablies.",
-    "wifi_store_partial": "L’enregistrement des identifiants Wi-Fi a été interrompu : la radio en contient peut-être d’incomplets. Vérifiez-les en USB ou en Bluetooth avant de la redémarrer.",
+    "wifi_store_partial": "Enregistrement du Wi-Fi interrompu. Vérifiez-le en USB ou en Bluetooth avant de redémarrer la radio.",
     "wifi_radio_changed": "La radio connectée a changé ; cette question concernait une autre radio."
   },
   "wifiPrompt": {
     "title": "Enregistrer le mot de passe Wi-Fi de cette radio",
-    "reason": "Meshloom peut enregistrer les identifiants Wi-Fi dans la radio elle-même. Le flasheur peut alors mettre à jour cette radio sans retaper les identifiants Wi-Fi. Meshloom ne garde jamais le mot de passe.",
+    "reason": "Enregistrez le Wi-Fi dans la radio pour que le flasheur la mette à jour sans le redemander.",
     "store": "Enregistrer dans la radio",
     "dismiss": "Ne plus demander pour cette radio",
     "dismissing": "Enregistrement…",

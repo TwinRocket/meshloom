@@ -49,8 +49,8 @@ In the app, go to **Settings → About → "Open debug support snapshot"** (or n
 `/api/debug`). Copy the block and paste it here.
 
 > 🔒 The snapshot includes recent logs and basic environment/radio status. It never
-> exposes your private key. Logs *may* contain channel names or keys. If you'd rather
-> not share those, copy only **up to the `STOP COPYING HERE` marker**. Above it there
+> exposes your private key. Logs *may* contain channel names and the first digits of a
+> channel key. If you'd rather not share those, copy only **up to the `STOP COPYING HERE` marker**. Above it there
 > are no channel names or secret keys, but it does show how your radio is connected
 > (serial port, TCP host or Bluetooth address), your radio's name and public key, and
 > the names of failing integrations.
@@ -59,9 +59,9 @@ In the app, go to **Settings → About → "Open debug support snapshot"** (or n
 Restart the backend with debug logging enabled to capture detailed radio
 communication and packet processing:
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
-On a package install, set `MESHCORE_LOG_LEVEL=DEBUG` in `/etc/meshloom/meshloom.env` and restart the service; with Docker, add it under `environment:`; in the Home Assistant add-on, set the `log_level` option. Then reproduce the issue and paste the relevant log output.
+On a package install, set `MESHCORE_LOG_LEVEL=DEBUG` in `/etc/meshloom/meshloom.env` and restart the service; with Docker, add it under `environment:`; in the Home Assistant add-on, set the `log_level` option. Then reproduce the issue and paste the relevant log output. Debug logs can contain the start of your messages and login passwords: read them and remove those lines before posting.
 
 </details>
 

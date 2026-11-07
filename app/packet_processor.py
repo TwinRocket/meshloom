@@ -16,6 +16,7 @@ import logging
 import time
 from itertools import count
 
+from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
 from app.decoder import (
     DecryptedDirectMessage,
@@ -29,8 +30,16 @@ from app.decoder import (
     try_decrypt_path,
     verify_advert_signature,
 )
-from app.keystore import get_private_key, get_public_key, has_private_key
+from app.keystore import (
+    RADIO_KEY_ERRORS,
+    first_missing_key_notice,
+    get_private_key,
+    get_public_key,
+    has_private_key,
+    radio_key_unavailable_code,
+)
 from app.models import (
+    CONTACT_TYPE_REPEATER,
     Contact,
     ContactUpsert,
     RawPacketBroadcast,
@@ -244,6 +253,8 @@ async def run_historical_dm_decryption(
             f"Decrypted {decrypted_count} message{'s' if decrypted_count != 1 else ''}",
             code="historical_decrypt_complete",
             params={"name": name},
+            # Names a contact and a DM count.
+            audience="read_private",
         )
 
 
@@ -251,17 +262,27 @@ async def start_historical_dm_decryption(
     background_tasks,
     contact_public_key_hex: str,
     display_name: str | None = None,
+    *,
+    automatic: bool = False,
 ) -> None:
-    """Start historical DM decryption using the stored private key."""
+    """Start historical DM decryption using the stored private key.
+
+    ``automatic``: not asked by anyone (a new contact's advert). Without the key it then
+    reports once per connection, since every new contact would otherwise raise a toast.
+    """
     if not has_private_key():
-        logger.warning(
-            "Cannot start historical DM decryption: private key not available. "
-            "Ensure radio firmware has ENABLE_PRIVATE_KEY_EXPORT=1."
-        )
-        params = {"name": display_name} if display_name else None
+        if automatic and not first_missing_key_notice("historical_dm"):
+            logger.debug("Historical DM decryption skipped: no radio key")
+            return
+        code = radio_key_unavailable_code()
+        reason = RADIO_KEY_ERRORS[code]
+        logger.warning("Cannot start historical DM decryption: %s", reason)
+        params = {"radio_key_code": code}
+        if display_name:
+            params["name"] = display_name
         broadcast_error(
             "Cannot decrypt historical DMs",
-            "Private key not available. Radio firmware may need ENABLE_PRIVATE_KEY_EXPORT=1.",
+            reason,
             code="cannot_decrypt_historical_dms",
             params=params,
         )
@@ -478,7 +499,7 @@ async def process_raw_packet(
         region=region,
         packet_hash=pkt_hash,
     )
-    broadcast_event("raw_packet", broadcast_payload.model_dump())
+    broadcast_event(WsEvent.RAW_PACKET, broadcast_payload.model_dump())
 
     return result
 
@@ -672,10 +693,10 @@ async def _process_advertisement(
     # last_read_at, flags, on_radio, etc.) matching the REST Contact shape exactly.
     db_contact = await ContactRepository.get_by_key(advert.public_key.lower())
     if db_contact:
-        broadcast_event("contact", db_contact.model_dump())
+        broadcast_event(WsEvent.CONTACT, db_contact.model_dump())
         for old_key in promoted_keys:
             broadcast_event(
-                "contact_resolved",
+                WsEvent.CONTACT_RESOLVED,
                 {
                     "previous_public_key": old_key,
                     "contact": db_contact.model_dump(),
@@ -683,7 +704,7 @@ async def _process_advertisement(
             )
     else:
         broadcast_event(
-            "contact",
+            WsEvent.CONTACT,
             Contact(**contact_upsert.model_dump(exclude_none=True)).model_dump(),
         )
 
@@ -697,6 +718,19 @@ async def _process_advertisement(
             promoted_keys=promoted_keys,
         )
 
+    if is_new_packet:
+        # A watched node was heard (``contact.node_seen`` / ``contact.node_back``); a service,
+        # never the repository. ``existing.last_seen`` is the sighting before this one.
+        from app.notifications.watched_nodes import observe_sighting
+
+        await observe_sighting(
+            advert.public_key,
+            name=advert.name or "",
+            contact_type=contact_type,
+            previous_seen=existing.last_seen if existing else None,
+            now=int(timestamp),
+        )
+
     # For new contacts, optionally attempt to decrypt any historical DMs we may have stored
     # This is controlled by the auto_decrypt_dm_on_advert setting. Keyed on the
     # atomic ``inserted`` result rather than the earlier ``existing`` read: two
@@ -707,7 +741,9 @@ async def _process_advertisement(
 
         settings = await AppSettingsRepository.get()
         if settings.auto_decrypt_dm_on_advert:
-            await start_historical_dm_decryption(None, advert.public_key.lower(), advert.name)
+            await start_historical_dm_decryption(
+                None, advert.public_key.lower(), advert.name, automatic=True
+            )
 
 
 async def _process_direct_message(
@@ -850,6 +886,27 @@ async def _process_direct_message(
                 ),
             )
 
+            # A direct message from a watched node is a sighting too, counted once per message:
+            # a stored one when it is stored (a duplicate reception returns None and is not a new
+            # sighting), a decoded-but-never-stored one (a repeater's reply, a CLI response) once
+            # per (sender, timestamp, text) (MSHL-408).
+            if not effective_outgoing:
+                from app.notifications.watched_nodes import claim_unstored_dm, observe_sighting
+
+                unstored = result.txt_type == 1 or contact.type == CONTACT_TYPE_REPEATER
+                if (
+                    claim_unstored_dm(contact.public_key, result.timestamp, result.message)
+                    if unstored
+                    else msg_id is not None
+                ):
+                    await observe_sighting(
+                        contact.public_key,
+                        name=contact.name or "",
+                        contact_type=contact.type or 0,
+                        previous_seen=contact.last_seen,
+                        now=int(timestamp),
+                    )
+
             return {
                 "decrypted": True,
                 "contact_name": contact.name,
@@ -944,7 +1001,7 @@ async def _process_path_packet(
 
         refreshed_contact = await ContactRepository.get_by_key(contact.public_key)
         if refreshed_contact is not None:
-            broadcast_event("contact", refreshed_contact.model_dump())
+            broadcast_event(WsEvent.CONTACT, refreshed_contact.model_dump())
         return
 
     logger.debug(

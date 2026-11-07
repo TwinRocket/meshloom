@@ -1,0 +1,21 @@
+{
+  "description": "Write a file into the server's code tree. The test checks afterwards that nothing appeared there.",
+  "events": [
+    {
+      "params": {
+        "path": "$APP_ROOT/.corpus-write-probe"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "path": "$APP_ROOT/app/.corpus-write-probe"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

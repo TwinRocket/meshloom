@@ -26,6 +26,50 @@
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
     <link rel="manifest" href="./site.webmanifest" crossorigin="use-credentials" />
     <script>
+      // Boot guard. When a module script or the stylesheet cannot load (the Remote relay refused
+      // it with 503 relay_busy, or an update removed it), wait, reload, and count the attempts.
+      // Same rule, key and format as src/utils/chunkReload.ts, which handles what fails once the
+      // app code runs. The count is not cleared by a boot: with a refused stylesheet the JS boots
+      // on every attempt. Without sessionStorage nothing can be counted, so nothing reloads.
+      (function() {
+        var KEY = 'meshloom-boot-reloads';
+        var DELAYS = [1000, 2000, 4000];
+        var CALM_MS = 60000;
+        var pending = false;
+        window.addEventListener('error', function(event) {
+          var el = event.target;
+          var failedLoad = el && (el.tagName === 'SCRIPT' || (el.tagName === 'LINK' && el.rel === 'stylesheet'));
+          var root = document.getElementById('root');
+          if (!failedLoad || pending || !root || root.firstChild) return;
+          var attempt = DELAYS.length;
+          try {
+            var saved = (sessionStorage.getItem(KEY) || '').split(':');
+            attempt = Date.now() - Number(saved[1]) > CALM_MS ? 0 : Number(saved[0]) || 0;
+            if (attempt < DELAYS.length) sessionStorage.setItem(KEY, (attempt + 1) + ':' + Date.now());
+          } catch (e) {
+            attempt = DELAYS.length;
+          }
+          if (attempt < DELAYS.length) {
+            pending = true;
+            setTimeout(function() {
+              location.reload();
+            }, DELAYS[attempt]);
+            return;
+          }
+          // No i18n without the app code, hence both languages. Inline colours and background:
+          // the stylesheet may be what failed, and this must read the same on any OS theme.
+          root.innerHTML =
+            '<div role="alert" data-boot-failed style="position:fixed;inset:0;z-index:9999;padding:2rem;' +
+            'font:16px/1.5 sans-serif;background-color:#0a0c10;color:#f5f5f7">' +
+            '<p style="margin:0 0 .5rem">Meshloom could not load.</p>' +
+            '<p style="margin:0 0 1rem">Meshloom n’a pas pu se charger.</p>' +
+            '<button type="button" onclick="location.reload()" style="padding:.5rem 1rem;font:inherit;' +
+            'border:0;border-radius:6px;cursor:pointer;background-color:#f5f5f7;color:#0a0c10">' +
+            'Reload / Recharger</button></div>';
+        }, true);
+      })();
+    </script>
+    <script>
       // Service worker registration moved to main.tsx (requires isSecureContext
       // for Web Push). Do not duplicate here.
 
@@ -64,14 +108,29 @@
           throw err;
         }));
       };
-      window.__prefetch = {
-        config: fetchJsonOrThrow('./api/radio/config'),
-        settings: fetchJsonOrThrow('./api/settings'),
-        channels: fetchJsonOrThrow('./api/channels'),
-        contacts: fetchJsonOrThrow('./api/contacts?limit=1000&offset=0'),
-        unreads: fetchJsonOrThrow('./api/read-state/unreads'),
-        undecryptedCount: fetchJsonOrThrow('./api/packets/undecrypted/count'),
-      };
+      // Nothing is fetched before the session is known: an anonymous visit (login or
+      // first-run page) would only collect 401s. Until the answer arrives the store is
+      // empty and takePrefetchOrFetch falls back to a live fetch.
+      window.__prefetch = {};
+      fetch('./api/auth/session', { cache: 'no-store' })
+        .then(function(response) { return response.ok ? response.json() : null; })
+        .then(function(session) {
+          if (!session || !session.authenticated) return;
+          // The radio configuration and the full app settings answer administrators only;
+          // asking as another role would only collect 403s. The other roles read the
+          // allowlisted slice (`/api/settings/view`, open to every role).
+          if (session.user && session.user.role === 'admin') {
+            window.__prefetch.config = fetchJsonOrThrow('./api/radio/config');
+            window.__prefetch.settings = fetchJsonOrThrow('./api/settings');
+          } else {
+            window.__prefetch.settings = fetchJsonOrThrow('./api/settings/view');
+          }
+          window.__prefetch.channels = fetchJsonOrThrow('./api/channels');
+          window.__prefetch.contacts = fetchJsonOrThrow('./api/contacts?limit=1000&offset=0');
+          window.__prefetch.unreads = fetchJsonOrThrow('./api/read-state/unreads');
+          window.__prefetch.undecryptedCount = fetchJsonOrThrow('./api/packets/undecrypted/count');
+        })
+        .catch(function() {});
     </script>
   </head>
   <body>

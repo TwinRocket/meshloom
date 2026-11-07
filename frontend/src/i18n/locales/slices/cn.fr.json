@@ -1,0 +1,25 @@
+{
+  "settings": {
+    "fullRestore": {
+      "warnings": {
+        "notification_secrets_missing": "{{value}} canal(aux) de notification restauré(s) désactivé(s) : saisissez à nouveau leurs secrets, puis activez-les.",
+        "notification_channel_dropped": "Un canal de notification de la sauvegarde ({{value}}) n’a pas pu être restauré et a été laissé de côté.",
+        "notification_user_rules_dropped": "Un choix de notification de la sauvegarde visait un compte inexistant ici et a été ignoré.",
+        "notification_rules_dropped": "Les règles de notification de la sauvegarde sont trop volumineuses et n’ont pas été restaurées.",
+        "notification_destination_secrets_missing": "Saisissez à nouveau les secrets des destinations e-mail, webhook ou Apprise dans Réglages > Notifications.",
+        "notification_rules_sanitized": "Certaines règles de notification de la sauvegarde étaient mal formées et ont été laissées de côté.",
+        "notification_text_policy_forced": "Le texte des messages est désactivé pour le canal {{value}} : un service SMS coupe les textes longs."
+      }
+    },
+    "fanout": {
+      "list": {
+        "secretUnreadable": "Un secret de cette intégration est illisible (fichier secrets.key manquant). Saisissez-le à nouveau."
+      }
+    }
+  },
+  "errors": {
+    "secret_missing": "Secret manquant après une restauration : saisissez-le à nouveau, puis activez le canal.",
+    "secret_unreadable": "Un secret de ce canal est illisible (fichier secrets.key manquant). Saisissez-le à nouveau.",
+    "secret_store_unavailable": "Les secrets ne peuvent pas être enregistrés : vérifiez que Meshloom peut écrire dans son dossier de données."
+  }
+}

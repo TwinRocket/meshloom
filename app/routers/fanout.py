@@ -1,17 +1,33 @@
 """REST API for fanout config CRUD."""
 
-import ast
-import inspect
 import logging
 import re
 import string
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from app.fanout.bot_exec import _analyze_bot_signature
+from app.auth.permissions import require
 from app.fanout.manager import fanout_manager, is_reserved_fanout_id
+from app.net.apprise_urls import (
+    AppriseUrlRefused,
+    parse_apprise_urls,
+    split_apprise_urls,
+    validate_apprise_urls,
+)
+from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
+from app.notifications.fanout_convert import CONVERSION_KEYS, CONVERTED_TO
+from app.plugins import bot_conversion
 from app.repository.fanout import FanoutConfigRepository
+from app.secret_fields import (
+    REDACTED,
+    SecretRequiredError,
+    derived_keys,
+    merge_secrets,
+    redact_config,
+    secret_keys,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/fanout", tags=["fanout"])
@@ -20,7 +36,6 @@ _VALID_TYPES = {
     "mqtt_private",
     "mqtt_community",
     "mqtt_ha",
-    "bot",
     "webhook",
     "apprise",
     "sqs",
@@ -39,6 +54,15 @@ _COMMUNITY_MQTT_TEMPLATE_FIELD_CANONICAL = {
 }
 _ALLOWED_COMMUNITY_MQTT_TRANSPORTS = {"tcp", "websockets"}
 _ALLOWED_COMMUNITY_MQTT_AUTH_MODES = {"token", "password", "none"}
+
+# Types whose destination is a user-chosen URL, checked by the egress guard
+# (app/net/AGENTS.md), and the config fields that name it.
+_GUARDED_TYPES: dict[str, tuple[str, ...]] = {
+    "webhook": ("url",),
+    "apprise": ("urls",),
+    "sqs": ("endpoint_url",),
+    "map_upload": ("api_url",),
+}
 
 
 def _normalize_community_topic_template(topic_template: str) -> str:
@@ -88,15 +112,18 @@ class FanoutConfigUpdate(BaseModel):
 
 
 def _validate_and_normalize_config(config_type: str, config: dict) -> dict:
-    """Validate a config blob and return the canonical persisted form."""
+    """Validate a config blob and return the canonical persisted form.
+
+    No network access: the egress guard's DNS check is ``_check_destinations``.
+    """
     normalized = dict(config)
+    if config_type in _GUARDED_TYPES:
+        normalized["allow_private_network"] = bool(normalized.get("allow_private_network", False))
 
     if config_type == "mqtt_private":
         _validate_mqtt_private_config(normalized)
     elif config_type == "mqtt_community":
         _validate_mqtt_community_config(normalized)
-    elif config_type == "bot":
-        _validate_bot_config(normalized)
     elif config_type == "webhook":
         _validate_webhook_config(normalized)
     elif config_type == "apprise":
@@ -201,85 +228,15 @@ def _is_plausible_email(email: str) -> bool:
     return bool(local) and "." in domain[1:-1]
 
 
-def _validate_bot_config(config: dict) -> None:
-    """Validate bot config blob (syntax-check the code and supported signature)."""
-    code = config.get("code", "")
-    if not code or not code.strip():
-        raise HTTPException(status_code=400, detail="Bot code cannot be empty")
-    try:
-        tree = ast.parse(code, filename="<bot_code>", mode="exec")
-    except SyntaxError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Bot code has syntax error at line {e.lineno}: {e.msg}",
-        ) from None
-
-    bot_def = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "bot"
-        ),
-        None,
-    )
-    if bot_def is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Bot code must define a callable bot() function. "
-                "Use the default bot template as a reference."
-            ),
-        )
-
-    try:
-        parameters: list[inspect.Parameter] = []
-        positional_args = [
-            *((arg, inspect.Parameter.POSITIONAL_ONLY) for arg in bot_def.args.posonlyargs),
-            *((arg, inspect.Parameter.POSITIONAL_OR_KEYWORD) for arg in bot_def.args.args),
-        ]
-        positional_defaults_start = len(positional_args) - len(bot_def.args.defaults)
-        sentinel_default = object()
-
-        for index, (arg, kind) in enumerate(positional_args):
-            has_default = index >= positional_defaults_start
-            parameters.append(
-                inspect.Parameter(
-                    arg.arg,
-                    kind=kind,
-                    default=sentinel_default if has_default else inspect.Parameter.empty,
-                )
-            )
-        if bot_def.args.vararg is not None:
-            parameters.append(
-                inspect.Parameter(bot_def.args.vararg.arg, kind=inspect.Parameter.VAR_POSITIONAL)
-            )
-        for kwonly_arg, kw_default in zip(
-            bot_def.args.kwonlyargs, bot_def.args.kw_defaults, strict=True
-        ):
-            parameters.append(
-                inspect.Parameter(
-                    kwonly_arg.arg,
-                    kind=inspect.Parameter.KEYWORD_ONLY,
-                    default=(
-                        sentinel_default if kw_default is not None else inspect.Parameter.empty
-                    ),
-                )
-            )
-        if bot_def.args.kwarg is not None:
-            parameters.append(
-                inspect.Parameter(bot_def.args.kwarg.arg, kind=inspect.Parameter.VAR_KEYWORD)
-            )
-
-        _analyze_bot_signature(inspect.Signature(parameters))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
-
-
 def _validate_apprise_config(config: dict) -> None:
     """Validate apprise config blob."""
     urls = config.get("urls", "")
-    if not urls or not urls.strip():
+    if not isinstance(urls, str) or not urls.strip():
         raise HTTPException(status_code=400, detail="At least one Apprise URL is required")
+    try:
+        parse_apprise_urls(split_apprise_urls(urls))
+    except AppriseUrlRefused as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
 
     from app.fanout.apprise_mod import FORMAT_VARIABLES, _apply_format
 
@@ -382,14 +339,82 @@ def _validate_mqtt_ha_config(config: dict) -> None:
             raise HTTPException(status_code=400, detail=f"{field} must be a list of public keys")
 
 
+async def _check_destinations(config_type: str, config: dict) -> None:
+    """Run the egress guard on the user-chosen destinations of a normalized config.
+
+    Resolves the host names: 400 ``egress_*`` (Apprise: with ``params.line``)
+    before anything is stored. The modules check again before each send.
+    """
+    allow_private = bool(config.get("allow_private_network", False))
+    try:
+        if config_type == "webhook":
+            await validate_destination(str(config["url"]), allow_private_network=allow_private)
+        elif config_type == "sqs":
+            endpoint_url = str(config.get("endpoint_url", "")).strip()
+            if endpoint_url:
+                await validate_destination(endpoint_url, allow_private_network=allow_private)
+        elif config_type == "map_upload":
+            api_url = str(config.get("api_url", "")).strip()
+            if api_url:
+                await validate_destination(api_url, allow_private_network=allow_private)
+        elif config_type == "apprise":
+            await validate_apprise_urls(
+                split_apprise_urls(str(config.get("urls", ""))),
+                allow_private_network=allow_private,
+            )
+    except EgressBlocked as exc:
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
+    except AppriseUrlRefused as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
+
+
+def allows_private_network(config_type: str, config: dict) -> bool:
+    """A guarded row whose LAN opt-in (``allow_private_network``) is on."""
+    return config_type in _GUARDED_TYPES and config.get("allow_private_network") is True
+
+
+def _carry_grandfathered_flag(config_type: str, config: dict, previous: dict | None) -> None:
+    """Keep ``private_network_grandfathered`` (set by migration 100 or a restore of
+    an older backup) only while the destination and its opt-in are unchanged.
+
+    The UI shows a one-time banner while it is set; its "Got it" sends false.
+    The grandfathered opt-in covers the destination it was granted for: a new
+    destination sent with the flag still true (the opt-in echoed back, never
+    confirmed) drops ``allow_private_network``. Ticking the box again in the UI
+    sends the flag as false, which keeps the opt-in. Only that echo drops it:
+    an API client that omits the flag while it changes the destination keeps
+    its explicit ``allow_private_network`` (and the flag is cleared).
+    """
+    if config_type not in _GUARDED_TYPES:
+        return
+    grandfathered = previous is not None and bool(previous.get("private_network_grandfathered"))
+    same_destination = previous is not None and all(
+        config.get(f) == previous.get(f) for f in _GUARDED_TYPES[config_type]
+    )
+    if (
+        grandfathered
+        and not same_destination
+        and config.get("private_network_grandfathered") is True
+    ):
+        config["allow_private_network"] = False
+    keep = (
+        grandfathered
+        and same_destination
+        and config.get("private_network_grandfathered") is not False
+        and config.get("allow_private_network") is True
+    )
+    if keep:
+        config["private_network_grandfathered"] = True
+    else:
+        config.pop("private_network_grandfathered", None)
+
+
 def _enforce_scope(config_type: str, scope: dict) -> dict:
     """Enforce type-specific scope constraints. Returns normalized scope."""
     if config_type == "mqtt_community":
         return {"messages": "none", "raw_packets": "all"}
     if config_type == "map_upload":
         return {"messages": "none", "raw_packets": "all"}
-    if config_type == "bot":
-        return {"messages": "all", "raw_packets": "none"}
     if config_type in ("webhook", "apprise", "mqtt_ha"):
         messages = scope.get("messages", "all")
         if messages not in ("all", "none") and not isinstance(messages, dict):
@@ -414,52 +439,118 @@ def _enforce_scope(config_type: str, scope: dict) -> dict:
     return {"messages": messages, "raw_packets": raw_packets}
 
 
-def _bot_system_disabled_detail() -> str | None:
-    source = fanout_manager.get_bots_disabled_source()
-    if source == "env":
-        return "Bot system disabled by server configuration (MESHCORE_DISABLE_BOTS)"
-    if source == "until_restart":
-        return "Bot system disabled until the server restarts"
-    return None
+def present_fanout_config(cfg: dict) -> dict:
+    """The API form of a stored row: its secrets write-only (``app/secret_fields.py``)."""
+    return {**cfg, "config": redact_config(cfg["type"], cfg.get("config") or {})}
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require("admin"))])
 async def list_fanout_configs() -> list[dict]:
     """List all fanout configs."""
     configs = await FanoutConfigRepository.get_all()
-    return [cfg for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
+    return [present_fanout_config(cfg) for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
 
 
-def prepare_fanout_config(config_type: str, config: dict, scope: dict) -> tuple[dict, dict]:
+@router.get("/{config_id}", dependencies=[Depends(require("admin"))])
+async def get_fanout_config(config_id: str) -> dict:
+    """One fanout config."""
+    existing = (
+        None if is_reserved_fanout_id(config_id) else await FanoutConfigRepository.get(config_id)
+    )
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Fanout config not found")
+    return present_fanout_config(existing)
+
+
+def prepare_fanout_config(
+    config_type: str, config: dict, scope: dict, *, restored: bool = False
+) -> tuple[dict, dict]:
     """Type check, config validation/normalisation and scope enforcement.
 
     Shared by the create route and the backup restore (``services/backup.py``).
-    Raises ``HTTPException(400)``. The bot gate (403 while bots are disabled)
-    stays with each caller.
+    Raises ``HTTPException(400)``. No DNS lookup: the create route adds
+    ``_check_destinations``; a restored row is checked by its module before
+    each send. ``restored``: a row from a backup made before the egress guard
+    (no ``allow_private_network`` key) keeps working, grandfathered like
+    migration 100 does.
     """
     if config_type not in _VALID_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid type '{config_type}'. Must be one of: {', '.join(sorted(_VALID_TYPES))}",
         )
-    return _validate_and_normalize_config(config_type, config), _enforce_scope(config_type, scope)
+    legacy = restored and config_type in _GUARDED_TYPES and "allow_private_network" not in config
+    normalized = _validate_and_normalize_config(
+        config_type, {**config, "allow_private_network": True} if legacy else config
+    )
+    if legacy:
+        normalized["private_network_grandfathered"] = True
+    # A restore keeps the file's flag (the row was grandfathered where it came
+    # from); a new row never is.
+    _carry_grandfathered_flag(config_type, normalized, normalized if restored else None)
+    return normalized, _enforce_scope(config_type, scope)
 
 
-@router.post("")
-async def create_fanout_config(body: FanoutConfigCreate) -> dict:
-    """Create a new fanout config."""
+def prepare_refused_apprise_config(config: dict, scope: dict) -> tuple[dict, dict]:
+    """The stored form of a restored Apprise row whose URLs are refused here.
+
+    A backup made before the Apprise allowlist may hold a URL Meshloom no
+    longer sends to (``egress_scheme``), or a Telegram URL with no chat id.
+    Migration 100 keeps such rows; a restore keeps them too, and the caller
+    stores them disabled. No URL is parsed: enabling or editing the row runs
+    the full check (``prepare_fanout_config`` and ``_check_destinations``).
+    """
+    normalized = dict(config)
+    if "allow_private_network" not in normalized:
+        normalized["allow_private_network"] = True
+        normalized["private_network_grandfathered"] = True
+    normalized["allow_private_network"] = bool(normalized["allow_private_network"])
+    normalized["markdown_format"] = bool(normalized.get("markdown_format", True))
+    normalized["include_outgoing"] = bool(normalized.get("include_outgoing", False))
+    _carry_grandfathered_flag("apprise", normalized, normalized)
+    return normalized, _enforce_scope("apprise", scope)
+
+
+# Bots became local plugins in 5.0.0 (migration 122, app/plugins/bot_conversion.py).
+_BOT_RETIRED_DETAIL = {
+    "code": "bot_type_retired",
+    "message": (
+        "Bots are extensions since Meshloom 5.0: manage them in Settings > Extensions "
+        "(your bots were converted there)."
+    ),
+}
+
+
+def _bot_retired() -> HTTPException:
+    return HTTPException(status_code=410, detail=_BOT_RETIRED_DETAIL)
+
+
+@router.post("", dependencies=[Depends(require("admin"))])
+async def create_fanout_config(body: FanoutConfigCreate, response: Response) -> dict:
+    """Create a new fanout config. ``type: "bot"`` answers 410 ``bot_type_retired``.
+
+    ``type: "apprise"`` is deprecated (MSHL-134, removed in 5.2.0): still accepted, with a
+    ``Deprecation: true`` header; notification channels replace it."""
+    if body.type == "bot":
+        raise _bot_retired()
     if body.type not in _VALID_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid type '{body.type}'. Must be one of: {', '.join(sorted(_VALID_TYPES))}",
         )
 
-    if body.type == "bot":
-        disabled_detail = _bot_system_disabled_detail()
-        if disabled_detail:
-            raise HTTPException(status_code=403, detail=disabled_detail)
+    if body.type == "apprise":
+        response.headers["Deprecation"] = "true"
+        logger.warning("Fanout type apprise is deprecated: use a notification channel")
 
-    normalized_config, scope = prepare_fanout_config(body.type, body.config, body.scope)
+    # A new row has no stored secret: a sentinel sent back reads as unset.
+    config = merge_secrets(body.type, None, body.config)
+    # Only a conversion marks a row converted (a restore keeps the mark: backup.py).
+    for key in CONVERSION_KEYS:
+        config.pop(key, None)
+    normalized_config, scope = prepare_fanout_config(body.type, config, body.scope)
+    if body.enabled:
+        await _check_destinations(body.type, normalized_config)
 
     cfg = await FanoutConfigRepository.create(
         config_type=body.type,
@@ -474,22 +565,54 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
         await fanout_manager.reload_config(cfg["id"])
 
     logger.info("Created fanout config %s (type=%s, name=%s)", cfg["id"], body.type, body.name)
-    return cfg
+    return present_fanout_config(cfg)
 
 
-@router.patch("/{config_id}")
-async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict:
-    """Update a fanout config. Triggers module reload."""
+def _is_new_secret(value: Any) -> bool:
+    """Whether a secret value in a PATCH types something new (not kept with ``********``)."""
+    if value is None or value == REDACTED:
+        return False
+    if isinstance(value, dict):
+        return not any(v == REDACTED for v in value.values())
+    return True
+
+
+def _sends_unreadable_secrets(config: dict | None, unreadable: list[str]) -> bool:
+    """Whether ``config`` types a new value for every secret the key cannot open."""
+    if config is None:
+        return False
+    return all(key in config and _is_new_secret(config[key]) for key in unreadable)
+
+
+def _config_edited(existing: dict, config: dict) -> bool:
+    """Whether ``config`` changes anything in ``existing``: a non-secret setting, or a
+    secret typed anew (the editor sends a kept secret back as ``********``)."""
+    secret = set(secret_keys(existing["type"]))
+    shown_only = set(derived_keys(existing["type"]))
+    current = existing.get("config") or {}
+    return any(
+        _is_new_secret(v) if k in secret else current.get(k) != v
+        for k, v in config.items()
+        if k not in shown_only
+    )
+
+
+@router.patch("/{config_id}", dependencies=[Depends(require("admin"))])
+async def update_fanout_config(
+    config_id: str,
+    body: FanoutConfigUpdate,
+) -> dict:
+    """Update a fanout config. Triggers module reload. A bot converted by the 5.0.0
+    switch answers 410 ``bot_type_retired``."""
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
     existing = await FanoutConfigRepository.get(config_id)
     if existing is None:
+        if await bot_conversion.is_archived_bot(config_id):
+            raise _bot_retired()
         raise HTTPException(status_code=404, detail="Fanout config not found")
-
     if existing["type"] == "bot":
-        disabled_detail = _bot_system_disabled_detail()
-        if disabled_detail:
-            raise HTTPException(status_code=403, detail=disabled_detail)
+        raise _bot_retired()
 
     kwargs = {}
     if body.name is not None:
@@ -499,8 +622,47 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     if body.scope is not None:
         kwargs["scope"] = _enforce_scope(existing["type"], body.scope)
 
-    config_to_validate = body.config if body.config is not None else existing["config"]
-    kwargs["config"] = _validate_and_normalize_config(existing["type"], config_to_validate)
+    unreadable = existing.get("secret_unreadable") or []
+    if unreadable and not _sends_unreadable_secrets(body.config, unreadable):
+        # A stored secret the key cannot open (MSHL-133): the config cannot be checked
+        # without it. An edit that leaves the config as it is (name, switch, scope) is
+        # saved; the module stays stopped with ``secret_unreadable`` until the secret is
+        # typed again. Changing other settings needs the secret too: 409.
+        if body.config is not None and _config_edited(existing, body.config):
+            raise HTTPException(status_code=409, detail="secret_unreadable")
+        updated = await FanoutConfigRepository.update(config_id, **kwargs)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Fanout config not found")
+        await fanout_manager.reload_config(config_id)
+        logger.info("Updated fanout config %s (unreadable secret kept)", config_id)
+        return present_fanout_config(updated)
+
+    # Secrets are write-only: ``********`` or an omitted key keeps the stored
+    # value, ``""`` clears it. Merged before validation, so the grandfathered
+    # same-destination check compares the real URLs.
+    # A kept secret never follows a destination change: 400 secret_required.
+    try:
+        config_to_validate = (
+            merge_secrets(existing["type"], existing["config"], body.config)
+            if body.config is not None
+            else existing["config"]
+        )
+    except SecretRequiredError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
+    normalized_config = _validate_and_normalize_config(existing["type"], config_to_validate)
+    _carry_grandfathered_flag(existing["type"], normalized_config, existing["config"])
+    # A converted (or converting) row stays marked (MSHL-134) whatever config an edit sends.
+    for key in CONVERSION_KEYS:
+        if existing["config"].get(key):
+            normalized_config[key] = existing["config"][key]
+        else:
+            normalized_config.pop(key, None)
+    # A disabled row sends nothing: it can be saved (or turned off) while its
+    # host does not resolve. Enabling it runs the check.
+    will_be_enabled = body.enabled if body.enabled is not None else bool(existing["enabled"])
+    if will_be_enabled:
+        await _check_destinations(existing["type"], normalized_config)
+    kwargs["config"] = normalized_config
 
     updated = await FanoutConfigRepository.update(config_id, **kwargs)
     if updated is None:
@@ -510,10 +672,64 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     await fanout_manager.reload_config(config_id)
 
     logger.info("Updated fanout config %s", config_id)
-    return updated
+    return present_fanout_config(updated)
 
 
-@router.delete("/{config_id}")
+class ConvertBody(BaseModel):
+    """``channel_id``: attach the row to this existing channel (the duplicate prompt)."""
+
+    channel_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+@router.post(
+    "/{config_id}/convert-to-notification-channel", dependencies=[Depends(require("admin"))]
+)
+async def convert_to_notification_channel(
+    config_id: str, request: Request, body: ConvertBody | None = None
+) -> dict:
+    """Convert a fanout Apprise row into a notification channel (MSHL-134,
+    ``app/notifications/fanout_convert.py``). Idempotent. The response carries the channel
+    and the row by id, name, type and state only (no ``config``, so no URL, secret or
+    redacted URL), ``already_converted`` and ``notes``."""
+    from app.notifications import api_support
+    from app.notifications.channels import ChannelError
+    from app.notifications.fanout_convert import ConversionError, convert_fanout_row
+    from app.routers.notifications import _reconcile_heartbeats
+
+    try:
+        result = await convert_fanout_row(config_id, into=body.channel_id if body else None)
+    except ConversionError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "params": exc.params}
+        ) from None
+    except ChannelError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail()) from None
+    if result.created:
+        await api_support.announce_channel_change(request, "created", result.channel)
+        await _reconcile_heartbeats()
+    channel, row = result.channel, result.fanout
+    row_config = row.get("config") or {}
+    return {
+        "channel": {
+            "id": channel.id,
+            "name": channel.name,
+            "type": channel.type,
+            "preset": channel.preset,
+            "enabled": channel.enabled,
+        },
+        "fanout": {
+            "id": str(row["id"]),
+            "name": str(row.get("name") or ""),
+            "type": row.get("type"),
+            "enabled": bool(row.get("enabled")),
+            CONVERTED_TO: row_config.get(CONVERTED_TO),
+        },
+        "already_converted": result.already_converted,
+        "notes": result.notes,
+    }
+
+
+@router.delete("/{config_id}", dependencies=[Depends(require("admin"))])
 async def delete_fanout_config(config_id: str) -> dict:
     """Delete a fanout config."""
     if is_reserved_fanout_id(config_id):
@@ -528,19 +744,3 @@ async def delete_fanout_config(config_id: str) -> dict:
 
     logger.info("Deleted fanout config %s", config_id)
     return {"deleted": True}
-
-
-@router.post("/bots/disable-until-restart")
-async def disable_bots_until_restart() -> dict:
-    """Stop active bot modules and prevent them from running again until restart."""
-    source = await fanout_manager.disable_bots_until_restart()
-
-    from app.services.radio_runtime import radio_runtime as radio_manager
-    from app.websocket import broadcast_health
-
-    broadcast_health(radio_manager.is_connected, radio_manager.connection_info)
-    return {
-        "status": "ok",
-        "bots_disabled": True,
-        "bots_disabled_source": source,
-    }

@@ -238,12 +238,15 @@ generate_service_file() {
     echo "[Unit]"
     echo "Description=Meshloom"
     echo "After=network.target bluetooth.target"
+    # A start that keeps failing stops here: see pkg/nfpm/meshloom.service.
+    echo "StartLimitIntervalSec=1h"
+    echo "StartLimitBurst=20"
     echo ""
     echo "[Service]"
     echo "Type=simple"
     echo "User=${CURRENT_USER}"
     echo "WorkingDirectory=${REPO_DIR}"
-    echo "ExecStart=${UVICORN_BIN} app.main:app --host 0.0.0.0 --port 8000"
+    echo "ExecStart=${UVICORN_BIN} app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers"
     echo "Restart=always"
     echo "RestartSec=5"
     echo "Environment=MESHCORE_DATABASE_PATH=${REPO_DIR}/data/meshcore.db"
@@ -280,6 +283,8 @@ echo
 echo -e "${YELLOW}Reloading systemd and applying ${SERVICE_NAME}...${NC}"
 as_root systemctl daemon-reload
 as_root systemctl enable "$SERVICE_NAME"
+# The unit may be at its start limit (StartLimitBurst).
+as_root systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
 as_root systemctl start "$SERVICE_NAME"
 echo
 

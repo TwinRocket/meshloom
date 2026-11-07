@@ -1,0 +1,18 @@
+{
+  "settings": {
+    "access": {
+      "audit": {
+        "actions": {
+          "pairing.created": "Code d'appairage créé",
+          "pairing.revoked": "Code d'appairage révoqué"
+        }
+      }
+    }
+  },
+  "errors": {
+    "auth_pairing_expired": "Ce code d'appairage est déjà utilisé, expiré ou inconnu : affichez-en un nouveau.",
+    "auth_pairing_limit": "Ce compte a déjà le nombre maximal de codes d'appairage en attente : révoquez-en un ou attendez qu'il expire.",
+    "auth_pairing_not_found": "Code d'appairage introuvable : il est peut-être déjà utilisé, révoqué ou expiré.",
+    "auth_pairing_ingress": "Un appareil ne peut pas s'appairer à travers Home Assistant : utilisez l'adresse de Meshloom elle-même."
+  }
+}

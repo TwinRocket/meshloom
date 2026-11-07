@@ -7,6 +7,8 @@ import logging
 from typing import Any
 
 from app.fanout.base import FanoutModule
+from app.secret_fields import config_secret_values, scrub_error
+from app.secret_store import SECRET_UNREADABLE
 
 logger = logging.getLogger(__name__)
 _DISPATCH_TIMEOUT_SECONDS = 30.0
@@ -34,7 +36,6 @@ def _register_module_types() -> None:
     if _MODULE_TYPES:
         return
     from app.fanout.apprise_mod import AppriseModule
-    from app.fanout.bot import BotModule
     from app.fanout.map_upload import MapUploadModule
     from app.fanout.mqtt_community import MqttCommunityModule
     from app.fanout.mqtt_ha import MqttHaModule
@@ -45,7 +46,6 @@ def _register_module_types() -> None:
     _MODULE_TYPES["mqtt_private"] = MqttPrivateModule
     _MODULE_TYPES["mqtt_community"] = MqttCommunityModule
     _MODULE_TYPES["mqtt_ha"] = MqttHaModule
-    _MODULE_TYPES["bot"] = BotModule
     _MODULE_TYPES["webhook"] = WebhookModule
     _MODULE_TYPES["apprise"] = AppriseModule
     _MODULE_TYPES["sqs"] = SqsModule
@@ -94,6 +94,16 @@ def _scope_matches_raw(scope: dict, _data: dict) -> bool:
     return scope.get("raw_packets", "none") == "all"
 
 
+def _dispatch_to_plugins(hook: str, data: dict) -> None:
+    """Hand the event to the plugin host too (it queues, never blocks)."""
+    from app.plugins.host import plugin_manager
+
+    try:
+        plugin_manager.dispatch(hook, data)
+    except Exception:
+        logger.exception("Plugin dispatch of %s failed", hook)
+
+
 def _always_match(_scope: dict, _data: dict) -> bool:
     """Match all modules unconditionally (filtering is module-internal)."""
     return True
@@ -105,7 +115,6 @@ class FanoutManager:
     def __init__(self) -> None:
         self._modules: dict[str, tuple[FanoutModule, dict]] = {}  # id -> (module, scope)
         self._restart_locks: dict[str, asyncio.Lock] = {}
-        self._bots_disabled_until_restart = False
         self._module_errors: dict[str, str] = {}
 
     def _broadcast_health_update(self) -> None:
@@ -123,20 +132,6 @@ class FanoutManager:
     def _clear_module_error(self, config_id: str) -> None:
         if self._module_errors.pop(config_id, None) is not None:
             self._broadcast_health_update()
-
-    def get_bots_disabled_source(self) -> str | None:
-        """Return why bot modules are unavailable, if at all."""
-        from app.config import settings as server_settings
-
-        if server_settings.disable_bots:
-            return "env"
-        if self._bots_disabled_until_restart:
-            return "until_restart"
-        return None
-
-    def bots_disabled_effective(self) -> bool:
-        """Return True when bot modules should be treated as unavailable."""
-        return self.get_bots_disabled_source() is not None
 
     async def load_from_db(self) -> None:
         """Read enabled fanout_configs and instantiate modules."""
@@ -232,18 +227,21 @@ class FanoutManager:
         config_blob = cfg["config"]
         scope = cfg["scope"]
 
-        # Skip bot modules when bots are disabled server-wide or until restart.
-        if config_type == "bot" and self.bots_disabled_effective():
-            logger.info(
-                "Skipping bot module %s (bots disabled: %s)",
-                config_id,
-                self.get_bots_disabled_source(),
-            )
-            return
-
         cls = _MODULE_TYPES.get(config_type)
         if cls is None:
             logger.warning("Unknown fanout type %r for config %s, skipping", config_type, config_id)
+            return
+
+        unreadable = cfg.get("secret_unreadable")
+        if unreadable:
+            # The secrets key cannot open a stored secret (database moved without its
+            # secrets.key, MSHL-133): the module stays stopped until it is typed again.
+            logger.warning(
+                "Fanout module %s not started: %d stored secret(s) cannot be decrypted",
+                config_id,
+                len(unreadable),
+            )
+            self._set_module_error(config_id, SECRET_UNREADABLE)
             return
 
         try:
@@ -355,13 +353,12 @@ class FanoutManager:
                     channel = await ChannelRepository.get_by_key(conversation_key)
                 except Exception:
                     logger.debug(
-                        "Fanout: failed to load channel %s for pending check",
-                        conversation_key,
-                        exc_info=True,
+                        "Fanout: failed to load a channel for pending check", exc_info=True
                     )
                     channel = None
                 if is_pending_channel(channel):
                     return
+        _dispatch_to_plugins("message", data)
         await self._dispatch_matching(
             data,
             matcher=_scope_matches_message,
@@ -371,6 +368,7 @@ class FanoutManager:
 
     async def broadcast_raw(self, data: dict) -> None:
         """Dispatch a raw packet to modules whose scope matches."""
+        _dispatch_to_plugins("raw_packet", data)
         await self._dispatch_matching(
             data,
             matcher=_scope_matches_raw,
@@ -380,6 +378,7 @@ class FanoutManager:
 
     async def broadcast_contact(self, data: dict) -> None:
         """Dispatch a contact upsert to all modules."""
+        _dispatch_to_plugins("contact", data)
         await self._dispatch_matching(
             data,
             matcher=_always_match,
@@ -389,6 +388,7 @@ class FanoutManager:
 
     async def broadcast_telemetry(self, data: dict) -> None:
         """Dispatch a repeater telemetry snapshot to all modules."""
+        _dispatch_to_plugins("telemetry", data)
         await self._dispatch_matching(
             data,
             matcher=_always_match,
@@ -398,6 +398,7 @@ class FanoutManager:
 
     async def broadcast_health_fanout(self, data: dict) -> None:
         """Dispatch a radio health snapshot to all modules."""
+        _dispatch_to_plugins("health", data)
         await self._dispatch_matching(
             data,
             matcher=_always_match,
@@ -444,33 +445,17 @@ class FanoutManager:
             if module is None and last_error is None:
                 continue
 
+            # Health and /api/debug read this: an error may quote a secret
+            # (an Apprise URL token, a password), so it never leaves unscrubbed.
+            config_type = info.get("type", "unknown")
+            config = info.get("config") or (module.config if module is not None else {})
             result[config_id] = {
                 "name": info.get("name", config_id),
-                "type": info.get("type", "unknown"),
+                "type": config_type,
                 "status": status,
-                "last_error": last_error,
+                "last_error": scrub_error(last_error, config_secret_values(config_type, config)),
             }
         return result
-
-    async def disable_bots_until_restart(self) -> str:
-        """Stop active bot modules and prevent them from starting again until restart."""
-        source = self.get_bots_disabled_source()
-        if source == "env":
-            return source
-
-        self._bots_disabled_until_restart = True
-
-        from app.repository.fanout import _configs_cache
-
-        bot_ids = [
-            config_id
-            for config_id in list(self._modules)
-            if _configs_cache.get(config_id, {}).get("type") == "bot"
-        ]
-        for config_id in bot_ids:
-            await self.remove_config(config_id)
-
-        return "until_restart"
 
 
 # Module-level singleton

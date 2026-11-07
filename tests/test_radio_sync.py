@@ -1443,7 +1443,7 @@ class TestSyncAndOffloadChannels:
         assert result["cleared"] == 1
 
     @pytest.mark.asyncio
-    async def test_iterates_all_40_channel_slots(self):
+    async def test_iterates_all_40_channel_slots(self, test_db):
         """All firmware-reported channel slots are checked."""
         from app.radio_sync import sync_and_offload_channels
 

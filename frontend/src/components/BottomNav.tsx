@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { type BottomNavTarget, NAV_ITEMS, UNREAD_BADGE_MAX } from './navDestinations';
 import { cn } from '../lib/utils';
+import { useCapabilities } from '../auth/SessionProvider';
 
 export type { BottomNavTarget };
 
@@ -37,6 +38,7 @@ export function BottomNav({
   onOpenUpdate,
 }: Props) {
   const { t } = useTranslation();
+  const capabilities = useCapabilities();
 
   return (
     <nav
@@ -54,11 +56,13 @@ export function BottomNav({
       )}
     >
       <div className="liquid-surface pointer-events-auto flex w-full max-w-md items-stretch justify-between gap-0 rounded-[1.75rem] p-1.5">
-        {NAV_ITEMS.map(({ target, labelKey, Icon }) => {
+        {NAV_ITEMS.filter(
+          ({ target }) => target !== 'settings' || capabilities.canOpenSettings
+        ).map(({ target, labelKey, Icon }) => {
           const isActive = active === target;
           const badge =
             target === 'conversations' ? unreadTotal : target === 'tools' ? pendingCount : 0;
-          const showUpdate = target === 'settings' && updateAvailable;
+          const showUpdate = target === 'settings' && updateAvailable && capabilities.isAdmin;
           return (
             <div key={target} className="relative flex min-w-0 flex-1">
               <button

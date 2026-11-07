@@ -1,0 +1,43 @@
+{
+  "contactInfo": {
+    "watch": {
+      "toggle": "Notifier quand il est entendu",
+      "help": "Notifie les canaux choisis quand ce nœud est entendu, et quand il revient après un long silence.",
+      "full": "Limite atteinte ({{max}} nœuds surveillés). Retirez-en un dans Réglages > Notifications.",
+      "channels": "Canaux à notifier",
+      "noChannel": "Aucun canal n’est choisi : rien ne sera envoyé.",
+      "loadFailed": "Impossible de charger les réglages de notification."
+    }
+  },
+  "settings": {
+    "notifications": {
+      "watched": {
+        "title": "Nœuds surveillés",
+        "help": "Notifie un canal quand un nœud suivi est entendu ou sort d’un long silence. Suivez un nœud depuis sa fiche contact.",
+        "empty": "Aucun nœud surveillé pour l’instant.",
+        "count": "{{count}} nœud(s) sur {{max}}",
+        "full": "Limite atteinte ({{max}} nœuds).",
+        "noChannel": "aucun canal",
+        "summary": "toutes les {{cooldown}} min au plus · de retour après {{silence}} h",
+        "edit": "Modifier le nœud surveillé {{name}}",
+        "remove": "Ne plus surveiller {{name}}",
+        "editTitle": "Nœud surveillé : {{name}}",
+        "dialogHelp": "Au plus une notification par délai de récupération, plus une « de retour » après un long silence.",
+        "channels": "Notifier ces canaux",
+        "channelsHelp": "Web Push n’atteint que les appareils des administrateurs.",
+        "cooldown": "Délai de récupération (minutes)",
+        "cooldownHelp": "Après une notification, ce nœud reste silencieux pendant ce délai (1 minute au moins, 30 jours au plus).",
+        "silence": "Silence avant « de retour » (heures)",
+        "silenceHelp": "Un nœud entendu après au moins ce temps sans l’avoir entendu est signalé comme de retour.",
+        "save": "Enregistrer",
+        "cancel": "Annuler"
+      },
+      "log": {
+        "events": {
+          "contact_node_seen": "Nœud surveillé entendu",
+          "contact_node_back": "Nœud surveillé de retour"
+        }
+      }
+    }
+  }
+}

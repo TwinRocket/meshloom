@@ -37,7 +37,7 @@ On a system that is not Linux (macOS, for example), the service choice is not of
 
 For a service, the script installs a package from the signed Meshloom repository (`apt` on Debian and Ubuntu, `dnf` on Fedora). If the repository has nothing for your machine, it falls back to the package attached to the GitHub release, and finally to an installation from the source code. On an ARMv6 board (Raspberry Pi 1, original Zero and Zero W) it stops at once instead: Meshloom does not run there. See [Raspberry Pi image](/en/docs/rpi/).
 
-**Security.** The script asks nothing about security, and the choice matters. Bots run code on the machine and are **on by default**, except in the Linux package (and therefore the Raspberry Pi image), which turns them off in `/etc/meshloom/meshloom.env`. With Docker or from source, add `MESHCORE_DISABLE_BOTS=true` to turn them off (in the Home Assistant add-on, turn on its `disable_bots` option), and `MESHCORE_BASIC_AUTH_USERNAME` with `MESHCORE_BASIC_AUTH_PASSWORD` to require a shared login. See [A trusted network](/en/docs/trust/).
+**Security.** The script asks nothing about security, and the choice matters. Extensions run code on the machine, but none runs until an administrator adds one and accepts its permissions. To lock every extension, set `MESHCORE_DISABLE_PLUGINS=true` (uncomment it in `/etc/meshloom/meshloom.env` for the Linux package and the Raspberry Pi image, add it with Docker or from source, or turn on the `disable_plugins` option of the Home Assistant add-on). Signing in is always required: the first time you open Meshloom it asks you to create the administrator account (see [First launch](/en/docs/first-run/) and [Accounts and access](/en/docs/deep/access/)). See [A trusted network](/en/docs/trust/).
 
 ## Open the interface
 
@@ -61,13 +61,17 @@ To check a service:
 sudo systemctl status meshloom
 ```
 
+## Pre-release
+
+To try the next version before it is final, see [Try the pre-release](/en/docs/prerelease/). A machine that does not ask for one never receives it.
+
 ## Update
 
 Open **Settings > Updates**. The page shows your type of install (Linux package, Docker Compose, Home Assistant add-on...) and a **Check now** button. When a new release exists and your install can update itself, **Install now** installs it. **Automatic updates** are off until you turn them on, and you can limit them to chosen days and hours (they follow the server's clock, not your browser's). Some versions, such as a new major version, are not installed automatically: a banner says so, and you start them with **Install now**. This limit needs Meshloom 4.18.3 or later: an older version keeps reading GitHub and installs them, and tools outside Meshloom, such as Watchtower following `:latest`, are not concerned. This only updates Meshloom and never runs a full `apt upgrade` on the system.
 
 Updates are signed. The installer carries the Meshloom release key and checks its fingerprint; it never downloads the key, and it never adds an unsigned package source. The Linux package checks the repository signature, and the update helper refuses to run if the Meshloom source is not signature-checked. With Docker, the image is pinned by digest in the `.env` file next to `docker-compose.yml` (`MESHLOOM_IMAGE=…@sha256:…`). The update helper only moves this pin to a newer release whose digest is signed, and never goes back to an older one.
 
-If **Settings > Updates** says you must update manually or re-run the installer, run it again. It keeps your data, replaces an old update helper and, for Docker, keeps the previous Compose file as `docker-compose.yml.bak-<date>`. If you edited your `docker-compose.yml` (to add a port, say), the installer shows your changes and offers to keep them, which is the default: it then updates only its own lines (the image and the update helper) and leaves yours alone. If it cannot adapt your file, it leaves it untouched and asks whether to generate a new one. Run the installer with the same account that created the stack: `root` if it lives in `/root/meshloom`.
+If **Settings > Updates** says you must update manually or re-run the installer, run it again. It keeps your data, replaces an old update helper (the previous one, which **Settings > Updates** flags, trusted files the container can write; the new one is signed) and, for Docker, keeps the previous Compose file as `docker-compose.yml.bak-<date>`. If you edited your `docker-compose.yml` (to add a port, say), the installer shows your changes and offers to keep them, which is the default: it then updates only its own lines (the image and the update helper) and leaves yours alone. If it cannot adapt your file, it leaves it untouched and asks whether to generate a new one. Run the installer with the same account that created the stack: `root` if it lives in `/root/meshloom`.
 
 Two cases update by hand:
 
@@ -80,7 +84,7 @@ sudo dnf upgrade --refresh meshloom            # Fedora
 sudo docker compose pull && sudo docker compose up -d   # Docker without the helper
 ```
 
-Your data stays where it was: `/var/lib/meshloom` for the package, the `data` folder next to `docker-compose.yml` for Docker. Database changes are applied automatically at startup.
+Your data stays where it was: `/var/lib/meshloom` for the package, the `data` folder next to `docker-compose.yml` for Docker. Database changes are applied automatically at startup. **Coming from 4.18?** The 5.0 upgrade cannot be undone in place: read [Upgrading from 4.18](/en/docs/upgrade-4-18/) first.
 
 ## On Home Assistant
 
@@ -90,11 +94,13 @@ If Home Assistant already runs on the machine that will host Meshloom, install M
 
 The button opens the right dialog on your own Home Assistant, with the address filled in. It is only a redirect and learns nothing about you. To do it by hand, go to **Settings > Add-ons > Add-on store > ⋮ > Repositories**, add the repository address, then install **Meshloom** from the store.
 
-Two things work differently there:
+A few things work differently there:
+
+**Home Assistant signs you in.** Opened from the sidebar, Meshloom asks for no password and shows no account creation page: the first Home Assistant user to open it becomes its administrator, the next ones get the **Member** role. This includes an add-on updated from 4.18. The `basic_auth_username` and `basic_auth_password` options are removed: Meshloom no longer reads them, so empty them if you had set them. Where you publish the port (below), you now go through the normal first-run setup, from the local network.
 
 **The radio-sharing port is set in Home Assistant, not in Meshloom.** The interface is reached through the sidebar and publishes nothing, so the radio proxy (see [Radio transports](/en/docs/deep/transports/)) is the only thing visible on the network. Change its port in the add-on's **Network** panel. The field inside Meshloom only displays it, because a value typed there would make Meshloom listen where nothing is forwarded.
 
-**Notifications need an address of their own.** The sidebar has no stable public address, so Web Push cannot work through it alone. Give Meshloom a real host name (the Cloudflared add-on can do this without opening a port on your router) and open Meshloom at that address.
+**Notifications need an address of their own.** The sidebar has no stable public address, so Web Push cannot work through it alone. Give Meshloom a real host name (the Cloudflared add-on can do this without opening a port on your router) and open Meshloom at that address ([Remote access on your own](/en/docs/deep/remote-self-hosted/#home-assistant-add-on)).
 
 This is not the same as [publishing the mesh to Home Assistant over MQTT](/en/docs/deep/home-assistant/), which works from any installation and needs no add-on.
 

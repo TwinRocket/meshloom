@@ -1,0 +1,55 @@
+{
+  "settingsNav": {
+    "share": "Share: links and files"
+  },
+  "settings": {
+    "share": {
+      "title": "Share: links and files",
+      "loading": "Loading the sharing status…",
+      "intro": "Shorten long links and share files. Off until you turn it on.",
+      "enable": "Turn on link and file sharing",
+      "unreachable": "The sharing service is not answering. Try again later.",
+      "communityOff": "Sharing needs Meshloom Community. Community is off, so sharing is paused; your settings are kept.",
+      "openCommunity": "Open Community settings",
+      "banned": {
+        "title": "Sharing banned for this Meshloom",
+        "body": "The sharing service banned this Meshloom for 12 hours; links already shared still work. A mistake? Write to <email>ban@meshloom.app</email>."
+      },
+      "termsStale": "The terms have changed: turn sharing on again to accept the new ones.",
+      "status": {
+        "yes": "yes",
+        "no": "no",
+        "enabled": "Sharing turned on",
+        "identity": "Sharing identity ready",
+        "identityPending": "not yet (created the first time you share)",
+        "dm": "Encrypted files for direct messages available",
+        "dmUnavailable": "Available once this Meshloom holds the radio's key: the radio connected, and no radio proxy in between."
+      },
+      "consent": {
+        "title": "Turn on link and file sharing?",
+        "intro": "The links and files you share go through the Meshloom sharing service. <docs>Learn more</docs>",
+        "accept": "I accept the <terms>terms</terms> and the <privacy>privacy policy</privacy>.",
+        "cancel": "Cancel",
+        "confirm": "Turn on sharing"
+      },
+      "shorten": {
+        "legend": "Shorten links when you write a message",
+        "auto": "Automatic",
+        "autoHelp": "On send, links over 26 characters are shortened. If the service does not answer, they go out as typed.",
+        "always": "Always",
+        "alwaysHelp": "Every link is shortened on send. If the service does not answer, the message is not sent.",
+        "never": "Never",
+        "neverHelp": "Links are sent as you typed them."
+      },
+      "preview": {
+        "legend": "Previews of shared images and links",
+        "always": "Always",
+        "alwaysHelp": "Fetched automatically in every conversation.",
+        "private": "Private conversations only",
+        "privateHelp": "Not fetched in public channels, where anyone can post a link.",
+        "never": "Never",
+        "neverHelp": "Nothing is fetched; open an item yourself to see it."
+      }
+    }
+  }
+}

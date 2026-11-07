@@ -7,7 +7,7 @@ order: 14
 
 Meshloom has two places where it is configured, and they do not overlap.
 
-The **environment** holds what must be known before anything starts: where to write the database, whether bots are allowed, whether a password protects the page, and which diagnostic switches are on. Changing it requires a restart.
+The **environment** holds what must be known before anything starts: where to write the database, whether extensions are allowed, whether a password protects the page, and which diagnostic switches are on. Changing it requires a restart.
 
 **Settings** live in the database. You change them in the web interface, and they apply immediately. The radio connection is one of them: it is a setting, not an environment variable. See [Radio transports](/en/docs/deep/transports/).
 
@@ -19,7 +19,7 @@ The **environment** holds what must be known before anything starts: where to wr
 | Service installed from a source checkout | No file. Add `Environment=NAME=value` lines under `[Service]` with `sudo systemctl edit meshloom` | `sudo systemctl restart meshloom` |
 | Docker | `environment:` block of the Compose file, or a `.env` next to it | `docker compose up -d` |
 | Checkout run by hand | The environment of the shell that runs `uv run uvicorn` | Restart the command |
-| Home Assistant add-on | No variable to edit: the add-on's options (log level, password, bots) become variables, and the add-on sets the others itself. See [On Home Assistant](/en/docs/install/#on-home-assistant) | Restart the add-on |
+| Home Assistant add-on | No variable to edit: the add-on's options (log level, lock of extensions) become variables, and the add-on sets the others itself. See [On Home Assistant](/en/docs/install/#on-home-assistant) | Restart the add-on |
 
 Re-running `install_service.sh` rewrites the main systemd unit of a source install. A drop-in created with `systemctl edit` is kept, and `meshloom.env` is not involved.
 
@@ -63,11 +63,9 @@ See [Meshloom Community](/en/docs/deep/community/).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. Bots run Python code with full access to the machine. The Linux package sets it to `true` in `meshloom.env` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application, the live connection (WebSocket) included. Use it with [HTTPS](/en/docs/deep/https/) |
-| `MESHCORE_BASIC_AUTH_PASSWORD` | *(empty)* | Matching password |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Host lock of the plugin system: when `true`, no plugin can be installed, changed or started, whatever the settings say; viewing, deleting and pausing all plugins still work, and plugins restored from a backup come back turned off and stay so. The Linux package ships it commented out in `meshloom.env`. The bot lock variable of 4.18 and earlier no longer does anything: Meshloom logs a warning naming this variable if it is still set (see [Plugins](/en/docs/deep/plugins/#bots-from-418-and-earlier)). In the Home Assistant add-on, it is the `disable_plugins` option |
 
-The two password variables must be set together. Setting only one stops Meshloom at startup. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
+`MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` are retired (also listed under **Retired variables**): Meshloom no longer imports them as an account and no longer accepts `Authorization: Basic`; it only logs a warning at every start while they are set (remove them; accounts are managed in **Settings → Users & Access**, scripts use an API token). An installation that relied only on the Basic login goes through the first-run setup, from the local network. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 
 ## Installation and updates
 
@@ -79,6 +77,17 @@ The installer sets these for you. You rarely edit them by hand.
 | `MESHLOOM_UPDATE_HELPER` | `compose` for a Docker stack managed by the update helper, `none` to turn installing from the interface off |
 | `MESHLOOM_RUN_AS_USER` | Docker only. A number such as `10001` runs Meshloom as that user instead of root. See [Other install paths](/en/docs/deep/install-paths/) |
 | `MESHLOOM_IMAGE` | Docker only. The image Compose starts, ideally pinned by digest |
+
+## Notifications
+
+Notifications are set in **Settings → Notifications** and stored in the database, not in variables (see [Notifications](/en/docs/deep/notifications/)). The channels (their settings, secrets and limits) live in their own tables; the settings below are in the settings table:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `notification_language` | `auto` | `auto`, `fr` or `en`. The language of the instance for notifications (a channel can set its own); `auto` follows the browsers subscribed to push (English only with a strict majority of English browsers, a tie is French) |
+| `notification_rules` | `{}` | The notification rules (which channel receives which event, per-conversation exceptions). Written by the 4.18 to 5.0 import, the rules table, the bell, **Do not disturb** and the channels' deletion; `paused_until` (the pause) and the options of the table (`mention_whole_word`, `emit_ws_events`: send the matched events to the open web pages, on by default) are in it |
+| `radio_offline_grace_s` | `60` | Seconds the radio may stay unreachable before **Radio offline** is sent (0 to 3600; 0 notifies at once). Set under the **Radio offline** row of the rules table |
+| `push_allow_private_endpoints` | `false` | Accept Web Push endpoints on a private network, for a self-hosted UnifiedPush distributor. See [Push](/en/docs/deep/push/#push-services-on-a-private-network) |
 
 ## Retired variables
 
@@ -106,6 +115,8 @@ Meshloom writes the same warning at each start while one of them is still set.
 
 | Retired variable | What happens to it |
 |----------|---------|
+| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Ignored: not imported as an account, and `Authorization: Basic` is no longer accepted (use an API token). Meshloom logs a warning at each start while one is set. Accounts are managed in **Settings → Users & Access** |
+| `MESHCORE_DISABLE_BOTS` | The Python bots are extensions since 5.0.0. Read one last time by the migration of the bots (`true` stores every converted extension switched off), then ignored, with a start-up warning that names `MESHCORE_DISABLE_PLUGINS`. To lock every extension, set that variable (see [Plugins](/en/docs/deep/plugins/#bots-from-418-and-earlier)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignored, with the same warning. The radio's private key can always be read back: through `GET /api/radio/private-key` and in the full backup (**Settings → Database**, see [Back up your radio](/en/docs/backup/)). See [Security](/en/docs/deep/security/#the-nodes-private-key) |
 
 ## Settings stored in the database
@@ -114,16 +125,17 @@ You change these in the web interface. Nothing here is set through the environme
 
 | Where | What it controls |
 |-------|------------------|
-| **Radio** | The connection (see above). **Messaging** tab: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Advertising** tab: `advert_interval` (set in hours in the interface, stored in seconds; `0` turns it off, any other value is at least 1 hour). **Advanced** tab: `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict`, `auto_clock_wraparound` |
+| **Radio** | The connection (see above). **Messaging** tab: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`, `keep_channels_on_radio`. **Advertising** tab: `advert_interval` (set in hours in the interface, stored in seconds; `0` turns it off, any other value is at least 1 hour). **Advanced** tab: `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict`, `auto_clock_wraparound` |
 | **Database** | `auto_decrypt_dm_on_advert` |
 | **Radio-App Management** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 of each at most), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alerts** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (email and webhook) |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail, webhook and Apprise, the 4.18.x destinations), `notification_language`, `notification_rules`, `radio_offline_grace_s`, `push_allow_private_endpoints`; the new tables `notification_channels`, `notification_deliveries`, `notification_counters` and `notification_state` |
 | **Updates** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
-| **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail |
+| **Users & Access** | `public_urls` (**Public addresses**: the names Meshloom answers to from outside, declared by an administrator; no environment variable exists for them), `host_guard_mode` (observe or enforce; switched to enforce when the first public address is declared) |
+| **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail; `auth_allowed_origins`: the other sites allowed to call the API (**Allowed origins**) |
 | Discovered channels | `rejected_channels`: the channels you refused |
 | Not in the interface | `raw_packet_retention_days`: automatically deletes unreadable packets older than this many days (`0` keeps everything). Set it through `PATCH /api/settings` |
 
 The VAPID key pair (`vapid_private_key` and `vapid_public_key`) is created on first start. The interface is the supported way to change settings; some of them can also be read and changed with `GET` and `PATCH /api/settings`.
 
-Integrations (MQTT, bots, webhooks, Apprise, SQS) are stored apart, in `fanout_configs`. Meshloom Community has its own endpoint, `/api/community`. See [Fanout](/en/docs/deep/fanout/), [Meshloom Community](/en/docs/deep/community/) and [Radio, contacts and channels](/en/docs/deep/radio/).
+Integrations (MQTT, webhooks, Apprise, SQS) are stored apart, in `fanout_configs`. Meshloom Community has its own endpoint, `/api/community`. See [Fanout](/en/docs/deep/fanout/), [Meshloom Community](/en/docs/deep/community/) and [Radio, contacts and channels](/en/docs/deep/radio/).

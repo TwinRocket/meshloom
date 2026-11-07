@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "Level": {
+      "enum": ["info", "warning"],
+      "title": "Level",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "name": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "token": {
+      "format": "password",
+      "title": "Token",
+      "type": "string",
+      "writeOnly": true
+    },
+    "link": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Link"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "level": {
+      "$ref": "#/$defs/Level",
+      "default": "info"
+    },
+    "retries": {
+      "default": 3,
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Retries",
+      "type": "integer"
+    },
+    "ratio": {
+      "default": 0.5,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Ratio",
+      "type": "number"
+    },
+    "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    }
+  },
+  "required": ["name", "token"],
+  "title": "ExampleChannel",
+  "type": "object"
+}

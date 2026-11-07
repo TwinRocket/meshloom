@@ -41,6 +41,20 @@ Two exceptions to this reuse:
 - With a **network (TCP) radio**, every channel send rewrites the channel into the radio, because another program may be using the same radio.
 - **Rewrite the channel before every send**, in **Settings → Radio → Advanced**, does the same on every connection type. Use it if the slots seem unstable or if another app changes them. Each channel send then takes a little longer.
 
+Deleting a channel in Meshloom also empties its slot on the radio, at once or at the next connection if the radio is away. Otherwise that connection would bring the channel back.
+
+### Keep channels on the radio
+
+**Keep channels on the radio**, in **Settings → Radio → Messaging**, is off by default. Turn it on if you also use the radio without Meshloom (the official MeshCore app, another client) or if you want the channels of a restore to stay on the radio. It applies at the next connection:
+
+- Meshloom still copies every channel of the radio at connection, but no longer empties the slots.
+- Sending to a channel that is already on the radio uses its slot as it is.
+- Meshloom keeps one slot for itself, the last one, to send to channels that are not on the radio. It never overwrites the other slots. A radio with 8 slots keeps 7 channels; the settings page shows the number for your radio.
+- With a network (TCP) radio, or with **Rewrite the channel before every send**, every channel send goes through that last slot.
+- The **Radio test** (in the sidebar) borrows the last slot too.
+
+Which channels are kept is up to you: add or remove them on the radio with another MeshCore app, or restore a backup (see [Back up your radio](/en/docs/backup/)).
+
 ## The hourly audit
 
 Meshloom relies on the radio's events to receive messages, and also runs a slow check once an hour. The check looks for messages left on the radio, and for channel slots that no longer match what Meshloom expects.
@@ -113,6 +127,12 @@ The **Workarounds** group of the same tab holds the fixes mentioned on this page
 
 Below the firmware settings, **Radio sensors** shows what the radio itself reports: its battery voltage, the MCU temperature when the board has a sensor, and the GPS position when the GPS is on. The storage used on the radio is shown too, as used / total KB with a percentage, when the radio reports it. The values are read when you open the tab; **Refresh** reads them again.
 
+## Telemetry of repeaters and contacts
+
+Each time Meshloom fetches the telemetry of a repeater or of a contact's sensors (from its pane, through the API, or by automatic polling), it keeps the readings for 30 days, and at most 1,000 samples per node. Automatic polling is set in **Settings → Radio-App Management**: the interval, and the repeaters and contacts polled, 8 of each at most so the mesh stays uncongested.
+
+On a repeater or room server, **Remember password** stores the password in plain text in this browser's storage. Prefer an ACL entry once the first sign-in has worked.
+
 ## Wi-Fi
 
 Radios with companion firmware 1.18 or later built with Wi-Fi have a Wi-Fi interface that Meshloom reads and sets through the radio's companion command line. That covers the official Bluetooth + Wi-Fi builds and the Wi-Fi builds made by the Meshloom flasher. **Settings → Radio → Connection** then shows a **Wi-Fi** group: the network name (SSID), whether Wi-Fi is on, whether the radio is connected and its address, and **Credentials stored in the radio** (yes or no). The network name shown is the stored one, or the one built into the firmware when nothing is stored: the radio cannot tell which. The group is hidden when the firmware has no command line (older than 1.18, or a radio reached through another Meshloom's radio proxy) or no Wi-Fi.
@@ -150,7 +170,7 @@ Meshloom never stores the Wi-Fi password, in its database or in its logs. To kno
 
 ## Factory reset
 
-At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. The button needs the radio connected. A window lists what happens, and you must type the radio's name exactly before the confirm button works.
+At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. The button needs the radio connected. A window sums up what is erased and what is kept (details below), and you must type the radio's name exactly before the confirm button works.
 
 **Erased from the radio:**
 
@@ -166,14 +186,32 @@ At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. 
 
 The radio restarts and Meshloom reconnects by itself. It then asks whether to adopt the new identity, with the usual identity prompt. This cannot be undone.
 
+## Other radio settings
+
+- **Extra Direct ACK Transmission** makes the radio send one extra receipt before the normal one for each direct message it receives. It is a firmware behaviour, not a Meshloom retry.
+- **Telemetry Sharing** decides what the radio answers when another node asks for its telemetry: **Deny** refuses every request, **Per-Contact** follows the permission set for each contact on the radio, **Allow All** answers anyone.
+- **Export** saves the current server config to a JSON file; **Import** applies such a file and reboots the radio. A file that holds a private key gives the radio that identity: other nodes then see a different device, and only the original key can bring the old one back.
+
+## Telemetry tracking and blocking
+
+**Settings → Radio-App Management** collects telemetry from the nodes you choose, on a schedule:
+
+- **Tracked Repeater Telemetry**: up to 8 repeaters. To limit mesh traffic, all tracked nodes share at most 24 checks a day, so the more you track, the longer the interval. When you track too many for the interval you chose, Meshloom uses a longer one and says so; your choice comes back once you track fewer.
+- **Tracked Contact Telemetry**: up to 8 other contacts (companions, rooms, sensors), for their LPP telemetry (battery, sensors, GPS). They share the same daily ceiling.
+- **Poll direct/routed-path repeaters hourly** checks every hour the tracked repeaters that have a direct or routed path; flood-only repeaters keep the schedule.
+
+**Blocking** a contact only hides it and its messages in the interface. Its messages are still stored and come back when you unblock it, and MQTT forwarding and extensions still receive them. **Block Discovery of New Node Types** stops Meshloom adding new contacts of the ticked types when it hears their adverts; existing contacts of those types are still updated, and contacts added by hand or through a direct message are not affected.
+
 ## Radio proxy
 
 **Settings → Proxy** can make Meshloom look like a MeshCore radio on your network, so that a phone app or another Meshloom connects through it. It is off by default. When enabled it listens on port 5001, on every network address, for up to 8 clients at a time. You can change the address, the port and the number of clients.
 
-The MeshCore protocol has no password: only enable the proxy on a network you trust. A second Meshloom must use a new database.
+The MeshCore protocol has no password: only enable the proxy on a network you trust. A connection that does not start like a MeshCore client, such as a web page or a port scan, is closed. A second Meshloom must use a new database (or explicitly adopt this identity), and Meshloom refuses to point its own radio connection at its own proxy. When the host sets the published port (the Home Assistant add-on, for example), change it in the host's network settings.
+
+The proxy never gives out the radio's private key, by design. A Meshloom connected through it therefore does not hold that key, and what needs the key stays off there: **Meshloom Community**, and with it Meshloom Remote, link and file sharing and Live; decrypting direct messages on the server; the LetsMesh pass and the map upload; the identity in the full backup. Meshloom says **this radio's key isn't available here** when you try. To use these features, connect the radio directly to that Meshloom, or use them on the Meshloom that holds the key, the one the radio is plugged into. Reading and sending through the proxy are not affected.
 
 ## The private key
 
 When it connects, Meshloom asks the radio for its private key and keeps it **in memory only**. It is never written to its database. With it, Meshloom can decrypt direct messages itself, even when the contact is not loaded on the radio, and can read old messages once a key becomes known.
 
-Anyone who reaches the interface can read the key back, through `GET /api/radio/private-key` and in the full backup of **Settings → Database**, which is how you keep the radio's identity across a reflash (see [Back up your radio](/en/docs/backup/)). Firmware built without key export gives no key, and its backups hold no identity. See [Security](/en/docs/deep/security/#the-nodes-private-key).
+Anyone who reaches the interface can read the key back, through `GET /api/radio/private-key` and in the full backup of **Settings → Database**, which is how you keep the radio's identity across a reflash (see [Back up your radio](/en/docs/backup/)). Firmware built without key export gives no key, nor does a [radio proxy](#radio-proxy), and the backups made that way hold no identity. See [Security](/en/docs/deep/security/#the-nodes-private-key).

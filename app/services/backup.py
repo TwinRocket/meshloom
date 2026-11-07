@@ -4,19 +4,26 @@
   channels, settings, groups and push preferences, merged into the live DB.
 - ``meshloom-backup-v2``: the v1 fields plus the radio identity, every radio
   setting, Wi-Fi credentials stored in the radio and the rest of the Meshloom
-  settings (``BACKUP_COVERAGE`` lists every column and table with a decision).
-- The SQLite file download (``write_sqlite_backup``) never replaces the live DB.
+  settings (``BACKUP_COVERAGE`` lists every column and table with a decision),
+  and the optional named ``sections`` other features register
+  (``app/services/backup_sections.py``, ``docs/dev/backup.md``).
+- The SQLite file download (``write_sqlite_backup``) never replaces the live DB;
+  the copy carries a marker that runs the restore hooks if it is put back.
 """
 
+import ipaddress
+import json
 import logging
 import re
 import time
 import unicodedata
+from collections.abc import Mapping
 from typing import Any, Literal, TypeVar
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import aiosqlite
 from pydantic import BaseModel, SecretStr, ValidationError
+from starlette.requests import Request
 
 from app.database import Database
 from app.models import (
@@ -32,18 +39,37 @@ from app.models import (
     BackupRadioProxy,
     BackupRestoreRequest,
     BackupRestoreResult,
+    BackupSection,
     BackupV1Document,
     BackupVapid,
     BackupWifi,
     ContactGroup,
     ContactUpsert,
     MeshloomExtra,
+    NotificationDestinations,
 )
 from app.repository import (
     AppSettingsRepository,
     ChannelRepository,
     ContactGroupRepository,
     ContactRepository,
+)
+
+# Imported for its side effect: the instance identities' on_restore hook, so it is
+# registered before the lifespan runs the SQLite restore hooks.
+from app.services import (
+    backup_notifications,  # noqa: F401  registers the notifications section
+    backup_plugins,  # noqa: F401  registers the plugins section
+    instance_identity,  # noqa: F401, E402
+    remote,  # noqa: F401  registers the Remote on_restore hook
+)
+from app.services.backup_accounts import ACCOUNT_SECTIONS  # registers the users section
+from app.services.backup_sections import (
+    export_sections,
+    prepare_sqlite_snapshot,
+    refuse_identity_seeds,
+    run_on_restore_hooks,
+    sensitive_section_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +79,12 @@ BACKUP_FORMAT_V2 = "meshloom-backup-v2"
 
 PRIVATE_KEY_WARNING = (
     "The radio private key is NOT in this file (Meshloom keeps it in memory only). "
-    "The full backup in Settings > Database includes it."
+    "The full backup in Settings > Database includes it. "
+    # MSHL-133: the HTTP header must stay ASCII.
+    "The notification channel and integration secrets in this file are encrypted with "
+    "secrets.key (in the data folder, not in this file): copy it with the database, or "
+    "type those secrets again. MeshCore channel keys, the push (VAPID) private key and "
+    "the 4.18 notification destinations stay in plain text in this file."
 )
 
 CoverageDecision = Literal["included", "excluded"]
@@ -70,6 +101,7 @@ _HISTORY = "history or cache (the database download covers history)"
 # The v1 settings: exported in ``settings`` and written back by ``restore_json``
 # (one list, so a column marked included here is never dropped on restore).
 V1_SETTING_COLUMNS: tuple[str, ...] = (
+    "store_online",
     "max_radio_contacts",
     "auto_decrypt_dm_on_advert",
     "advert_interval",
@@ -96,6 +128,13 @@ V1_SETTING_COLUMNS: tuple[str, ...] = (
     "force_channel_slot_reconfigure",
     "load_with_autoevict",
     "auto_clock_wraparound",
+    "keep_channels_on_radio",
+    "push_allow_private_endpoints",
+    "push_private_endpoints_grandfathered",
+    "radio_offline_grace_s",
+    "share_shorten_mode",
+    "share_preview_policy",
+    "notification_language",
     "ui_preferences",
 )
 BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
@@ -146,7 +185,60 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
             "radio_mismatch_new_name",
         )
     },
+    "app_settings.radio_outage_started_at": (
+        "excluded",
+        "live outage state of this host's radio: meaningless on another host",
+    ),
+    "app_settings.push_private_endpoints_review": (
+        "excluded",
+        "notice of the upgrade on this host, meaningless on another one",
+    ),
+    "app_settings.share_enabled": (
+        "excluded",
+        "sharing consent: a copy restored elsewhere would enable an egress nobody clicked",
+    ),
+    "app_settings.share_terms_version": (
+        "excluded",
+        "sharing consent: a copy restored elsewhere would carry an acceptance nobody clicked",
+    ),
+    "app_settings.share_terms_accepted_at": (
+        "excluded",
+        "sharing consent: a copy restored elsewhere would carry an acceptance nobody clicked",
+    ),
+    "app_settings.share_instance_seed": (
+        "excluded",
+        "instance identity seed: never exported, created on first use, rotated by every restore",
+    ),
+    "app_settings.remote_instance_seed": (
+        "excluded",
+        "instance identity seed: never exported, created on first use, rotated by every restore",
+    ),
+    "remote_state": (
+        "excluded",
+        "Remote opt-in and registration: a restore leaves Remote off and unregistered",
+    ),
+    "remote_devices": ("excluded", "Remote devices: their passes die with the restored key"),
+    "remote_enroll_tokens": ("excluded", "Remote enrolment tokens: short-lived, single use"),
+    "community_attestations": (
+        "excluded",
+        "Community attestations of the instance keys: the restore rotates those keys",
+    ),
+    "channel_slot_clears_pending": (
+        "excluded",
+        "Deleted channels still on a slot of this radio: kept out of a copy, they hold keys",
+    ),
+    **{
+        f"app_settings.{column}": (
+            "excluded",
+            "plugin pause: live incident state of this host, never restored on another one",
+        )
+        for column in ("plugins_paused", "plugins_paused_at", "plugins_paused_by")
+    },
     "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
+    "app_settings.auth_allowed_origins": (
+        "excluded",
+        "access control for this host's addresses: never restored silently",
+    ),
     **{
         f"app_settings.{column}": ("excluded", _RUNTIME)
         for column in (
@@ -166,7 +258,11 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "contact_groups": ("included", "v1 groups"),
     "contact_group_members": ("included", "v1 groups"),
     "app_settings": ("included", "per column, above"),
-    "fanout_configs": ("included", "meshloom_extra.fanout_configs (bots restored disabled)"),
+    "fanout_configs": (
+        "included",
+        "meshloom_extra.fanout_configs (4.18 bots restored as extensions, disabled)",
+    ),
+    "fanout_configs_bots_archive": ("excluded", "the 4.18 bots converted by migration 122"),
     "push_subscriptions": ("included", "meshloom_extra.push_subscriptions (host without push)"),
     **dict.fromkeys(
         (
@@ -182,15 +278,122 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         ),
         ("excluded", _HISTORY),
     ),
+    # Local accounts (docs/dev/auth.md). Users travel in the ``users`` section
+    # (``services/backup_accounts.py``), not in the v1 fields. Sessions never
+    # leave; the audit trail is not in the JSON backup but
+    # stays in the SQLite download.
+    "users": ("excluded", "the users backup section (services/backup_accounts.py)"),
+    "sessions": ("excluded", "login sessions, never exported"),
+    "pairing_codes": (
+        "excluded",
+        "device pairing codes (short-lived hashes), never exported, emptied in the SQLite download",
+    ),
+    "api_tokens": ("excluded", "the api_tokens backup section (services/backup_accounts.py)"),
+    "user_notification_rules": (
+        "included",
+        "the notification_user_rules backup section (services/backup_notifications.py)",
+    ),
+    "recovery_codes": (
+        "excluded",
+        "TOTP recovery code hashes: inside the users backup section (services/backup_accounts.py)",
+    ),
+    "webauthn_credentials": (
+        "excluded",
+        "passkeys (public keys): inside the users backup section (services/backup_accounts.py)",
+    ),
+    "auth_audit": ("excluded", "audit trail: not in the JSON backup, kept in the SQLite download"),
+    "auth_settings": (
+        "excluded",
+        "access settings of this host (networks, proxies, URLs) and the known-device cookie"
+        " key (cleared in the SQLite download)",
+    ),
+    "ip_bans": (
+        "excluded",
+        "addresses banned after failed sign-ins (app/auth/ip_ban.py): state of this host",
+    ),
+    "ip_ban_whitelist": (
+        "excluded",
+        "addresses never banned: like the trusted networks, a setting of this host's network",
+    ),
+    "oidc_provider": (
+        "excluded",
+        "OpenID Connect provider of this host (redirect URIs name its addresses); the client"
+        " secret is cleared in the SQLite download",
+    ),
+    "oidc_links": (
+        "excluded",
+        "OpenID Connect links name account ids: deleted by an accounts restore, linked again",
+    ),
+    "email_sign_in": (
+        "excluded",
+        "which notification e-mail channel sends the sign-in mails (app/auth/email_factor.py):"
+        " a setting of this host",
+    ),
+    "user_email_factor": (
+        "excluded",
+        "verified sign-in addresses name account ids: deleted by an accounts restore, each"
+        " account verifies its address again",
+    ),
+    # Notification channels (MSHL-108, MSHL-117): the ``notifications`` backup section
+    # (services/backup_notifications.py) holds the channels without their secrets and the
+    # rules. The SQLite download carries the secrets, encrypted with ``secrets.key`` (not in
+    # the download, MSHL-133); ``notification_destinations`` stays in plain text.
+    "app_settings.notification_rules": (
+        "included",
+        "notifications section (services/backup_notifications.py)",
+    ),
+    "notification_channels": (
+        "included",
+        "notifications section, write-only fields never exported (secret_omitted)",
+    ),
+    "notification_deliveries": ("excluded", "delivery journal: runtime state"),
+    "notification_counters": ("excluded", "hourly send counters: runtime state"),
+    "notification_state": ("excluded", "dedup timestamps and outage state: runtime state"),
+    # Plugins (docs/dev/plugins.md, "Data model"). The instances go through the
+    # plugins section (services/backup_plugins.py); the secrets never leave (emptied
+    # in the SQLite download too).
+    "plugins": (
+        "included",
+        "plugins section: local ones whole, the others to reinstall, no secret, no runtime state",
+    ),
+    "plugin_kv": ("excluded", "plugin storage: data of the plugin, never exported"),
+    "plugin_secrets": ("excluded", "plugin config secrets, never exported"),
+    "plugin_kept_data": (
+        "excluded",
+        "owners of the data an uninstall kept: follows plugin_kv, never exported",
+    ),
+    "store_repositories": (
+        "excluded",
+        "custom Store repositories and their cached release: re-added by the admin; a "
+        "restored custom instance reinstalls from its own repository",
+    ),
+    "plugin_send_quota": ("excluded", "plugin send counters: runtime state"),
+    "plugin_send_guard": (
+        "excluded",
+        "plugin send budget counters and loop-guard stamps: runtime state",
+    ),
+    "plugin_send_limits": (
+        "excluded",
+        "limits the user lowered for the plugin send guards: instance tuning",
+    ),
+    "plugin_uids": (
+        "excluded",
+        "uid of each plugin instance under setuid: host state, reallocated at start",
+    ),
 }
 
 
 async def write_sqlite_backup(database: Database, dest_path: str) -> None:
-    """Copy the live DB to ``dest_path`` via SQLite's backup API (lock held)."""
+    """Copy the live DB to ``dest_path`` via SQLite's backup API (lock held),
+    then clear the identity seeds and the excluded secrets in the copy and mark
+    it as a snapshot (``prepare_sqlite_snapshot``, ``run_sqlite_restore_hooks``)."""
     dest = await aiosqlite.connect(dest_path)
     try:
         async with database.readonly() as conn:
             await conn.backup(dest)
+        # Cleared values must not survive in the free space of the copy's pages.
+        await dest.execute("PRAGMA secure_delete = ON")
+        await prepare_sqlite_snapshot(dest, int(time.time()))
         await dest.commit()
     finally:
         await dest.close()
@@ -237,7 +440,37 @@ def _channel_to_backup(channel) -> BackupChannel:
     )
 
 
-async def export_json() -> BackupExport:
+def _omit_settings_secrets(settings: AppSettings) -> tuple[AppSettings, dict[str, bool]]:
+    """The settings with every notification secret ``********`` (``app/secret_fields.py``),
+    and the paths of the secrets that were set (``secret_omitted``)."""
+    from app.secret_fields import NOTIFICATION_SECRET_KEYS
+    from app.telemetry_alerts import redact_notification_destinations
+
+    dumped = settings.notification_destinations.model_dump(by_alias=True)
+    omitted = {
+        f"settings.notification_destinations.{kind}.{key}": True
+        for kind, keys in NOTIFICATION_SECRET_KEYS.items()
+        for key in keys
+        if isinstance(dumped.get(kind), dict) and dumped[kind].get(key)
+    }
+    redacted = settings.model_copy(
+        update={
+            "notification_destinations": redact_notification_destinations(
+                settings.notification_destinations
+            )
+        }
+    )
+    return redacted, omitted
+
+
+async def export_json(*, include_secrets: bool = False) -> BackupExport:
+    """The ``meshloom-backup-v1`` document.
+
+    Without ``include_secrets`` (the download, ``GET /settings/backup/json``)
+    the SMTP password and the webhook secret read ``********`` and
+    ``secret_omitted`` names them; restoring the file keeps the stored ones.
+    The full backup passes ``include_secrets=True``.
+    """
     contacts = await ContactRepository.get_all(limit=100_000)
     channels = await ChannelRepository.get_all()
     settings = await AppSettingsRepository.get()
@@ -246,20 +479,30 @@ async def export_json() -> BackupExport:
         key: dict(flags)
         for key, flags in (await AppSettingsRepository.get_push_conversation_overrides()).items()
     }
-    return BackupExport(
+    secret_omitted: dict[str, bool] = {}
+    if not include_secrets:
+        settings, secret_omitted = _omit_settings_secrets(settings)
+    export = BackupExport(
         format=BACKUP_FORMAT,
         exported_at=int(time.time()),
         contacts=[_contact_to_backup(c) for c in contacts],
         channels=[_channel_to_backup(c) for c in channels],
         settings=settings,
+        secret_omitted=secret_omitted,
         groups=groups,
         push_defaults=dict(await AppSettingsRepository.get_push_defaults()),
         push_conversation_overrides=exported_overrides,
         vapid_subject=await AppSettingsRepository.get_vapid_subject(),
     )
+    await refuse_identity_seeds(export.model_dump(mode="json"))
+    return export
 
 
-async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
+async def restore_json(
+    request: BackupRestoreRequest, *, run_hooks: bool = True
+) -> BackupRestoreResult:
+    """Merge the v1 fields. ``run_hooks=False`` for the full restore job, which
+    runs the restore hooks itself, once, at its end."""
     if not request.confirm:
         raise ValueError(
             "Restore requires confirm=true. This merges into the live database "
@@ -311,8 +554,9 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
         channels_upserted += 1
 
     settings_updated = False
+    warnings: list[str] = []
     if request.settings is not None:
-        await _restore_settings(request.settings)
+        await _restore_settings(request.settings, warnings)
         settings_updated = True
     if request.push_defaults is not None:
         await AppSettingsRepository.set_push_defaults(request.push_defaults)
@@ -342,11 +586,14 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
         settings_updated,
         groups_upserted,
     )
+    if run_hooks:
+        await run_on_restore_hooks("json")
     return BackupRestoreResult(
         contacts_upserted=contacts_upserted,
         channels_upserted=channels_upserted,
         settings_updated=settings_updated,
         groups_upserted=groups_upserted,
+        warnings=warnings,
     )
 
 
@@ -355,13 +602,42 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
 _RESTORED_SETTINGS = V1_SETTING_COLUMNS
 
 
-async def _restore_settings(settings: AppSettings) -> None:
+async def _restore_settings(settings: AppSettings, warnings: list[str]) -> None:
     """Write back only the fields the file carries: an older file without a
     later field (``ui_preferences``...) keeps the current value."""
     present = settings.model_fields_set
     updates = {name: getattr(settings, name) for name in _RESTORED_SETTINGS if name in present}
+    # Every export of a default install says on: a file may turn the Store off, never on,
+    # or an old backup would undo a choice made since.
+    if updates.get("store_online") is True:
+        del updates["store_online"]
+    if "notification_destinations" in updates:
+        updates["notification_destinations"] = await _restorable_destinations(
+            updates["notification_destinations"], warnings
+        )
     if updates:
         await AppSettingsRepository.update(**updates)
+
+
+async def _restorable_destinations(
+    dest: NotificationDestinations, warnings: list[str]
+) -> NotificationDestinations:
+    """A file that points a destination somewhere else gets it without the kept
+    secret: the stored password or HMAC secret never follows a new host or URL."""
+    from app.secret_fields import SecretRequiredError
+    from app.telemetry_alerts import merge_notification_destinations
+
+    current = (await AppSettingsRepository.get()).notification_destinations
+    try:
+        merge_notification_destinations(current, dest)
+    except SecretRequiredError as exc:
+        dumped = dest.model_dump(by_alias=True)
+        for field in exc.keys:
+            kind, key = field.split(".", 1)
+            dumped[kind][key] = ""
+            warnings.append(f"secret_dropped_destination_changed:{field}")
+        return NotificationDestinations.model_validate(dumped)
+    return dest
 
 
 async def _restore_group(group: ContactGroup) -> None:
@@ -418,6 +694,40 @@ def parse_backup_model(model: type[_ModelT], raw: object) -> _ModelT:
             message="The backup file is not valid",
             params={"fields": validation_error_fields(exc)[:20]},
         ) from None
+
+
+# A backup body (inspect, restore) is read before parsing, up to this size: a
+# plain file with tens of thousands of contacts stays far below it.
+MAX_BACKUP_BODY_BYTES = 64 * 1024 * 1024
+
+
+async def read_backup_body(request: Request) -> dict[str, Any]:
+    """The JSON object of an inspect or restore request, refused with a 413
+    ``backup_too_large`` past ``MAX_BACKUP_BODY_BYTES`` (read in chunks, so
+    an oversized body is never held whole)."""
+    too_large = BackupError(
+        "backup_too_large",
+        status=413,
+        message="This backup file is too large",
+        params={"max_bytes": MAX_BACKUP_BODY_BYTES},
+    )
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > MAX_BACKUP_BODY_BYTES:
+        raise too_large
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_BACKUP_BODY_BYTES:
+            raise too_large
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        raise BackupError(
+            "backup_invalid", message="The backup file is not valid", params={"fields": []}
+        )
+    return parsed
 
 
 def normalize_backup_document(raw: object) -> object:
@@ -511,8 +821,10 @@ async def export_meshloom_extra() -> MeshloomExtra:
                 auth=sub["auth"],
                 label=sub.get("label") or "",
                 language=sub.get("language") or "fr",
+                owner=sub.get("owner_username"),
             )
-            for sub in await PushSubscriptionRepository.get_all()
+            # The effective owner (an unowned row is the first admin's), by username.
+            for sub in await PushSubscriptionRepository.list_with_owner()
         ],
         radio_proxy=BackupRadioProxy(
             enabled=proxy.enabled, bind=proxy.bind, port=proxy.port, max_clients=proxy.max_clients
@@ -563,8 +875,8 @@ async def _ensure_keystore_key(mc, live_public_key: str | None) -> None:
 
     The keystore is filled once per connection by the post-connect setup; one
     export that timed out there would otherwise leave every full backup without
-    the identity until the next reconnect. A firmware that refused the export
-    (DISABLED) is not asked again, and a keystore key for another radio is left
+    the identity until the next reconnect. A radio link that refused the export
+    (DISABLED: firmware or proxy) is not asked again, and a keystore key for another radio is left
     alone (the identity is then reported unavailable).
     """
     from app import keystore
@@ -638,15 +950,29 @@ async def _read_wifi(cli, public_key: str | None) -> tuple[BackupWifi | None, li
         return None, ["wifi_read_failed"]
 
 
-async def export_backup_v2() -> BackupExportV2:
-    """The full backup. Works with the radio disconnected (Meshloom part only)."""
+async def export_backup_v2(
+    *, encrypted: bool = False, include_accounts: bool = True
+) -> BackupExportV2:
+    """The full backup. Works with the radio disconnected (Meshloom part only).
+
+    ``encrypted``: the caller wraps it in a passphrase envelope; otherwise each
+    sensitive section adds ``section_sensitive_unencrypted:<name>``.
+    ``include_accounts`` False leaves the account sections out
+    (``ACCOUNT_SECTIONS``: users, their hashes and two-factor secrets)."""
     from app.radio import RadioOperationError
     from app.services.backup_radio import read_radio_node_settings
     from app.services.companion_cli import CliError, companion_cli_session
     from app.services.radio_runtime import radio_runtime
     from app.version_info import get_app_build_info
 
-    base = await export_json()
+    base = await export_json(include_secrets=True)
+    # The notification secrets never leave, the full backup included: the destinations read
+    # ``********`` and a restore keeps the stored ones (the notifications section's rule).
+    redacted, omitted = _omit_settings_secrets(base.settings) if base.settings else (None, {})
+    if redacted is not None:
+        base = base.model_copy(
+            update={"settings": redacted, "secret_omitted": {**base.secret_omitted, **omitted}}
+        )
     extra = await export_meshloom_extra()
     warnings: list[str] = []
     identity: BackupIdentity | None = None
@@ -687,11 +1013,19 @@ async def export_backup_v2() -> BackupExportV2:
             if identity is not None and identity.private_key_status == "export_disabled"
             else "private_key_unavailable"
         )
+    sections, section_warnings = await export_sections(
+        skip=() if include_accounts else ACCOUNT_SECTIONS
+    )
+    warnings.extend(section_warnings)
+    if not encrypted:
+        warnings.extend(
+            f"section_sensitive_unencrypted:{name}" for name in sensitive_section_names(sections)
+        )
     try:
         version: str | None = get_app_build_info().version
     except Exception:
         version = None
-    return BackupExportV2(
+    doc = BackupExportV2(
         **base.model_dump(exclude={"format"}),
         meshloom_version=version,
         warnings=list(dict.fromkeys(warnings)),
@@ -699,44 +1033,81 @@ async def export_backup_v2() -> BackupExportV2:
         radio=radio,
         wifi=wifi,
         meshloom_extra=extra,
+        sections=sections,
     )
+    await refuse_identity_seeds(export_document(doc))
+    return doc
 
 
 # -- Full backup (v2): Meshloom settings outside v1 ------------------------------
 
 
 async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: list[str]) -> int:
-    """Upsert by id through the fanout route checks. Bots come back disabled."""
+    """Upsert by id through the fanout route checks. A 4.18 bot entry becomes a local
+    plugin (``app/plugins/bot_conversion.py``), disabled and waiting for review."""
     from fastapi import HTTPException
 
     from app.fanout.manager import fanout_manager, is_reserved_fanout_id
     from app.repository.fanout import FanoutConfigRepository
-    from app.routers.fanout import prepare_fanout_config
+    from app.routers.fanout import (
+        allows_private_network,
+        prepare_fanout_config,
+        prepare_refused_apprise_config,
+    )
+    from app.secret_fields import SecretRequiredError, merge_secrets
 
     written: list[str] = []
-    restored_bots: list[str] = []
+    converted_bots: list[str] = []
     for entry in entries:
         label = entry.name or entry.id
         if is_reserved_fanout_id(entry.id):
             # system:* modules are Meshloom's own: never taken from a file.
             warnings.append(f"fanout_reserved:{entry.id}")
             continue
-        if entry.type == "bot" and fanout_manager.bots_disabled_effective():
-            warnings.append(f"bots_disabled:{label}")
+        if entry.type == "bot":
+            restored = await _restore_bot_as_plugin(entry, label)
+            if restored == "converted":
+                converted_bots.append(label)
+            elif restored is None:
+                warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
             continue
-        try:
-            config, scope = prepare_fanout_config(entry.type, entry.config, entry.scope)
-        except HTTPException:
+        existing = await FanoutConfigRepository.get(entry.id)
+        if existing is not None and existing["type"] != entry.type:
             warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
             continue
-        # A bot runs code through exec() once enabled, and a backup file may
-        # come from someone else: restored disabled, the user enables it.
-        enabled = entry.enabled and entry.type != "bot"
-        existing = await FanoutConfigRepository.get(entry.id)
-        if existing is not None:
-            if existing["type"] != entry.type:
+        # A secret written as ******** (a file from an older JSON export, or
+        # one edited by hand) keeps the stored value, else reads as unset.
+        stored_config = existing["config"] if existing is not None else None
+        try:
+            file_config = merge_secrets(entry.type, stored_config, entry.config)
+        except SecretRequiredError as exc:
+            # The file points this row somewhere else: the stored secret stays
+            # here, the row comes back without it.
+            cleared = {**entry.config, **dict.fromkeys(exc.keys, "")}
+            file_config = merge_secrets(entry.type, stored_config, cleared)
+            warnings.append(f"secret_dropped_destination_changed:{label}")
+        refused_apprise = False
+        try:
+            config, scope = prepare_fanout_config(
+                entry.type, file_config, entry.scope, restored=True
+            )
+        except HTTPException as exc:
+            # A coded Apprise refusal (a scheme no longer allowed, a Telegram
+            # URL with no chat id) is a row an older Meshloom accepted: kept,
+            # disabled, like migration 100 keeps it. Anything else is invalid.
+            if entry.type != "apprise" or not isinstance(exc.detail, dict):
                 warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
                 continue
+            config, scope = prepare_refused_apprise_config(file_config, entry.scope)
+            refused_apprise = True
+            warnings.append(f"apprise_restored_disabled:{label}")
+        enabled = entry.enabled and not refused_apprise
+        # A LAN opt-in granted on another host would let this file reach this
+        # host's network at once: restored disabled, the user re-enables it.
+        if enabled and allows_private_network(entry.type, config):
+            enabled = False
+            warnings.append(f"private_network_restored_disabled:{label}")
+        if existing is not None:
             await FanoutConfigRepository.update(
                 entry.id,
                 name=entry.name or existing["name"],
@@ -757,13 +1128,41 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
             # create() appends; the user's order is the file's.
             await FanoutConfigRepository.update(entry.id, sort_order=entry.sort_order)
         written.append(entry.id)
-        if entry.type == "bot":
-            restored_bots.append(label)
     for config_id in written:
         await fanout_manager.reload_config(config_id)
-    if restored_bots:
-        warnings.append("bots_restored_disabled:" + ", ".join(restored_bots))
+    if converted_bots:
+        warnings.append("bots_converted:" + ", ".join(converted_bots))
     return len(written)
+
+
+async def _restore_bot_as_plugin(
+    entry: BackupFanoutConfig, label: str
+) -> Literal["converted", "present"] | None:
+    """Write a 4.18 bot entry as a local plugin: disabled, attention ``restored`` with
+    ``review_permissions`` (a backup file may come from someone else). ``None`` when its
+    code is empty or does not parse. A bot already restored with the same code is not
+    duplicated, nor counted again in the ``bots_converted`` warning (``"present"``)."""
+    from app.database import db
+    from app.plugins import bot_conversion
+
+    source = entry.config.get("code")
+    if not isinstance(source, str) or not bot_conversion.valid_source(source):
+        return None
+    async with db.tx() as conn:
+        async with conn.execute(
+            "SELECT 1 FROM plugins WHERE kind = 'local' AND source = ? LIMIT 1", (source,)
+        ) as cursor:
+            if await cursor.fetchone() is not None:
+                return "present"
+        row = bot_conversion.converted_row(
+            label=entry.name or "Bot",
+            source=source,
+            enabled=entry.enabled,
+            fanout_scope=entry.scope,
+            restored=True,
+        )
+        await bot_conversion.insert_converted(conn, row)
+    return "converted"
 
 
 async def push_restore_applies(extra: MeshloomExtra) -> bool | None:
@@ -783,7 +1182,66 @@ async def push_restore_applies(extra: MeshloomExtra) -> bool | None:
     return not (existing and current_public != extra.vapid.public_key)
 
 
-async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
+_PRIVATE_NAME_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localdomain")
+# Listed, not ``is_global``: the answer must not change with the Python version.
+_PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(n)
+    for n in (
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.0.0.0/24",
+        "192.168.0.0/16",
+        "198.18.0.0/15",
+        "::/128",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
+
+
+def endpoint_looks_private(endpoint: str) -> bool:
+    """Whether a push endpoint visibly targets a private network: an IP literal
+    in a private range, a dotless name or a ``.local``/``.lan``/``.home.arpa``/
+    ``.internal``/``.localdomain`` name. No DNS: a public name (ntfy.sh) never
+    counts. Migration 104 holds a frozen copy of this rule."""
+    try:
+        host = (urlsplit(endpoint).hostname or "").rstrip(".").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return "." not in host or host.endswith(_PRIVATE_NAME_SUFFIXES)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return any(ip in net for net in _PRIVATE_NETWORKS if net.version == ip.version)
+
+
+async def _regrandfather_private_push(extra: MeshloomExtra) -> None:
+    """A backup taken before the egress guard carries no ``push_allow_private_endpoints``:
+    restored LAN subscriptions would be refused. Same rule as migration 097/104 and
+    the webhook (``grandfather_legacy_webhook``): turn the opt-in on, flagged for the
+    one-time notice, only when a restored endpoint visibly targets a private network.
+    The opt-in is back on, so a pending ``push_private_endpoints_review`` (migration 104
+    withdrew it) no longer applies: cleared with it."""
+    if any(endpoint_looks_private(sub.endpoint) for sub in extra.push_subscriptions):
+        await AppSettingsRepository.update(
+            push_allow_private_endpoints=True,
+            push_private_endpoints_grandfathered=True,
+            push_private_endpoints_review=False,
+        )
+
+
+async def _restore_push(
+    extra: MeshloomExtra, warnings: list[str], *, settings_have_push_opt_in: bool = True
+) -> int:
     """VAPID keys and subscriptions belong together: restored only on a host
     with no subscriptions of its own (or already using the backup's key)."""
     from app.push.vapid import ensure_vapid_keys
@@ -800,6 +1258,7 @@ async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
         extra.vapid.private_key.get_secret_value(), extra.vapid.public_key
     )
     await ensure_vapid_keys()  # the signing code reads the cached keys
+    owner_ids = await _user_ids_by_username_key()
     for sub in extra.push_subscriptions:
         await PushSubscriptionRepository.create(
             endpoint=sub.endpoint,
@@ -807,18 +1266,101 @@ async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
             auth=sub.auth,
             label=sub.label,
             language=sub.language,
+            # None: keeps the row's owner, else the first admin (the pre-MSHL-320 rule).
+            user_id=owner_ids.get(_owner_key(sub.owner)),
         )
+    if not settings_have_push_opt_in:
+        await _regrandfather_private_push(extra)
     return len(extra.push_subscriptions)
 
 
-async def restore_meshloom_extra(extra: MeshloomExtra) -> list[str]:
+def _owner_key(owner: str | None) -> str | None:
+    from app.repository.auth import InvalidUsernameError, username_key
+
+    if not owner:
+        return None
+    try:
+        return username_key(owner)
+    except InvalidUsernameError:
+        return None
+
+
+async def _user_ids_by_username_key() -> dict[str | None, int]:
+    from app.database import db
+
+    async with db.readonly() as conn:
+        async with conn.execute("SELECT id, username_key FROM users") as cursor:
+            return {str(row[1]): int(row[0]) for row in await cursor.fetchall()}
+
+
+async def preview_push_owners(
+    extra: MeshloomExtra, sections: Mapping[str, BackupSection]
+) -> list[str | None]:
+    """The owner each restored push subscription ends up with, in file order: its file
+    ``owner`` when an account of that username exists after the restore, else None (the
+    first administrator). The accounts after the restore are the file's when its users
+    section would be written, else the current ones (MSHL-328). Read-only."""
+    from app.services.backup_accounts import USERS_SECTION, restored_username_keys
+
+    keys = restored_username_keys(sections.get(USERS_SECTION))
+    if keys is None:
+        keys = {key for key in await _user_ids_by_username_key() if key is not None}
+    return [
+        sub.owner if (key := _owner_key(sub.owner)) is not None and key in keys else None
+        for sub in extra.push_subscriptions
+    ]
+
+
+async def restore_push_owners(extra: MeshloomExtra) -> int:
+    """Give each restored push subscription back to the account of the same username.
+
+    Runs after the sections (MSHL-320): the accounts restore replaces the users, so an
+    owner that exists only in the file's accounts is found only then. A subscription
+    whose owner is absent from the file (older backup) or has no account here keeps
+    what the restore gave it (the first administrator). Only when the file's push data
+    was restored (``push_restore_applies``). Returns the number of rows reassigned.
+
+    Its own transaction, not the accounts section's (MSHL-328): every state committed in
+    between is safe. ``restore_users`` already gives each subscription back to the account
+    of the same username in its transaction, so a failure here leaves a subscription with
+    that account or the first administrator, never a deleted one; and this single UPDATE
+    is idempotent, so the next restore completes it. Joining the accounts transaction
+    would tie ``meshloom_extra`` to a section that a file may not have, while this must
+    also run without it."""
+    from app.database import db
+
+    if not any(sub.owner for sub in extra.push_subscriptions):
+        return 0
+    if not await push_restore_applies(extra):
+        return 0
+    owner_ids = await _user_ids_by_username_key()
+    pairs = [
+        (owner_ids[key], sub.endpoint)
+        for sub in extra.push_subscriptions
+        if (key := _owner_key(sub.owner)) in owner_ids
+    ]
+    if not pairs:
+        return 0
+    async with db.tx() as conn:
+        await conn.executemany(
+            "UPDATE push_subscriptions SET user_id = ? WHERE endpoint = ?", pairs
+        )
+    return len(pairs)
+
+
+async def restore_meshloom_extra(
+    extra: MeshloomExtra, *, settings_have_push_opt_in: bool = True
+) -> list[str]:
     """Restore ``meshloom_extra`` through the same checks as the routes.
-    Idempotent: a second run changes no count. Returns warnings."""
+    Idempotent: a second run changes no count. Returns warnings.
+
+    ``settings_have_push_opt_in``: the file's settings carried
+    ``push_allow_private_endpoints`` (False for a backup from before the egress guard)."""
     from app.services.radio_proxy_settings import update_radio_proxy_settings
 
     warnings: list[str] = []
     await _restore_fanout_configs(extra.fanout_configs, warnings)
-    await _restore_push(extra, warnings)
+    await _restore_push(extra, warnings, settings_have_push_opt_in=settings_have_push_opt_in)
     if extra.radio_proxy is not None:
         _status, proxy_warnings = await update_radio_proxy_settings(
             enabled=extra.radio_proxy.enabled,

@@ -60,11 +60,10 @@ def _fake_advert(
 
 class TestMapUploadLifecycle:
     @pytest.mark.asyncio
-    async def test_start_creates_client(self):
+    async def test_start_marks_running(self):
         mod = _make_module()
         await mod.start()
-        assert mod._client is not None
-        assert mod._client.follow_redirects is False
+        assert mod._running is True
         assert mod.status == "connected"
         await mod.stop()
 
@@ -74,7 +73,7 @@ class TestMapUploadLifecycle:
         await mod.start()
         mod._last_error = "HTTP 500"  # simulate a prior error
         await mod.stop()
-        assert mod._client is None
+        assert mod._running is False
         assert mod._last_error is None
         assert mod.status == "disconnected"
 
@@ -88,7 +87,7 @@ class TestMapUploadLifecycle:
 
     def test_status_error_when_last_error_set(self):
         mod = _make_module()
-        mod._client = MagicMock()
+        mod._running = True
         mod._last_error = "HTTP 500"
         assert mod.status == "error"
 
@@ -387,9 +386,8 @@ class TestDryRun:
                 return_value={"freq": 915, "cr": 5, "sf": 10, "bw": 125},
             ),
         ):
-            assert mod._client is not None
             post_mock = AsyncMock()
-            mod._client.post = post_mock  # type: ignore[method-assign]
+            mod._post = post_mock  # type: ignore[method-assign]
 
             await mod._upload("ab" * 32, 1000, 2, "aabbccdd", 0.0, 0.0)
 
@@ -419,6 +417,27 @@ class TestDryRun:
             assert mod._seen[pubkey] == 9999
 
         await mod.stop()
+
+    @pytest.mark.asyncio
+    async def test_no_key_warns_once_and_never_blames_only_the_firmware(self, caplog):
+        """MSHL-471: this runs for every advert to upload."""
+        from app import keystore
+
+        keystore.clear_keys()
+        keystore._last_export_disabled = True
+        keystore._export_refused_by = "meshloom_proxy"
+        mod = _make_module({"dry_run": True})
+        await mod.start()
+        try:
+            for _ in range(5):
+                await mod._upload("ab" * 32, 1000, 2, "aabb", 0.0, 0.0)
+            warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+            assert len(warnings) == 1
+            assert "radio proxy" in warnings[0].getMessage()
+            assert "firmware" not in warnings[0].getMessage().lower()
+        finally:
+            await mod.stop()
+            keystore.clear_keys()
 
     @pytest.mark.asyncio
     async def test_dry_run_no_key_logs_warning_and_returns(self):
@@ -465,9 +484,8 @@ class TestLiveSend:
                 return_value={"freq": 915, "cr": 5, "sf": 10, "bw": 125},
             ),
         ):
-            assert mod._client is not None
             post_mock = AsyncMock(return_value=mock_response)
-            mod._client.post = post_mock  # type: ignore[method-assign]
+            mod._post = post_mock  # type: ignore[method-assign]
 
             await mod._upload("ab" * 32, 1000, 2, "aabbccdd", 0.0, 0.0)
 
@@ -498,9 +516,8 @@ class TestLiveSend:
                 return_value={"freq": 0, "cr": 0, "sf": 0, "bw": 0},
             ),
         ):
-            assert mod._client is not None
             post_mock = AsyncMock(return_value=mock_response)
-            mod._client.post = post_mock  # type: ignore[method-assign]
+            mod._post = post_mock  # type: ignore[method-assign]
 
             await mod._upload("ab" * 32, 1000, 2, "aabb", 0.0, 0.0)
 
@@ -530,8 +547,7 @@ class TestLiveSend:
                 return_value={"freq": 0, "cr": 0, "sf": 0, "bw": 0},
             ),
         ):
-            assert mod._client is not None
-            mod._client.post = AsyncMock(return_value=mock_response)  # type: ignore[method-assign]
+            mod._post = AsyncMock(return_value=mock_response)  # type: ignore[method-assign]
             await mod._upload(pubkey, 7777, 2, "aabb", 0.0, 0.0)
             assert mod._seen[pubkey] == 7777
 
@@ -560,8 +576,7 @@ class TestLiveSend:
                 return_value={"freq": 0, "cr": 0, "sf": 0, "bw": 0},
             ),
         ):
-            assert mod._client is not None
-            mod._client.post = AsyncMock(side_effect=exc)  # type: ignore[method-assign]
+            mod._post = AsyncMock(side_effect=exc)  # type: ignore[method-assign]
             await mod._upload("ab" * 32, 1000, 2, "aabb", 0.0, 0.0)
             assert mod._last_error == "HTTP 500"
             assert mod.status == "error"
@@ -586,8 +601,7 @@ class TestLiveSend:
                 return_value={"freq": 0, "cr": 0, "sf": 0, "bw": 0},
             ),
         ):
-            assert mod._client is not None
-            mod._client.post = AsyncMock(side_effect=httpx.ConnectError("conn refused"))  # type: ignore[method-assign]
+            mod._post = AsyncMock(side_effect=httpx.ConnectError("conn refused"))  # type: ignore[method-assign]
             await mod._upload("ab" * 32, 1000, 2, "aabb", 0.0, 0.0)
             assert mod._last_error is not None
             assert mod.status == "error"
@@ -627,8 +641,7 @@ class TestPayloadStructure:
                 return_value={"freq": 915, "cr": 5, "sf": 10, "bw": 125},
             ),
         ):
-            assert mod._client is not None
-            mod._client.post = capture_post  # type: ignore[method-assign]
+            mod._post = capture_post  # type: ignore[method-assign]
             await mod._upload("ab" * 32, 1000, 2, "aabbccdd", 0.0, 0.0)
 
         assert len(captured) == 1
@@ -675,8 +688,7 @@ class TestPayloadStructure:
                 return_value={"freq": 0, "cr": 0, "sf": 0, "bw": 0},
             ),
         ):
-            assert mod._client is not None
-            mod._client.post = capture_post  # type: ignore[method-assign]
+            mod._post = capture_post  # type: ignore[method-assign]
             await mod._upload("ab" * 32, 1000, 2, "ff", 0.0, 0.0)
 
         assert captured[0]["publicKey"] == fake_public.hex()

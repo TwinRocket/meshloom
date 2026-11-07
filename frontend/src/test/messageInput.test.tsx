@@ -107,6 +107,28 @@ describe('MessageInput', () => {
       expect(getSendButton()).toBeDisabled();
     });
 
+    it('offers the GIF tab only with a Giphy key', () => {
+      renderInput({ conversationType: 'channel' });
+      localStorage.removeItem('meshloom-giphy-api-key');
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      expect(screen.getByTestId('emoji-picker')).toBeInTheDocument();
+      expect(screen.queryByTestId('composer-attach-tab-gif')).toBeNull();
+      expect(screen.getByTestId('composer-attach-tab-location')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+
+      localStorage.setItem('meshloom-giphy-api-key', 'test-key');
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      expect(screen.getByTestId('composer-attach-tab-gif')).toBeInTheDocument();
+      localStorage.removeItem('meshloom-giphy-api-key');
+    });
+
+    it('draws the attach trigger as a plus, not an emoji', () => {
+      renderInput({ conversationType: 'channel' });
+      const trigger = screen.getByTestId('composer-attach-trigger');
+      expect(trigger.querySelector('.lucide-plus')).not.toBeNull();
+      expect(trigger.querySelector('.lucide-smile')).toBeNull();
+    });
+
     it('exposes a single attach trigger for composer tools', () => {
       renderInput({ conversationType: 'contact' });
       expect(screen.getByTestId('composer-attach-trigger')).toBeInTheDocument();
@@ -294,8 +316,9 @@ describe('MessageInput', () => {
       await expectSendViaButton('x'.repeat(DM_HARD_LIMIT - 1), true);
     });
 
-    it('blocks the send button at the exact hard limit', async () => {
-      await expectSendViaButton('x'.repeat(DM_HARD_LIMIT), false);
+    it('allows the send button at the exact hard limit, as the server does', async () => {
+      await expectSendViaButton('x'.repeat(DM_HARD_LIMIT), true);
+      expect(screen.queryByText(i18n.t('chat.tooLong'), { exact: false })).toBeNull();
     });
 
     it('blocks the send button past the hard limit', async () => {
@@ -326,9 +349,7 @@ describe('MessageInput', () => {
 
       renderInput({ conversationType: 'channel', senderName });
       fireEvent.change(getInput(), { target: { value: atLimit } });
-      expect(getSendButton()).toBeDisabled();
-      fireEvent.click(getSendButton());
-      expect(onSend).not.toHaveBeenCalled();
+      expect(getSendButton()).toBeEnabled(); // exactly the limit: the server accepts it
 
       fireEvent.change(getInput(), { target: { value: over } });
       expect(getSendButton()).toBeDisabled();
@@ -472,6 +493,11 @@ describe('MessageInput', () => {
     });
 
     it('sends a compact g:<id> payload from a pasted Giphy URL', async () => {
+      localStorage.setItem('meshloom-giphy-api-key', 'test-key');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [] }) })
+      );
       render(
         <MessageInput
           onSend={onSend}
@@ -591,6 +617,11 @@ describe('MessageInput', () => {
     });
 
     it('prefixes a reply mention when sending a GIF', async () => {
+      localStorage.setItem('meshloom-giphy-api-key', 'test-key');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [] }) })
+      );
       const ref = createRef<MessageInputHandle>();
       render(
         <MessageInput

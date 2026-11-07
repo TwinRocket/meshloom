@@ -1,0 +1,11 @@
+{
+  "description": "Read a system file outside the plugin directory, the standard library and the work dir.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

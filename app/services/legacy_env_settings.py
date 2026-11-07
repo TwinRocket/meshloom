@@ -23,6 +23,15 @@ import: it could only switch the clock wraparound on, and ``auto_clock_wraparoun
 startup warning, plus a second one when it is set to a false value (it kept the fix
 off, the setting now starts on).
 
+``MESHCORE_BASIC_AUTH_USERNAME`` / ``_PASSWORD`` are retired without an import
+(MSHL-100): HTTP Basic auth is gone, ``Authorization: Basic`` is ignored and the
+variables no longer become an account. They only get the startup warning.
+
+The 4.18.x bot lock (``ENV_BOT_LOCK``) is retired with the bots (MSHL-192):
+migration 122 reads it once to store the converted bots disabled, then each start
+warns that it is set and names ``MESHCORE_DISABLE_PLUGINS``, the lock of every
+extension. It is not mapped onto that variable.
+
 The ``MESHLOOM_COMMUNITY*`` variables are retired too (Community is an opt-in in
 the UI, its addresses are fixed): ``import_legacy_community_iata`` copies a
 leftover ``MESHLOOM_COMMUNITY_IATA`` into an existing database only, once
@@ -50,6 +59,15 @@ RADIO_WORKAROUND_ENV: dict[str, str] = {
 }
 
 ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
+# The 4.18.x bot lock: bots are extensions since 5.0.0 (app/plugins/bot_conversion.py).
+# Migration 122 reads it once, to store the converted bots disabled; then only warned about.
+ENV_BOT_LOCK = "MESHCORE_DISABLE_BOTS"
+ENV_BASIC_USERNAME = "MESHCORE_BASIC_AUTH_USERNAME"
+ENV_BASIC_PASSWORD = "MESHCORE_BASIC_AUTH_PASSWORD"
+_BASIC_UI = (
+    "Settings → Users & Access (HTTP Basic auth is removed: sign in with an account; "
+    "a script uses an API token)"
+)
 # Never imported: the setting that replaces it is on by default.
 ENV_CLOCK_WRAPAROUND = "__CLOWNTOWN_DO_CLOCK_WRAPAROUND"
 _COMMUNITY_UI = "Settings → Meshloom Community"
@@ -68,7 +86,13 @@ RETIRED_ENV: dict[str, str] = {
     "MESHLOOM_COMMUNITY_BROKER_HOST": _COMMUNITY_FIXED,
     "MESHLOOM_COMMUNITY_API_BASE": _COMMUNITY_FIXED,
     ENV_CLOCK_WRAPAROUND: "Settings → Radio → Advanced (on by default)",
+    ENV_BASIC_USERNAME: _BASIC_UI,
+    ENV_BASIC_PASSWORD: _BASIC_UI,
     "MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT": _PRIVATE_KEY_ALWAYS,
+    ENV_BOT_LOCK: (
+        "MESHCORE_DISABLE_PLUGINS (bots are extensions since 5.0.0; that variable locks "
+        "every extension)"
+    ),
 }
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})

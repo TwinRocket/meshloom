@@ -1,0 +1,14 @@
+{
+  "description": "Allocate 1 GiB at once: RLIMIT_AS (Linux) turns it into a MemoryError and the child keeps serving.",
+  "platforms": [
+    "linux"
+  ],
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "MemoryError"
+      }
+    }
+  ]
+}

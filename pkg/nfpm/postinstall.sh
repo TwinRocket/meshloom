@@ -55,7 +55,7 @@ done
 if [ ! -f /etc/meshloom/meshloom.env ]; then
     # meshloom.service needs its EnvironmentFile; recreate the packaged defaults.
     printf '%s\n' "MESHCORE_DATABASE_PATH=/var/lib/meshloom/meshcore.db" \
-        "MESHLOOM_INSTALL_KIND=package" "MESHCORE_DISABLE_BOTS=true" >/etc/meshloom/meshloom.env
+        "MESHLOOM_INSTALL_KIND=package" >/etc/meshloom/meshloom.env
     chmod 0640 /etc/meshloom/meshloom.env
 fi
 
@@ -113,6 +113,65 @@ EOF
 
 migrate_apt_source
 migrate_dnf_source
+
+# Kiosk image flashed before 5.0.0: the image, not the deb, installed the
+# autostart entry and the setup helper, so they identify it. The launcher is not
+# a signal here: the deb ships it, a plain install has it too. The marker is
+# read by the app (app/services/kiosk.py); never created on a plain install.
+mark_kiosk_host() {
+    [ -f /etc/xdg/autostart/meshloom-kiosk.desktop ] \
+        || [ -f /usr/lib/meshloom/meshloom-kiosk-setup ] || return 0
+    if [ -e /var/lib/meshloom/kiosk ] && [ ! -L /var/lib/meshloom/kiosk ]; then
+        return 0
+    fi
+    mkdir -p /var/lib/meshloom || return 0
+    # The meshloom user owns this directory and could plant a link at this name:
+    # root never writes through it. Built in the root-owned directory, then renamed
+    # over whatever is there (a rename replaces a link, it does not follow it).
+    marker=$(mktemp /var/lib/meshloom-update/kiosk.XXXXXX) || return 0
+    chmod 0644 "$marker" || true
+    mv -fT "$marker" /var/lib/meshloom/kiosk || { rm -f "$marker"; return 0; }
+    echo "==> Kiosk image detected: marked this host as a Meshloom kiosk."
+}
+mark_kiosk_host || true
+
+# Up to 4.18 meshloom.service reset this directory to 0755 at every start, with a
+# 0644 database inside. Closing the directory shuts out other accounts now; the
+# server tightens the database files itself at its next start, as meshloom. Root
+# does not walk this tree: the meshloom user could plant links in it.
+state_dir=/var/lib/meshloom
+if [ -d "$state_dir" ] && [ ! -L "$state_dir" ]; then
+    chmod 0750 "$state_dir" || true
+fi
+
+# Kiosk device token (app/services/kiosk.py, docs/dev/auth.md "Kiosk device
+# token"): the server writes /var/lib/meshloom-kiosk/kiosk.token (0640) and the
+# desktop session user, uid 1000 as in meshloom-kiosk-setup, reads it through
+# the meshloom-kiosk group. setgid directory: the file gets the group without
+# meshloom being a member. Only on a kiosk host; the server refuses the
+# directory unless meshloom owns it and others get nothing.
+provision_kiosk_token_dir() {
+    [ -e /var/lib/meshloom/kiosk ] || return 0
+    getent passwd meshloom >/dev/null 2>&1 || return 0
+    if ! getent group meshloom-kiosk >/dev/null 2>&1; then
+        groupadd --system meshloom-kiosk || return 0
+    fi
+    dir=/var/lib/meshloom-kiosk
+    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+        rm -f "$dir"
+    fi
+    mkdir -p "$dir"
+    chown meshloom:meshloom-kiosk "$dir"
+    chmod 2750 "$dir"
+    # Upgrade of an image flashed before 5.0.0: its own meshloom-kiosk-setup
+    # (installed by the image) does not know the group. Effective at the next
+    # login; the launcher also tries `sg` meanwhile.
+    session_user="$(getent passwd 1000 | cut -d: -f1 || true)"
+    if [ -n "$session_user" ] && command -v usermod >/dev/null 2>&1; then
+        usermod -aG meshloom-kiosk "$session_user" || true
+    fi
+}
+provision_kiosk_token_dir || true
 
 if command -v systemctl >/dev/null 2>&1; then
     # Works offline too (image builds, chroots): enable only writes the

@@ -1,0 +1,21 @@
+{
+  "description": "Signal the server (signal 0 only: it would be refused before any delivery).",
+  "events": [
+    {
+      "params": {
+        "how": "kill"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "killpg"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

@@ -11,7 +11,7 @@ frames that carry it are redacted from every log line by ``app.log_redaction``.
 
 import hashlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import nacl.bindings
 from meshcore import EventType
@@ -36,9 +36,30 @@ _L = 2**252 + 27742317777372353535851937790883648493
 # In-memory storage for the private key and derived public key
 _private_key: bytes | None = None
 _public_key: bytes | None = None
-# True when the last export attempt was refused by the firmware (built without
-# ENABLE_PRIVATE_KEY_EXPORT): the full backup then says "export_disabled".
+# True when the radio link answered the last export attempt with DISABLED: firmware
+# built without ENABLE_PRIVATE_KEY_EXPORT, or a proxy (a Meshloom radio proxy always
+# does). The full backup then says "export_disabled".
 _last_export_disabled: bool = False
+# Why it refused, from the DEVICE_INFO asked right after the refusal; None when unknown.
+_export_refused_by: Literal["meshloom_proxy", "radio_link"] | None = None
+# (topic, code) already reported on this connection: see first_missing_key_notice.
+_missing_key_notices: set[tuple[str, str]] = set()
+
+# Local API errors of a feature that needs the key (503, ``detail = {code, message}``),
+# translated by the UI as ``errors.<code>``. Behind a Meshloom radio proxy the peer says
+# so itself (its DEVICE_INFO model): no host name or address is ever read for this.
+# ``radio_key_export_disabled`` is any other refusal, so it names both possible causes:
+# a third-party proxy answers with the model of the radio behind it.
+RADIO_KEY_ERRORS: dict[str, str] = {
+    "radio_key_behind_proxy": (
+        "This instance reaches the radio through a Meshloom radio proxy, which never gives "
+        "the radio's key: connect the radio directly or use the instance that holds it"
+    ),
+    "radio_key_export_disabled": (
+        "The radio's firmware or a proxy in between refused to give the radio's key"
+    ),
+    "radio_key_unavailable": "The radio's key is not available on this instance",
+}
 
 
 def ed25519_sign_expanded(message: bytes, scalar: bytes, prefix: bytes, public_key: bytes) -> bytes:
@@ -59,11 +80,13 @@ def ed25519_sign_expanded(message: bytes, scalar: bytes, prefix: bytes, public_k
 
 def clear_keys() -> None:
     """Clear any stored private/public key material from memory."""
-    global _private_key, _public_key, _last_export_disabled
+    global _private_key, _public_key, _last_export_disabled, _export_refused_by
     had_key = _private_key is not None or _public_key is not None
     _private_key = None
     _public_key = None
     _last_export_disabled = False
+    _export_refused_by = None
+    _missing_key_notices.clear()
     if had_key:
         logger.info("Cleared in-memory keystore")
 
@@ -101,8 +124,49 @@ def get_public_key() -> bytes | None:
 
 
 def last_export_disabled() -> bool:
-    """True when the radio refused the last private key export (DISABLED)."""
+    """True when the radio link refused the last private key export (DISABLED)."""
     return _last_export_disabled
+
+
+def radio_key_unavailable_code() -> str:
+    """The ``RADIO_KEY_ERRORS`` code for a missing key: only what the radio link told us.
+
+    ``radio_key_unavailable`` when no refusal is known (not connected yet, the export
+    got no answer) or its cause could not be read.
+    """
+    if _last_export_disabled and _export_refused_by == "meshloom_proxy":
+        return "radio_key_behind_proxy"
+    if _last_export_disabled and _export_refused_by == "radio_link":
+        return "radio_key_export_disabled"
+    return "radio_key_unavailable"
+
+
+def first_missing_key_notice(topic: str) -> bool:
+    """True the first time ``topic`` meets this cause on this connection.
+
+    For what runs on every advert: one log line or toast, not one per packet. A cause
+    learned later (the export answers after the first advert) is reported once more.
+    """
+    notice = (topic, radio_key_unavailable_code())
+    if notice in _missing_key_notices:
+        return False
+    _missing_key_notices.add(notice)
+    return True
+
+
+async def _who_refused_the_export(mc: "MeshCore") -> Literal["meshloom_proxy", "radio_link"] | None:
+    """Ask the peer what it is: a Meshloom radio proxy names itself in DEVICE_INFO."""
+    from app.radio_proxy.protocol import parse_proxy_instance_id
+
+    try:
+        event = await mc.commands.send_device_query()
+    except Exception as e:
+        logger.debug("Device query after a refused key export failed: %s", e)
+        return None
+    if event.type != EventType.DEVICE_INFO or not isinstance(event.payload, dict):
+        return None
+    model = event.payload.get("model")
+    return "meshloom_proxy" if parse_proxy_instance_id(model) else "radio_link"
 
 
 def has_private_key() -> bool:
@@ -125,7 +189,7 @@ async def export_and_store_private_key(mc: "MeshCore") -> bool:
     Returns:
         True if the private key was successfully exported and stored
     """
-    global _last_export_disabled
+    global _last_export_disabled, _export_refused_by
     logger.info("Exporting private key from radio...")
     try:
         result = await mc.commands.export_private_key()
@@ -134,14 +198,24 @@ async def export_and_store_private_key(mc: "MeshCore") -> bool:
             private_key_bytes = result.payload["private_key"]
             set_private_key(private_key_bytes)
             _last_export_disabled = False
+            _export_refused_by = None
             return True
         elif result.type == EventType.DISABLED:
             _last_export_disabled = True
-            logger.warning(
-                "Private key export disabled on radio firmware. "
-                "Server-side DM decryption will not be available. "
-                "Enable ENABLE_PRIVATE_KEY_EXPORT=1 in firmware to enable this feature."
-            )
+            _export_refused_by = await _who_refused_the_export(mc)
+            if _export_refused_by == "meshloom_proxy":
+                logger.warning(
+                    "No private key from this radio: it is reached through a Meshloom radio "
+                    "proxy, which never gives it. Server-side DM decryption, Community and the "
+                    "features that need it stay off here. Connect the radio directly, or use "
+                    "the Meshloom instance that holds the key."
+                )
+            else:
+                logger.warning(
+                    "No private key from this radio: the export was refused, by firmware built "
+                    "without ENABLE_PRIVATE_KEY_EXPORT=1 or by a proxy in between. Server-side "
+                    "DM decryption, Community and the features that need it stay off here."
+                )
             return False
         else:
             reason = result.payload.get("reason") if isinstance(result.payload, dict) else None

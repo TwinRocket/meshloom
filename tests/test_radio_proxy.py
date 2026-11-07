@@ -73,6 +73,7 @@ def _make_host_radio(name: str = "HostRadio") -> MagicMock:
     mc.commands.get_msg = AsyncMock()
     mc.commands.get_channel = AsyncMock()
     mc.commands.set_channel = AsyncMock()
+    mc.commands.send = AsyncMock(return_value=MagicMock(type=EventType.OK, payload={}))
     mc.commands.add_contact = AsyncMock(return_value=MagicMock(type=EventType.OK, payload={}))
     mc.commands.remove_contact = AsyncMock()
     mc.commands.send_msg = AsyncMock(
@@ -827,3 +828,70 @@ async def test_host_port_is_ignored_without_managed_ports(test_db, monkeypatch):
     monkeypatch.setattr(settings, "radio_proxy_port", 5051)
 
     assert (await RadioProxyRepository.get()).port == 5001
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        b"POST / HTTP/1.1\r\nHost: 192.168.1.5:5001\r\nContent-Type: text/plain\r\n\r\n",
+        b"GET / HTTP/1.1\r\nHost: 192.168.1.5:5001\r\n\r\n",
+    ],
+)
+async def test_a_foreign_protocol_gets_no_frame_executed(test_db, prefix):
+    """Valid frames behind another protocol's bytes never run: the connection is closed."""
+    device_query = bytes([CommandType.DEVICE_QEURY.value, 3])
+    wire = prefix + bytes([0x3C]) + len(device_query).to_bytes(2, "little") + device_query
+    async with _started_proxy(test_db) as (manager, port):
+        with patch.object(manager, "_handle_command", wraps=manager._handle_command) as handled:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(wire)
+            await writer.drain()
+            answer = await asyncio.wait_for(reader.read(4096), timeout=3)
+            writer.close()
+            await writer.wait_closed()
+        assert answer == b""
+        handled.assert_not_called()
+        assert manager.client_count == 0
+
+
+@pytest.mark.asyncio
+async def test_a_real_client_connects_after_a_foreign_connection_was_refused(test_db):
+    async with _started_proxy(test_db) as (_manager, port):
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(b"GET / HTTP/1.1\r\n\r\n")
+        await writer.drain()
+        assert await asyncio.wait_for(reader.read(4096), timeout=3) == b""
+        writer.close()
+        await writer.wait_closed()
+
+        mc = await _connect_client(port)
+        try:
+            device = await mc.commands.send_device_query()
+            assert device.type == EventType.DEVICE_INFO
+        finally:
+            await mc.disconnect()
+
+
+async def test_an_instance_behind_the_proxy_gets_the_proxy_error(test_db, caplog):
+    """MSHL-471, over the wire: refused export, then the Community token says why."""
+    from fastapi import HTTPException
+
+    from app import keystore
+    from app.services.meshloom_community import mint_stats_jwt
+
+    keystore.clear_keys()
+    async with _started_proxy(test_db) as (_manager, port):
+        mc = await _connect_client(port)
+        try:
+            assert await keystore.export_and_store_private_key(mc) is False
+        finally:
+            await mc.disconnect()
+    try:
+        with pytest.raises(HTTPException) as exc:
+            mint_stats_jwt(audience="stats", iata="CDG", require_iata=True)
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "radio_key_behind_proxy"
+        assert "firmware" not in caplog.text.lower()
+    finally:
+        keystore.clear_keys()

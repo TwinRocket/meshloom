@@ -47,3 +47,4 @@ ha_test_config/
 *.SECRET*
 *-subkey.asc
 *revoke*
+.playwright-mcp/

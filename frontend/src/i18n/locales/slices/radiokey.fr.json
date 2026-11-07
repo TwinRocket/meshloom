@@ -1,0 +1,7 @@
+{
+  "errors": {
+    "radio_key_behind_proxy": "La clé de cette radio n’est pas disponible ici : elle passe par un proxy radio. Branchez-la directement, ou utilisez l’instance Meshloom qui détient sa clé.",
+    "radio_key_export_disabled": "La clé de cette radio n’est pas disponible ici : son firmware ou un proxy ne la donne pas. Branchez-la directement avec l’export de clé autorisé, ou utilisez l’instance Meshloom qui la détient.",
+    "radio_key_unavailable": "La clé de cette radio n’est pas encore disponible ici. Vérifiez la connexion à la radio ; à travers un proxy, branchez-la directement ou utilisez l’instance Meshloom qui détient sa clé."
+  }
+}

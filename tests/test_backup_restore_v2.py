@@ -194,9 +194,9 @@ async def test_owner_order_key_db_settings_channels_contacts_wifi(
 
     real_restore_json = backup_module.restore_json
 
-    async def recording_restore_json(request):
+    async def recording_restore_json(request, **kwargs):
         node.log.append(("db_merge", None))
-        return await real_restore_json(request)
+        return await real_restore_json(request, **kwargs)
 
     monkeypatch.setattr(backup_module, "restore_json", recording_restore_json)
     async with connected_node(node):
@@ -1340,3 +1340,61 @@ async def test_an_open_network_round_trips_through_a_backup(backup_db, setup_stu
     assert fresh.stored_ssid == "Cafe" and fresh.stored_pwd == ""
     entry = (await AppSettingsRepository.get_wifi_prompt_state())[P]
     assert entry["open_network_ssid"] == "Cafe"
+
+
+# -- keep channels on the radio (MSHL-41) --------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_keep_mode_restored_channels_survive_the_next_connect(backup_db, setup_stub):
+    from app.radio_sync import sync_and_offload_channels
+
+    await AppSettingsRepository.update(keep_channels_on_radio=True)
+    node = await _same_identity_node()
+    node.channels = {node.max_channels - 1: ("#stale", b"\x02" * 16)}
+    async with connected_node(node) as (loop, _n):
+        job = await run(
+            make_doc(
+                channels=[
+                    BackupChannel(key="0F" * 16, name="#kept", favorite=True),
+                    BackupChannel(key="1E" * 16, name="#also"),
+                ]
+            )
+        )
+        assert statuses(job)["channels"] == ("done", None)
+        assert job.result is not None
+        assert "channels_offloaded_next_connect" not in job.result.warnings
+        pushed = dict(node.channels)
+        # The scratch slot (the highest) is left empty for on-demand sends.
+        assert pushed[node.max_channels - 1] == ("", bytes(16))
+        kept = {name for name, _secret in pushed.values() if name}
+        assert {"#kept", "#also"} <= kept
+
+        # The reconnect (and the post-restore reboot) sync keeps every slot.
+        result = await sync_and_offload_channels(loop.mc)
+        assert result["kept"] is True and result["cleared"] == 0
+        assert node.channels == pushed
+
+
+@pytest.mark.asyncio
+async def test_offload_mode_restore_says_the_slots_go_at_the_next_connect(backup_db, setup_stub):
+    node = await _same_identity_node()
+    async with connected_node(node):
+        job = await run(make_doc(channels=[BackupChannel(key="0F" * 16, name="#ops")]))
+    assert statuses(job)["channels"] == ("done", None)
+    assert job.result is not None
+    assert "channels_offloaded_next_connect" in job.result.warnings
+
+
+@pytest.mark.asyncio
+async def test_inspect_reports_the_keep_mode_the_channels_step_runs_under(backup_db):
+    from app.models import AppSettings
+    from app.services.backup_restore import inspect_backup
+
+    doc = make_doc(channels=[BackupChannel(key="0F" * 16, name="#ops")])
+    assert (await inspect_backup(doc, None)).channels_kept_on_radio is False
+    await AppSettingsRepository.update(keep_channels_on_radio=True)
+    assert (await inspect_backup(doc, None)).channels_kept_on_radio is True
+    # A file carrying the setting wins: the Meshloom step restores it first.
+    doc.settings = AppSettings(keep_channels_on_radio=False)
+    assert (await inspect_backup(doc, None)).channels_kept_on_radio is False

@@ -1,0 +1,253 @@
+"""The plugin child's seccomp filter and capability drop (`meshloom_plugin.seccomp`).
+
+The filter is the guard that refuses task creation and exec to a child running as
+root, which `RLIMIT_NPROC` does not bind (MSHL-323), every socket (loopback and
+the radio proxy included, MSHL-415) and the pidfd/ptrace paths to other
+processes (MSHL-417); the bwrap level's own filter is checked here as a program. The probes below install it
+exactly as the runner does (`_libc_prctl`, `PR_SET_NO_NEW_PRIVS`, then `apply`) in
+a fresh interpreter and try every way out; the root CI job runs them as root.
+Stdlib and pytest only (`--noconftest` works).
+"""
+
+import json
+import os
+import subprocess
+import sys
+import textwrap
+
+import pytest
+
+from meshloom_plugin import seccomp
+
+LINUX = sys.platform.startswith("linux")
+APP_ROOT = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
+
+PROBE = textwrap.dedent(
+    """
+    import errno, json, os, sys, threading
+    sys.path.insert(0, {app_root!r})
+    from meshloom_plugin import runner, seccomp
+    prctl = runner._libc_prctl()
+    assert prctl(runner.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0
+    abi = seccomp.apply(prctl, required=True)
+    out = {{"abi": abi, "euid": os.geteuid()}}
+
+    def attempt(name, fn):
+        try:
+            fn()
+        except OSError as exc:
+            out[name] = errno.errorcode.get(exc.errno, exc.errno)
+        except RuntimeError as exc:
+            out[name] = "RuntimeError: " + str(exc)
+        else:
+            out[name] = "allowed"
+
+    def fork():
+        pid = os.fork()
+        if pid == 0:
+            os._exit(0)
+        os.waitpid(pid, 0)
+
+    def thread():
+        t = threading.Thread(target=lambda: None)
+        t.start()
+        t.join()
+
+    attempt("fork", fork)
+    attempt("execv", lambda: os.execv(sys.executable, [sys.executable, "-c", "pass"]))
+    attempt("posix_spawn", lambda: os.waitpid(os.posix_spawn(sys.executable, [sys.executable, "-c", "pass"], {{}}), 0))
+    attempt("thread", thread)
+    import subprocess
+    attempt("subprocess", lambda: subprocess.run([sys.executable, "-c", "pass"]))
+    if hasattr(os, "unshare"):
+        attempt("unshare", lambda: os.unshare(os.CLONE_NEWUSER))
+        attempt("setns", lambda: os.setns(0, 0))
+    # No socket at all (MSHL-415): no hook here, so this is what a plugin past its
+    # hooks gets. Nothing listens on the port: unfiltered, connect is ECONNREFUSED.
+    import socket
+    def loopback():
+        with socket.create_connection(("127.0.0.1", 5051), timeout=2):
+            pass
+    attempt("loopback", loopback)
+    attempt("socket_inet6", lambda: socket.socket(socket.AF_INET6).close())
+    attempt("socket_unix", lambda: socket.socket(socket.AF_UNIX).close())
+    attempt("socketpair", lambda: [end.close() for end in socket.socketpair()])
+    # No other process through a pidfd (MSHL-417): no audit event there either.
+    attempt("pidfd_open", lambda: os.close(os.pidfd_open(os.getppid())))
+    out["caps"] = seccomp.capability_sets()
+    out["getpid"] = os.getpid() > 0
+    print(json.dumps(out))
+    """
+)
+
+
+def test_native_abi_follows_the_interpreter_not_the_kernel() -> None:
+    assert seccomp.native_abi("x86_64", 8) == "x86_64"
+    assert seccomp.native_abi("x86_64", 4) == "i386"
+    assert seccomp.native_abi("i686", 4) == "i386"
+    assert seccomp.native_abi("aarch64", 8) == "aarch64"
+    # armhf userland on an arm64 kernel (Raspberry Pi OS 32-bit, 64-bit kernel)
+    assert seccomp.native_abi("aarch64", 4) == "arm"
+    assert seccomp.native_abi("armv7l", 4) == "arm"
+    assert seccomp.native_abi("riscv64", 8) == "riscv64"
+    assert seccomp.native_abi("s390x", 8) is None
+    assert seccomp.native_abi("mips", 4) is None
+
+
+# Every architecture Meshloom ships (deb/rpm amd64, arm64, armhf; Docker and the
+# Home Assistant add-on amd64, aarch64, armv7), as (uname machine, pointer size).
+# Outside root an unknown architecture runs without the filter (`required` is
+# false): the child still has RLIMIT_NPROC 0 and no capability left. A shipped one
+# must never be in that case (MSHL-339).
+SHIPPED_ARCHES = {
+    "amd64": [("x86_64", 8)],
+    "arm64": [("aarch64", 8)],
+    "aarch64": [("aarch64", 8)],
+    # Raspberry Pi OS 32-bit runs armhf userland on an armv7 or arm64 kernel.
+    "armhf": [("armv7l", 4), ("aarch64", 4)],
+    "armv7": [("armv7l", 4), ("aarch64", 4)],
+}
+
+
+@pytest.mark.parametrize("arch", sorted(SHIPPED_ARCHES))
+def test_every_shipped_architecture_has_a_seccomp_table(arch: str) -> None:
+    for machine, pointer_size in SHIPPED_ARCHES[arch]:
+        abi = seccomp.native_abi(machine, pointer_size)
+        assert abi in seccomp.TABLES, (arch, machine, pointer_size)
+
+
+def test_the_shipped_architecture_list_covers_the_add_on() -> None:
+    """A new add-on architecture must come with a seccomp table and a row above."""
+    root = __import__("pathlib").Path(APP_ROOT)
+    lines = (root / "meshloom" / "config.yaml").read_text().splitlines()
+    start = lines.index("arch:") + 1
+    arches = []
+    for line in lines[start:]:
+        if line.startswith("  - "):
+            arches.append(line[4:].strip())
+        elif line.strip() and not line.lstrip().startswith("#"):
+            break
+    assert arches
+    assert set(arches) <= set(SHIPPED_ARCHES), arches
+
+
+# Names an ABI does not have (the generic table has no fork, no vfork; only i386
+# multiplexes sockets through socketcall).
+ABSENT = {
+    "x86_64": {"socketcall"},
+    "i386": set(),
+    "aarch64": {"fork", "vfork", "socketcall"},
+    "arm": {"socketcall"},
+    "riscv64": {"fork", "vfork", "socketcall"},
+}
+
+
+@pytest.mark.parametrize("abi", sorted(seccomp.TABLES))
+def test_every_abi_numbers_every_denied_name(abi: str) -> None:
+    _arch, numbers = seccomp.TABLES[abi]
+    wanted = seccomp.RUNNER_DENIED | seccomp.BWRAP_DENIED
+    assert wanted - set(numbers) == ABSENT[abi], abi
+    assert set(numbers) <= wanted
+    # One number per name: a typo duplicating a number would deny the wrong syscall.
+    assert len(set(numbers.values())) == len(numbers), abi
+
+
+def test_bwrap_filter_is_the_runner_list_but_execve_plus_kernel_surface() -> None:
+    # bwrap installs its filter right before it executes the interpreter: execve
+    # must pass; everything else the runner refuses stays refused (MSHL-413).
+    assert "execve" not in seccomp.BWRAP_DENIED
+    assert seccomp.RUNNER_DENIED - {"execve"} <= seccomp.BWRAP_DENIED
+    assert {"io_uring_setup", "bpf", "userfaultfd", "keyctl", "mount", "ptrace"} <= (
+        seccomp.BWRAP_DENIED
+    )
+    assert {"socket", "socketpair", "pidfd_open", "unshare", "setns"} <= seccomp.RUNNER_DENIED
+
+
+@pytest.mark.parametrize("abi", sorted(seccomp.TABLES))
+def test_program_bytes_is_the_sock_filter_array(abi: str) -> None:
+    prog = seccomp.build_filter(abi, seccomp.BWRAP_DENIED)
+    raw = seccomp.program_bytes(prog)
+    assert len(raw) == 8 * len(prog)
+    assert [tuple(insn) for insn in __import__("struct").iter_unpack("=HBBI", raw)] == prog
+
+
+@pytest.mark.parametrize("names", ["runner", "bwrap"])
+@pytest.mark.parametrize("abi", sorted(seccomp.TABLES))
+def test_filter_denies_exactly_the_listed_syscalls(abi: str, names: str) -> None:
+    """Interpret the BPF program: denied numbers and foreign arches get EPERM."""
+    arch, table = seccomp.TABLES[abi]
+    denied = seccomp.RUNNER_DENIED if names == "runner" else seccomp.BWRAP_DENIED
+    numbers = {name: table[name] for name in denied if name in table}
+    prog = seccomp.build_filter(abi, denied)
+    # Jump offsets are one byte: far below that.
+    assert len(prog) < 64
+
+    def run(arch_value: int, nr: int) -> int:
+        acc = 0
+        pc = 0
+        while True:
+            code, jt, jf, k = prog[pc]
+            if code == 0x20:
+                acc = {0: nr, 4: arch_value}[k]
+                pc += 1
+            elif code == 0x15:
+                pc += 1 + (jt if acc == k else jf)
+            elif code == 0x35:
+                pc += 1 + (jt if acc >= k else jf)
+            elif code == 0x06:
+                return k
+            else:
+                raise AssertionError(f"unexpected opcode {code:#x}")
+
+    deny = seccomp.SECCOMP_RET_ERRNO | seccomp.EPERM
+    for name, nr in numbers.items():
+        assert run(arch, nr) == deny, name
+    for nr in range(0, 600):
+        if nr not in numbers.values():
+            assert run(arch, nr) == seccomp.SECCOMP_RET_ALLOW, nr
+    assert run(arch ^ 0x1, 0) == deny
+    if abi == "x86_64":
+        assert run(arch, 0x40000000 | 1) == deny  # x32 write
+    assert {"clone", "clone3", "execveat", "unshare", "setns", "pidfd_open"} <= set(numbers)
+    assert ("execve" in numbers) == (names == "runner")
+
+
+@pytest.mark.skipif(not LINUX, reason="seccomp is Linux only")
+def test_child_cannot_fork_exec_or_thread_once_filtered() -> None:
+    if seccomp.native_abi() is None:
+        pytest.skip("no seccomp table for this architecture")
+    proc = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", PROBE.format(app_root=APP_ROOT)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert out["abi"] == seccomp.native_abi()
+    for name in ("fork", "execv", "posix_spawn", "subprocess"):
+        assert out[name] == "EPERM", (name, out)
+    assert out["thread"].startswith("RuntimeError"), out
+    if hasattr(os, "unshare"):
+        # No new namespace and no joining one (MSHL-212); unfiltered, setns(0, 0)
+        # answers EINVAL and unshare(CLONE_NEWUSER) usually succeeds.
+        assert out["unshare"] == "EPERM", out
+        assert out["setns"] == "EPERM", out
+    for name in ("loopback", "socket_inet6", "socket_unix", "socketpair", "pidfd_open"):
+        assert out[name] == "EPERM", (name, out)
+    assert out["getpid"] is True
+    if out["euid"] != 0:
+        # A non-root child keeps no capability (ambient ones included).
+        assert out["caps"] == dict.fromkeys(out["caps"], 0), out["caps"]
+
+
+def test_unknown_architecture_is_fatal_only_when_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    if not LINUX:
+        assert seccomp.apply(lambda *a: 0, required=True) is None
+        return
+    monkeypatch.setattr(seccomp, "native_abi", lambda: None)
+    monkeypatch.setattr(seccomp, "drop_capabilities", lambda prctl: None)
+    assert seccomp.apply(lambda *a: 0, required=False) is None
+    with pytest.raises(seccomp.SeccompError):
+        seccomp.apply(lambda *a: 0, required=True)

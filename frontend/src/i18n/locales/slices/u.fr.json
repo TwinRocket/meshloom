@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "fanout": {
+      "webhook": {
+        "urlKept": "Inchangée ({{url}}). Saisissez une nouvelle URL pour la remplacer.",
+        "headersKept": "Les valeurs enregistrées s'affichent ******** : laissez-les, remplacez-les ou supprimez la ligne.",
+        "headersRequiredAfterDestination": "URL changée : saisissez de nouveau chaque valeur affichée ********, ou supprimez sa ligne."
+      }
+    },
+    "notifications": {
+      "webhookUrlKept": "Inchangée ({{url}}). Saisissez une nouvelle URL pour la remplacer.",
+      "webhookUrlClear": "Effacer",
+      "webhookUrlClearHelp": "Effacer l'URL supprime aussi le secret HMAC enregistré."
+    }
+  }
+}

@@ -91,4 +91,40 @@ def test_install_sh_never_writes_its_own_package_helper() -> None:
 
 def test_service_cannot_write_etc_meshloom() -> None:
     service = (PKG / "meshloom.service").read_text(encoding="utf-8")
-    assert "ReadWritePaths=/opt/meshloom /var/lib/meshloom\n" in service
+    # The kiosk device token directory is optional ("-"): kiosk hosts only.
+    assert "ReadWritePaths=/var/lib/meshloom -/var/lib/meshloom-kiosk\n" in service
+
+
+def test_service_caps_the_unit_task_count() -> None:
+    service = (PKG / "meshloom.service").read_text(encoding="utf-8")
+    assert "\nTasksMax=512\n" in service
+
+
+def test_service_keeps_the_state_directory_from_other_accounts() -> None:
+    service = (PKG / "meshloom.service").read_text(encoding="utf-8")
+    # Without these, StateDirectory= resets the directory to 0755 at every start
+    # and SQLite creates the database 0644.
+    assert "\nStateDirectoryMode=0750\n" in service
+    assert "\nUMask=0027\n" in service
+    assert "d /var/lib/meshloom 0750 meshloom meshloom" in (PKG / "meshloom.tmpfiles").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_postinstall_never_writes_the_kiosk_marker_through_a_link() -> None:
+    assert ": >/var/lib/meshloom/kiosk" not in POSTINST
+    assert "chmod 0644 /var/lib/meshloom/kiosk" not in POSTINST
+    assert POSTINST.index("mkdir -p /var/lib/meshloom-update") < POSTINST.index(
+        "mktemp /var/lib/meshloom-update/kiosk."
+    )
+    assert 'mv -fT "$marker" /var/lib/meshloom/kiosk' in POSTINST
+
+
+def test_postinstall_closes_the_state_directory_of_an_existing_install() -> None:
+    chmod_at = POSTINST.index('chmod 0750 "$state_dir"')
+    # After the kiosk marker, which may create the directory, and before any restart.
+    assert POSTINST.index("mark_kiosk_host || true") < chmod_at
+    assert chmod_at < POSTINST.index("systemctl start meshloom || true")
+    # Root never walks or follows what the meshloom user owns.
+    assert '[ ! -L "$state_dir" ]' in POSTINST
+    assert "chmod -R" not in POSTINST

@@ -5,11 +5,19 @@
  * subsequent callers get undefined and should fall back to a normal fetch.
  */
 
-import type { AppSettings, Channel, Contact, RadioConfig, UnreadCounts } from './types';
+import type {
+  AppSettings,
+  AppSettingsView,
+  Channel,
+  Contact,
+  RadioConfig,
+  UnreadCounts,
+} from './types';
 
 interface PrefetchMap {
   config: Promise<RadioConfig>;
-  settings: Promise<AppSettings>;
+  /** The full settings for an administrator, the readable view for any other role. */
+  settings: Promise<AppSettings | AppSettingsView>;
   channels: Promise<Channel[]>;
   contacts: Promise<Contact[]>;
   unreads: Promise<UnreadCounts>;

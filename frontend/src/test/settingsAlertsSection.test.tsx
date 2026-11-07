@@ -13,24 +13,6 @@ import {
 } from '../types';
 import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
-const pushMocks = vi.hoisted(() => ({
-  patchPreferences: vi.fn(async () => {}),
-  preferences: {
-    defaults: {
-      telemetry_alert: { push: true, email: false, webhook: false },
-    },
-    overrides: {},
-    vapid_subject: '',
-  },
-}));
-
-vi.mock('../contexts/PushSubscriptionContext', () => ({
-  usePush: () => ({
-    preferences: pushMocks.preferences,
-    patchPreferences: pushMocks.patchPreferences,
-  }),
-}));
-
 const baseSettings: AppSettings = {
   ui_preferences: { nav_rail: [], theme: '' },
   max_radio_contacts: 200,
@@ -86,16 +68,14 @@ describe('telemetry alert rule helpers', () => {
     expect(resolved.rules.battery.threshold).toBe(3.7);
     expect(resolved.rules.noise.threshold).toBe(-85);
     expect(resolved.rules.silence.threshold).toBe(3);
-    expect(resolved.channels.push).toBe(true);
   });
 
-  it('keeps the new channels/rules/overrides shape', () => {
+  it('keeps the rules/overrides shape and drops a stored channels field', () => {
     const resolved = resolveTelemetryAlertRules({
       channels: { push: false, email: true, webhook: true },
       rules: { battery: { enabled: false, threshold: 3.1 } },
       overrides: { aabbcc: { alerting: false, rules: { battery: { threshold: 3.0 } } } },
     });
-    expect(resolved.channels).toEqual({ push: false, email: true, webhook: true });
     expect(resolved.rules.battery.enabled).toBe(false);
     expect(resolved.rules.battery.threshold).toBe(3.1);
     expect(resolved.overrides.aabbcc.alerting).toBe(false);
@@ -127,19 +107,29 @@ describe('telemetry alert rule helpers', () => {
   });
 });
 
+const CHANNELS = [
+  { id: 'builtin:push', type: 'web_push', name: 'Browser push', enabled: true },
+  { id: 'ntfy', type: 'apprise', name: 'My ntfy', enabled: true },
+];
+
+function rulesWith(alertChannels: string[]) {
+  return {
+    version: 1,
+    paused_until: null,
+    events: { 'telemetry.alert': { channels: alertChannels } },
+    conversations: {},
+  };
+}
+
 describe('SettingsAlertsSection', () => {
   beforeEach(() => {
-    pushMocks.patchPreferences.mockClear();
-    pushMocks.preferences.defaults.telemetry_alert = {
-      push: true,
-      email: false,
-      webhook: false,
-    };
     vi.spyOn(api, 'getTelemetryAlertCatalog').mockResolvedValue({
       metrics: [],
       latches: [],
       tracked: [],
     });
+    vi.spyOn(api, 'getNotificationChannels').mockResolvedValue(CHANNELS as never);
+    vi.spyOn(api, 'getNotificationRules').mockResolvedValue(rulesWith(['builtin:push']) as never);
   });
 
   afterEach(() => {
@@ -147,31 +137,63 @@ describe('SettingsAlertsSection', () => {
     void i18n.changeLanguage(DEFAULT_LOCALE);
   });
 
-  it('disables email and webhook voices until destinations are set', async () => {
+  it('shows a chip per channel, pressed for those of the telemetry.alert row', async () => {
     await renderSection();
 
-    expect(screen.getByLabelText(i18n.t('settings.alerts.voicePush'))).toBeEnabled();
-    expect(screen.getByLabelText(i18n.t('settings.alerts.voiceEmail'))).toBeDisabled();
-    expect(screen.getByLabelText(i18n.t('settings.alerts.voiceWebhook'))).toBeDisabled();
-    expect(
-      screen.getAllByRole('link', { name: i18n.t('settings.alerts.configureDestinations') })
-    ).toHaveLength(2);
-    expect(
-      screen.getAllByRole('link', { name: i18n.t('settings.alerts.configureDestinations') })[0]
-    ).toHaveAttribute('href', '#settings/notifications');
+    expect(await screen.findByRole('button', { name: /Browser push/ })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: /My ntfy/ })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
   });
 
-  it('saves the push voice through notification preferences', async () => {
+  it('adds a channel to the telemetry.alert row through the rules, not the settings', async () => {
+    const patch = vi
+      .spyOn(api, 'patchNotificationRules')
+      .mockResolvedValue(rulesWith(['builtin:push', 'ntfy']) as never);
     const { onSaveAppSettings } = await renderSection();
 
-    fireEvent.click(screen.getByLabelText(i18n.t('settings.alerts.voicePush')));
+    fireEvent.click(await screen.findByRole('button', { name: /My ntfy/ }));
 
     await waitFor(() => {
-      expect(pushMocks.patchPreferences).toHaveBeenCalledWith({
-        defaults: { telemetry_alert: { push: false } },
+      expect(patch).toHaveBeenCalledWith({
+        events: { 'telemetry.alert': { channels: ['builtin:push', 'ntfy'] } },
       });
-      expect(onSaveAppSettings).not.toHaveBeenCalled();
     });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /My ntfy/ })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+    });
+    expect(onSaveAppSettings).not.toHaveBeenCalled();
+  });
+
+  it('removes a channel from the row', async () => {
+    const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(rulesWith([]) as never);
+    await renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Browser push/ }));
+
+    await waitFor(() => {
+      expect(patch).toHaveBeenCalledWith({ events: { 'telemetry.alert': { channels: [] } } });
+    });
+  });
+
+  it('offers a retry when the channels cannot be loaded', async () => {
+    vi.spyOn(api, 'getNotificationChannels').mockRejectedValueOnce(new Error('down'));
+    await renderSection();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      i18n.t('settings.alerts.channelsLoadFailed')
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.notifications.rulesRetry') })
+    );
+    expect(await screen.findByRole('button', { name: /Browser push/ })).toBeInTheDocument();
   });
 
   it('renders builtin battery and RSSI help about last heard packet', async () => {

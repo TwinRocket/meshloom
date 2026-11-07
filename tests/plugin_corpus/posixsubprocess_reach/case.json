@@ -1,0 +1,8 @@
+{
+  "description": "Bypass 2: _posixsubprocess.fork_exec emits no audit event. The module is purged and its import refused, and the subprocess references other modules kept are replaced. Re-creating the module from its spec stays possible in-process: only the OS isolation closes that (docs/dev/plugins-security.md).",
+  "events": [
+    {"params": {"via": "import"}, "expect": {"error_type": "PermissionError"}},
+    {"params": {"via": "asyncio"}, "expect": {"error_type": "PermissionError"}},
+    {"params": {"via": "create_subprocess_exec"}, "expect": {"error_type": "PermissionError"}}
+  ]
+}

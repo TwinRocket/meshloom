@@ -1,0 +1,9 @@
+{
+  "settingsNavigation": {
+    "startPageTitle": "Start page",
+    "startPageHelp": "The page that opens when the address names none. Set by an administrator, it applies to every session.",
+    "startPage": "Open on",
+    "startPageConversations": "Conversations (default)",
+    "startPageAdminOnly": "Only an administrator can change the start page."
+  }
+}

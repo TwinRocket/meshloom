@@ -1,0 +1,248 @@
+{
+  "settingsNav": {
+    "remote": "Remote access"
+  },
+  "settings": {
+    "remote": {
+      "loading": "Loading…",
+      "about": {
+        "title": "Meshloom Remote",
+        "intro": "Open this Meshloom from anywhere, without opening a port on your router. Only the devices you allow can get in.",
+        "secure": "Protect access: turn on two-factor authentication.",
+        "learnMore": "Learn more"
+      },
+      "status": {
+        "title": "Status",
+        "hostname": "Address",
+        "copy": "Copy",
+        "copied": "Address copied.",
+        "copyFailed": "Could not copy the address.",
+        "fingerprint": "Key fingerprint",
+        "noKey": "No key yet",
+        "registeredAt": "Registered",
+        "lastError": "Last error from the relay:",
+        "askAdmin": "Only an administrator can turn Meshloom Remote on."
+      },
+      "badge": {
+        "off": "Off",
+        "unregistered": "Not registered",
+        "connecting": "Connecting",
+        "connected": "Connected",
+        "reconnecting": "Offline",
+        "not_registered": "Unknown to the relay",
+        "paused": "Paused",
+        "quota_exceeded": "Monthly quota reached",
+        "replaced": "Replaced",
+        "banned": "Banned",
+        "update_required": "Update required",
+        "relay_paused": "Relay paused",
+        "unknown": "Unknown state",
+        "needs_community": "Needs Community",
+        "community_off": "Paused: Community is off"
+      },
+      "badgeHelp": {
+        "off": "Remote is off: nothing is sent to the relay.",
+        "unregistered": "The relay did not register this instance. Try again.",
+        "connecting": "Connecting to the relay…",
+        "connected": "Your allowed devices open this instance at the address below.",
+        "reconnecting": "The link to the relay is down and Meshloom reconnects on its own. Check this machine's internet connection.",
+        "not_registered": "The relay no longer knows this instance. Turn Remote off and on again.",
+        "paused": "The relay paused this instance. Meshloom tries again on its own within 20 minutes.",
+        "quota_exceeded": "Remote is back on the 1st. Meshloom keeps working on your local network.",
+        "replaced": "Another install uses this instance's key, often a restored backup. Replace the key here.",
+        "banned": "The relay banned this instance. Contact TwinRocket if this is a mistake.",
+        "update_required": "Update Meshloom to use Remote.",
+        "relay_paused": "Meshloom Remote is paused for everyone. Meshloom tries again on its own.",
+        "unknown": "The relay reports a state this version does not know.",
+        "needs_community": "Remote needs Meshloom Community. Turn Community on first.",
+        "community_off": "Community is off, so Remote is paused. Your address and devices are kept."
+      },
+      "actions": {
+        "enable": "Turn on Meshloom Remote",
+        "retry": "Try registering again",
+        "restart": "Turn off and on again",
+        "update": "Open Updates",
+        "disable": "Turn off",
+        "unregister": "Leave Meshloom Remote",
+        "rotate": "Replace the key",
+        "community": "Open Community settings"
+      },
+      "enabledToast": "Meshloom Remote is on.",
+      "disabledToast": "Meshloom Remote is off.",
+      "restartedToast": "Meshloom Remote restarted.",
+      "unregisteredToast": "This instance left Meshloom Remote.",
+      "rotatedToast": "The Remote key was replaced.",
+      "enable": {
+        "title": "Turn on Meshloom Remote?",
+        "help": "This instance gets a meshloom.link address. You then allow each device.",
+        "isolationWarning": "Plugins run without a sandbox: protect every administrator with two-factor authentication.",
+        "isolationAck": "I understand, turn it on anyway.",
+        "confirm": "Turn on"
+      },
+      "confirm": {
+        "disable": {
+          "title": "Turn off Meshloom Remote?",
+          "help": "Your devices can no longer open the instance remotely. Their list is kept.",
+          "confirm": "Turn off"
+        },
+        "unregister": {
+          "title": "Leave Meshloom Remote?",
+          "help": "The relay forgets this instance's address. Come back within 30 days to get it again.",
+          "confirm": "Leave"
+        },
+        "rotate": {
+          "title": "Replace the Remote key?",
+          "help": "The instance gets a new address, and every device must be allowed again.",
+          "confirm": "Replace the key"
+        }
+      },
+      "enroll": {
+        "title": "Allow a device",
+        "help": "Scan a QR code with the device to allow. Without a camera, send an access request instead.",
+        "lanOnly": "The QR code only shows on the local network. From here, approve an access request instead.",
+        "show": "Show the QR code",
+        "dialogTitle": "Scan with the device to allow",
+        "dialogHelp": "Scan this QR code with the device, then sign in as usual.",
+        "secretWarning": "Do not share this QR code: it opens access to your account.",
+        "qrAlt": "QR code to allow a device with Meshloom Remote",
+        "countdown": "Expires in {{time}}",
+        "expired": "This code has expired, so the QR code is hidden.",
+        "done": "The device is allowed.",
+        "regenerate": "Show a new code",
+        "another": "Allow another device",
+        "close": "Close"
+      },
+      "requests": {
+        "title": "Access requests",
+        "help": "Type the code shown by the device asking for access.",
+        "socialWarning": "Only approve your own device, never a code someone passes on to you.",
+        "none": "No pending request.",
+        "unknownDevice": "Unknown device",
+        "askedAt": "Asked {{when}}",
+        "userAgent": "Sent by the device (unverified):",
+        "deny": "Deny",
+        "denied": "Request denied.",
+        "code": "Code shown on the device",
+        "label": "Device name (optional)",
+        "labelPlaceholder": "My phone",
+        "approve": "Approve",
+        "approved": "Device approved.",
+        "offline": "The connection to the relay is down: approving is not possible right now."
+      },
+      "devices": {
+        "title": "Allowed devices",
+        "help": "Revoke a device you lost or no longer use.",
+        "helpAdmin": "Devices of every account. Revoke a device that is lost or no longer used.",
+        "none": "No allowed device.",
+        "unnamed": {
+          "browser": "Browser",
+          "client": "App or script"
+        },
+        "origin": {
+          "qr": "Allowed by QR code",
+          "approval": "Approved request",
+          "client": "App access"
+        },
+        "owner": "Account {{user}}",
+        "ownerYou": "Your account",
+        "lastSeen": "Last seen {{when}}",
+        "neverSeen": "Not seen yet",
+        "passExpires": "Access valid until {{when}}",
+        "revokedAt": "Revoked {{when}}",
+        "oldGeneration": "Revoked with every device",
+        "inactive_one": "{{count}} revoked device",
+        "inactive_other": "{{count}} revoked devices",
+        "revoke": "Revoke",
+        "revokeNamed": "Revoke {{name}}",
+        "revokeTitle": "Revoke “{{name}}”?",
+        "revokeHelp": "This device will no longer open the instance remotely.",
+        "revoked": "Device revoked.",
+        "revokeAll": "Revoke every device",
+        "revokeAllTitle": "Revoke every device?",
+        "revokeAllHelp": "Every device, of every account, loses remote access.",
+        "revokedAll": "Every device was revoked.",
+        "notPushed": "The relay is out of reach: this change applies once it reconnects."
+      },
+      "alertEmail": {
+        "title": "Alert e-mail",
+        "help": "Get an e-mail when this instance nears or reaches its monthly quota. Only the relay keeps the address.",
+        "learnMore": "Learn more",
+        "label": "E-mail address",
+        "save": "Save",
+        "saving": "Saving…",
+        "remove": "Remove the address",
+        "savedToast": "Confirmation e-mail on its way.",
+        "removedToast": "Address removed.",
+        "state": {
+          "none": "No address set.",
+          "pending": "Open the link in the confirmation e-mail to turn on alerts.",
+          "confirmed": "An address is confirmed. It is not shown here: type a new one to replace it."
+        }
+      },
+      "domain": {
+        "title": "Your own domain",
+        "help": "Create a URL redirect from your domain to https://{{hostname}}, then test it here.",
+        "label": "Your domain",
+        "test": "Test",
+        "testing": "Testing…",
+        "result": {
+          "ok": {
+            "title": "The redirect works",
+            "help": "Your domain redirects to {{hostname}} (HTTP {{status}})."
+          },
+          "no_redirect": {
+            "title": "No redirect",
+            "help": "Your domain answered HTTP {{status}} without a redirect. Create a redirect to https://{{hostname}}."
+          },
+          "wrong_target": {
+            "title": "Wrong target",
+            "help": "Your domain redirects to “{{target}}” instead of {{hostname}}. Fix the destination of the redirect."
+          },
+          "invalid_domain": {
+            "title": "Not a domain name",
+            "help": "Type a name such as chat.example.org, without a port or path."
+          },
+          "unreachable": {
+            "title": "Your domain could not be reached",
+            "help": "This instance could not get an answer from your domain."
+          }
+        },
+        "reason": {
+          "egress_unresolvable": "The name does not resolve: check the DNS record of the domain.",
+          "egress_private_address": "The name points to a private or local address, which is never contacted.",
+          "egress_scheme": "The address is not a valid web address.",
+          "timeout": "The domain did not answer in time.",
+          "tls_error": "The secure connection failed: the certificate does not match the domain.",
+          "connect_error": "The connection was refused or lost."
+        }
+      }
+    },
+    "access": {
+      "securityNotice": {
+        "remote_reduced_plugin_isolation": "Remote is on and plugins run without a sandbox: protect every administrator with two-factor authentication."
+      }
+    }
+  },
+  "errors": {
+    "remote_disabled": "Meshloom Remote is off.",
+    "remote_not_registered": "This instance is not registered with Meshloom Remote.",
+    "remote_unavailable": "Meshloom Remote did not answer. Check this machine's internet connection and try again.",
+    "remote_registry_error": "Meshloom Remote refused the request.",
+    "remote_rate_limited": "Too many requests to Meshloom Remote: try again later.",
+    "remote_lan_only": "The QR code to allow a device is shown on the local network only.",
+    "remote_device_not_found": "This device no longer exists.",
+    "remote_access_request_not_found": "No request matches this code. Check the code shown on the device.",
+    "remote_offline": "The connection to the relay is down: try again once it is back.",
+    "remote_pass_required": "This device is not allowed with Meshloom Remote.",
+    "remote_host_mismatch": "This request is not for this instance's Remote address.",
+    "remote_request_invalid": "The relay sent an invalid request.",
+    "remote_alert_email_invalid": "This is not a valid e-mail address.",
+    "remote_alert_email_frozen": "This address cannot be changed for now.",
+    "remote_alert_email_paused": "Alert e-mails cannot be changed right now. Try again later.",
+    "remote_community_off": "Remote needs Meshloom Community. Turn Community on first.",
+    "remote_radio_not_heard": "No other station has heard this radio lately: send a flood advertisement, then try again.",
+    "remote_community_opted_out": "This radio has left Meshloom Community: join it again in the Community settings.",
+    "remote_community_banned": "Meshloom Community has blocked this radio; if this is a mistake, write to ban@meshloom.app.",
+    "remote_attestation_unavailable": "Meshloom Community cannot vouch for this radio now. Try later, or connect it directly if it goes through a proxy."
+  }
+}

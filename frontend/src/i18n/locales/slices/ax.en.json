@@ -1,0 +1,9 @@
+{
+  "errors": {
+    "auth_password_change_required": "Change your password before going on: the administrator set it for you.",
+    "auth_user_not_found": "This account no longer exists.",
+    "auth_username_taken": "This user name is already taken.",
+    "auth_password_required": "Give this account an initial password.",
+    "auth_password_not_applicable": "This account has no password: Home Assistant and kiosk accounts sign in another way."
+  }
+}

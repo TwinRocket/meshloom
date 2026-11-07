@@ -1,3 +1,6 @@
+import { useCapabilities } from '../auth/SessionProvider';
+import { visibleSettingsSections } from '../auth/capabilities';
+import { toolAllowed } from './navDestinations';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -6,6 +9,7 @@ import {
   Map,
   MessageSquare,
   Network,
+  Newspaper,
   Radio,
   RadioTower,
   Route,
@@ -16,6 +20,7 @@ import {
   Waypoints,
 } from 'lucide-react';
 
+import { makeFeedConversation } from './feed/feedConversation';
 import {
   Command,
   CommandEmpty,
@@ -68,6 +73,7 @@ interface ToolItem extends Searchable {
   icon: React.ComponentType<{ className?: string }>;
   type:
     | 'raw'
+    | 'feed'
     | 'control'
     | 'map'
     | 'live'
@@ -87,6 +93,7 @@ interface SettingItem extends Searchable {
 
 const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
   { id: 'raw', icon: Radio, type: 'raw' },
+  { id: 'feed', icon: Newspaper, type: 'feed' },
   { id: 'control', icon: ScrollText, type: 'control' },
   { id: 'map', icon: Map, type: 'map' },
   { id: 'live', icon: Radio, type: 'live' },
@@ -103,7 +110,8 @@ const DIRECTORY_ONLY_TOOLS: readonly string[] = ['test'];
 
 const TOOL_NAME_KEYS: Record<string, string> = {
   raw: 'commandPalette.rawPacketFeed',
-  control: 'sidebar.controlJournal',
+  feed: 'sidebar.feed',
+  control: 'commandPalette.controlPreset',
   map: 'commandPalette.mapView',
   live: 'commandPalette.liveRain',
   visualizer: 'commandPalette.networkVisualizer',
@@ -115,6 +123,8 @@ const TOOL_NAME_KEYS: Record<string, string> = {
 };
 
 const TOOL_SEARCH_EXTRA: Record<string, string> = {
+  feed: 'feed fil activity activite timeline messages',
+  control: 'control controle journal feed fil preset prereglage',
   locate: 'rf locate zone community',
   test: 'test radio flood reach portee',
 };
@@ -150,30 +160,33 @@ export function CommandPalette({
   directoryEnabled = false,
 }: CommandPaletteProps) {
   const { t, i18n } = useTranslation();
+  const capabilities = useCapabilities();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const toolItems = useMemo<ToolItem[]>(
     () =>
-      TOOL_DEFS.filter((tool) => directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(tool.id)).map(
-        (tool) => {
-          const nameKey = TOOL_NAME_KEYS[tool.id];
-          const name = t(nameKey);
-          const extra = TOOL_SEARCH_EXTRA[tool.id] ?? '';
-          return {
-            ...tool,
-            name,
-            searchText:
-              `${name} ${i18n.t(nameKey, { lng: 'en' })} ${i18n.t(nameKey, { lng: 'fr' })} ${extra}`.toLowerCase(),
-          };
-        }
-      ),
-    [t, i18n, directoryEnabled]
+      TOOL_DEFS.filter(
+        (tool) =>
+          (directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(tool.id)) &&
+          toolAllowed(tool.id, capabilities)
+      ).map((tool) => {
+        const nameKey = TOOL_NAME_KEYS[tool.id];
+        const name = t(nameKey);
+        const extra = TOOL_SEARCH_EXTRA[tool.id] ?? '';
+        return {
+          ...tool,
+          name,
+          searchText:
+            `${name} ${i18n.t(nameKey, { lng: 'en' })} ${i18n.t(nameKey, { lng: 'fr' })} ${extra}`.toLowerCase(),
+        };
+      }),
+    [t, i18n, directoryEnabled, capabilities]
   );
 
   const settingItems = useMemo<SettingItem[]>(
     () =>
-      SETTINGS_SECTION_ORDER.map((section) => {
+      visibleSettingsSections(capabilities, SETTINGS_SECTION_ORDER).map((section) => {
         const labelKey = SETTINGS_SECTION_LABELS[section];
         const label = t(labelKey);
         return {
@@ -184,7 +197,7 @@ export function CommandPalette({
             `settings ${label} ${i18n.t(labelKey, { lng: 'en' })} ${i18n.t(labelKey, { lng: 'fr' })}`.toLowerCase(),
         };
       }),
-    [t, i18n]
+    [t, i18n, capabilities]
   );
 
   useEffect(() => {
@@ -217,7 +230,7 @@ export function CommandPalette({
     const rc: SearchableContact[] = [];
     const rp: SearchableContact[] = [];
     const rm: SearchableContact[] = [];
-    for (const c of contacts) {
+    for (const c of capabilities.canReadPrivate ? contacts : []) {
       const displayName = getContactDisplayName(c.name, c.public_key, c.last_advert);
       const entry: SearchableContact = {
         contact: c,
@@ -252,7 +265,7 @@ export function CommandPalette({
       favChannels: fch,
       regularChannels: rch,
     };
-  }, [contacts, channels]);
+  }, [contacts, channels, capabilities.canReadPrivate]);
 
   const lq = query.toLowerCase();
   const fTools = filterList(toolItems, lq);
@@ -303,7 +316,14 @@ export function CommandPalette({
                     key={tool.id}
                     onSelect={() =>
                       select(() =>
-                        onSelectConversation({ type: tool.type, id: tool.id, name: tool.name })
+                        onSelectConversation(
+                          tool.type === 'feed' || tool.type === 'control'
+                            ? makeFeedConversation(
+                                tool.name,
+                                tool.type === 'control' ? 'control' : undefined
+                              )
+                            : { type: tool.type, id: tool.id, name: tool.name }
+                        )
                       )
                     }
                   >

@@ -1,0 +1,42 @@
+{
+  "description": "Reach a loopback service (the radio TCP proxy, 5051, has no authentication) or any socket from a rebuilt _socket: IPv4 127.0.0.1, IPv6 ::1, an abstract Unix socket, and a socketpair (no audit event). The hook refuses the import or the socket.__new__ event; past it, the runner's seccomp filter answers EPERM to socket and socketpair at every level, setuid included, where no network namespace exists (MSHL-415).",
+  "platforms": [
+    "linux"
+  ],
+  "events": [
+    {
+      "params": {
+        "how": "inet",
+        "port": 5051
+      },
+      "expect": {
+        "check": "socket_refused"
+      }
+    },
+    {
+      "params": {
+        "how": "inet6",
+        "port": 5051
+      },
+      "expect": {
+        "check": "socket_refused"
+      }
+    },
+    {
+      "params": {
+        "how": "unix"
+      },
+      "expect": {
+        "check": "socket_refused"
+      }
+    },
+    {
+      "params": {
+        "how": "socketpair"
+      },
+      "expect": {
+        "check": "socket_refused"
+      }
+    }
+  ]
+}

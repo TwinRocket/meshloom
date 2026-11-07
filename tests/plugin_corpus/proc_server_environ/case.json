@@ -1,0 +1,19 @@
+{
+  "description": "Read the server's environment through /proc: by the server's pid, and by the parent pid.",
+  "events": [
+    {
+      "params": {
+        "pid": "$SERVER_PID"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "pluginStore": {
+    "navBadge_one": "{{count}} mise à jour",
+    "navBadge_other": "{{count}} mises à jour",
+    "online": {
+      "toggle": "Store en ligne",
+      "help": "Désactivé, le Store ne va plus sur Internet. Les extensions installées continuent de fonctionner."
+    },
+    "refresh": {
+      "button": "Actualiser",
+      "last": "Store activé. Dernière actualisation : {{time}}.",
+      "never": "Store activé. Aucune actualisation depuis le démarrage de ce Meshloom.",
+      "done": "Versions vérifiées.",
+      "skipped": "Vérifié il y a moins de 10 minutes : les versions enregistrées sont affichées."
+    },
+    "card": {
+      "custom": "Dépôt personnalisé",
+      "unreviewed": "Non relu, non signé",
+      "incompatible": "Cette version ne prend pas en charge cette version de Meshloom : elle ne peut pas être installée.",
+      "incompatibleBadge": "Incompatible",
+      "details": "Détails",
+      "disabledLocked": "Les extensions sont désactivées sur ce serveur : l'installation est désactivée.",
+      "checkedAt": "Dernière vérification : {{time}}",
+      "neverChecked": "Pas encore vérifié."
+    },
+    "install": {
+      "next": "Suivant",
+      "configIntro": "Cette extension demande des réglages. Renseignez-les puis installez ; vous pourrez les modifier plus tard."
+    },
+    "page": {
+      "close": "Fermer",
+      "readme": "README",
+      "readmeNote": "Texte écrit par l'auteur de l'extension, affiché en texte brut (langue : {{lang}}). Rien n'y est exécuté ni ouvert.",
+      "noReadme": "Cette version n'a pas de README à afficher.",
+      "permissions": "Ce qu'il peut faire",
+      "hosts": "Hôtes auxquels il se connecte",
+      "hostsNone": "Il ne déclare aucun hôte auquel se connecter.",
+      "versions": "Versions",
+      "latest": "Dernière version : v{{version}} ({{tag}}).",
+      "installedVersion": "Installée : {{label}}, v{{version}}.",
+      "notInstalled": "Non installé.",
+      "reportTitle": "Signaler cette extension",
+      "reportIssues": "Signaler un problème à son auteur sur son suivi d'anomalies :",
+      "reportMail": "Signaler un problème avec cette extension en écrivant à",
+      "reportAddress": " Pour signaler un abus, écrivez à {{address}}.",
+      "copyDiagnostic": "Copier le diagnostic",
+      "diagnosticCopied": "Diagnostic copié."
+    },
+    "updates": {
+      "title": "Mises à jour des extensions",
+      "intro": "Nouvelles versions trouvées à la dernière actualisation du Store.",
+      "adminOnly": "Seul un administrateur peut voir et appliquer les mises à jour d'extensions.",
+      "offline": "Le Store est désactivé : activez-le dans l'onglet Store pour chercher les mises à jour.",
+      "none": "Toutes les extensions installées depuis un dépôt sont à jour.",
+      "review": "Examiner et mettre à jour",
+      "update": "Mettre à jour",
+      "hold": {
+        "consent_required": "{{label}} attendrait que vous acceptiez de nouvelles permissions.",
+        "config_required": "{{label}} attendrait des réglages désormais obligatoires."
+      },
+      "dropped": "{{label}} : la nouvelle version n'accepte plus la valeur de {{fields}} ; la mise à jour la réinitialise.",
+      "droppedWarning": "{{label}} : {{fields}} reviendra à sa valeur par défaut.",
+      "autoHeld": {
+        "consent_required": "La mise à jour automatique vous attend : la nouvelle version demande de nouvelles permissions. Vérifiez-la et mettez-la à jour vous-même.",
+        "config_required": "La mise à jour automatique vous attend : la nouvelle version exige de nouveaux réglages. Vérifiez-la et mettez-la à jour vous-même.",
+        "config_dropped": "La mise à jour automatique vous attend : la nouvelle version réinitialiserait un réglage. Vérifiez-la et mettez-la à jour vous-même."
+      },
+      "dialogTitle": "Mettre à jour {{name}}",
+      "dialogIntro": "De la v{{from}} à la v{{to}}.",
+      "changelog": "Journal des changements",
+      "noChangelog": "Cette source ne fournit pas de journal des changements.",
+      "permissionsTitle": "Permissions",
+      "noPermissionChange": "Aucun changement de permissions.",
+      "permAdded": "Nouvelles :",
+      "permChanged": "Modifiées :",
+      "permRemoved": "Plus demandées :",
+      "privacyWidened": "Sa déclaration de confidentialité est plus large qu'avant.",
+      "settingsTitle": "Réglages",
+      "schemaUnknown": "Les réglages de cette version n'ont pas encore été lus : actualisez le Store pour voir ce qui change.",
+      "noSettingChange": "Aucun changement de réglages.",
+      "fieldsAdded": "Nouveaux réglages : {{fields}}",
+      "fieldsRequired": "Désormais obligatoires : {{fields}}",
+      "fieldsRemoved": "Réglages supprimés : {{fields}}",
+      "sharedNote": "Toutes les instances de cette extension sont mises à jour ensemble ; les autres attendent votre examen dans l'onglet Installées.",
+      "reviewLater": "Cette version sera installée, puis attendra votre examen dans l'onglet Installées.",
+      "consentTitle": "Accepter les permissions de cette version",
+      "configIntro": "Renseignez les réglages dont cette version a besoin.",
+      "updated": "{{name}} mis à jour en v{{version}}.",
+      "autoTitle": "Mises à jour automatiques",
+      "autoIntro": "Installe seul les nouvelles versions, sauf celles qui demandent de nouvelles permissions ou de nouveaux réglages.",
+      "autoToggle": "Mettre à jour {{name}} automatiquement",
+      "openMeshloomUpdates": "Mises à jour de Meshloom",
+      "openExtensionUpdates": "Mises à jour des extensions",
+      "linkCount_one": "{{count}} extension a une mise à jour.",
+      "linkCount_other": "{{count}} extensions ont une mise à jour.",
+      "linkNone": "Aucune mise à jour d'extension en attente.",
+      "consentUnavailable": "Cette version n'est plus disponible. Actualisez le Store, puis réessayez."
+    }
+  }
+}

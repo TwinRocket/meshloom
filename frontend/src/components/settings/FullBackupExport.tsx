@@ -17,6 +17,12 @@ export function fullBackupWarningKey(code: string): string | null {
   if (code === 'wifi_not_stored') return 'settings.fullBackup.warningWifiNotStored';
   if (code === 'wifi_read_failed') return 'settings.fullBackup.warningWifiReadFailed';
   if (code.startsWith('radio_read_failed:')) return 'settings.fullBackup.warningReadFailed';
+  if (code.startsWith('section_sensitive_unencrypted:')) {
+    return 'settings.fullBackup.warningSensitiveUnencrypted';
+  }
+  if (code.startsWith('section_export_failed:')) {
+    return 'settings.fullBackup.warningSectionExportFailed';
+  }
   return null;
 }
 
@@ -44,6 +50,7 @@ function saveJson(data: unknown, filename: string) {
 export function FullBackupExport() {
   const { t } = useTranslation();
   const [encrypt, setEncrypt] = useState(false);
+  const [includeAccounts, setIncludeAccounts] = useState(true);
   const [passphrase, setPassphrase] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
@@ -56,7 +63,7 @@ export function FullBackupExport() {
   const download = async () => {
     setBusy(true);
     try {
-      const result = await api.exportFullBackup(encrypt ? passphrase : undefined);
+      const result = await api.exportFullBackup(encrypt ? passphrase : undefined, includeAccounts);
       const keys = [
         ...new Set(
           result.warnings.map(fullBackupWarningKey).filter((key): key is string => key !== null)
@@ -90,6 +97,28 @@ export function FullBackupExport() {
       >
         {t('settings.fullBackup.keyWarning')}
       </p>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={includeAccounts}
+          onChange={(e) => setIncludeAccounts(e.target.checked)}
+          className="w-4 h-4 rounded border-input accent-primary"
+        />
+        <span className="text-sm">{t('settings.fullBackup.includeAccounts')}</span>
+      </label>
+      {includeAccounts ? (
+        <p
+          className="text-[0.8125rem] rounded-md border border-warning/40 bg-warning/10 p-2"
+          role="note"
+        >
+          {t('settings.fullBackup.accountsWarning')}
+        </p>
+      ) : (
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.fullBackup.accountsLeftOut')}
+        </p>
+      )}
 
       <label className="flex items-center gap-3 cursor-pointer">
         <input

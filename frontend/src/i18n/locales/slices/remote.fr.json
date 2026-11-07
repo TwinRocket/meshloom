@@ -1,0 +1,248 @@
+{
+  "settingsNav": {
+    "remote": "Accès à distance"
+  },
+  "settings": {
+    "remote": {
+      "loading": "Chargement…",
+      "about": {
+        "title": "Meshloom Remote",
+        "intro": "Ouvrez ce Meshloom de partout, sans ouvrir de port sur votre box. Seuls les appareils que vous autorisez y ont accès.",
+        "secure": "Protégez l’accès : activez la double authentification.",
+        "learnMore": "En savoir plus"
+      },
+      "status": {
+        "title": "État",
+        "hostname": "Adresse",
+        "copy": "Copier",
+        "copied": "Adresse copiée.",
+        "copyFailed": "Impossible de copier l’adresse.",
+        "fingerprint": "Empreinte de la clé",
+        "noKey": "Pas encore de clé",
+        "registeredAt": "Enregistrée le",
+        "lastError": "Dernière erreur du relais :",
+        "askAdmin": "Seul un administrateur peut activer Meshloom Remote."
+      },
+      "badge": {
+        "off": "Désactivé",
+        "unregistered": "Non enregistrée",
+        "connecting": "Connexion",
+        "connected": "Connectée",
+        "reconnecting": "Hors ligne",
+        "not_registered": "Inconnue du relais",
+        "paused": "En pause",
+        "quota_exceeded": "Quota mensuel atteint",
+        "replaced": "Remplacée",
+        "banned": "Bannie",
+        "update_required": "Mise à jour requise",
+        "relay_paused": "Relais en pause",
+        "unknown": "État inconnu",
+        "needs_community": "Community requis",
+        "community_off": "En pause : Community désactivé"
+      },
+      "badgeHelp": {
+        "off": "Remote est désactivé : rien n’est envoyé au relais.",
+        "unregistered": "Le relais n’a pas enregistré cette instance. Réessayez.",
+        "connecting": "Connexion au relais…",
+        "connected": "Vos appareils autorisés ouvrent cette instance à l’adresse ci-dessous.",
+        "reconnecting": "La connexion au relais est coupée et Meshloom se reconnecte seul. Vérifiez la connexion internet de cette machine.",
+        "not_registered": "Le relais ne connaît plus cette instance. Désactivez puis réactivez Remote.",
+        "paused": "Le relais a mis cette instance en pause. Meshloom réessaie seul d’ici 20 minutes.",
+        "quota_exceeded": "Remote revient le 1er. Meshloom continue de fonctionner sur votre réseau local.",
+        "replaced": "Une autre installation utilise la clé de cette instance, souvent une sauvegarde restaurée. Remplacez la clé ici.",
+        "banned": "Le relais a banni cette instance. Contactez TwinRocket si c’est une erreur.",
+        "update_required": "Mettez Meshloom à jour pour utiliser Remote.",
+        "relay_paused": "Meshloom Remote est en pause pour tout le monde. Meshloom réessaie seul.",
+        "unknown": "Le relais signale un état que cette version ne connaît pas.",
+        "needs_community": "Remote a besoin de Meshloom Community. Activez d’abord Community.",
+        "community_off": "Community est désactivé : Remote est en pause. Votre adresse et vos appareils sont conservés."
+      },
+      "actions": {
+        "enable": "Activer Meshloom Remote",
+        "retry": "Réessayer l’enregistrement",
+        "restart": "Désactiver puis réactiver",
+        "update": "Ouvrir les mises à jour",
+        "disable": "Désactiver",
+        "unregister": "Quitter Meshloom Remote",
+        "rotate": "Remplacer la clé",
+        "community": "Ouvrir les réglages Community"
+      },
+      "enabledToast": "Meshloom Remote est activé.",
+      "disabledToast": "Meshloom Remote est désactivé.",
+      "restartedToast": "Meshloom Remote a redémarré.",
+      "unregisteredToast": "Cette instance a quitté Meshloom Remote.",
+      "rotatedToast": "La clé Remote a été remplacée.",
+      "enable": {
+        "title": "Activer Meshloom Remote ?",
+        "help": "Cette instance reçoit une adresse en meshloom.link. Vous autoriserez ensuite chaque appareil.",
+        "isolationWarning": "Les plugins tournent sans bac à sable : protégez chaque administrateur par la double authentification.",
+        "isolationAck": "J’ai compris, activer quand même.",
+        "confirm": "Activer"
+      },
+      "confirm": {
+        "disable": {
+          "title": "Désactiver Meshloom Remote ?",
+          "help": "Vos appareils ne pourront plus ouvrir l’instance à distance. Leur liste est conservée.",
+          "confirm": "Désactiver"
+        },
+        "unregister": {
+          "title": "Quitter Meshloom Remote ?",
+          "help": "Le relais oublie l’adresse de cette instance. Revenez dans les 30 jours pour la retrouver.",
+          "confirm": "Quitter"
+        },
+        "rotate": {
+          "title": "Remplacer la clé Remote ?",
+          "help": "L’instance reçoit une nouvelle adresse, et il faudra autoriser de nouveau chaque appareil.",
+          "confirm": "Remplacer la clé"
+        }
+      },
+      "enroll": {
+        "title": "Autoriser un appareil",
+        "help": "Scannez un QR code avec l’appareil à autoriser. Sans appareil photo, faites une demande d’accès.",
+        "lanOnly": "Le QR code ne s’affiche que sur le réseau local. D’ici, approuvez plutôt une demande d’accès.",
+        "show": "Afficher le QR code",
+        "dialogTitle": "Scannez avec l’appareil à autoriser",
+        "dialogHelp": "Scannez ce QR code avec l’appareil, puis connectez-vous comme d’habitude.",
+        "secretWarning": "Ne partagez pas ce QR code : il ouvre l’accès à votre compte.",
+        "qrAlt": "QR code pour autoriser un appareil dans Meshloom Remote",
+        "countdown": "Expire dans {{time}}",
+        "expired": "Ce code a expiré : le QR code est masqué.",
+        "done": "L’appareil est autorisé.",
+        "regenerate": "Afficher un nouveau code",
+        "another": "Autoriser un autre appareil",
+        "close": "Fermer"
+      },
+      "requests": {
+        "title": "Demandes d’accès",
+        "help": "Saisissez le code affiché par l’appareil qui demande l’accès.",
+        "socialWarning": "N’approuvez que votre propre appareil, jamais un code que quelqu’un vous transmet.",
+        "none": "Aucune demande en attente.",
+        "unknownDevice": "Appareil inconnu",
+        "askedAt": "Demandé le {{when}}",
+        "userAgent": "Envoyé par l’appareil (non vérifié) :",
+        "deny": "Refuser",
+        "denied": "Demande refusée.",
+        "code": "Code affiché sur l’appareil",
+        "label": "Nom de l’appareil (facultatif)",
+        "labelPlaceholder": "Mon téléphone",
+        "approve": "Approuver",
+        "approved": "Appareil approuvé.",
+        "offline": "La connexion au relais est coupée : impossible d’approuver pour le moment."
+      },
+      "devices": {
+        "title": "Appareils autorisés",
+        "help": "Révoquez un appareil perdu ou inutilisé.",
+        "helpAdmin": "Les appareils de tous les comptes. Révoquez un appareil perdu ou inutilisé.",
+        "none": "Aucun appareil autorisé.",
+        "unnamed": {
+          "browser": "Navigateur",
+          "client": "Application ou script"
+        },
+        "origin": {
+          "qr": "Autorisé par QR code",
+          "approval": "Demande approuvée",
+          "client": "Accès pour une application"
+        },
+        "owner": "Compte {{user}}",
+        "ownerYou": "Votre compte",
+        "lastSeen": "Vu le {{when}}",
+        "neverSeen": "Pas encore vu",
+        "passExpires": "Accès valable jusqu’au {{when}}",
+        "revokedAt": "Révoqué le {{when}}",
+        "oldGeneration": "Révoqué avec tous les appareils",
+        "inactive_one": "{{count}} appareil révoqué",
+        "inactive_other": "{{count}} appareils révoqués",
+        "revoke": "Révoquer",
+        "revokeNamed": "Révoquer {{name}}",
+        "revokeTitle": "Révoquer « {{name}} » ?",
+        "revokeHelp": "Cet appareil ne pourra plus ouvrir l’instance à distance.",
+        "revoked": "Appareil révoqué.",
+        "revokeAll": "Révoquer tous les appareils",
+        "revokeAllTitle": "Révoquer tous les appareils ?",
+        "revokeAllHelp": "Tous les appareils, de tous les comptes, perdent l’accès à distance.",
+        "revokedAll": "Tous les appareils ont été révoqués.",
+        "notPushed": "Le relais est injoignable : ce changement s’appliquera à la reconnexion."
+      },
+      "alertEmail": {
+        "title": "E-mail d’alerte",
+        "help": "Recevez un e-mail quand cette instance approche ou atteint son quota mensuel. Seul le relais garde l’adresse.",
+        "learnMore": "En savoir plus",
+        "label": "Adresse e-mail",
+        "save": "Enregistrer",
+        "saving": "Enregistrement…",
+        "remove": "Retirer l’adresse",
+        "savedToast": "E-mail de confirmation en route.",
+        "removedToast": "Adresse retirée.",
+        "state": {
+          "none": "Aucune adresse définie.",
+          "pending": "Ouvrez le lien de l’e-mail de confirmation pour activer les alertes.",
+          "confirmed": "Une adresse est confirmée. Elle n’est pas affichée ici : saisissez-en une nouvelle pour la remplacer."
+        }
+      },
+      "domain": {
+        "title": "Votre propre domaine",
+        "help": "Créez une redirection d’URL de votre domaine vers https://{{hostname}}, puis testez-la ici.",
+        "label": "Votre domaine",
+        "test": "Tester",
+        "testing": "Test en cours…",
+        "result": {
+          "ok": {
+            "title": "La redirection fonctionne",
+            "help": "Votre domaine redirige vers {{hostname}} (HTTP {{status}})."
+          },
+          "no_redirect": {
+            "title": "Aucune redirection",
+            "help": "Votre domaine a répondu HTTP {{status}} sans redirection. Créez une redirection vers https://{{hostname}}."
+          },
+          "wrong_target": {
+            "title": "Mauvaise destination",
+            "help": "Votre domaine redirige vers « {{target}} » au lieu de {{hostname}}. Corrigez la destination de la redirection."
+          },
+          "invalid_domain": {
+            "title": "Ce n’est pas un nom de domaine",
+            "help": "Saisissez un nom comme chat.example.org, sans port ni chemin."
+          },
+          "unreachable": {
+            "title": "Votre domaine est injoignable",
+            "help": "Cette instance n’a obtenu aucune réponse de votre domaine."
+          }
+        },
+        "reason": {
+          "egress_unresolvable": "Le nom ne se résout pas : vérifiez l’enregistrement DNS du domaine.",
+          "egress_private_address": "Le nom pointe vers une adresse privée ou locale, qui n’est jamais contactée.",
+          "egress_scheme": "L’adresse n’est pas une adresse web valide.",
+          "timeout": "Le domaine n’a pas répondu à temps.",
+          "tls_error": "La connexion sécurisée a échoué : le certificat ne correspond pas au domaine.",
+          "connect_error": "La connexion a été refusée ou interrompue."
+        }
+      }
+    },
+    "access": {
+      "securityNotice": {
+        "remote_reduced_plugin_isolation": "Remote est activé et les plugins tournent sans bac à sable : protégez chaque administrateur par la double authentification."
+      }
+    }
+  },
+  "errors": {
+    "remote_disabled": "Meshloom Remote est désactivé.",
+    "remote_not_registered": "Cette instance n’est pas enregistrée auprès de Meshloom Remote.",
+    "remote_unavailable": "Meshloom Remote n’a pas répondu. Vérifiez la connexion internet de cette machine et réessayez.",
+    "remote_registry_error": "Meshloom Remote a refusé la demande.",
+    "remote_rate_limited": "Trop de demandes envoyées à Meshloom Remote : réessayez plus tard.",
+    "remote_lan_only": "Le QR code d’autorisation ne s’affiche que sur le réseau local.",
+    "remote_device_not_found": "Cet appareil n’existe plus.",
+    "remote_access_request_not_found": "Aucune demande ne correspond à ce code. Vérifiez le code affiché sur l’appareil.",
+    "remote_offline": "La connexion au relais est coupée : réessayez quand elle sera rétablie.",
+    "remote_pass_required": "Cet appareil n’est pas autorisé dans Meshloom Remote.",
+    "remote_host_mismatch": "Cette requête ne vise pas l’adresse Remote de cette instance.",
+    "remote_request_invalid": "Le relais a envoyé une requête invalide.",
+    "remote_alert_email_invalid": "Cette adresse e-mail n’est pas valide.",
+    "remote_alert_email_frozen": "Cette adresse ne peut pas être modifiée pour le moment.",
+    "remote_alert_email_paused": "Les e-mails d’alerte ne peuvent pas être modifiés pour le moment. Réessayez plus tard.",
+    "remote_community_off": "Remote a besoin de Meshloom Community. Activez d’abord Community.",
+    "remote_radio_not_heard": "Aucune autre station n’a entendu cette radio récemment : envoyez une annonce flood, puis réessayez.",
+    "remote_community_opted_out": "Cette radio a quitté Meshloom Community : rejoignez-la depuis les réglages Community.",
+    "remote_community_banned": "Meshloom Community a bloqué cette radio ; s’il s’agit d’une erreur, écrivez à ban@meshloom.app.",
+    "remote_attestation_unavailable": "Meshloom Community ne peut pas garantir cette radio pour l’instant. Réessayez plus tard, ou branchez-la sans proxy."
+  }
+}

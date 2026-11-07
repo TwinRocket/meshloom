@@ -1,0 +1,11 @@
+{
+  "settings": {
+    "notifications": {
+      "feedFrame": {
+        "title": "Événements du Fil",
+        "label": "Envoyer les événements retenus aux pages Meshloom ouvertes",
+        "help": "Affiche aussitôt dans le Fil les événements envoyés à vos canaux (radio hors ligne, nouveau contact…)."
+      }
+    }
+  }
+}

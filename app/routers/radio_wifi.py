@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth.permissions import require
 from app.models import (
     RadioWifiChangeResult,
     RadioWifiCredentialsRequest,
@@ -91,7 +92,7 @@ async def _connected_key() -> str:
     return key
 
 
-@router.get("", response_model=RadioWifiState)
+@router.get("", response_model=RadioWifiState, dependencies=[Depends(require("admin"))])
 async def get_radio_wifi(refresh: bool = False) -> RadioWifiState:
     """The cached Wi-Fi state (``check: "pending"`` until the first check).
 
@@ -105,7 +106,9 @@ async def get_radio_wifi(refresh: bool = False) -> RadioWifiState:
         raise _map_error(exc) from None
 
 
-@router.put("/credentials", response_model=RadioWifiChangeResult)
+@router.put(
+    "/credentials", response_model=RadioWifiChangeResult, dependencies=[Depends(require("admin"))]
+)
 async def put_radio_wifi_credentials(
     request: RadioWifiCredentialsRequest,
 ) -> RadioWifiChangeResult:
@@ -118,7 +121,9 @@ async def put_radio_wifi_credentials(
         raise _map_error(exc) from None
 
 
-@router.put("/enabled", response_model=RadioWifiChangeResult)
+@router.put(
+    "/enabled", response_model=RadioWifiChangeResult, dependencies=[Depends(require("admin"))]
+)
 async def put_radio_wifi_enabled(request: RadioWifiEnabledRequest) -> RadioWifiChangeResult:
     public_key = await _connected_key()
     try:
@@ -127,7 +132,9 @@ async def put_radio_wifi_enabled(request: RadioWifiEnabledRequest) -> RadioWifiC
         raise _map_error(exc) from None
 
 
-@router.post("/reboot", response_model=RadioWifiChangeResult)
+@router.post(
+    "/reboot", response_model=RadioWifiChangeResult, dependencies=[Depends(require("admin"))]
+)
 async def post_radio_wifi_reboot() -> RadioWifiChangeResult:
     """Reboot the radio to apply stored Wi-Fi settings, as a planned reboot
     (``wifi_config``): never use the generic ``POST /radio/reboot`` for this."""
@@ -138,7 +145,9 @@ async def post_radio_wifi_reboot() -> RadioWifiChangeResult:
         raise _map_error(exc) from None
 
 
-@router.post("/prompt/dismiss", response_model=RadioWifiState)
+@router.post(
+    "/prompt/dismiss", response_model=RadioWifiState, dependencies=[Depends(require("admin"))]
+)
 async def post_radio_wifi_prompt_dismiss(
     request: RadioWifiPromptDismissRequest,
 ) -> RadioWifiState:

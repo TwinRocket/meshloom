@@ -5,7 +5,6 @@
         "mqtt_private": "MQTT privé",
         "mqtt_community": "Partage communautaire",
         "mqtt_ha": "Home Assistant",
-        "bot": "Bot Python",
         "webhook": "Webhook",
         "apprise": "Apprise",
         "sqs": "Amazon SQS",
@@ -24,57 +23,52 @@
         },
         "mqtt_private": {
           "label": "MQTT privé",
-          "description": "Transfert à portée personnalisable de tout ou partie des messages vers un broker MQTT de votre choix, sous forme brute et/ou déchiffrée.",
+          "description": "Envoie les messages vers votre propre broker MQTT.",
           "defaultName": "MQTT privé"
         },
         "mqtt_ha": {
           "label": "MQTT Discovery Home Assistant",
-          "description": "Publie des charges MQTT Discovery pour que les appareils mesh apparaissent nativement dans Home Assistant. Nécessite l’intégration MQTT intégrée de HA connectée au même broker. Sélectionnez des contacts pour le suivi GPS et des répéteurs pour les capteurs de télémétrie.",
+          "description": "Fait apparaître votre radio, vos répéteurs et vos contacts dans Home Assistant.",
           "defaultName": "Home Assistant"
         },
         "mqtt_community": {
           "label": "MQTT communautaire / meshcoretomqtt",
-          "description": "Publication de flux de paquets bruts compatible MeshcoreToMQTT, destinée aux agrégateurs communautaires (en d’autres termes, votre radio compagnon sert aussi de nœud observateur). Sur-ensemble des autres préréglages MQTT communautaires.",
+          "description": "Partage les paquets entendus avec un collecteur communautaire compatible meshcoretomqtt.",
           "defaultName": "MQTT communautaire"
         },
         "mqtt_community_meshrank": {
           "label": "MeshRank",
-          "description": "Configuration MQTT communautaire préremplie pour MeshRank : il ne reste qu’à coller le topic fourni dans votre configuration MeshRank. Sous-ensemble de la configuration MQTT communautaire / meshcoretomqtt ; vous pouvez tout modifier après la création.",
+          "description": "Partage les paquets avec MeshRank. Il suffit du topic que MeshRank vous donne.",
           "defaultName": "MeshRank"
         },
         "mqtt_community_letsmesh_us": {
           "label": "LetsMesh (US)",
-          "description": "Configuration MQTT communautaire préremplie pour le point d’ingestion LetsMesh US : seuls votre e-mail et le code IATA de région sont demandés. Utile en complément d’une configuration EU pour la redondance. Sous-ensemble de la configuration MQTT communautaire / meshcoretomqtt ; vous pouvez tout modifier après la création.",
+          "description": "Partage les paquets avec LetsMesh, serveur américain.",
           "defaultName": "LetsMesh (US)"
         },
         "mqtt_community_letsmesh_eu": {
           "label": "LetsMesh (EU)",
-          "description": "Configuration MQTT communautaire préremplie pour le point d’ingestion LetsMesh EU : seuls votre e-mail et le code IATA de région sont demandés. Utile en complément d’une configuration US pour la redondance. Sous-ensemble de la configuration MQTT communautaire / meshcoretomqtt ; vous pouvez tout modifier après la création.",
+          "description": "Partage les paquets avec LetsMesh, serveur européen.",
           "defaultName": "LetsMesh (EU)"
         },
         "webhook": {
           "label": "Webhook",
-          "description": "Webhook générique pour les messages canal/DM déchiffrés, avec verbe, méthode et signature HMAC optionnelle personnalisables.",
+          "description": "Envoie chaque message en JSON à une adresse web.",
           "defaultName": "Webhook"
         },
         "apprise": {
           "label": "Apprise",
-          "description": "Fanout générique très large, capable de transférer les messages canal/DM déchiffrés vers Discord, Telegram, l’e-mail, le SMS et bien d’autres services.",
+          "description": "Transfère les messages vers Discord, Telegram, l’e-mail et d’autres services.",
           "defaultName": "Apprise"
         },
         "sqs": {
           "label": "Amazon SQS",
-          "description": "Envoyer des paquets bruts ou déchiffrés, complets ou filtrés par portée, vers une file SQS",
+          "description": "Envoie les messages vers une file Amazon SQS.",
           "defaultName": "Amazon SQS"
-        },
-        "bot": {
-          "label": "Bot Python",
-          "description": "Une interface Python simple pour des bots basiques capables de répondre aux DM et aux messages de canal.",
-          "defaultName": "Bot"
         },
         "map_upload": {
           "label": "Envoi vers la carte",
-          "description": "Envoyer les répéteurs et serveurs de salon vers map.meshcore.io ou un endpoint d’API carte compatible.",
+          "description": "Place les répéteurs que vous entendez sur map.meshcore.io.",
           "defaultName": "Envoi vers la carte"
         }
       },
@@ -98,7 +92,7 @@
         "failedSave": "Échec de l’enregistrement",
         "deleted": "Intégration supprimée",
         "failedDelete": "Échec de la suppression",
-        "missingId": "Identifiant de configuration fanout manquant pour la mise à jour",
+        "missingId": "Intégration introuvable. Rechargez la page.",
         "meshrankTopicRequired": "Le topic de paquets MeshRank est obligatoire"
       },
       "confirm": {
@@ -106,9 +100,7 @@
         "delete": "Supprimer « {{name}} » ? Cette action est irréversible."
       },
       "list": {
-        "experimentalBanner": "Les intégrations sont une fonctionnalité expérimentale en bêta ouverte : elles permettent de diffuser les messages bruts et déchiffrés vers plusieurs services pour l’automatisation, l’analyse ou l’archivage.",
-        "botsDisabled": "Le système de bots est désactivé par la configuration du serveur (MESHCORE_DISABLE_BOTS). Les intégrations bot ne peuvent ni s’exécuter, ni être créées, ni être modifiées.",
-        "botsDisabledUntilRestart": "Le système de bots est désactivé jusqu’au redémarrage du serveur. Les intégrations bot ne peuvent ni s’exécuter, ni être créées, ni être modifiées pour le moment.",
+        "experimentalBanner": "Les intégrations sont en bêta : elles envoient ce que Meshloom entend vers d’autres services.",
         "addIntegration": "Ajouter une intégration",
         "backToList": "← Retour à la liste",
         "name": "Nom",
@@ -126,18 +118,19 @@
         "viewLatestError": "Voir la dernière erreur",
         "errorTitle": "Erreur {{name}}",
         "errorTitleFallback": "Erreur d’intégration",
-        "errorDescription": "Dernière erreur backend conservée pour cette intégration.",
+        "errorDescription": "Dernière erreur de cette intégration.",
         "broker": "Broker : {{summary}}",
         "topic": "Topic :",
         "topics": "Topics :",
         "url": "URL :",
         "targets": "Cibles :",
         "queue": "File :",
-        "notSet": "Non défini"
+        "notSet": "Non défini",
+        "botsMoved": "Les bots sont devenus des extensions : retrouvez-les dans Réglages > Extensions."
       },
       "mqtt": {
-        "privateHelp": "Transférez les données mesh vers votre propre broker MQTT pour la domotique, les journaux ou les alertes.",
-        "outgoingWarning": "Les messages sortants (DM et messages de groupe) seront signalés aux brokers MQTT privés sous forme déchiffrée / en clair.",
+        "privateHelp": "Envoie les données du mesh vers votre propre broker MQTT.",
+        "outgoingWarning": "Les messages partent en clair : utilisez un broker de confiance.",
         "brokerHost": "Hôte du broker",
         "brokerPort": "Port du broker",
         "username": "Nom d’utilisateur",
@@ -151,58 +144,23 @@
       },
       "ha": {
         "title": "MQTT Discovery Home Assistant",
-        "help": "Publiez les configurations Discovery et l’état MeshCore vers votre broker MQTT afin que Home Assistant crée automatiquement des appareils, capteurs, trackers GPS et événements de message natifs.",
-        "step1Title": "1. Même broker",
-        "step1Help": "L’intégration MQTT intégrée de Home Assistant doit pointer vers le même broker configuré ci-dessous.",
-        "step2Title": "2. Choisir quoi exposer",
-        "step2Help": "Choisissez des répéteurs pour les capteurs de télémétrie et des contacts pour les entités de tracker GPS.",
-        "step3Title": "3. Automatiser dans HA",
-        "step3Help": "La santé radio et les événements de message sont publiés en continu ; les données répéteur et contact se mettent à jour lorsqu’une nouvelle donnée est entendue ou collectée.",
-        "usesDiscovery": "Utilise <discovery>MQTT Discovery</discovery> et les conventions de topics documentées dans <readme>README_HA.md</readme>.",
-        "whatGetsCreated": "Ce qui est créé dans Home Assistant",
-        "localRadio": "Appareil radio local",
-        "localRadioAlways": "(toujours)",
-        "updatesEvery60s": "— mise à jour toutes les 60 s",
-        "radioOnline": "— radio en ligne / hors ligne",
-        "radioNoiseFloor": "— plancher de bruit radio (dBm)",
-        "perRepeater": "Par répéteur suivi",
-        "perRepeaterHelp": "— mise à jour au cycle de collecte télémétrie (~8 h) ou lors d’un fetch manuel du tableau de bord. Les identifiants d’entité affichés utilisent un répéteur en exemple ; ces capteurs sont créés pour chaque répéteur sélectionné.",
-        "lppAuto": ", etc. — capteurs CayenneLPP (détectés automatiquement depuis le répéteur)",
-        "perContact": "Par contact suivi",
-        "perContactHelp": "— mise à jour passive lorsque des publicités avec GPS sont entendues, et depuis toute lecture GPS dans la télémétrie CayenneLPP du contact. Affiché pour un contact ; un tracker est créé pour chaque contact sélectionné.",
-        "trackerHelp": "— latitude / longitude (plus l’altitude si la télémétrie la fournit)",
-        "contactLpp": ", etc. — capteurs CayenneLPP (lorsque le contact est suivi pour la télémétrie ; le GPS va au tracker ci-dessus)",
-        "messageEventsTitle": "Événements de message",
-        "messageEventsFires": "— se déclenche pour chaque message correspondant à la portée ci-dessous",
-        "messageEventsTrigger": "— déclencher des automatisations selon l’expéditeur, le canal ou le contenu",
-        "entityIdsHelp": "Les identifiants d’entité utilisent les 12 premiers caractères de la clé publique du nœud. Les entités sont retirées de HA lorsque cette intégration est désactivée ou supprimée. Les topics d’état sont publiés sous <code>{{prefix}}/&lt;node_id&gt;/health|telemetry|gps</code>.",
-        "publishedTopicSummary": "Résumé des topics publiés",
-        "topicSummaryHelp": "Les identifiants d’appareil et d’entité Home Assistant sont basés sur les 12 premiers caractères de la clé publique de chaque nœud, pas sur le nom affiché. Ces 12 mêmes caractères sont utilisés dans les topics d’état MQTT ci-dessous.",
-        "noTopicPreviews": "Aucun aperçu de topic pour le moment. Connectez une radio pour résoudre la clé radio locale, et sélectionnez des contacts ou répéteurs ci-dessus pour prévisualiser leurs topics publiés.",
-        "nodeId": "id nœud {{id}}",
-        "key": "clé {{key}}",
-        "discoveryTopics": "Les topics de configuration Discovery sont aussi publiés sous <code>homeassistant/.../config</code>, mais les topics ci-dessus sont les topics d’état et d’événement principaux à l’exécution.",
+        "help": "Votre radio, vos répéteurs et vos contacts apparaissent d’eux-mêmes dans Home Assistant.",
         "mqttBroker": "Broker MQTT",
-        "topicPrefixHelp": "Les mises à jour d’état sont publiées sous <code>{{prefix}}/</code>. Les configurations Discovery utilisent toujours le préfixe <code>homeassistant/</code>.",
         "gpsTitle": "Contacts suivis GPS",
-        "gpsHelp": "Chaque contact sélectionné devient un <code>device_tracker</code> dans HA, mis à jour dès qu’une publicité avec coordonnées GPS est entendue. Utile pour suivre des nœuds mobiles sur un tableau de bord carte HA.",
+        "gpsHelp": "Chaque contact choisi apparaît sur la carte de Home Assistant.",
         "searchContacts": "Rechercher parmi {{count}} contacts…",
         "noContacts": "Aucun contact disponible.",
         "noContactsMatch": "Aucun contact ne correspond à « {{query}} »",
         "removeAria": "Retirer {{name}}",
         "telemetryTitle": "Répéteurs suivis en télémétrie",
-        "telemetryHelp": "Chaque répéteur sélectionné devient un appareil HA avec des capteurs de tension batterie, RSSI, SNR, plancher de bruit, comptes de paquets et temps de fonctionnement. Les données se mettent à jour à chaque collecte (auto-collecte toutes les ~8 heures, ou fetch manuel du tableau de bord). Seuls les répéteurs déjà dans la liste de suivi auto-télémétrie apparaissent ici (ajoutez-en en vous connectant au répéteur et en l’activant en bas de page).",
-        "noTrackedRepeaters": "Aucun répéteur n’est suivi automatiquement en télémétrie. Ajoutez d’abord des répéteurs à la liste de suivi auto-télémétrie dans la section Radio, puis revenez ici pour choisir lesquels exposer à HA.",
-        "trackedNotFound": "Répéteurs suivis automatiquement introuvables dans la liste de contacts.",
+        "telemetryHelp": "Chaque répéteur choisi devient un appareil avec ses capteurs. Seuls les répéteurs suivis en télémétrie sont listés.",
+        "noTrackedRepeaters": "Aucun répéteur suivi. Activez le suivi de télémétrie depuis le tableau de bord d’un répéteur.",
+        "trackedNotFound": "Les répéteurs suivis ne sont pas dans vos contacts.",
         "messageEventsHeading": "Événements de message",
-        "messageEventsHelp": "Les messages correspondants déclenchent une entité <code>{{entity}}</code> dans HA avec les attributs expéditeur, texte, canal et direction. Utilisez les automatisations HA pour agir sur des messages, canaux ou contacts précis.",
-        "kindRadio": "État radio local",
-        "kindEvent": "Événements de message",
-        "kindRepeater": "Télémétrie répéteur",
-        "kindContact": "GPS contact"
+        "messageEventsHelp": "Les messages choisis déclenchent un événement dans Home Assistant, pour vos automatisations."
       },
       "community": {
-        "help": "Éditeur MQTT communautaire avancé. Utilisez-le pour les configurations manuelles compatibles meshcoretomqtt ou pour modifier un préréglage déjà enregistré. Seuls les paquets RF bruts sont partagés — jamais les messages déchiffrés.",
+        "help": "Réglages avancés d’un collecteur communautaire compatible meshcoretomqtt.",
         "transport": "Transport",
         "websockets": "WebSockets",
         "tcp": "TCP",
@@ -212,54 +170,38 @@
         "passwordAuth": "Nom d’utilisateur / mot de passe",
         "letsMeshAuthHelp": "LetsMesh utilise l’auth <code>token</code>. MeshRank utilise <code>none</code>.",
         "wsPath": "Chemin WebSocket",
-        "wsPathHelp": "Par défaut <code>/</code> — utilisez <code>/mqtt</code> pour les brokers qui exigent un chemin",
+        "wsPathHelp": "<code>/</code> par défaut.",
         "tokenAudience": "Audience du token",
-        "tokenAudienceHelp": "Par défaut l’hôte du broker si le champ est vide",
+        "tokenAudienceHelp": "Vide : l’hôte du broker.",
         "ownerEmail": "E-mail du propriétaire (facultatif)",
         "emailPlaceholder": "vous@exemple.com",
-        "ownerEmailHelp": "Utilisé pour revendiquer votre nœud auprès de l’agrégateur communautaire",
+        "ownerEmailHelp": "Permet au collecteur de relier le nœud à vous.",
         "regionCode": "Code de région (IATA)",
         "regionPlaceholder": "ex. DEN, LAX, NYC",
-        "regionHelp": "Code IATA de l’aéroport le plus proche (obligatoire)",
+        "regionHelp": "Code de l’aéroport le plus proche (obligatoire)",
         "packetTopicTemplate": "Modèle de topic de paquets",
         "packetTopicHelp": "Utilisez <code>{IATA}</code> et <code>{PUBLIC_KEY}</code>. Défaut : <code>{{defaultTemplate}}</code>"
       },
       "meshrank": {
-        "help": "Configuration MeshRank préremplie. Elle est enregistrée comme une intégration MQTT communautaire classique une fois créée, mais ne demande que le topic de paquets MeshRank qui vous a été fourni.",
-        "brokerSummary": "Broker <code>{{host}}</code> sur le port <code>{{port}}</code> via <code>{{transport}}</code>, auth <code>{{auth}}</code>, TLS activé, vérification des certificats activée, code de région fixé à <code>{{iata}}</code>.",
-        "topicHelp": "Collez le modèle de topic complet de votre configuration MeshRank, par exemple <code>meshrank/uplink/B435F6D5F7896B74C6B995FE221C2C1F/{PUBLIC_KEY}/packets</code>."
+        "help": "Collez le topic donné par MeshRank, le reste est prérempli.",
+        "topicHelp": "Le topic complet de votre configuration MeshRank."
       },
       "letsmesh": {
-        "help": "Configuration LetsMesh préremplie. Elle est enregistrée comme une intégration MQTT communautaire classique une fois créée, mais ne demande que les valeurs attendues par LetsMesh.",
-        "brokerSummary": "Broker <code>{{host}}</code> sur le port <code>{{port}}</code> via <code>{{transport}}</code>, auth <code>{{auth}}</code>, TLS activé, vérification des certificats activée, audience du token fixée à <code>{{host}}</code>.",
+        "help": "Seuls votre e-mail et votre code de région sont demandés, le reste est prérempli.",
         "email": "E-mail"
       },
-      "bot": {
-        "experimental": "<strong>Expérimental :</strong> Il s’agit d’une fonctionnalité alpha qui introduit l’envoi automatique de messages depuis votre radio ; un comportement inattendu est possible. À utiliser avec prudence, et signalez les bugs !",
-        "security": "<strong>Avertissement de sécurité :</strong> Cette fonctionnalité exécute du code Python arbitraire sur le serveur. N’exécutez que du code de confiance, et méfiez-vous de l’usage arbitraire des paramètres de message.",
-        "dontWreck": "<strong>N’abîmez pas le mesh !</strong> Les bots traitent TOUS les messages, y compris les leurs. Attention aux boucles infinies !",
-        "defineFunction": "Définissez une fonction <code>bot()</code> qui reçoit les données du message et peut renvoyer une réponse.",
-        "resetExample": "Réinitialiser l’exemple",
-        "loadingEditor": "Chargement de l’éditeur…",
-        "available": "<strong>Disponible :</strong> bibliothèques Python standard et tout module installé dans l’environnement serveur.",
-        "limits": "<strong>Limites :</strong> délai d’attente de 10 secondes par bot.",
-        "note": "<strong>Note :</strong> Les bots répondent à tous les messages, y compris les vôtres. Pour les messages de canal, <code>sender_key</code> vaut <code>None</code>. Plusieurs bots activés s’exécutent en parallèle. Les messages sortants sont sérialisés avec un délai de deux secondes entre les envois pour éviter les collisions de répéteurs.",
-        "editorAria": "Éditeur de code du bot"
-      },
       "map": {
-        "help": "Envoyer automatiquement les publicités de répéteurs et de serveurs de salon entendues vers <map>map.meshcore.io</map>. Nécessite que la clé privée de la radio soit disponible (le firmware doit avoir <code>ENABLE_PRIVATE_KEY_EXPORT=1</code>). Seuls les paquets RF bruts sont partagés — jamais les messages déchiffrés.",
-        "dryRunStatusOn": "<strong>Le mode simulation est ACTIVÉ.</strong> Aucun envoi ne partira. Vérifiez les journaux backend pour confirmer que la charge est correcte avant d’activer les envois réels.",
-        "dryRunStatusOff": "<strong>Le mode simulation est DÉSACTIVÉ.</strong> Les envois réels sont activés. Chaque publicité est limitée à une fois par heure et par nœud.",
+        "help": "Place les répéteurs et salons que vous entendez sur <map>map.meshcore.io</map>. Ce Meshloom doit détenir la clé privée de la radio : firmware qui autorise l’export de la clé, et pas de proxy radio entre les deux.",
+        "dryRunStatusOn": "<strong>Simulation activée :</strong> rien n’est envoyé, tout va dans le journal.",
+        "dryRunStatusOff": "<strong>Simulation désactivée :</strong> les envois sont réels.",
         "dryRunLabel": "Mode simulation (journal uniquement, pas d’envoi)",
-        "dryRunHelp": "Lorsque c’est activé, les charges d’envoi sont journalisées au niveau INFO mais non envoyées. Désactivez une fois le journal vérifié.",
         "apiUrl": "URL d’API (facultatif)",
-        "apiUrlHelp": "Laissez vide pour utiliser l’endpoint <code>map.meshcore.io</code> par défaut.",
+        "apiUrlHelp": "Laissez vide pour <code>map.meshcore.io</code>.",
         "enableGeofence": "Activer le géorepérage",
-        "geofenceHelp": "N’envoyer que les nœuds dont la position est dans le rayon configuré autour de votre radio. Aide à exclure les nœuds aux coordonnées fausses ou usurpées. Utilise la latitude/longitude définie dans les réglages Radio.",
-        "noCoords": "Votre radio n’a actuellement pas de latitude/longitude configurée. Le géorepérage sera ignoré silencieusement jusqu’à ce que des coordonnées soient définies dans <strong>Réglages → Radio → Position</strong>.",
-        "usingPosition": "Position radio <code>{{lat}}, {{lon}}</code> utilisée comme centre du géorepérage. Modifiez les coordonnées dans les réglages Radio pour déplacer le centre.",
+        "geofenceHelp": "N’envoie que les nœuds proches de votre radio.",
+        "noCoords": "Votre radio n’a pas de position : renseignez-la dans <strong>Réglages → Radio → Position</strong>.",
+        "usingPosition": "Centre : position de la radio, <code>{{lat}}, {{lon}}</code>.",
         "radius": "Rayon (km)",
-        "radiusHelp": "Les nœuds plus éloignés que cette distance de votre radio ne seront pas envoyés.",
         "radiusPlaceholder": "ex. 100"
       },
       "scope": {
@@ -269,9 +211,9 @@
         "noMessages": "Aucun message",
         "onlyListed": "Uniquement les canaux/contacts listés",
         "allExcept": "Tous sauf les canaux/contacts listés",
-        "emptyWarning": "Rien n’est sélectionné — cette intégration ne transférera aucune donnée.",
-        "onlyHint": "Les canaux ou contacts ajoutés ensuite ne seront pas inclus automatiquement.",
-        "exceptHint": "Les canaux ou contacts ajoutés ensuite seront inclus automatiquement s’ils ne sont pas exclus ici.",
+        "emptyWarning": "Rien n’est sélectionné : cette intégration n’enverra rien.",
+        "onlyHint": "Les nouveaux canaux et contacts ne seront pas inclus.",
+        "exceptHint": "Les nouveaux canaux et contacts seront inclus.",
         "channels": "Canaux",
         "contacts": "Contacts",
         "include": "inclure",
@@ -286,20 +228,20 @@
         "noContacts": "Aucun contact disponible.",
         "noChannelsMatch": "Aucun canal ne correspond à « {{query}} »",
         "noContactsMatch": "Aucun contact ne correspond à « {{query}} »",
-        "hidePills": ">{{max}} sélections ; l’aperçu est masqué pour garder l’interface lisible",
+        "hidePills": "Plus de {{max}} éléments : aperçu masqué",
         "removeAria": "Retirer {{name}}"
       },
       "apprise": {
-        "help": "Envoyer des notifications via <apprise>Apprise</apprise> à la réception des messages. Prend en charge Discord, Slack, Telegram, l’e-mail et <services>plus de 100 autres services</services>.",
+        "help": "Envoie une notification via <apprise>Apprise</apprise> à chaque message reçu : Discord, Telegram, e-mail et <services>bien d’autres</services>.",
         "urls": "URL de notification",
-        "urlsHelp": "Une URL par ligne. Toutes les URL reçoivent chaque notification correspondante. Pour les salons Matrix version 12 (identifiants sans nom de serveur), ajoutez <code>?hsreq=no</code> à l’URL.",
+        "urlsHelp": "Une URL par ligne.",
         "preserveIdentity": "Conserver l’identité sur Discord",
-        "preserveIdentityHelp": "Lorsque c’est activé, les webhooks Discord utilisent leur nom/avatar configurés au lieu de les remplacer par les infos d’expéditeur MeshCore.",
+        "preserveIdentityHelp": "Garde le nom et l’avatar du webhook Discord.",
         "includeOutgoing": "Transférer les messages envoyés par Meshloom",
-        "includeOutgoingHelp": "Inclure les DM et messages de canal envoyés par cette instance Meshloom, y compris les envois manuels et les réponses de bots. Les messages sortants n’ont ni chemin de routage ni données de signal : les champs de format liés au chemin s’affichent comme direct et RSSI/SNR restent vides.",
+        "includeOutgoingHelp": "Inclut aussi les messages envoyés depuis Meshloom.",
         "messageFormat": "Format du message",
         "markdown": "Mise en forme Markdown",
-        "markdownHelp": "Si les notifications échouent sur des services comme Telegram à cause de caractères spéciaux dans les noms d’expéditeur, désactivez cette option.",
+        "markdownHelp": "Désactivez si Telegram refuse certains noms d’expéditeur.",
         "availableVars": "Variables disponibles",
         "varText": "Corps du message",
         "varSenderName": "Nom affiché de l’expéditeur",
@@ -312,7 +254,7 @@
         "varHopCount": "Nombre de hops (0 pour direct)",
         "varRssi": "RSSI du dernier hop en dBm",
         "varSnr": "SNR du dernier hop en dB",
-        "varsFooter": "Les zones de texte vides utilisent le format par défaut. RSSI/SNR peuvent être vides s’ils sont indisponibles.",
+        "varsFooter": "Laissé vide, le format par défaut s’applique.",
         "dmFormat": "Format DM",
         "channelFormat": "Format canal",
         "resetDefault": "Réinitialiser le défaut",
@@ -324,11 +266,11 @@
         "noTargets": "Aucune cible configurée"
       },
       "webhook": {
-        "help": "Envoyer les données de message en JSON vers un endpoint HTTP à la réception des messages.",
+        "help": "Envoie chaque message en JSON à une adresse web.",
         "url": "URL",
         "httpMethod": "Méthode HTTP",
         "hmacTitle": "Signature HMAC",
-        "hmacHelp": "Lorsqu’un secret est défini, chaque requête inclut une signature HMAC-SHA256 du corps JSON dans l’en-tête indiqué (ex. <code>sha256=ab12cd...</code>).",
+        "hmacHelp": "Avec un secret, chaque requête est signée (HMAC-SHA256).",
         "hmacSecret": "Secret HMAC",
         "hmacSecretPlaceholder": "Laisser vide pour désactiver la signature",
         "signatureHeader": "Nom de l’en-tête de signature",
@@ -337,19 +279,20 @@
         "invalidJson": "JSON invalide"
       },
       "sqs": {
-        "help": "Envoyer les événements mesh correspondants vers une file Amazon SQS pour un traitement durable par des workers, Lambdas ou automatisations en aval.",
-        "warning": "Les messages sortants et tout paquet brut sélectionné seront livrés tels que transférés par la portée fanout, y compris le contenu de message déchiffré / en clair.",
+        "help": "Envoie les messages vers une file Amazon SQS.",
+        "warning": "Les messages partent en clair : limitez l’accès à la file.",
         "queueUrl": "URL de la file",
         "region": "Région (facultatif)",
         "endpoint": "URL d’endpoint (facultatif)",
         "endpointHelp": "Utile pour LocalStack ou des endpoints personnalisés",
         "staticCreds": "Identifiants statiques (facultatif)",
-        "staticCredsHelp": "Laissez vide pour utiliser la chaîne d’identifiants AWS normale du serveur.",
+        "staticCredsHelp": "Laissez vide pour utiliser les identifiants AWS du serveur.",
         "accessKey": "Access Key ID",
         "secretKey": "Secret Access Key",
         "sessionToken": "Session Token (facultatif)",
         "noQueue": "Aucune file configurée"
-      }
+      },
+      "learnMore": "En savoir plus"
     }
   }
 }

@@ -23,8 +23,6 @@ OPTIONS_FILE = Path("/data/options.json")
 # Options whose value is passed straight through when it is not blank.
 PASS_THROUGH = {
     "log_level": "MESHCORE_LOG_LEVEL",
-    "basic_auth_username": "MESHCORE_BASIC_AUTH_USERNAME",
-    "basic_auth_password": "MESHCORE_BASIC_AUTH_PASSWORD",
 }
 
 # Deprecated options, still declared in the manifest for one release: the Supervisor
@@ -32,10 +30,31 @@ PASS_THROUGH = {
 # an option removed from the schema would never reach this file. The value is handed
 # on so Meshloom copies it into its database once (app/services/legacy_env_settings.py)
 # and never reads it again. ``vapid_subject`` now lives in Settings → Notifications.
-# Remove it here and from config.yaml in the next release.
+# Remove it here and from config.yaml in the next release. The ``basic_auth_*``
+# options are gone (MSHL-100): Home Assistant's own sign-in identifies ingress
+# users (app/auth/providers/ingress.py), and the Supervisor drops the old values.
 RETIRED_PASS_THROUGH = {
     "vapid_subject": "MESHCORE_VAPID_SUBJECT",
 }
+
+
+# ``--no-proxy-headers``: uvicorn would otherwise take the client address from
+# ``X-Forwarded-For`` sent by any loopback caller (its default
+# ``forwarded_allow_ips`` is 127.0.0.1), so a bot or a webhook aimed at
+# 127.0.0.1:8000 could pass for the Supervisor and mint a Home Assistant
+# identity. The app interprets forwarded headers in one place, from its trusted
+# proxies setting (app/middleware/proxy_headers.py).
+UVICORN_ARGV = [
+    "uv",
+    "run",
+    "uvicorn",
+    "app.main:app",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "8000",
+    "--no-proxy-headers",
+]
 
 
 def read_options(path: Path = OPTIONS_FILE) -> dict[str, object]:
@@ -72,6 +91,21 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
         "MESHLOOM_INSTALL_KIND": "addon",
     }
 
+    if "disable_bots" in options:
+        # Retired in 5.0.0: bots became extensions. The old lock survives only as the
+        # one-shot input of migration 122, which reads this variable once to store the
+        # converted bots switched off (as the package does); nothing else reads it and
+        # it is not a setting. A value of false maps to nothing.
+        if options["disable_bots"] is True:
+            env["MESHCORE_DISABLE_BOTS"] = "true"
+        print(
+            "Warning: the add-on option disable_bots was removed. Bots are now "
+            "extensions: a leftover true value is only used once, to store the bots "
+            "converted by the 5.0.0 migration switched off. Set disable_plugins "
+            "(MESHCORE_DISABLE_PLUGINS) to lock every extension.",
+            file=sys.stderr,
+        )
+
     for option, variable in (PASS_THROUGH | RETIRED_PASS_THROUGH).items():
         value = options.get(option)
         if isinstance(value, str) and value.strip():
@@ -81,8 +115,8 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
     if isinstance(port, int) and 0 < port < 65536:
         env["MESHCORE_RADIO_PROXY_PORT"] = str(port)
 
-    if options.get("disable_bots") is True:
-        env["MESHCORE_DISABLE_BOTS"] = "true"
+    if options.get("disable_plugins") is True:
+        env["MESHCORE_DISABLE_PLUGINS"] = "true"
 
     return env
 
@@ -94,10 +128,7 @@ def main() -> None:
     proxy_port = environment.get("MESHCORE_RADIO_PROXY_PORT", "unset")
     print(f"Starting Meshloom on port 8000, radio proxy on {proxy_port}", file=sys.stderr)
 
-    os.execvp(
-        "uv",
-        ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
-    )
+    os.execvp("uv", UVICORN_ARGV)
 
 
 if __name__ == "__main__":

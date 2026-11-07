@@ -1,6 +1,6 @@
 ---
 title: Autour des messages
-description: La carte, le visualiseur, le flux de paquets — ce qu’on regarde sans rien envoyer.
+description: La carte, le visualiseur, le flux de paquets, le fil — ce qu’on regarde sans rien envoyer.
 level: start
 order: 5
 ---
@@ -10,6 +10,10 @@ Une radio entend beaucoup plus que ce qui vous est adressé. Annonces (un nœud 
 Rien de ce qui suit n’est nécessaire pour envoyer un message. C’est de l’observation. On peut s’en passer entièrement.
 
 Sur un téléphone, on ouvre ces outils depuis **Outils**, dans la barre du bas. Chacun est accompagné d’une courte description. Sur un grand écran, ils sont sur la barre d’icônes à gauche, que l’on peut réordonner ou alléger dans **Réglages → Navigation**. La carte des nœuds est une destination à part, à côté des conversations.
+
+### Page de démarrage
+
+**Réglages → Navigation → Page de démarrage** choisit où Meshloom s'ouvre quand l'adresse n'a pas de partie `#`. Par défaut, ce sont vos conversations, comme avant. Choisissez la carte ou un outil (le Fil, son préréglage Contrôle, la vue en direct…) pour ouvrir là à la place. C'est un réglage de l'instance, modifié par un administrateur, et il s'applique à toutes les sessions et à tous les navigateurs, écran de kiosque compris. Un lien vers une conversation ou un outil l'emporte toujours, tout comme **Rouvrir la dernière vue** sur un appareil où vous l'avez activé et qui a une vue à rouvrir. Un outil que votre rôle ne peut pas utiliser est ignoré et vous arrivez sur vos conversations.
 
 ## La carte des nœuds
 
@@ -48,14 +52,16 @@ C’est un outil d’observation, pas une source d’information fiable. Un aqua
 - Cliquer sur un paquet en ouvre le détail.
 - **Afficher les stats** ouvre un panneau qui résume ce qui a été entendu sur une fenêtre de temps (1, 5, 10 ou 30 minutes, ou toute la session) : paquets par minute, types de paquets, force du signal, voisins les plus entendus.
 - **Analyser un paquet** permet de coller le texte hexadécimal d’un paquet pour l’inspecter.
+- **Historique** rejoue les paquets enregistrés sur une période que vous choisissez, dans un calque séparé, pendant que le direct continue d’être enregistré. Les paquets rejoués n’ont pas de force de signal, et le filtre de source s’applique dans le navigateur après le chargement. Supprimer les paquets non déchiffrés (voir [Ça prend de la place](#ça-prend-de-la-place)) peut aussi supprimer d’anciens paquets de données de groupe.
 
 Les paquets qu’on n’a pas su déchiffrer ne sont pas perdus pour autant. Ce sont eux qui permettent de déchiffrer d’anciens messages plus tard, quand vous obtenez la clé d’un salon.
 
 ## Le reste
 
-- **Trace** envoie un paquet de test qui traverse les répéteurs que vous choisissez et revient à votre radio. Cela mesure une route au lieu de la deviner. Il faut pouvoir entendre le dernier répéteur de la chaîne pour que la trace réussisse.
-- **Recherche de messages** cherche dans tout l’historique stocké, messages directs et salons confondus. Un résultat cliqué ouvre la conversation à cet endroit précis, avec les messages autour. On peut affiner avec `user:` ou `channel:` suivi d’un nom ou d’une clé. Les noms qui contiennent des espaces se mettent entre guillemets.
-- Les **Statistiques**, dans les réglages, résument ce que le nœud a vu : contacts, répéteurs, canaux et messages, paquets par heure sur 72 heures, canaux les plus actifs sur 24 heures, niveau de bruit, et part du trafic qui utilise des portées régionales.
+- **Trace** envoie un paquet de test qui traverse les répéteurs que vous choisissez et revient à votre radio. Cela mesure une route au lieu de la deviner. Il faut pouvoir entendre le dernier répéteur de la chaîne pour que la trace réussisse. La liste propose les répéteurs connus par leur clé complète ; **Chemin personnalisé** ajoute un préfixe brut de 1, 2 ou 4 octets, et tous les sauts personnalisés d’une même trace ont la même largeur.
+- **Recherche de messages** cherche dans tout l’historique stocké, messages directs et salons confondus. Un résultat cliqué ouvre la conversation à cet endroit précis, avec les messages autour. On peut affiner avec `user:` ou `channel:` suivi d’un nom ou d’une clé. Les noms qui contiennent des espaces se mettent entre guillemets. L’expéditeur d’un message de salon est retrouvé grâce aux annonces entendues au moment de l’envoi : c’est une supposition, et deux utilisateurs du même nom ne sont pas distingués.
+- **Réglages > Configuration locale** regroupe les options d’affichage de ce navigateur. **Scintillement du point d’état** fait clignoter le point de connexion à l’arrivée des paquets : bleu pour un message de canal, violet pour un message direct, cyan pour une annonce, vert pour le reste. Le pourcentage et la tension de batterie du badge d’état se mettent à jour toutes les 60 secondes : ils peuvent mettre jusqu’à une minute à apparaître après la connexion.
+- Les **Statistiques**, dans les réglages, résument ce que le nœud a vu : contacts, répéteurs, canaux et messages, paquets par heure sur 72 heures, canaux les plus actifs sur 24 heures, niveau de bruit, et part du trafic qui utilise des portées régionales. Le niveau de bruit est relevé chaque minute et gardé en mémoire seulement : il repart de zéro au redémarrage du serveur. Pour les portées régionales, le trafic compte tous les messages de canal entendus, y compris ceux des canaux dont vous n’avez pas la clé, alors que les expéditeurs ne comptent que les canaux que vous savez déchiffrer : les deux n’ont pas le même total et ne concordent pas. Des captures de paquets corrompus peuvent sembler régionales, alors Meshloom estime combien sont de faux positifs ; quand le nombre de messages régionaux ne dépasse pas cette estimation, ce n’est pas la preuve que votre région utilise les portées. Le nombre d’expéditeurs exige un déchiffrement réussi et n’est pas concerné.
 
 ## Le flux live
 
@@ -69,11 +75,31 @@ Les paquets de votre propre radio s’affichent toujours. Ceux des observateurs 
 
 Meshloom Community peut mettre son flux public en pause pendant un moment. Une petite étiquette **Live en pause** s’affiche alors à côté du réglage du son, et seuls les paquets de votre propre radio sont dessinés. Il n’y a rien à faire : votre serveur revérifie à peu près chaque minute et les paquets de Community reviennent d’eux-mêmes quand le flux reprend.
 
-Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/fr/docs/deep/community/#si-votre-radio-est-bannie).
+Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/docs/deep/community/#si-votre-radio-est-bannie).
 
-## Le journal de contrôle
+## Le fil
 
-Le **journal de contrôle** rassemble le trafic qui n’est pas une conversation : requêtes, réponses, requêtes anonymes (comme les connexions) et données de groupe. Les paquets sont regroupés par nœud concerné. Quand le contenu reste chiffré, on voit l’enveloppe, pas le contenu.
+Le **Fil** réunit tout dans une seule chronologie, le plus récent en bas : les messages de tous vos canaux et messages directs, et le trafic de contrôle (requêtes, réponses, requêtes anonymes comme les connexions, et données de groupe) entre eux, dans l’ordre du temps. Quand le contenu d’un paquet de contrôle reste chiffré, on voit l’enveloppe, pas le contenu ; cliquez sur une ligne pour ouvrir l’inspecteur de paquet.
+
+- **Puces.** *Messages*, *Contrôle* et *Événements* choisissent les sources (les trois sont activées par défaut). Sous *Messages*, *Canaux*, *Messages directs*, *Reçus* et *Envoyés* restreignent l’affichage, et *Canaux en sourdine* et *Canaux en attente* font revenir ceux qui sont masqués par défaut. La puce **Messages directs** n’est qu’un choix d’affichage : les masquer ne les protège pas, puisque quiconque peut ouvrir Meshloom peut les lire (voir [Un réseau de confiance](/docs/trust/)). Votre choix est mémorisé dans ce navigateur. Un compte qui n’a pas le droit de lire les messages directs (le rôle `kiosk`) n’a pas du tout la puce **Messages directs** : le Fil ne demande que les canaux au serveur, une adresse avec `types=priv` est ignorée, et un choix mémorisé pour les messages directs reste en stockage sans être utilisé. Le contrôle, les canaux en sourdine ou en attente restent lisibles. Si le serveur refusait un jour la liste, le Fil l’indique dans son état vide au lieu d’afficher une erreur.
+- **Canaux et Contacts.** Une colonne à droite (sur un téléphone, le bouton **Filtres** l'ouvre en panneau, avec le nombre de conversations choisies : **Filtres (2)**) liste les canaux et les contacts présents dans les lignes que le Fil a chargées, avec le nombre de messages de chacun. Les compteurs portent **sur les lignes chargées** seulement, pas sur tout l'historique : ils suivent les autres puces et augmentent quand vous remontez et que des pages plus anciennes se chargent. Cochez une ou plusieurs conversations pour y limiter la chronologie ; **Réinitialiser** efface le choix. Les lignes de contrôle et d'événements ne sont pas des conversations et restent. Votre choix est mémorisé dans ce navigateur, ne fait pas partie de l'adresse et est ignoré dans le mode affichage.
+- **Filtre rapide et recherche.** Le champ en haut de cette colonne filtre les lignes que le Fil a **déjà chargées** : il garde les messages dont le texte, l'expéditeur ou le nom de la conversation contient ce que vous avez saisi (sans tenir compte de la casse), indique combien correspondent et masque entre-temps les lignes de contrôle et d'événements. Les contenus techniques (réactions, GIF, positions) ne sont pas retrouvés par leur texte codé. Il n'interroge jamais le serveur : les messages plus anciens non chargés ne sont pas cherchés, et **Chercher dans tout l'historique** ouvre la recherche de messages avec le même texte. Les messages qui mentionnent votre radio sous la forme `@[nom]` ont une barre d'accent à gauche ; ceux que vous avez envoyés n'en ont jamais. Le champ n'est pas mémorisé et ne figure pas dans l'adresse.
+- **Nœuds.** Avec *Contrôle* activé, une facette **Nœuds** liste les répéteurs et salons, les canaux, les paquets qui vous sont adressés et les non résolus. En choisir un restreint les lignes de contrôle à celui-ci.
+- **Événements.** Avec *Événements* activé, le fil ajoute une ligne quand quelque chose change autour de la radio : **la radio est hors ligne** (après le délai *radio hors ligne* des règles de Notifications : les sessions administrateur attendent ce délai, les autres la minute par défaut ; quand un canal de notification reçoit cet événement, le serveur prévient aussi toutes les pages ouvertes à la fin du délai, si bien qu’un délai de moins d’une minute fait apparaître la ligne plus tôt dans toutes les sessions, tandis qu’avec un délai plus long les autres sessions l’affichent quand même au bout d’une minute ; une brève coupure et les redémarrages lancés par Meshloom lui-même n’ajoutent rien) puis **de nouveau en ligne** avec la durée d’absence, **un nouveau contact entendu** (ni contacts inconnus ni salons, ni un contact ajouté à la main dans cet onglet), **un contact renommé** et **un canal découvert**. Une ligne propose ce que vous pouvez en faire : ouvrir le contact, voir le canal dans *Canaux découverts* (comptes qui peuvent envoyer), ouvrir les réglages de la radio (administrateurs). Les événements ne sont conservés que pour cette session : fermer ou recharger la page les oublie, et un événement survenu alors que le Fil n’a jamais été ouvert n’est pas retrouvé, et une radio déjà hors ligne au chargement de la page n’est pas signalée. Ils portent les mêmes noms que les notifications de *Réglages > Notifications* : les événements qu’un canal de notification reçoit arrivent du serveur au moment où ils se produisent (l’option **Événements du Fil** des règles, activée par défaut), les autres, ou tous quand cette option est désactivée, sont déduits par la page elle-même, avec les mêmes lignes. Chaque page ne reçoit que ce que son compte peut lire, et avec un nœud choisi dans la facette Nœuds, seuls ses événements restent. En mode affichage ils s’affichent sans aucune action.
+- **Paquets de contrôle précédents.** Les lignes de contrôle viennent du direct : après un rechargement, le Fil démarrerait sans aucune. Dès que la première page de messages est là, il demande donc aussi au serveur les 200 paquets de contrôle stockés les plus récents (en examinant au plus les 20 000 derniers paquets stockés) et les ajoute, marqués **Antérieur**. Ils viennent des paquets stockés : ils n'ont pas de puissance de signal (RSSI/SNR) et n'apparaissent qu'une fois par paquet, même si plusieurs répéteurs l'ont relayé. Ce qu'on peut montrer dépend de ce qui a été conservé : si vous avez activé la suppression automatique des paquets illisibles (`raw_packet_retention_days`), les requêtes et requêtes anonymes entre d'autres nœuds, que Meshloom ne peut pas déchiffrer, sont supprimées après ce délai. Une ligne au-dessus de la liste propose **Charger les paquets de contrôle précédents** pour remonter plus loin ; quand le serveur s'est arrêté à sa limite d'analyse, elle l'indique (des paquets de contrôle plus anciens peuvent exister, et le bouton continue à partir de là). Le Fil garde au plus 500 lignes de contrôle.
+- **Mode suivi.** Le fil reste sur la ligne la plus récente tant que vous êtes en bas. Remontez, et un bouton **Suivre** compte ce qui est arrivé depuis et vous ramène en bas. Remonter charge aussi les messages plus anciens.
+- **Depuis votre dernière visite.** Une ligne **Nouveau depuis votre dernière visite** marque le premier message arrivé après la dernière fois que vous aviez le fil ouvert, dans ce navigateur.
+- **Lire ne marque rien comme lu.** Les compteurs de non lus restent inchangés tant que vous n’ouvrez pas la conversation elle-même.
+
+Les filtres sont aussi dans la barre d’adresse. Changez une pastille et l’adresse devient, par exemple, `#feed?src=messages,control&types=chan,priv&dir=in,out&muted=0&pending=0` : mettez-la en favori, ou utilisez-la comme adresse d’un écran kiosque, et le fil s’ouvre avec ces filtres quoi que le navigateur ait retenu (l’adresse l’emporte sur les filtres mémorisés, qui l’emportent sur les valeurs par défaut). `src` liste les sources (`messages`, `control`, `events`), `types` les genres (`chan`, `priv`), `dir` les sens (`in`, `out`), `muted` et `pending` valent `1` pour afficher ces canaux, `node` est la clé publique d’un nœud (64 caractères hexadécimaux) et `display=1` active le mode affichage (ci-dessous). **Les canaux n’y sont volontairement pas** : la clé d’un canal privé est son accès et les favoris sont synchronisés par le compte de votre navigateur, donc une clé de canal n’est jamais écrite dans une adresse. Tout ce qui est inconnu ou mal formé dans l’adresse est ignoré. La même forme (`feed?...`, `control?...`, sans le `#`) peut être la **Page de démarrage**.
+
+### Mode affichage
+
+Le bouton **Mode affichage** dans l’en-tête du Fil (ou `display=1` dans l’adresse) transforme le Fil en écran mural : texte agrandi de 25 %, ni barre latérale, ni menu, ni en-tête, ni pastilles de filtre, le dernier message toujours à l’écran, séparateurs de jours et petite horloge, sans flou ni ombre, et plein écran quand le navigateur l’autorise. **Quitter** (en haut à droite) rend vos filtres exactement comme ils étaient ; vos filtres mémorisés et votre choix sur les réactions ne sont jamais modifiés. Les messages directs sont masqués et les images et GIF ne sont pas chargés, quoi que dise l’adresse ; **Quitter** est le seul contrôle. Masquer les messages directs est un choix d’affichage, pas un contrôle d’accès : le navigateur les reçoit toujours, et c’est le compte `kiosk` qui les garde hors d’un écran partagé. Voir [Image Raspberry Pi](/docs/rpi/#mode-affichage).
+
+### Le préréglage Contrôle
+
+**Contrôle** ouvre le même fil avec seulement la source *Contrôle* activée, avec la liste des Nœuds à côté sur ordinateur ou déjà ouverte sur téléphone (dès que des nœuds sont connus) : l’ancien journal de contrôle. C’est un préréglage, pas une page à part : l’adresse `#control` et les signets qui y mènent continuent de fonctionner, et la barre d’adresse affiche toujours `#control`. Vos changements de puces n’y sont pas mémorisés, de sorte que le fil habituel garde les filtres que vous lui avez choisis. **Contrôle** n’est plus dans la barre d’icônes par défaut ; ajoutez-le dans **Réglages > Navigation**, ou trouvez-le dans la palette de recherche (Ctrl/Cmd+K).
 
 ## La localisation RF
 
@@ -83,11 +109,20 @@ Elle part de ce que votre propre radio a entendu. Avec Meshloom Community activ�
 
 ## Les canaux découverts
 
-Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé et un code d’aéroport enregistré, il demande aussi à Community des noms qui pourraient correspondre. Quand il en trouve un, il envoie une notification « Canaux trouvés » (voir [Notifications push](/docs/deep/push/)).
+Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé et un code d’aéroport enregistré, il demande aussi à Community des noms qui pourraient correspondre. Quand il en trouve un, il envoie une notification « Canaux trouvés » (voir [Notifications](/docs/deep/notifications/)).
 
 Un salon trouvé ainsi n’entre pas tout seul dans vos discussions. Il apparaît dans **Canaux découverts**, où **Adopter** l’ajoute à vos discussions et **Refuser** l’écarte. Les canaux refusés sont conservés dans une liste, ce qui permet de revenir sur sa décision.
 
 Depuis cette même page, **Afficher le chercheur de canaux** ouvre le chercheur de canaux. Il essaie des noms sur les paquets illisibles : un dictionnaire de noms connus, puis des paires de mots, puis toutes les combinaisons jusqu’à une longueur que vous fixez. Cette dernière étape utilise la carte graphique de votre ordinateur (WebGPU) : il faut donc Chrome ou Edge 113 ou plus récent, et une page servie en HTTPS ou depuis `localhost` (voir [HTTPS](/docs/deep/https/)). Le chercheur fonctionne aussi avec Community coupé.
+
+Ses options :
+
+- **Réessayer les échecs à n+1** reprend les paquets pour lesquels il n’a pas trouvé de nom et réessaie avec un caractère de plus.
+- **Essayer les paires de mots** essaie aussi chaque paire de mots du dictionnaire (`hello` + `world` = `#helloworld`) après les mots seuls. C’est bien plus long et cela peut donner de faux positifs.
+- **Inclure les échantillons historiques et les déchiffrer si trouvés** utilise aussi les paquets enregistrés, et vérifie chaque nom trouvé sur eux pour faire revenir les anciens messages.
+- **Mode turbo** pousse la carte graphique au maximum. Cela peut aller plus vite, et cela peut rendre le système instable.
+
+Sans HTTPS, la page indique comment y remédier : installer un certificat TLS, ou demander au navigateur de traiter cette adresse comme sûre (l’option « insecure origins treated as secure »).
 
 ## Le test radio
 
@@ -99,6 +134,8 @@ Garder les paquets bruts a un coût. Ils s’accumulent, la base grossit. La sec
 
 - **Supprimer les paquets non déchiffrés** retire les paquets illisibles plus vieux qu’un nombre de jours que vous choisissez. Les supprimer ferme la porte au déchiffrement de cette période : les messages déjà déchiffrés restent, les autres paquets disparaissent définitivement.
 - **Purger les paquets d’archive** retire les paquets bruts qui se cachent derrière des messages déjà déchiffrés. On gagne de la place sans toucher aux messages ni au déchiffrement futur, mais on ne peut plus inspecter ces paquets.
+
+**Déchiffrer automatiquement les DM historiques quand un nouveau contact s’annonce** fait tenter au serveur, quand un nouveau contact envoie une annonce, de déchiffrer les paquets de messages directs stockés qu’il ne savait pas lire. Sur un gros arriéré, cela peut causer de brefs délais.
 
 Sur une machine qui n’a pas de contrainte d’espace, laisser courir quelques semaines ne pose pas de problème.
 

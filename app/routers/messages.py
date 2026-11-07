@@ -1,9 +1,12 @@
 import logging
 import time
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
+from app.auth.permissions import can_read_private, forbidden, require
+from app.auth.ws_events import WsEvent
 from app.event_handlers import track_pending_ack
 from app.models import (
     Message,
@@ -13,6 +16,7 @@ from app.models import (
     SendDirectMessageRequest,
 )
 from app.repository import AmbiguousPublicKeyPrefixError, AppSettingsRepository, MessageRepository
+from app.repository.messages import normalize_conversation_keys
 from app.services.message_send import (
     SCOPE_UNSET,
     resend_channel_message_record,
@@ -25,9 +29,36 @@ from app.websocket import broadcast_error, broadcast_event
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/messages", tags=["messages"])
 
+_SQLITE_MAX_INT = 2**63 - 1
 
-@router.get("/around/{message_id}", response_model=MessagesAroundResponse)
+# A channel key is 32 hex characters; anything longer names a contact (a DM).
+_CHANNEL_KEY_LENGTH = 32
+
+
+def _visible_type(
+    request: Request, msg_type: str | None, conversation_key: str | None
+) -> str | None:
+    """The message type the caller may list: ``CHAN`` only without ``read_private``.
+
+    Asking for ``PRIV``, or for a private conversation (a contact key), is a 403
+    rather than an empty page, so a client cannot mistake it for "no messages".
+    """
+    if can_read_private(request):
+        return msg_type
+    if msg_type is not None and msg_type != "CHAN":
+        raise forbidden("read_private")
+    if conversation_key is not None and len(conversation_key) > _CHANNEL_KEY_LENGTH:
+        raise forbidden("read_private")
+    return "CHAN"
+
+
+@router.get(
+    "/around/{message_id}",
+    response_model=MessagesAroundResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def get_messages_around(
+    request: Request,
     message_id: int,
     type: str | None = Query(default=None, description="Filter by type: PRIV or CHAN"),
     conversation_key: str | None = Query(default=None, description="Filter by conversation key"),
@@ -39,7 +70,7 @@ async def get_messages_around(
     blocked_names = settings.blocked_names or None
     messages, has_older, has_newer = await MessageRepository.get_around(
         message_id=message_id,
-        msg_type=type,
+        msg_type=_visible_type(request, type, conversation_key),
         conversation_key=conversation_key,
         context_size=context,
         blocked_keys=blocked_keys,
@@ -48,10 +79,51 @@ async def get_messages_around(
     return MessagesAroundResponse(messages=messages, has_older=has_older, has_newer=has_newer)
 
 
-@router.get("", response_model=list[Message])
+class ConversationCount(BaseModel):
+    type: str  # "PRIV" or "CHAN"
+    conversation_key: str
+    count: int
+
+
+class ConversationCountsResponse(BaseModel):
+    conversations: list[ConversationCount]
+
+
+@router.get(
+    "/conversation-counts",
+    response_model=ConversationCountsResponse,
+    dependencies=[Depends(require("read"))],
+)
+async def conversation_counts(
+    request: Request,
+    type: str | None = Query(default=None, description="Filter by type: PRIV or CHAN"),
+    outgoing: bool | None = Query(
+        default=None,
+        description="true: only sent messages; false: only received ones; absent: both",
+    ),
+) -> ConversationCountsResponse:
+    """Messages per conversation: the Feed's facet lists and its Muted / Pending counts.
+
+    Same ``type``, ``outgoing`` and blocked-list rules as the listing (``CHAN`` only without
+    ``read_private``). Mute and membership are left to the caller, which holds the channel list.
+    """
+    settings = await AppSettingsRepository.get()
+    counts = await MessageRepository.count_by_conversation(
+        msg_type=_visible_type(request, type, None),
+        outgoing=outgoing,
+        blocked_keys=settings.blocked_keys or None,
+        blocked_names=settings.blocked_names or None,
+    )
+    return ConversationCountsResponse(
+        conversations=[ConversationCount(type=t, conversation_key=k, count=n) for t, k, n in counts]
+    )
+
+
+@router.get("", response_model=list[Message], dependencies=[Depends(require("read"))])
 async def list_messages(
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=1000, description="Page size, 1 to 1000"),
+    offset: int = Query(default=0, ge=0, description="Rows to skip; ignored with before/before_id"),
     type: str | None = Query(default=None, description="Filter by type: PRIV or CHAN"),
     conversation_key: str | None = Query(
         default=None, description="Filter by conversation key (channel key or contact pubkey)"
@@ -67,15 +139,77 @@ async def list_messages(
         default=None, description="Forward cursor: id of last seen message"
     ),
     q: str | None = Query(default=None, description="Full-text search query"),
+    outgoing: bool | None = Query(
+        default=None,
+        description="true: only sent messages; false: only received ones; absent: both",
+    ),
+    since_id: int | None = Query(
+        default=None,
+        description=(
+            "Integer between 1 and 2**63-1. Reconciliation cursor: messages with id > since_id, ordered by id ascending "
+            "(historical rows included). Cannot be combined with before, after or offset"
+        ),
+    ),
+    muted: Literal["all", "exclude", "only"] = Query(
+        default="all",
+        description=(
+            "Channels muted at this moment (a timed mute that has ended is not muted): "
+            "all, exclude (keeps direct messages and rows of deleted channels) or only"
+        ),
+    ),
+    membership: Literal["all", "adopted", "pending"] = Query(
+        default="all",
+        description=(
+            "Channel membership: all, adopted (keeps direct messages and rows of deleted "
+            "channels) or pending"
+        ),
+    ),
+    conversation_keys: Annotated[
+        list[str] | None,
+        Query(
+            description=(
+                "Repeatable, 1 to 50 values of 32 (channel) or 64 (contact) hex characters, "
+                "any case: only these conversations. Cannot be combined with conversation_key"
+            ),
+        ),
+    ] = None,
 ) -> list[Message]:
     """List messages from the database."""
+    if since_id is not None and not 1 <= since_id <= _SQLITE_MAX_INT:
+        raise HTTPException(status_code=400, detail="since_id must be an integer >= 1")
+    if since_id is not None and (
+        before is not None
+        or after is not None
+        or before_id is not None
+        or after_id is not None
+        or offset
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="since_id cannot be combined with before, after or offset",
+        )
+    keys: list[str] | None = None
+    if conversation_keys is not None:
+        if conversation_key is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="conversation_keys cannot be combined with conversation_key",
+            )
+        try:
+            keys = normalize_conversation_keys(conversation_keys)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    msg_type = _visible_type(request, type, conversation_key)
+    if keys and not can_read_private(request) and any(len(k) > _CHANNEL_KEY_LENGTH for k in keys):
+        # Same rule as conversation_key: a contact key is a private conversation, a 403.
+        raise forbidden("read_private")
     settings = await AppSettingsRepository.get()
     blocked_keys = settings.blocked_keys or None
     blocked_names = settings.blocked_names or None
     return await MessageRepository.get_all(
         limit=limit,
         offset=offset,
-        msg_type=type,
+        msg_type=msg_type,
         conversation_key=conversation_key,
         before=before,
         before_id=before_id,
@@ -84,10 +218,16 @@ async def list_messages(
         q=q,
         blocked_keys=blocked_keys,
         blocked_names=blocked_names,
+        outgoing=outgoing,
+        since_id=since_id,
+        muted=muted,
+        membership=membership,
+        conversation_keys=keys,
+        now=int(time.time()),
     )
 
 
-@router.post("/direct", response_model=Message)
+@router.post("/direct", response_model=Message, dependencies=[Depends(require("send"))])
 async def send_direct_message(request: SendDirectMessageRequest) -> Message:
     """Send a direct message to a contact."""
     radio_manager.require_connected()
@@ -135,7 +275,7 @@ async def send_direct_message(request: SendDirectMessageRequest) -> Message:
 TEMP_RADIO_SLOT = 0
 
 
-@router.post("/channel", response_model=Message)
+@router.post("/channel", response_model=Message, dependencies=[Depends(require("send"))])
 async def send_channel_message(request: SendChannelMessageRequest) -> Message:
     """Send a message to a channel."""
     from app.repository import ChannelRepository
@@ -216,6 +356,7 @@ def _resend_window_expired_detail(
     "/channel/{message_id}/resend",
     response_model=ResendChannelMessageResponse,
     response_model_exclude_none=True,
+    dependencies=[Depends(require("send"))],
 )
 async def resend_channel_message(
     message_id: int,
@@ -296,12 +437,12 @@ async def resend_channel_message(
     )
 
 
-@router.delete("/{message_id}")
+@router.delete("/{message_id}", dependencies=[Depends(require("send"))])
 async def delete_message(message_id: int) -> dict[str, str]:
     """Remove a stored message from this server. Does not retract it from the mesh."""
     existing = await MessageRepository.get_by_id(message_id)
     if existing is None:
         return {"status": "ok"}
     await MessageRepository.delete_by_id(message_id)
-    broadcast_event("message_deleted", {"message_id": message_id})
+    broadcast_event(WsEvent.MESSAGE_DELETED, {"message_id": message_id})
     return {"status": "ok"}

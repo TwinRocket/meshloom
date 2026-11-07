@@ -3,11 +3,14 @@
 Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``aiomqtt.Client`` for the whole test. With Community off, every route under
 ``/api/community``, ``/api/directory``, ``/api/tools``, ``/api/channels``,
-``/api/settings`` and ``/api/updates`` is called (found dynamically from
-``app.routes``), plus the hashtag catalogue and the update check with GitHub
-answering 503. Any request to ``*.meshloom.app``,
-``api.fx-port.com`` (the retired airport search) or the effective Community API
-base fails the test. Placing an IATA code reads the bundled airport list.
+``/api/settings``, ``/api/updates``, ``/api/store``, ``/api/plugins``,
+``/api/share`` (``POST /api/share/files`` and ``/{id}/report`` included) and
+``/api/remote`` (``POST /api/remote/enable`` included: Remote needs Community, MSHL-445)
+is called (found dynamically from
+``app.routes``), plus the hashtag catalogue and the update check, whose route
+``/v1/meshloom/latest`` is the one Community route allowed. Any other request to
+``*.meshloom.app``, ``*.meshloom.link`` (Meshloom Remote), ``api.fx-port.com`` (the
+retired airport search) or the effective Community API base fails the test. Placing an IATA code reads the bundled airport list.
 
 The transition tests cover the opt-out itself (on → off) and an IATA change:
 the retained MQTT status is cleared before the DISCONNECT, the Live socket is
@@ -20,6 +23,18 @@ at the opt-out, one bounded reconnect clears the retained status, and that
 connection carries only the empty retained payload. Nothing else connects,
 and nothing at all once it succeeded or gave up. ``TestOrphanedStatusAtStartup``
 uses the same clear for a topic left behind while the app was stopped.
+
+``TestStoreEgressIsSeparate``: the Store (MSHL-194) is its own egress class. With
+Community off and ``store_online`` on, exactly ``store.meshloom.app`` (plus the GitHub
+hosts of the Store allowlist) may be reached, through ``store_fetch``; every other
+``*.meshloom.app`` host is refused by the Store allowlist before any lookup. With
+``store_online`` off, nothing goes there. The recorder reads the ``Host`` header, so a
+request sent through a pinned client (connected to the IP) is still seen by name.
+
+``TestRemoteNeedsCommunity``: Meshloom Remote (MSHL-87) runs on TwinRocket
+infrastructure and needs Community on (MSHL-445). With Community off and Remote on and
+registered, the relay socket never opens (link status ``community_off``) and nothing
+reaches a Community host or ``*.meshloom.link``.
 
 ``TestPositionRebindOff``: the automatic re-bind on a radio position or policy
 change sends nothing while Community is off.
@@ -59,10 +74,14 @@ import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
+from app.background_tasks import drain_background_tasks
 from app.decoder import encrypt_group_text
 from app.fanout.manager import SYSTEM_MESHLOOM_STATS_ID, fanout_manager
 from app.fanout.meshloom_stats import MeshloomStatsPublisher
 from app.packet_processor import process_raw_packet
+from app.plugins import store_egress
+from app.plugins.store_egress import STORE_HOSTS, STORE_INDEX_HOST, StoreOffline, store_fetch
+from app.repository import AppSettingsRepository
 from app.services import community_status_clear, meshloom_community
 from app.services.community_live import (
     get_live_relay,
@@ -99,11 +118,15 @@ FX_PORT_HOST = "api.fx-port.com"
 RELEASE_PATH = "/v1/meshloom/latest"
 
 
-def _forbidden(host: str | None) -> bool:
+def _forbidden(host: str | None, *, store_online: bool = False) -> bool:
     host = (host or "").lower()
+    if store_online and host == STORE_INDEX_HOST:
+        return False  # The Store's own egress class, opted into separately.
     return (
         host == "meshloom.app"
         or host.endswith(".meshloom.app")
+        or host == "meshloom.link"
+        or host.endswith(".meshloom.link")
         or host == FX_PORT_HOST
         or host == urlsplit(EGRESS_API_BASE).hostname
     )
@@ -134,8 +157,8 @@ class EgressRecorder:
                 out.append(event[1])
         return out
 
-    def forbidden(self, since: int = 0) -> list[str]:
-        return [h for h in self.hosts(since) if _forbidden(h)]
+    def forbidden(self, since: int = 0, *, store_online: bool = False) -> list[str]:
+        return [h for h in self.hosts(since) if _forbidden(h, store_online=store_online)]
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         if request.url.path == RELEASE_PATH:
@@ -144,7 +167,11 @@ class EgressRecorder:
             if canned is not None:
                 return httpx.Response(canned.status_code, content=canned.content)
             return httpx.Response(503)
-        self.events.append(("http", request.url.host, request.url.path))
+        # A pinned client connects to the IP and names the host in ``Host``.
+        host = urlsplit("//" + request.headers.get("host", "")).hostname or request.url.host
+        self.events.append(("http", host, request.url.path))
+        if request.url.host == "github.com":
+            return httpx.Response(503)
         if request.content:
             self.bodies.append((request.url.path, json.loads(request.content)))
         if self.on_http is not None:
@@ -256,7 +283,12 @@ def egress(monkeypatch):
 
 @pytest.fixture
 async def cleanup_community():
+    # fanout_manager is process-global: a Community transition spawned by an earlier test
+    # (a tracked background task) can still add the module after that test's cleanup ran.
+    await drain_background_tasks()
+    await fanout_manager.remove_config(SYSTEM_MESHLOOM_STATS_ID)
     yield
+    await drain_background_tasks()  # stop in-flight transitions before removing the module
     await fanout_manager.remove_config(SYSTEM_MESHLOOM_STATS_ID)
     await get_live_relay().shutdown()
     reset_community_live_for_tests()
@@ -329,6 +361,12 @@ _PATH_PARAMS = {
     "packet_hash": "AB" * 8,
     "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
     "job_id": "unknown-job",
+    "instance_id": "00000000-0000-4000-8000-000000000000",
+    "owner": "example",
+    "name": "weather",
+    "share_id": "AbCdEfG",
+    "device_id": "A" * 22,
+    "request_id": "B" * 22,
 }
 _QUERY = {
     "/api/community/airports": {"q": "LYS"},
@@ -347,6 +385,18 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/channels/{key}/flood-scope-override"): {"flood_scope_override": ""},
     ("POST", "/api/channels/{key}/path-hash-mode-override"): {"path_hash_mode_override": None},
     ("PATCH", "/api/settings"): {},
+    ("PUT", "/api/plugins/pause"): {"paused": False},
+    ("POST", "/api/plugins/install"): {
+        "kind": "store",
+        "plugin_id": "example.weather",
+        "granted_permissions": {},
+    },
+    ("POST", "/api/plugins"): {"label": "Sweep", "template": "blank"},
+    ("POST", "/api/store/repositories"): {"repository": "example/weather"},
+    ("PATCH", "/api/plugins/{instance_id}"): {},
+    ("POST", "/api/plugins/{instance_id}/update"): {},
+    ("PUT", "/api/plugins/{instance_id}/source"): {"source": "x = 1\n"},
+    ("POST", "/api/plugins/{instance_id}/test"): {"text": "hello"},
     ("POST", "/api/settings/favorites/toggle"): {"type": "contact", "id": "ab" * 32},
     ("POST", "/api/settings/pins/toggle"): {"type": "contact", "id": "ab" * 32},
     ("POST", "/api/settings/muted-channels/toggle"): {"key": _PATH_PARAMS["key"]},
@@ -367,6 +417,12 @@ _BODIES: dict[tuple[str, str], Any] = {
         }
     },
     ("PATCH", "/api/updates/settings"): {},
+    ("POST", "/api/share/links"): {"url": "https://example.com/a"},
+    ("POST", "/api/share/{share_id}/report"): {"reason": "spam", "details": "sweep"},
+    ("POST", "/api/remote/devices/client"): {"label": "sweep"},
+    ("POST", "/api/remote/access-requests/approve"): {"code": "7K3QM-X9TZ2"},
+    ("POST", "/api/remote/domain/test"): {"domain": "chat.example.org"},
+    ("PUT", "/api/remote/alert-email"): {"email": "me@example.org"},
 }
 _SWEPT_PREFIXES = (
     "/api/community",
@@ -375,6 +431,10 @@ _SWEPT_PREFIXES = (
     "/api/channels",
     "/api/settings",
     "/api/updates",
+    "/api/store",
+    "/api/plugins",
+    "/api/share",
+    "/api/remote",
 )
 
 
@@ -422,6 +482,13 @@ class TestCommunityOffNoEgress:
         assert "/api/channels/{key}/adopt" in paths
         assert "/api/settings" in paths
         assert "/api/updates/refresh" in paths
+        assert ("POST", "/api/share/files") in routes
+        assert ("POST", "/api/share/{share_id}/report") in routes
+        assert ("GET", "/api/share/mine") in routes
+        assert ("DELETE", "/api/share/{share_id}") in routes
+        assert ("POST", "/api/remote/rotate") in routes
+        # Remote needs Community (MSHL-445): its opt-in is refused, so it is swept too.
+        assert ("POST", "/api/remote/enable") in routes
         assert len(routes) >= 50
         # Left out on purpose: the IATA suggestion (TestIataSuggestion).
         assert ("GET", "/api/community/iata/suggest") not in routes
@@ -440,6 +507,9 @@ class TestCommunityOffNoEgress:
         # The state an opt-out leaves behind: off, IATA still stored.
         await update_community(enabled=False, iata="CDG")
         assert (await get_community_effective()).enabled is False
+        # The Store is its own egress class, on by default: adding a repository, which
+        # this sweep does, would reach GitHub (tests/test_store_egress.py).
+        await AppSettingsRepository.update(store_online=False)
 
         async with _RealAsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -1695,6 +1765,8 @@ class TestWaitingForPosition:
         assert "origin_id" in payload and "client_version" in payload
         status = await meshloom_community.community_status()
         assert (status.enabled, status.state) == (True, "waiting_for_position")
+        # The Store is its own egress class: see the sweep above.
+        await AppSettingsRepository.update(store_online=False)
 
         mark = len(egress.events)
         async with _RealAsyncClient(
@@ -1703,6 +1775,10 @@ class TestWaitingForPosition:
             for method, template in _swept_routes():
                 if (method, template) == ("PUT", "/api/community/me/iata"):
                     continue  # a bind: allowed while waiting (test below)
+                if (method, template) == ("POST", "/api/remote/enable"):
+                    # Remote's own opt-in, allowed once Community is on, waiting or not
+                    # (MSHL-445); it reaches the relay only (tests/test_remote_off_no_egress.py).
+                    continue
                 path = re.sub(r"\{(\w+)\}", lambda m: _PATH_PARAMS[m.group(1)], template)
                 response = await client.request(
                     method,
@@ -2640,3 +2716,146 @@ class TestIataSuggestion:
             await asyncio.sleep(0.05)
         assert [e for e in egress.events if e[0] == "http" and e[2] == "/v1/iata/suggest"] == []
         assert egress.forbidden() == []
+
+
+class TestStoreEgressIsSeparate:
+    """Community off: ``store.meshloom.app`` is reachable exactly when ``store_online``."""
+
+    @pytest.fixture(autouse=True)
+    async def _store_state(self):
+        await store_egress.reset_store_egress_for_tests()
+        yield
+        await store_egress.reset_store_egress_for_tests()
+
+    @pytest.fixture
+    def store_dns(self, monkeypatch):
+        from tests.share_fakes import PUBLIC_IP, Dns
+
+        hosts = (*STORE_HOSTS, "api.meshloom.app", "get.meshloom.app")
+        return Dns(monkeypatch, {host: [PUBLIC_IP] for host in hosts})
+
+    @pytest.mark.asyncio
+    async def test_store_host_allowed_only_with_store_online(
+        self, test_db, egress, cleanup_community, store_dns
+    ):
+        from app.net.egress_guard import EgressBlocked
+        from tests.share_fakes import _Stream
+
+        record = egress.handle
+
+        async def streamed(request: httpx.Request) -> httpx.Response:
+            # The egress guard reads the body raw: stream it like a socket would.
+            response = await record(request)
+            return httpx.Response(response.status_code, stream=_Stream(response.content))
+
+        egress.handle = streamed
+        await update_community(enabled=False, iata="CDG")
+        url = f"https://{STORE_INDEX_HOST}/v1/index.json"
+
+        # Off: refused before any lookup, nothing recorded.
+        await AppSettingsRepository.update(store_online=False)
+        with pytest.raises(StoreOffline):
+            await store_fetch("GET", url, max_response_bytes=4096)
+        assert egress.hosts() == [] and store_dns.lookups == []
+
+        await AppSettingsRepository.update(store_online=True)
+        await store_fetch("GET", url, max_response_bytes=4096)
+        assert egress.hosts() == [STORE_INDEX_HOST]
+        assert egress.forbidden() == [STORE_INDEX_HOST]
+        assert egress.forbidden(store_online=True) == []
+
+        # Any other meshloom.app host stays out of the Store allowlist.
+        for other in ("api.meshloom.app", "get.meshloom.app"):
+            with pytest.raises(EgressBlocked) as info:
+                await store_fetch("GET", f"https://{other}/", max_response_bytes=4096)
+            assert info.value.code == "egress_host_not_allowed"
+        assert egress.hosts() == [STORE_INDEX_HOST]
+
+        # Off again: nothing more leaves.
+        await AppSettingsRepository.update(store_online=False)
+        with pytest.raises(StoreOffline):
+            await store_fetch("GET", url, max_response_bytes=4096)
+        assert egress.hosts() == [STORE_INDEX_HOST]
+        assert (await get_community_effective()).enabled is False
+
+
+class TestRemoteNeedsCommunity:
+    """Community off, Remote on and registered: the relay socket never opens and nothing
+    leaves (MSHL-445). Remote off with Community on is in
+    ``tests/test_remote_off_no_egress.py``."""
+
+    @pytest.mark.asyncio
+    async def test_no_relay_socket(self, test_db, egress, cleanup_community, monkeypatch):
+        from app.main import app
+        from app.repository.remote import RemoteRepository
+        from app.services import remote, remote_relay
+
+        urls: list[str] = []
+
+        def relay_socket(url: str, **_kwargs: Any) -> Any:
+            urls.append(url)
+            raise OSError("refused by the test")
+
+        await update_community(enabled=False, iata="CDG")
+        start = len(egress.events)
+        monkeypatch.setattr("websockets.connect", relay_socket)
+        monkeypatch.setattr(remote_relay, "BACKOFF_INITIAL_S", 0.01)
+        await RemoteRepository.update_state(
+            enabled=True,
+            slug="k3xwq2m7ta",
+            hostname="k3xwq2m7ta.meshloom.link",
+            relay_url="wss://relay.meshloom.link/v1/connect",
+        )
+        client = remote_relay.RelayClient()
+        try:
+            await client.start(app)
+            assert not client.running()
+            assert remote.link_status() == remote_relay.COMMUNITY_OFF
+        finally:
+            await client.stop()
+        assert urls == []
+        assert egress.forbidden(start) == []
+        assert egress.events[start:] == []
+
+    @pytest.mark.asyncio
+    async def test_opt_out_pauses_remote_and_a_join_resumes_it(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        """The Community opt-in drives the relay socket: on connects, off closes it and
+        keeps the registration (MSHL-445)."""
+        from app.main import app
+        from app.repository.remote import RemoteRepository
+        from app.services import remote, remote_relay
+
+        urls: list[str] = []
+
+        def relay_socket(url: str, **_kwargs: Any) -> Any:
+            urls.append(url)
+            raise OSError("refused by the test")
+
+        monkeypatch.setattr("websockets.connect", relay_socket)
+        monkeypatch.setattr(remote_relay, "BACKOFF_INITIAL_S", 0.01)
+        await RemoteRepository.update_state(
+            enabled=True,
+            slug="k3xwq2m7ta",
+            hostname="k3xwq2m7ta.meshloom.link",
+            relay_url="wss://relay.meshloom.link/v1/connect",
+        )
+        client = remote_relay.get_relay_client()
+        try:
+            await client.start(app)
+            assert urls == [] and remote.link_status() == remote_relay.COMMUNITY_OFF
+            await update_community(enabled=True, iata="CDG")
+            await _until(lambda: len(urls) >= 2)
+            await update_community(enabled=False)
+            assert not client.running()
+            assert remote.link_status() == remote_relay.COMMUNITY_OFF
+            count = len(urls)
+            await asyncio.sleep(0.05)
+            assert len(urls) == count
+            state = await RemoteRepository.get_state()
+            assert state.enabled and state.slug == "k3xwq2m7ta"
+        finally:
+            await client.stop()
+            client.app = None
+        assert {urlsplit(url).hostname for url in urls} == {remote.RELAY_HOST}

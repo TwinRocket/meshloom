@@ -7,7 +7,16 @@ import logging
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.fanout.base import FanoutModule, get_fanout_message_text
+from app.log_redaction import secret_scope
+from app.net.apprise_urls import (
+    AppriseUrlRefused,
+    ValidatedUrl,
+    split_apprise_urls,
+    validate_apprise_urls,
+)
 from app.path_utils import split_path_hex
+from app.secret_fields import config_secret_values, scrub_error
+from app.services.message_filters import is_filtered
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +50,6 @@ FORMAT_VARIABLES = (
     "rssi",
     "snr",
 )
-
-
-def _parse_urls(raw: str) -> list[str]:
-    """Split multi-line URL string into individual URLs."""
-    return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
 def _normalize_discord_url(url: str) -> str:
@@ -168,23 +172,30 @@ def _format_body(
         return _apply_format(default, variables)
 
 
-def _send_sync(urls_raw: str, body: str, *, preserve_identity: bool, markdown: bool = True) -> bool:
-    """Send notification synchronously via Apprise. Returns True on success."""
+def _send_sync(servers: list[ValidatedUrl], body: str, *, markdown: bool = True) -> bool:
+    """Send through the validated plugin instances (redirects off). True on success."""
     import apprise as apprise_lib
     from apprise import NotifyFormat
 
-    urls = _parse_urls(urls_raw)
-    if not urls:
+    if not servers:
         return False
 
     notifier = apprise_lib.Apprise()
-    for url in urls:
-        if preserve_identity:
-            url = _normalize_discord_url(url)
-        notifier.add(url)
+    for item in servers:
+        notifier.add(item.server)
 
     body_fmt = NotifyFormat.MARKDOWN if markdown else NotifyFormat.TEXT
     return bool(notifier.notify(title="", body=body, body_format=body_fmt))
+
+
+async def _validated_servers(config: dict) -> list[ValidatedUrl]:
+    """The row's URLs through the egress guard, re-checked before every send."""
+    urls = split_apprise_urls(config.get("urls", ""))
+    if config.get("preserve_identity", True):
+        urls = [_normalize_discord_url(url) for url in urls]
+    return await validate_apprise_urls(
+        urls, allow_private_network=bool(config.get("allow_private_network", False))
+    )
 
 
 class AppriseModule(FanoutModule):
@@ -198,12 +209,15 @@ class AppriseModule(FanoutModule):
         # want Meshloom-originated manual/bot sends mirrored to Apprise.
         if data.get("outgoing") and not self.config.get("include_outgoing", False):
             return
+        # Blocked senders and muted channels reach no person (MQTT, SQS and
+        # webhook outputs still get them: machine integrations).
+        if await is_filtered(data):
+            return
 
         urls = self.config.get("urls", "")
         if not urls or not urls.strip():
             return
 
-        preserve_identity = self.config.get("preserve_identity", True)
         markdown = self.config.get("markdown_format", True)
 
         # Read format strings; treat empty/whitespace as unset (use default).
@@ -244,16 +258,22 @@ class AppriseModule(FanoutModule):
             markdown=markdown,
         )
 
+        try:
+            servers = await _validated_servers(self.config)
+        except AppriseUrlRefused as exc:
+            # Never the URL in the log or the status: it carries tokens.
+            logger.warning(
+                "Apprise module %s: URL %d refused (%s)", self.config_id, exc.line, exc.code
+            )
+            self._set_last_error(f"{exc.code} (URL {exc.line})")
+            return
+
         last_exc: Exception | None = None
         for attempt in range(_MAX_SEND_ATTEMPTS):
             try:
-                success = await asyncio.to_thread(
-                    _send_sync,
-                    urls,
-                    body,
-                    preserve_identity=preserve_identity,
-                    markdown=markdown,
-                )
+                # Apprise logs request URLs at DEBUG: their tokens are masked meanwhile.
+                with secret_scope(*config_secret_values("apprise", self.config)):
+                    success = await asyncio.to_thread(_send_sync, servers, body, markdown=markdown)
                 if success:
                     self._set_last_error(None)
                     return
@@ -265,19 +285,23 @@ class AppriseModule(FanoutModule):
                 )
             except Exception as exc:
                 last_exc = exc
+                # The exception may quote a URL and its token (/api/debug
+                # returns recent log lines): scrubbed like the status.
                 logger.warning(
                     "Apprise send error for module %s (attempt %d/%d): %s",
                     self.config_id,
                     attempt + 1,
                     _MAX_SEND_ATTEMPTS,
-                    exc,
+                    scrub_error(str(exc), config_secret_values("apprise", self.config)),
                 )
             if attempt < _MAX_SEND_ATTEMPTS - 1:
                 await asyncio.sleep(_RETRY_DELAY_S)
 
         # All attempts exhausted
         if last_exc is not None:
-            self._set_last_error(str(last_exc))
+            self._set_last_error(
+                scrub_error(str(last_exc), config_secret_values("apprise", self.config))
+            )
         else:
             self._set_last_error("Apprise notify returned failure")
 

@@ -1,6 +1,6 @@
 ---
 title: Aller plus loin
-description: Transports, chemins d’installation, variables, Community, fanout, Home Assistant, dépannage.
+description: Transports, chemins d’installation, variables, Community, liens courts, fanout, notifications, Home Assistant, dépannage.
 level: deep
 order: 10
 ---
@@ -14,4 +14,8 @@ Deux pages valent une lecture avant les autres :
 - [Variables et réglages](/docs/deep/environment/) sépare ce qui se décide au démarrage de ce qui vit dans la base et se change dans l’interface.
 - [Sécurité](/docs/deep/security/) dit ce que Meshloom ne protège pas.
 
-[Meshloom Community](/docs/deep/community/) reste désactivé tant que vous ne l’avez pas rejoint : lisez sa page pour savoir ce qu’il envoie avant de le faire.
+Pour être prévenu quand quelque chose se passe, lisez [Notifications](/docs/deep/notifications/) (canaux, événements et règles ; ntfy, Telegram, Discord, Home Assistant, e-mail, webhooks ; le corps du webhook : [Webhook de notification](/docs/deep/notifications-webhook/)) et, pour les navigateurs, [Notifications push](/docs/deep/push/). Pour transmettre chaque message à un autre système, lisez [Fanout](/docs/deep/fanout/).
+
+Pour joindre Meshloom de l’extérieur avec vos propres outils, commencez par les pages courtes [Tailscale serve](/docs/deep/self-host-tailscale/) ou [Meshloom derrière votre reverse-proxy](/docs/deep/self-host-proxy/) (Caddy, nginx, Traefik) ; le guide complet est [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/). Pour ouvrir Meshloom de partout par le relais de TwinRocket, lisez [Meshloom Remote](/docs/deep/remote/) ; pour faire mener votre propre nom de domaine à votre adresse Meshloom Remote, lisez [Votre propre domaine pour Meshloom Remote](/docs/deep/remote-domain/).
+
+[Meshloom Community](/docs/deep/community/) reste désactivé tant que vous ne l’avez pas rejoint : lisez sa page pour savoir ce qu’il envoie avant de le faire. Il en va de même pour les [Liens courts et photos](/docs/deep/share/), le service de partage optionnel qui raccourcit les longues adresses web : il reste désactivé tant qu’un administrateur ne l’active pas.

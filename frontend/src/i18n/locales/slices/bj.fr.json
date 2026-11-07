@@ -1,0 +1,36 @@
+{
+  "errors": {
+    "auth_public_urls_invalid": "Adresse publique invalide. Utilisez https://nom[:port][/préfixe].",
+    "auth_host_guard_would_lock_out": "Le refus strict rejetterait l'adresse que vous utilisez en ce moment ({{host}}). Ajoutez-la d'abord comme adresse publique."
+  },
+  "settings": {
+    "access": {
+      "public": {
+        "title": "Adresses publiques",
+        "help": "Les adresses qui mènent à Meshloom depuis l'extérieur, comme votre reverse proxy ou votre nom Tailscale. Elles doivent être en https.",
+        "none": "Aucune adresse publique déclarée.",
+        "address": "Adresse publique",
+        "add": "Ajouter",
+        "remove": "Retirer",
+        "removeFor": "Retirer {{url}}",
+        "saved": "Adresses publiques enregistrées.",
+        "rejectedTitle": "Noms inconnus vus récemment",
+        "rejectedHelp": "Noms utilisés pour atteindre Meshloom et non déclarés. Depuis le dernier redémarrage, le plus récent d'abord.",
+        "rejectedNone": "Aucun nom inconnu vu.",
+        "seen": "{{count}} requête(s), dernière {{last}}",
+        "allow": "Autoriser",
+        "allowFor": "Autoriser {{host}}",
+        "allowed": "{{host}} déclaré comme adresse publique.",
+        "enforce": "Refuser les noms inconnus (strict)",
+        "enforceHelpOff": "Mode observation : les noms inconnus sont listés ci-dessus et fonctionnent toujours. Déclarer la première adresse publique active le mode strict.",
+        "enforceHelpOn": "Mode strict : seuls les noms déclarés sont acceptés. Si un nom cesse de fonctionner, ouvrez Meshloom par son adresse IP et désactivez ce mode.",
+        "enforceOn": "Les noms inconnus sont désormais refusés.",
+        "enforceOff": "Mode observation rétabli.",
+        "rejectedRisk": "N'autorisez qu'un nom que vous avez vous-même mis en place : un nom inconnu peut venir d'un attaquant.",
+        "confirmTitle": "Déclarer ce nom comme adresse publique ?",
+        "confirmRisk": "Meshloom répondra désormais à ce nom. Continuez seulement s'il est le vôtre.",
+        "confirmAllow": "Autoriser {{host}}"
+      }
+    }
+  }
+}

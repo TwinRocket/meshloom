@@ -13,6 +13,11 @@
 # The tag is pushed only once main is. If main went out but the tag did not,
 # finish with scripts/build/tag_release.sh X.Y.Z.
 #
+# A release candidate is scripts/build/publish.sh X.Y.Z-rc.N, on main or on
+# preversion-5, and pushes that branch. It bumps pyproject.toml, frontend/package.json
+# and uv.lock only: the Home Assistant add-on reads config.yaml from the default
+# branch, so an rc leaves it and the FROM tag of meshloom/Dockerfile alone.
+#
 # The tag is deliberately not GPG-signed: the artifacts it produces are signed by
 # the release key (pkg/keys), which is what clients verify.
 set -euo pipefail
@@ -40,12 +45,16 @@ SKIP_LICENSES=0
 
 usage() {
     cat <<'EOF'
-Usage: scripts/build/publish.sh [X.Y.Z] [options]
+Usage: scripts/build/publish.sh [X.Y.Z|X.Y.Z-rc.N] [options]
 
 Releases X.Y.Z from main: commits the release, pushes main, then pushes the
 annotated X.Y.Z tag. An uncommitted CHANGELOG.md edit (the [X.Y.Z] section
 written by hand) is committed with the release; any other local change is
 refused.
+
+X.Y.Z-rc.N does the same from main or preversion-5, pushing that branch and
+leaving the Home Assistant add-on on its stable version. CI then publishes a
+signed pre-release that reaches no stable user (docs/dev/releasing.md).
 
 Options:
   --version VERSION         Release version (same as the positional argument);
@@ -100,9 +109,14 @@ fi
 
 # A release is cut from an up-to-date main: the commit below is pushed to main and
 # the tag points at it. Anything else would push unrelated work or tag a commit
-# that is not on main, so refuse before changing anything.
+# that is not on main, so refuse before changing anything. Which branches are valid
+# depends on the version: once it is known, release_check_branch has the last word.
 RELEASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$RELEASE_BRANCH" != "main" ]; then
+if [ -n "$VERSION" ]; then
+    VERSION="$(release_trim "$VERSION")"
+    release_validate_version "$VERSION"
+    release_check_branch "$VERSION" "$RELEASE_BRANCH"
+elif [ "$RELEASE_BRANCH" != "main" ] && [ "$RELEASE_BRANCH" != "preversion-5" ]; then
     release_die "Releases are cut from main; you are on '$RELEASE_BRANCH'."
 fi
 # The release notes are the one local change a release may carry.
@@ -110,12 +124,12 @@ if ! release_tree_clean_but_changelog; then
     git status --short >&2
     release_die "The working tree has changes other than CHANGELOG.md; commit or stash them first."
 fi
-git fetch --quiet origin main
-if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-    if git merge-base --is-ancestor HEAD origin/main; then
-        release_die "main is behind origin/main; run 'git pull --ff-only' first."
+git fetch --quiet origin "$RELEASE_BRANCH"
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$RELEASE_BRANCH")" ]; then
+    if git merge-base --is-ancestor HEAD "origin/$RELEASE_BRANCH"; then
+        release_die "$RELEASE_BRANCH is behind origin/$RELEASE_BRANCH; run 'git pull --ff-only' first."
     fi
-    release_die "main is not at origin/main (it has commits origin does not); push or drop them first."
+    release_die "$RELEASE_BRANCH is not at origin/$RELEASE_BRANCH (it has commits origin does not); push or drop them first."
 fi
 
 echo -e "${YELLOW}Current versions:${NC}"
@@ -131,6 +145,7 @@ if [ -z "$VERSION" ]; then
 fi
 VERSION="$(release_trim "$VERSION")"
 release_validate_version "$VERSION"
+release_check_branch "$VERSION" "$RELEASE_BRANCH"
 
 # The tag must be new, here and on origin.
 if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
@@ -168,9 +183,12 @@ release_sed_i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" frontend/packag
 
 # The add-on advertises the image it installs, so its version is the release's or it
 # is a lie. Written here rather than by hand, for the same reason the other two are.
-echo -e "${YELLOW}Updating Home Assistant add-on...${NC}"
-release_sed_i "s/^version: \".*\"/version: \"$VERSION\"/" meshloom/config.yaml
-release_sed_i "s|^FROM ghcr.io/twinrocket/meshloom:.*|FROM ghcr.io/twinrocket/meshloom:$VERSION|" meshloom/Dockerfile
+# Not for an rc: the add-on would offer every Home Assistant user a pre-release.
+if ! release_is_rc "$VERSION"; then
+    echo -e "${YELLOW}Updating Home Assistant add-on...${NC}"
+    release_sed_i "s/^version: \".*\"/version: \"$VERSION\"/" meshloom/config.yaml
+    release_sed_i "s|^FROM ghcr.io/twinrocket/meshloom:.*|FROM ghcr.io/twinrocket/meshloom:$VERSION|" meshloom/Dockerfile
+fi
 
 echo -e "${YELLOW}Updating uv.lock...${NC}"
 uv sync
@@ -251,8 +269,10 @@ release_extract_changelog_section "$REPO_ROOT" "$VERSION" "$TAG_NOTES_FILE"
 echo -e "${YELLOW}Committing changes...${NC}"
 # Only the files this script writes: never `git add .`, which would also commit
 # whatever else the quality gate's autofixers touched.
-git add pyproject.toml uv.lock frontend/package.json meshloom/config.yaml \
-    meshloom/Dockerfile CHANGELOG.md
+git add pyproject.toml uv.lock frontend/package.json CHANGELOG.md
+if ! release_is_rc "$VERSION"; then
+    git add meshloom/config.yaml meshloom/Dockerfile
+fi
 if [ "$SKIP_LICENSES" -eq 0 ]; then
     git add LICENSES.md
 fi
@@ -268,16 +288,16 @@ fi
 # this machine, and it is pushed only once main is on origin.
 git tag -a "$VERSION" "$FULL_GIT_HASH" -F "$TAG_NOTES_FILE"
 
-echo -e "${YELLOW}Pushing main...${NC}"
-if ! git push origin main; then
+echo -e "${YELLOW}Pushing $RELEASE_BRANCH...${NC}"
+if ! git push origin "$RELEASE_BRANCH"; then
     git tag -d "$VERSION" >/dev/null
-    release_die "Pushing main failed: nothing was pushed, and the local tag $VERSION was deleted. The release commit $FULL_GIT_HASH stays on your local main; once 'git push origin main' works, finish with scripts/build/tag_release.sh $VERSION."
+    release_die "Pushing $RELEASE_BRANCH failed: nothing was pushed, and the local tag $VERSION was deleted. The release commit $FULL_GIT_HASH stays on your local $RELEASE_BRANCH; once 'git push origin $RELEASE_BRANCH' works, finish with scripts/build/tag_release.sh $VERSION."
 fi
 
 echo -e "${YELLOW}Pushing tag $VERSION...${NC}"
 if ! git push origin "refs/tags/$VERSION"; then
     git tag -d "$VERSION" >/dev/null
-    release_die "main is pushed but the tag $VERSION is not (the local tag was deleted). Finish with scripts/build/tag_release.sh $VERSION once All Quality is green on main."
+    release_die "$RELEASE_BRANCH is pushed but the tag $VERSION is not (the local tag was deleted). Finish with scripts/build/tag_release.sh $VERSION once All Quality is green on $RELEASE_BRANCH."
 fi
 echo
 
@@ -285,4 +305,8 @@ echo -e "${GREEN}=== Release $VERSION pushed ===${NC}"
 echo -e "Commit: ${YELLOW}$FULL_GIT_HASH${NC}"
 echo "release.yml and docker.yml now build and publish $VERSION:"
 echo "  gh run list -R $GH_REPO --branch $VERSION"
-echo "Docker image: $DOCKER_IMAGE:$VERSION and :latest (built by docker.yml)"
+if release_is_rc "$VERSION"; then
+    echo "Docker image: $DOCKER_IMAGE:$VERSION only (built by docker.yml)"
+else
+    echo "Docker image: $DOCKER_IMAGE:$VERSION and :latest (built by docker.yml)"
+fi

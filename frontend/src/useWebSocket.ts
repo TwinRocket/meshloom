@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { AUTH_RESTORED_EVENT } from './auth/authEvents';
 import type {
   Channel,
   CommunityLiveStatus,
@@ -10,7 +11,9 @@ import type {
   RadioWifiState,
   RawPacket,
 } from './types';
+import { invalidateConversationNotifications } from './hooks/useConversationNotifications';
 import { isDispatchableWsEvent, parseWsEvent } from './wsEvents';
+import type { NotificationEventFrame } from './wsEvents';
 
 interface ErrorEvent {
   message: string;
@@ -46,6 +49,8 @@ export interface UseWebSocketOptions {
   ) => void;
   onMessageDeleted?: (messageId: number) => void;
   onRadioWifi?: (state: RadioWifiState) => void;
+  /** A notification catalogue event, already filtered per session role by the server. */
+  onNotificationEvent?: (frame: NotificationEventFrame) => void;
   onError?: (error: ErrorEvent) => void;
   onSuccess?: (success: SuccessEvent) => void;
   onReconnect?: () => void;
@@ -250,6 +255,17 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case 'success':
             handlers.onSuccess?.(msg.data as SuccessEvent);
             break;
+          case 'notification_channel_changed':
+            // The bells' cached channel list is stale.
+            invalidateConversationNotifications();
+            break;
+          case 'notification_event':
+            // The Feed's event rows (`utils/feedEvents.ts`, MSHL-166).
+            handlers.onNotificationEvent?.(msg.data as NotificationEventFrame);
+            break;
+          case 'plugin_status':
+            // A health refresh follows (`app/plugins/host.py`): nothing to do here.
+            break;
           case 'pong':
             // Heartbeat response, ignore
             break;
@@ -288,11 +304,14 @@ export function useWebSocket(options: UseWebSocketOptions) {
       if (document.visibilityState === 'visible') reconnectNow();
     };
     window.addEventListener('online', reconnectNow);
+    // Signed in again after a session expired: the refused socket should not sit out its backoff.
+    window.addEventListener(AUTH_RESTORED_EVENT, reconnectNow);
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       shouldReconnectRef.current = false;
       window.removeEventListener('online', reconnectNow);
+      window.removeEventListener(AUTH_RESTORED_EVENT, reconnectNow);
       document.removeEventListener('visibilitychange', onVisibility);
       if (stableTimerRef.current !== null) {
         clearTimeout(stableTimerRef.current);

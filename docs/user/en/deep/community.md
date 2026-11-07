@@ -21,7 +21,7 @@ It is not an integration you create in **Settings → MQTT & Automation**. You j
 
 Joining is the only way to turn Community on from the settings: there is no on/off switch, and **Leave Meshloom Community** (shown once joined) only turns it off. Meshloom first registers the code with Community, and only then turns Community on and starts publishing. If Community refuses the code (for instance because this radio already changed its code too often in the last 7 days), Community stays off, your saved code does not change, and the settings say why.
 
-The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it. Community limits how often the code can be changed. Community drops that confirmation when your radio's position moves more than 100 km (by default: the `IATA_GPS_HYSTERESIS_KM` setting on the Community side) from the one it recorded: since Meshloom now sends a new position on its own (see below), this can happen without anything done in the settings, and **I am sure** shows again if the code and the position still disagree.
+The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it; that confirmation does not count as a change. Community limits how often the code can be changed. Community drops that confirmation when your radio's position moves more than 100 km (by default: the `IATA_GPS_HYSTERESIS_KM` setting on the Community side) from the one it recorded: since Meshloom now sends a new position on its own (see below), this can happen without anything done in the settings, and **I am sure** shows again if the code and the position still disagree.
 
 The code is also the region the Live page shows by default; you can add other regions there.
 
@@ -68,13 +68,40 @@ With Community on and a code saved, your server sends:
 
 Meshloom never sends your radio's private key to Community. It is only used to sign the short-lived passes that prove to Community who is calling. Anyone who can reach your Meshloom can still read the key back, through the API and in the full backup (see [Security](/en/docs/deep/security/#the-nodes-private-key)). Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
+The extension Store is independent from Community: it has its own switch, on by default, and talks to other servers (GitHub, see [What leaves your instance](/en/docs/deep/plugins/#what-leaves-your-instance)). Turning Community on or off changes nothing for the Store, and the other way round.
+
+## Features that need Community
+
+These features run on TwinRocket's servers, so they work only while Community is on:
+
+- **Meshloom Remote** (**Settings → Remote access**), the relay on `meshloom.link`;
+- **link and file sharing** (**Settings → Share: links and files**), the service on `meshl.ink`;
+- the **Live** map and feed, and everything your radio reports as an observer (above).
+
+While Community is off, Meshloom Remote and sharing cannot be turned on: their settings say so and offer a button to the Community settings. If you turn Community off while they are on, they **pause**: Meshloom stops contacting the relay and the share service at once, your devices can no longer open the instance from outside, new links and files cannot be shared, and shared links and photos no longer load. Nothing is deleted: the Remote address, the allowed devices, the sharing choice and the accepted terms are kept, and both resume as soon as you turn Community on again. The window that confirms leaving Community says so.
+
+Community itself needs this Meshloom to **hold the radio's private key**, to sign what it sends. Without it, joining and everything above stop with **this radio's key isn't available here**: the radio is reached through a [radio proxy](/en/docs/deep/radio/#radio-proxy), or its firmware or a proxy in between does not give the key. Connect the radio directly, or use the Meshloom that holds the key.
+
+## Proof for Remote and sharing
+
+The relay and the share service accept a new registration or a new link or file only from an instance whose radio Community knows and that **another station heard recently**. Your server asks Community for a short proof (an *attestation*) for the Remote key and another for the sharing key, and shows it to that service. The browser never does.
+
+- Community gives one only if, in the last **14 days**, another station heard an advert of your radio. If not, Meshloom says **No other station has heard this radio lately**: send a flood advertisement (or leave the radio on so it advertises on its own), then try again.
+- A proof lasts 3 days. Meshloom keeps it, even across a restart, renews it the day before it ends, and asks again at once if the service refuses it. It never asks more than a few times an hour, and waits after a refusal (15 minutes when the radio was not heard, an hour when this radio left Community or was banned), so retrying sooner changes nothing.
+- The proof names the service key only: the relay and the share service do not learn which radio it is. **Community keeps a confidential record** of which radio obtained a proof for which service key, with its dates, for one year after the proof ends, even if you leave. It is never public and is used only to answer a request from a competent authority (see the privacy policy of [meshloom.app](https://meshloom.app)).
+- An instance registered with Remote before November 10, 2026 can keep registering without a proof until January 31, 2027: if Community cannot give one, Remote keeps working.
+
+Turning Community off makes Meshloom forget the proofs it holds.
+
 ## Leaving
 
-**Leave Meshloom Community** (in the settings, or **Leave Community** in the waiting banner's explanation) first shows what leaving means:
+**Leave Meshloom Community** (in the settings, or **Leave Community** in the waiting banner's explanation) first asks you to confirm, in a short window that links the privacy address below. What leaving means:
 
 - the packets your radio already reported stay in Community's statistics, under your radio's name;
 - your radio's position is deleted from Community;
 - if your radio's adverts broadcast its position, it stays visible on the map like any other node heard on the mesh;
+- Meshloom Remote and link and file sharing pause too (see [Features that need Community](#features-that-need-community));
+- the confidential record of the proofs given for Remote and sharing is kept for one year after each proof ends (see [Proof for Remote and sharing](#proof-for-remote-and-sharing));
 - to have everything deleted, write to [privacy@meshloom.app](mailto:privacy@meshloom.app).
 
 You can also say why you leave (privacy, not useful, technical issue, other); this is optional. Once you confirm, Meshloom sends one last request to Community to record the opt-out, with the reason if you gave one: Community deletes your radio's position, clears its status on the broker (at once, or shortly after) and refuses this radio until it joins again. Then Meshloom cuts everything, as described below.

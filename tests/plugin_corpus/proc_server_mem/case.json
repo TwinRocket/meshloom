@@ -1,0 +1,19 @@
+{
+  "description": "Open the server's memory (the radio private key lives there) through /proc/<pid>/mem.",
+  "events": [
+    {
+      "params": {
+        "pid": "$SERVER_PID"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

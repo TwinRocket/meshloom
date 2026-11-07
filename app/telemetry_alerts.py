@@ -16,15 +16,24 @@ from typing import Any, Literal, TypeGuard
 from app.models import (
     NotificationDestinations,
     NotificationDestinationsUpdate,
-    TelemetryAlertChannels,
     TelemetryAlertRuleOverride,
     TelemetryAlertRules,
     TelemetryRuleSpec,
+    grandfather_legacy_webhook,
 )
 from app.repository.contact_telemetry import ContactTelemetryRepository
 from app.repository.repeater_telemetry import RepeaterTelemetryRepository
 from app.repository.settings import AppSettingsRepository
 from app.repository.telemetry_alert_state import TelemetryAlertStateRepository
+from app.secret_fields import (
+    NOTIFICATION_DESTINATION_KEYS,
+    NOTIFICATION_SECRET_KEYS,
+    REDACTED,
+    SecretRequiredError,
+    destination_changed,
+    redact_secrets,
+    redacted_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +48,7 @@ RULE_GPS_LOST = "gps_lost"
 DEFAULT_BATTERY_VOLTS_MIN = 3.5
 DEFAULT_NOISE_FLOOR_MAX_DBM = -90.0
 DEFAULT_MISSES_BEFORE_ALERT = 2
-REDACTED_SECRET = "********"
+REDACTED_SECRET = REDACTED
 BATTERY_REARM_MARGIN_V = 0.2
 NOISE_REARM_MARGIN_DB = 3.0
 MISSES_MIN = 1
@@ -91,7 +100,6 @@ DEFAULT_RULE_DICTS: dict[str, dict[str, Any]] = {
     "lpp:temperature": {"enabled": False, "op": "gt", "threshold": 50, "hysteresis": 1},
 }
 
-DEFAULT_CHANNELS = {"push": True, "email": False, "webhook": False}
 
 DEFAULT_NOTIFICATION_DESTINATIONS: dict[str, Any] = {
     "email": {
@@ -115,7 +123,6 @@ PollOutcome = Literal["success", "miss", "busy"]
 class ResolvedNodeRules:
     alerting: bool
     rules: dict[str, TelemetryRuleSpec]
-    channels: TelemetryAlertChannels
 
 
 def battery_volts_from_status(status: Mapping[str, Any] | None) -> float | None:
@@ -337,7 +344,6 @@ def stored_rules_dict(rules: TelemetryAlertRules) -> dict[str, Any]:
             }
         overrides[key] = entry
     return {
-        "channels": rules.channels.model_dump(),
         "rules": {
             rule_id: spec.model_dump(exclude_none=True) for rule_id, spec in rules.rules.items()
         },
@@ -358,17 +364,6 @@ def coerce_telemetry_alert_rules(raw: object) -> TelemetryAlertRules:
         )
     else:
         parsed = _parse_json_object(raw)
-
-    channels_raw = parsed.get("channels")
-    channels = TelemetryAlertChannels(
-        push=bool(channels_raw.get("push", True)) if isinstance(channels_raw, Mapping) else True,
-        email=bool(channels_raw.get("email", False))
-        if isinstance(channels_raw, Mapping)
-        else False,
-        webhook=(
-            bool(channels_raw.get("webhook", False)) if isinstance(channels_raw, Mapping) else False
-        ),
-    )
 
     rules = default_rule_specs()
     raw_rules = parsed.get("rules")
@@ -394,7 +389,7 @@ def coerce_telemetry_alert_rules(raw: object) -> TelemetryAlertRules:
                 continue
             overrides[key.lower()] = _coerce_override(value)
 
-    return TelemetryAlertRules(channels=channels, rules=rules, overrides=overrides)
+    return TelemetryAlertRules(rules=rules, overrides=overrides)
 
 
 def merge_telemetry_alert_rules(
@@ -402,7 +397,8 @@ def merge_telemetry_alert_rules(
 ) -> TelemetryAlertRules:
     """Deep-merge a PATCH fragment into stored rules.
 
-    Channels merge field-by-field, rules by id, overrides by pubkey then rule.
+    A ``channels`` field of an old PATCH body is accepted and ignored (the notification rules
+    choose the channels); rules merge by id, overrides by pubkey then rule.
     Omit/null keeps the stored value. ``overrides: {}`` replaces the map.
     A legacy 3-field PATCH only updates those three thresholds.
     """
@@ -412,14 +408,6 @@ def merge_telemetry_alert_rules(
     incoming_dump = incoming.model_dump(exclude=_COMPAT_RULE_FIELDS)
     if any(field in incoming.model_fields_set for field in _COMPAT_RULE_FIELDS):
         payload.setdefault("rules", incoming_dump.get("rules") or {})
-
-    raw_channels = payload.get("channels")
-    if isinstance(raw_channels, Mapping):
-        merged_channels = dict(merged.get("channels") or DEFAULT_CHANNELS)
-        for key, value in raw_channels.items():
-            if value is not None:
-                merged_channels[key] = value
-        merged["channels"] = merged_channels
 
     raw_rules = payload.get("rules")
     if isinstance(raw_rules, Mapping):
@@ -488,7 +476,7 @@ def resolve_node_rules(rules: TelemetryAlertRules, public_key: str) -> ResolvedN
     if override is not None and override.rules:
         for rule_id, patch in override.rules.items():
             merged[rule_id] = _merge_spec(merged.get(rule_id, TelemetryRuleSpec()), patch)
-    return ResolvedNodeRules(alerting=alerting, rules=merged, channels=rules.channels)
+    return ResolvedNodeRules(alerting=alerting, rules=merged)
 
 
 def alerting_off_patch(public_key: str) -> TelemetryAlertRules:
@@ -576,7 +564,7 @@ async def _history_had_lpp_fix(public_key: str) -> bool:
 
 
 def coerce_notification_destinations(raw: object) -> NotificationDestinations:
-    parsed = _parse_json_object(raw)
+    parsed = grandfather_legacy_webhook(_parse_json_object(raw))
     try:
         return NotificationDestinations.model_validate(
             {**DEFAULT_NOTIFICATION_DESTINATIONS, **parsed}
@@ -589,47 +577,93 @@ def merge_notification_destinations(
     stored: NotificationDestinations,
     incoming: NotificationDestinations | NotificationDestinationsUpdate | Mapping[str, Any],
 ) -> NotificationDestinations:
-    """Merge a PATCH. omit/null keeps a secret; empty string clears it."""
+    """Merge a PATCH. omit/null keeps a secret; empty string clears it.
+
+    A kept secret never follows a destination change (``NOTIFICATION_DESTINATION_KEYS``):
+    raises ``SecretRequiredError`` naming ``email.password`` / ``webhook.hmac_secret``.
+    Apprise ``urls`` and the webhook ``url`` are the secret and the destination at
+    once: ``********`` keeps them.
+    """
     if isinstance(incoming, Mapping):
         payload = dict(incoming)
     else:
         payload = incoming.model_dump(exclude_unset=True, by_alias=True)  # type: ignore[union-attr]
     merged = stored.model_dump(by_alias=True)
+    refused: list[str] = []
 
     email_patch = payload.get("email")
     if isinstance(email_patch, Mapping):
-        email = dict(merged.get("email") or {})
+        previous_email = dict(merged.get("email") or {})
+        email = dict(previous_email)
+        password_kept = True
         for key, value in email_patch.items():
             if key == "password":
                 if value is None or value == REDACTED_SECRET:
                     continue
                 email["password"] = value
+                password_kept = False
             elif value is not None:
                 email[key] = value
+        if (
+            password_kept
+            and email.get("password")
+            and destination_changed("email", previous_email, email, NOTIFICATION_DESTINATION_KEYS)
+        ):
+            refused.append("email.password")
         merged["email"] = email
 
     webhook_patch = payload.get("webhook")
     if isinstance(webhook_patch, Mapping):
         webhook = dict(merged.get("webhook") or {})
+        previous_webhook = dict(webhook)
+        hmac_kept = True
         for key, value in webhook_patch.items():
             if key == "hmac_secret":
                 if value is None or value == REDACTED_SECRET:
                     continue
                 webhook["hmac_secret"] = value
-            elif value is not None:
+                hmac_kept = False
+            elif key == "url_redacted":
+                # Display-only (present_notification_destinations), never stored.
+                continue
+            elif value is not None and not (key == "url" and value == REDACTED_SECRET):
                 webhook[key] = value
+        if destination_changed("webhook", previous_webhook, webhook, NOTIFICATION_DESTINATION_KEYS):
+            # The banner was about the old destination.
+            webhook["private_network_grandfathered"] = False
+            if hmac_kept and webhook.get("hmac_secret"):
+                refused.append("webhook.hmac_secret")
         merged["webhook"] = webhook
 
+    apprise_patch = payload.get("apprise")
+    if isinstance(apprise_patch, Mapping):
+        apprise = dict(merged.get("apprise") or {})
+        for key, value in apprise_patch.items():
+            if value is None or (key == "urls" and value == REDACTED_SECRET):
+                continue
+            apprise[key] = value
+        merged["apprise"] = apprise
+
+    if refused:
+        raise SecretRequiredError(refused)
     return coerce_notification_destinations(merged)
 
 
 def redact_notification_destinations(dest: NotificationDestinations) -> NotificationDestinations:
+    """The JSON-backup form: each secret ``********`` when set, else ``""``."""
     dumped = dest.model_dump(by_alias=True)
-    email = dumped.setdefault("email", {})
-    webhook = dumped.setdefault("webhook", {})
-    email["password"] = REDACTED_SECRET if email.get("password") else ""
-    webhook["hmac_secret"] = REDACTED_SECRET if webhook.get("hmac_secret") else ""
+    for kind, keys in NOTIFICATION_SECRET_KEYS.items():
+        section = dumped.get(kind)
+        if isinstance(section, dict):
+            dumped[kind] = redact_secrets(section, keys)
     return NotificationDestinations.model_validate(dumped)
+
+
+def present_notification_destinations(dest: NotificationDestinations) -> NotificationDestinations:
+    """The API form: secrets redacted, plus the webhook's ``url_redacted`` (scheme and host)."""
+    redacted = redact_notification_destinations(dest)
+    redacted.webhook.url_redacted = redacted_url(dest.webhook.url)
+    return redacted
 
 
 def catalog_metrics_from_snapshot(snapshot: Mapping[str, Any] | None) -> set[str]:
@@ -1000,9 +1034,8 @@ async def _dispatch(
     op: str | None = None,
 ) -> None:
     from app.email_template import enrich_notification_payload
-    from app.notify import dispatch_system_event
+    from app.notifications.producers import emit_payload
 
-    defaults = await AppSettingsRepository.get_push_defaults()
     payload: dict[str, Any] = {
         "event": "telemetry_alert",
         "public_key": public_key,
@@ -1013,7 +1046,4 @@ async def _dispatch(
     }
     if op:
         payload["op"] = op
-    await dispatch_system_event(
-        enrich_notification_payload(payload),
-        defaults["telemetry_alert"],
-    )
+    await emit_payload(enrich_notification_payload(payload))

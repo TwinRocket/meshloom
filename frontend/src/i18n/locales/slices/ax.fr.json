@@ -1,0 +1,9 @@
+{
+  "errors": {
+    "auth_password_change_required": "Changez votre mot de passe avant de continuer : l'administrateur l'a choisi pour vous.",
+    "auth_user_not_found": "Ce compte n'existe plus.",
+    "auth_username_taken": "Ce nom d'utilisateur est déjà pris.",
+    "auth_password_required": "Donnez un mot de passe initial à ce compte.",
+    "auth_password_not_applicable": "Ce compte n'a pas de mot de passe : les comptes Home Assistant et kiosque se connectent autrement."
+  }
+}

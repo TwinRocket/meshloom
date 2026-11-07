@@ -32,9 +32,11 @@ L’installateur choisit la première méthode qui fonctionne sur votre machine 
 Une installation par paquet crée :
 
 - un service systemd nommé `meshloom`, exécuté par un utilisateur dédié `meshloom` qui peut utiliser les périphériques série et Bluetooth ;
-- le programme dans `/opt/meshloom` ;
-- le fichier de réglages `/etc/meshloom/meshloom.env`, où les bots sont **désactivés** par défaut ;
+- le programme dans `/opt/meshloom`, que le service peut lire mais pas modifier ;
+- le fichier de réglages `/etc/meshloom/meshloom.env`, où `MESHCORE_DISABLE_PLUGINS=true` (commenté par défaut) verrouille toutes les extensions, conservé tel quel quand vous mettez à jour ou relancez l’installeur ;
 - la base de données et vos données dans `/var/lib/meshloom`.
+
+Le paquet recommande aussi bubblewrap, qui enferme les extensions dans un bac à sable (voir [Extensions](/docs/deep/plugins/)), et le service peut lancer au plus 512 processus et fils d’exécution au total, extensions comprises.
 
 Vérifiez avec :
 
@@ -65,9 +67,9 @@ Depuis une copie du code :
 bash scripts/setup/install_service.sh
 ```
 
-Il faut `uv` et Python 3.11 ou plus récent. Le script demande s’il faut construire l’interface avec Node.js 22.12 et npm 10 ou plus récents, ou en télécharger une toute prête. Il écrit ensuite `/etc/systemd/system/meshloom.service`, le démarre sous votre utilisateur, et donne à cet utilisateur l’accès aux périphériques série et Bluetooth.
+Il faut `uv` et Python 3.13 ou plus récent. Si le Python du système est plus ancien, `uv` en télécharge un adapté de lui-même. Le script demande s’il faut construire l’interface avec Node.js 22.12 et npm 10 ou plus récents, ou en télécharger une toute prête. Il écrit ensuite `/etc/systemd/system/meshloom.service`, le démarre sous votre utilisateur, et donne à cet utilisateur l’accès aux périphériques série et Bluetooth.
 
-On peut le rejouer après une mise à jour du code : il arrête le service, réécrit l’unité, recharge systemd et le redémarre. Il ne configure ni les bots ni un mot de passe. Pour définir des variables, voir [Variables et réglages](/docs/deep/environment/).
+On peut le rejouer après une mise à jour du code : il arrête le service, réécrit l’unité, recharge systemd et le redémarre. Il ne configure ni des extensions ni un mot de passe. Pour définir des variables, voir [Variables et réglages](/docs/deep/environment/).
 
 Pour mettre à jour une telle installation, récupérez le nouveau code, puis relancez le script. Il installe les dépendances, reconstruit ou télécharge l’interface, et redémarre le service. Une copie faite par l’installateur est figée sur une version : remplacez `X.Y.Z` par le numéro de la dernière version, affiché sur la [page des versions](https://github.com/TwinRocket/meshloom/releases).
 
@@ -90,7 +92,18 @@ L’image est `ghcr.io/twinrocket/meshloom`. Le dépôt contient `docker-compose
 - `devices:`, pour donner une radio USB au conteneur. Le fichier contient un chemin d’exemple qui n’existe pas sur votre machine : remplacez-le par le chemin de votre radio, ou supprimez les deux lignes si votre radio est en réseau ou en Bluetooth, sinon le conteneur ne démarre pas. La radio elle-même se choisit dans l’interface web.
 - `MESHCORE_DATABASE_PATH: data/meshcore.db`, et `restart: unless-stopped`.
 
-Le conteneur tourne par défaut sous root. Pour le faire tourner sous l’utilisateur numéro 10001, définissez `MESHLOOM_RUN_AS_USER: "10001"`. Au démarrage, le conteneur confie `./data` à cet utilisateur et lui donne les groupes des périphériques série. Si la radio reste inaccessible ainsi, Meshloom reste sous root et écrit un avertissement dans son journal. À ne pas utiliser avec le Bluetooth, qui demande une mise en place manuelle plus poussée, décrite dans [Transports radio](/docs/deep/transports/).
+Le conteneur tourne par défaut sous root. Pour le faire tourner sous l’utilisateur numéro 10001, définissez `MESHLOOM_RUN_AS_USER: "10001"`. Au démarrage, le conteneur confie `./data` à cet utilisateur et lui donne les groupes des périphériques série. Si la radio reste inaccessible ainsi, Meshloom reste sous root et écrit un avertissement dans son journal. Sous l’utilisateur 10001, Meshloom ne garde que les deux droits nécessaires pour exécuter les extensions sous leur propre compte (`CAP_SETUID`, `CAP_SETGID`). Ce mode est celui des nouvelles installations Docker avec une radio USB. Il vous protège contre les erreurs et contre les extensions, qui ne reçoivent jamais ces droits. Il n’arrête pas une vraie attaque contre Meshloom lui-même : quelqu’un qui prend le contrôle du processus Meshloom pourrait s’en servir pour redevenir root dans le conteneur, mais pas sur l’hôte. Aucun réglage ne retire ces droits tout en gardant les extensions sous leur propre compte. Sans la ligne, Meshloom tourne entièrement sous root, ce qui n’est pas plus sûr. Avant d’ouvrir Meshloom sur Internet, lisez [Sécurité](/docs/deep/security/). À ne pas utiliser avec le Bluetooth, qui demande une mise en place manuelle plus poussée, décrite dans [Transports radio](/docs/deep/transports/).
+
+Les extensions tournent dans le conteneur sous les numéros d’utilisateur 40000 à 49999 (voir [Extensions](/docs/deep/plugins/)). Docker ne traduit pas les numéros d’utilisateur sauf si vous activez `userns-remap` : sur l’hôte, ce sont donc les mêmes numéros. Meshloom écarte un numéro qui a un compte dans le conteneur, mais il ne voit pas les comptes de l’hôte : si l’hôte utilise des numéros de cette plage (souvent via un annuaire comme LDAP), les processus d’une extension et les fichiers qu’elle laisse dans des dossiers partagés avec l’hôte appartiennent là-bas à ce compte. Laissez cette plage libre sur l’hôte, ou activez `userns-remap`.
+
+Plusieurs conteneurs Meshloom sur un même hôte partagent aussi ces numéros. Chaque Meshloom note les numéros qu’il utilise dans un dossier `.meshloom-plugin-uids` de ses dossiers temporaires (`/tmp`, `/var/tmp`, `/dev/shm`) et ne prend ni ne nettoie jamais un numéro qu’un autre y a noté : deux copies qui partagent `/tmp` ou l’espace IPC (`--ipc=host`) restent séparées. Des copies qui ne partagent rien commencent quand même à des numéros différents. Si vous supprimez définitivement un Meshloom sans que ses dossiers temporaires soient vidés (pas de redémarrage), ses numéros restent pris jusqu’à ce que vous supprimiez ses notes dans `/tmp/.meshloom-plugin-uids` ; Paramètres → Extensions le signale quand un numéro est bloqué ainsi.
+
+Quelques cas à connaître quand plusieurs Meshloom tournent sur un même hôte :
+
+- **Un dossier de données copié.** Le dossier de données contient un fichier `plugin-install-id` qui distingue ce Meshloom des autres. Une copie brute du dossier (pour lancer un second Meshloom) l’emporte avec elle : supprimez `plugin-install-id` dans la copie avant de la démarrer, elle en recevra un nouveau. Si une extension de la copie est ensuite refusée parce que l’original tient son numéro, Paramètres → Extensions nomme la note : supprimez-la si l’original n’existe plus, ou désinstallez puis réinstallez cette extension sur la copie.
+- **Processus partagés, dossiers temporaires séparés.** Avec `--pid=host` mais des `/tmp` séparés, les deux Meshloom ne voient pas les notes l’un de l’autre. Ils choisissent rarement le même numéro, mais si cela arrive, une extension de l’un pourrait arrêter les processus d’une extension de l’autre. Partagez aussi `/tmp`, ou ne partagez pas l’espace des processus.
+- **Un Meshloom en root et un autre avec `MESHLOOM_RUN_AS_USER` qui partagent `/tmp`.** Le dossier des notes appartient à celui qui a démarré le premier ; l’autre refuse, par sécurité, de lancer les extensions sous leur propre compte. Donnez-leur des dossiers temporaires séparés.
+- **Un dossier temporaire plein.** Si une note ne peut pas être écrite (par exemple parce qu’une extension a rempli `/dev/shm`), l’extension ne démarre pas et le journal de Meshloom en donne la raison ; les autres continuent de tourner.
 
 Un fichier Compose écrit à la main ne peut pas être mis à jour depuis l’interface. Le mode Docker de l’installateur ajoute un petit assistant qui tourne sous root sur l’hôte : il fige l’image par son empreinte signée dans `.env` et installe les mises à jour quand vous le demandez dans **Réglages → Mises à jour**. Il ne modifie jamais `docker-compose.yml`. Docker Desktop et Docker sans root n’ont pas cet assistant : la pile suit `:latest`.
 
@@ -102,10 +115,10 @@ Le fichier [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/bl
 MESHLOOM_HTTP_PORT=8123
 MESHLOOM_DATA_PATH=/opt/docker/meshloom/data
 MESHCORE_DATABASE_PATH=data/meshcore.db
-MESHCORE_DISABLE_BOTS=false
+MESHCORE_DISABLE_PLUGINS=false
 ```
 
-Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. Pour rester sur les versions publiées, utilisez plutôt `docker-compose.example.yml`.
+Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. `docker-compose.example.yml` ne le publie pas : ajoutez le port vous-même si vous activez le proxy. Pour rester sur les versions publiées, utilisez plutôt `docker-compose.example.yml`.
 
 Rien n’est construit sur votre serveur. L’image est publiée quelques minutes après chaque modification, mais Portainer met la pile à jour dès qu’il voit la modification : il récupère donc en général l’image précédente, et la garde jusqu’à la modification suivante. Pour avoir la dernière, redéployez la pile à la main quelques minutes plus tard : Meshloom récupère l’image la plus récente à chaque déploiement. Portainer Business Edition peut aussi le faire tout seul avec **Force redeployment**.
 
@@ -117,7 +130,7 @@ Le contact des notifications push se règle dans **Réglages → Notifications**
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --no-proxy-headers
 ```
 
 `uv sync` crée le `.venv` propre au projet. N’installez pas ces dépendances avec `apt` ni `dnf`. Si `uv run uvicorn` s’arrête sur `ModuleNotFoundError: No module named 'meshcore'`, commencez ici. Voir [Dépannage](/docs/deep/troubleshooting/).
@@ -134,7 +147,7 @@ Le serveur de développement écoute sur `http://localhost:5173` et transmet les
 
 ```bash
 cd frontend && npm install && npm run build && cd ..
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une interface toute prête que `scripts/setup/fetch_prebuilt_frontend.py` télécharge). Si aucun des deux n’existe, il ne sert que l’API. Lancez les contrôles de qualité du dépôt depuis sa racine :
@@ -153,6 +166,18 @@ Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une in
 
 `MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
 
+Avec le paquet Linux, les autres comptes de la machine ne peuvent pas lire `/var/lib/meshloom` : utilisez `sudo` pour le consulter ou le copier.
+
+À côté de la base, le fichier `secrets.key` contient la clé qui chiffre dans la base les secrets de vos canaux de notification et de vos intégrations (mots de passe, jetons, adresses webhook et Apprise). Meshloom le crée à son premier démarrage, lisible par son seul utilisateur (mode 0600), et ne l’affiche jamais. La base seule ne permet pas de déchiffrer ces secrets.
+
+**Déplacer une installation.** Arrêtez Meshloom, puis copiez `meshcore.db` **et** `secrets.key` (le plus simple : tout le dossier de données) au nouvel endroit. Sans `secrets.key`, Meshloom démarre quand même et tout le reste fonctionne, mais chaque canal de notification et chaque intégration qui a un secret enregistré est désactivé et marqué *ne peut pas être déchiffré* : remettez le fichier à côté de la base et redémarrez, ou saisissez ces secrets à nouveau. Meshloom crée alors un nouveau `secrets.key`. La clé ne peut pas être changée, et la perdre ne fait perdre que ces secrets.
+
+À côté de la base, le dossier `share-cache` garde les images partagées que Meshloom a déjà téléchargées (par exemple `/var/lib/meshloom/share-cache`) : un second affichage n’envoie aucune requête. Il contient environ 200 Mio au plus (les images, leur index et le journal de la base ; la limite est approximative), retire d’abord les images vues le moins récemment et garde chacune 1 heure au plus. Une photo chiffrée n’y est gardée que sous forme d’octets scellés, jamais en clair. Le supprimer est sans danger, et les sauvegardes de Home Assistant l’excluent.
+
+Le dossier `share-tmp`, juste à côté, ne contient une image que le temps de la partager : Meshloom la vérifie là (type, taille, dimensions) avant de l’envoyer, puis la supprime, que l’envoi ait réussi ou non. Seul Meshloom peut le lire, il est vidé à chaque démarrage, et les sauvegardes de Home Assistant l’excluent.
+
+La commande de récupération `meshloom-admin` lit le même fichier ; la façon de la lancer pour chaque installation est dans [Comptes et accès](/docs/deep/access/).
+
 **Réglages → Mises à jour** affiche l’état des mises à jour et peut chercher une nouvelle version (**Vérifier maintenant**). Là où c’est pris en charge, il installe la mise à jour depuis une source signée, soit à la demande (**Installer maintenant**), soit tout seul dans une plage horaire et les jours que vous choisissez. Cela fonctionne pour un paquet Linux et pour une pile Docker gérée par l’assistant. Une copie du code se met à jour comme décrit plus haut. Ailleurs, mettez à jour à la main :
 
 ```bash
@@ -164,3 +189,37 @@ sudo docker compose pull && sudo docker compose up -d
 La première ligne vaut pour Debian, Ubuntu et Raspberry Pi OS, la deuxième pour Fedora et les systèmes proches, la troisième pour Docker.
 
 Lancé à la main sans `--host`, Meshloom ne répond que sur la machine elle-même, à `http://127.0.0.1:8000`. La page `/docs` documente l’interface de programmation (API). Ce n’est pas ce site.
+
+### La copie faite avant une mise à niveau
+
+Quand une mise à niveau doit changer la structure de votre base, Meshloom en fait d’abord une copie, dans le même dossier, sous un nom qui dit quelle structure elle contient et quelle version l’a faite : par exemple `meshcore.db.schema87.before-5.0.0.db`, ou `meshcore.db.schema87.before-5.0.0-rc.1.db` sur une version candidate (le schéma 87 est celui de toutes les 4.18). Quand un fichier `secrets.key` existe, il est copié aussi, sous le nom `meshcore.db.schema144.before-5.1.0.secrets.key`. Une nouvelle installation, ou un démarrage sans rien à mettre à niveau, ne fait pas de copie.
+
+- **Taille.** La copie est aussi grande que la base, et prend jusqu’à quelques minutes sur un Raspberry Pi avec une grosse base (le journal montre sa progression). Meshloom demande de la place libre dans ce dossier : la taille de la base plus un quart, 64 Mo au minimum.
+- **Si la copie échoue.** Meshloom ne met pas à niveau et ne démarre pas, et le journal dit pourquoi et combien de place il lui faut. Votre base reste telle quelle. Libérez de la place et redémarrez. Une mise à niveau ne s’annule pas : Meshloom préfère un démarrage qui attend à une mise à niveau sans retour.
+- **Combien.** Deux au plus : la plus ancienne, votre chemin de retour vers la version de départ, et la plus récente. Supprimez-les vous-même quand vous n’avez plus besoin de revenir en arrière.
+- **Privée.** Chaque fichier n’est lisible que par l’utilisateur de Meshloom (mode 0600). Une copie contient tout ce que contient la base, secrets compris. La sauvegarde complète ne l’inclut pas, et les sauvegardes de Home Assistant la laissent de côté. Si vous sauvegardez vous-même le dossier de données, laissez de côté `meshcore.db.schema*` pour gagner de la place, ou protégez-la comme la base.
+
+### Revenir à une version plus ancienne
+
+Meshloom refuse de démarrer sur une base faite par une version plus récente, et n’y touche pas. Pour revenir en arrière, remettez la copie. Tout ce qui a été reçu ou modifié depuis la mise à niveau est perdu.
+
+1. Arrêtez Meshloom.
+2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les fichiers qui accompagnent l’ancienne (si les fichiers ne sont pas à vous, ouvrez d’abord un shell root avec `sudo -s` : avec le paquet Linux, `/var/lib/meshloom` est fermé aux autres comptes, donc un `sudo cp` depuis votre shell ne peut pas développer le `*`) :
+
+   ```bash
+   cp -p meshcore.db.schema87.before-*.db meshcore.db &&
+     rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
+   ```
+
+   Si plusieurs copies correspondent, ou aucune, la commande échoue et la base reste telle quelle : listez les copies avec `ls meshcore.db.schema*` et nommez celle que vous voulez.
+
+   Pour revenir à une 5.0 ou plus récente, remettez aussi la clé si la copie en a une : `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
+3. Installez l’ancienne version, puis démarrez-la :
+   - Docker : dans `.env`, indiquez `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@<empreinte>`, avec l’empreinte du fichier `OCI-DIGESTS` de cette version (elle commence par `sha256:`), puis `docker compose up -d`. Sans l’empreinte, **Réglages > Mises à jour** ne peut pas mettre à jour cette installation.
+   - Paquet Linux : téléchargez le paquet sur la [page des versions](https://github.com/TwinRocket/meshloom/releases), puis `sudo apt install --allow-downgrades ./<fichier>.deb` ou `sudo dnf downgrade ./<fichier>.rpm`.
+   - Copie du code : `git checkout 4.18.2`, puis relancez `install_service.sh`.
+   - Home Assistant : restaurez l’add-on depuis la sauvegarde que Home Assistant propose de faire avant une mise à jour, sans passer par l’étape 2 : elle contient l’ancienne base. Cette sauvegarde est facultative, et sans elle Home Assistant ne peut pas réinstaller un ancien add-on : laissez l’option cochée quand vous mettez à jour. La restauration remplace tout le dossier de l’add-on et supprime les copies, que les sauvegardes laissent de côté.
+
+**Si cette machine est passée par `get.meshloom.app/next` :** avec un paquet Linux, une fois la 4.18 relancée avec la copie en place, lancez tout de suite la commande d’installation habituelle, avant tout `apt upgrade` ou `dnf upgrade`. La machine est encore sur la source de paquets des pré-versions, et une mise à niveau installerait une pré-version et migrerait à nouveau votre base. Tant que la 4.18 est la version stable, cette commande garde la 4.18 et remet la source sur stable ; une fois la 5.0 finale, elle installe la 5.0. Avec Docker, l’épinglage ci-dessus suffit.
+
+Vos bots reviennent tels qu’ils étaient en 4.18, et le fichier `secrets.key` resté dans le dossier n’est simplement pas utilisé. À la prochaine mise à niveau, Meshloom refait une copie et reconvertit les bots.

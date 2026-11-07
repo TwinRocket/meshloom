@@ -235,8 +235,13 @@ class TestErrorMapping:
 
 
 class TestAgent:
+    @pytest.fixture(autouse=True)
+    def _require_dbus_fast(self):
+        # dbus-fast is a Linux-only dependency (pyproject.toml): skip elsewhere (macOS).
+        pytest.importorskip("dbus_fast")
+
     @pytest.fixture
-    def agent(self):
+    def agent(self, _require_dbus_fast):
         from app.services.ble_agent import PairingAgent
 
         return PairingAgent("/org/bluez/hci0/dev_AA", PIN)

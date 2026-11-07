@@ -56,6 +56,45 @@ describe('DesktopRail', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('lists the feed after the packet feed and opens it as a tool', () => {
+    const onSelectTool = vi.fn();
+    render(
+      <DesktopRail
+        active={null}
+        unreadTotal={0}
+        onSelect={vi.fn()}
+        health={health}
+        onOpenRadioStatus={vi.fn()}
+        onSelectTool={onSelectTool}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('sidebar.feed'), hidden: true }));
+    expect(onSelectTool).toHaveBeenCalledWith('feed');
+  });
+
+  it('shows a stored Control entry, and lights it for the feed preset only', () => {
+    const onSelectTool = vi.fn();
+    render(
+      <DesktopRail
+        active={null}
+        activeToolId="control"
+        order={['conversations', 'map', 'control', 'raw']}
+        unreadTotal={0}
+        onSelect={vi.fn()}
+        health={health}
+        onOpenRadioStatus={vi.fn()}
+        onSelectTool={onSelectTool}
+      />
+    );
+    const control = screen.getByRole('button', {
+      name: i18n.t('sidebar.controlJournal'),
+      hidden: true,
+    });
+    expect(control).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(control);
+    expect(onSelectTool).toHaveBeenCalledWith('control');
+  });
+
   it('opens discovered channels as a tool conversation', () => {
     const onSelectTool = vi.fn();
     render(

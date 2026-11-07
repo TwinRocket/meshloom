@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "notifications": {
+      "radioOffline": "Radio hors ligne",
+      "radioOfflineHelp": "Notifie quand la radio reste injoignable plus longtemps que le délai ci-dessous.",
+      "radioOnline": "Radio de nouveau en ligne",
+      "radioOnlineHelp": "Notifier lorsque la radio est de nouveau joignable après une notification « Radio hors ligne », avec la durée de la panne.",
+      "appStarted": "Meshloom a démarré",
+      "appStartedHelp": "Notifie à chaque démarrage de Meshloom : un redémarrage inattendu devient visible.",
+      "radioOfflineGrace": "Délai « radio hors ligne »",
+      "radioOfflineGraceUnit": "secondes",
+      "radioOfflineGraceHelp": "Durée d’injoignabilité tolérée avant l’alerte. 0 notifie aussitôt.",
+      "radioOfflineGraceSaveFailed": "Échec de l’enregistrement du délai"
+    }
+  }
+}

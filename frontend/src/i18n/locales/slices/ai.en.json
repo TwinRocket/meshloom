@@ -1,0 +1,13 @@
+{
+  "errors": {
+    "auth_ingress_only": "Open Meshloom from the Home Assistant sidebar."
+  },
+  "auth": {
+    "ingress": {
+      "title": "Sign in through Home Assistant",
+      "body": "Home Assistant signs you in to Meshloom: no password needed here. Open Meshloom from the Home Assistant sidebar.",
+      "disabled": "If you are already signed in to Home Assistant, a Meshloom administrator may have disabled your account.",
+      "retry": "Try again"
+    }
+  }
+}

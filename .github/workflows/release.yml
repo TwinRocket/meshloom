@@ -20,10 +20,21 @@ name: Release
 # nFPM, the apt/dnf repo by publish-linux-repo.yml, and `sign-manifest` leaves
 # SHA256SUMS + OCI-DIGESTS (the OCI index digest) and their .asc on the release;
 # nfpm-armhf.yml re-runs both once the armhf package is attached.
+#
+# Key exposure: every job that runs third-party code (npm, uv, build backends) has
+# no key and no write token. `nfpm-stage` assembles the tree, `nfpm` signs it and
+# runs nothing but the pinned nFPM. Key-holding jobs use the `release-signing`
+# environment; `signing-environment` refuses to go on unless that environment is
+# limited to release refs.
+#
+# A tag X.Y.Z-rc.N (scripts/build/publish.sh X.Y.Z-rc.N) goes through the same jobs
+# and ends as a signed pre-release: a GitHub pre-release that is never `latest`, the
+# apt/dnf `testing` suite, `:X.Y.Z-rc.N` and its signed digest, the Pi image. It
+# skips armhf and the site, and stable users get nothing. docs/dev/releasing.md.
 
 on:
   push:
-    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+    tags: ["[0-9]+.[0-9]+.[0-9]+", "[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"]
   # Re-publish an existing tag only: run it with --ref X.Y.Z. Every job then
   # checks out the tagged commit, and create_github_release.sh refuses to run
   # unless the tag is on origin and points at it.
@@ -38,6 +49,7 @@ jobs:
     permissions: {}
     outputs:
       version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - name: Resolve version
         id: version
@@ -46,12 +58,22 @@ jobs:
           RAW_VERSION: ${{ github.ref_name }}
         run: |
           if [ "$REF_TYPE" != "tag" ]; then
-            echo "::error::Release runs on an existing X.Y.Z tag only. Re-publish with: gh workflow run release.yml --ref X.Y.Z (tags come from scripts/build/publish.sh)."
+            echo "::error::Release runs on an existing X.Y.Z or X.Y.Z-rc.N tag only. Re-publish with: gh workflow run release.yml --ref X.Y.Z (tags come from scripts/build/publish.sh)."
             exit 1
           fi
           VERSION="$RAW_VERSION"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$RAW_VERSION' is not X.Y.Z"; exit 1; }
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            PRERELEASE=false
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]]; then
+            PRERELEASE=true
+          else
+            echo "::error::'$RAW_VERSION' is not X.Y.Z or X.Y.Z-rc.N"
+            exit 1
+          fi
+          {
+            echo "version=$VERSION"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
 
   # The same lint, typecheck and test suite as every push, on the tagged commit.
   # Nothing is built or published unless it passes (preflight waits for it, and
@@ -62,17 +84,40 @@ jobs:
     permissions:
       contents: read
 
-  # Fail before building anything: the four version sources must equal the tag,
-  # and the signing trust anchor must be real and match the CI secret. A release
-  # without a key would otherwise ship packages nobody can verify.
+  # Before any job names the environment: GitHub would create a missing one with no
+  # protection. No key here, and the token can read nothing private.
+  signing-environment:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the signing environment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -I scripts/build/check_signing_environment.py "$GITHUB_REPOSITORY"
+
+  # Fail before building anything: the version sources must equal the tag (an rc
+  # leaves the add-on on its stable version), and the signing trust anchor must be
+  # real and match the CI secret. A release without a key would otherwise ship
+  # packages nobody can verify.
   preflight:
-    needs: [version, quality]
+    needs: [version, quality, signing-environment]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: release-signing
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Version consistency
         run: scripts/build/check_version_consistency.sh "${{ needs.version.outputs.version }}"
@@ -92,6 +137,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -130,7 +176,9 @@ jobs:
           name: frontend-zip
           path: ${{ steps.artifact.outputs.asset }}
 
-  nfpm:
+  # No key here: `uv sync` runs build backends the lock does not pin (a sdist's
+  # build-system), and the standalone Python and uv are downloaded.
+  nfpm-stage:
     needs: [version, frontend]
     timeout-minutes: 60
     permissions:
@@ -146,6 +194,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -153,17 +203,70 @@ jobs:
           path: frontend/dist
 
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.1"
+
+      - name: Assemble the tree
+        run: |
+          chmod +x scripts/build/build_nfpm_packages.sh
+          scripts/build/build_nfpm_packages.sh \
+            --version "${{ needs.version.outputs.version }}" \
+            --arch "${{ matrix.arch }}" \
+            --stage-dir "$RUNNER_TEMP/stage" \
+            --stage-only \
+            --skip-frontend
+
+      # A tarball: an artifact would lose the symlinks and the file modes.
+      - name: Pack the tree
+        run: tar -C "$RUNNER_TEMP/stage" -czf stage.tar.gz .
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nfpm-stage-${{ matrix.arch }}
+          path: stage.tar.gz
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  # Holds the key and runs only the checked-out scripts and the pinned nFPM. The
+  # tree from nfpm-stage is data here: it is packed, never executed.
+  nfpm:
+    needs: [version, nfpm-stage]
+    timeout-minutes: 30
+    environment: release-signing
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Outside the workspace, like everything from that job: extracted over the
+      # checkout, its files would replace the scripts and the action that get the key.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nfpm-stage-${{ matrix.arch }}
+          path: ${{ runner.temp }}/stage-artifact
+
+      - name: Unpack the tree
+        run: |
+          [ "$(ls -A "$RUNNER_TEMP/stage-artifact")" = "stage.tar.gz" ] \
+            || { echo "::error::the stage artifact must hold stage.tar.gz and nothing else"; exit 1; }
+          mkdir "$RUNNER_TEMP/stage"
+          tar -xpzf "$RUNNER_TEMP/stage-artifact/stage.tar.gz" -C "$RUNNER_TEMP/stage"
 
       - name: Install nFPM
         run: |
-          NFPM_VER=2.46.3
-          case "$(uname -m)" in
-            aarch64|arm64) NFPM_ARCH=Linux_arm64 ;;
-            *) NFPM_ARCH=Linux_x86_64 ;;
-          esac
-          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_${NFPM_ARCH}.tar.gz" \
-            | tar -xz nfpm
-          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+          scripts/build/install_nfpm.sh
           nfpm --version
 
       - name: Import signing key
@@ -181,11 +284,20 @@ jobs:
           scripts/build/build_nfpm_packages.sh \
             --version "${{ needs.version.outputs.version }}" \
             --arch "${{ matrix.arch }}" \
-            --output-dir dist \
-            --skip-frontend
+            --stage-dir "$RUNNER_TEMP/stage" \
+            --package-only \
+            --output-dir dist
 
       - name: Assert the rpm is signed
         run: python3 -I scripts/build/check_rpm_signed.py dist/*.rpm
+
+      # Nothing after this step needs the key, and the actions below do not get to see it.
+      - name: Erase the key
+        if: always()
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          KEY_FILE: ${{ steps.key.outputs.key-file }}
+        run: rm -rf -- "${GNUPGHOME:-/nonexistent}" "${KEY_FILE:-/nonexistent}"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -204,6 +316,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -220,27 +333,35 @@ jobs:
           name: nfpm-arm64
           path: artifacts
 
+      # An rc's installer names that rc (get.meshloom.app/next serves it).
       - name: Stage install.sh
-        run: cp scripts/setup/install.sh artifacts/install.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: scripts/build/stage_install_sh.sh --version "$VERSION" --output artifacts/install.sh
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Exactly the expected files: the artifacts come from jobs running npm and uv.
+          scripts/build/list_release_assets.sh \
+            --version "${{ needs.version.outputs.version }}" --dir artifacts > "$RUNNER_TEMP/assets"
           ASSET_ARGS=()
           while IFS= read -r file; do
             ASSET_ARGS+=(--asset "$file")
-          done < <(find artifacts -type f | sort)
+          done < "$RUNNER_TEMP/assets"
           scripts/build/create_github_release.sh \
             --version "${{ needs.version.outputs.version }}" \
             "${ASSET_ARGS[@]}"
 
   # armhf lives in nfpm-armhf.yml: a GITHUB_TOKEN release does not trigger
   # on.release, but it can workflow_dispatch. That keeps QEMU off this run so
-  # a failed publish can be re-run without waiting on emulation.
+  # a failed publish can be re-run without waiting on emulation. Not for an rc: the
+  # armhf recipe comes from the default branch, and nfpm-armhf.yml refuses it.
   dispatch-armhf:
     name: Dispatch armhf package
     needs: [version, publish]
+    if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -257,22 +378,25 @@ jobs:
 
   # meshloom.app builds its docs from the latest tag: rebuild it now that the
   # release is public. Called here because a GITHUB_TOKEN release does not
-  # trigger docs-site.yml's on.release.
+  # trigger docs-site.yml's on.release. Not for an rc: the site stays on stable.
   docs-site:
-    needs: [publish]
+    needs: [version, publish]
+    if: needs.version.outputs.prerelease == 'false'
     uses: ./.github/workflows/docs-site.yml
     secrets:
       DOCS_SITE_DEPLOY_HOOK: ${{ secrets.DOCS_SITE_DEPLOY_HOOK }}
     permissions: {}
 
   # Publishes amd64/arm64 immediately. The armhf workflow refreshes the index
-  # once that package is attached, rather than holding this run for QEMU.
+  # once that package is attached, rather than holding this run for QEMU. An rc
+  # lands in the `testing` suite; stable is rebuilt from the last stable release.
   linux-repo:
     needs: [version, publish]
     uses: ./.github/workflows/publish-linux-repo.yml
     with:
       version: ${{ needs.version.outputs.version }}
-    secrets: inherit
+    secrets:
+      MESHLOOM_REPO_GPG_PRIVATE_KEY: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
     permissions:
       contents: read
       pages: write
@@ -285,7 +409,8 @@ jobs:
     uses: ./.github/workflows/sign-manifest.yml
     with:
       version: ${{ needs.version.outputs.version }}
-    secrets: inherit
+    secrets:
+      MESHLOOM_REPO_GPG_PRIVATE_KEY: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
     permissions:
       contents: write
       actions: read
@@ -306,6 +431,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

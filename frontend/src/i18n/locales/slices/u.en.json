@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "fanout": {
+      "webhook": {
+        "urlKept": "Unchanged ({{url}}). Type a new URL to replace it.",
+        "headersKept": "Stored values show as ********: leave them, replace them or remove the line.",
+        "headersRequiredAfterDestination": "URL changed: type each value shown as ******** again, or remove its line."
+      }
+    },
+    "notifications": {
+      "webhookUrlKept": "Unchanged ({{url}}). Type a new URL to replace it.",
+      "webhookUrlClear": "Clear",
+      "webhookUrlClearHelp": "Clearing the URL also removes the stored HMAC secret."
+    }
+  }
+}

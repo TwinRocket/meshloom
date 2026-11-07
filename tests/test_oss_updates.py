@@ -377,6 +377,11 @@ class TestSemVerAndCache:
             ):
                 assert get_update_status()["html_url"] is None, bad
 
+    def test_a_machine_on_an_rc_is_offered_only_what_is_newer(self):
+        assert is_newer_release("4.18.2", "5.0.0-rc.1") is False
+        assert is_newer_release("5.0.0-rc.1", "5.0.0-rc.1") is False
+        assert is_newer_release("5.0.0", "5.0.0-rc.1") is True
+
     @pytest.mark.asyncio
     async def test_answer_without_version_counts_as_no_answer(self):
         null_payload = {
@@ -661,6 +666,18 @@ class TestHoldRule:
         below = "5.0.0-rc.1"
         assert _status("4.18.3", "5.0.0", _hold(below=below))["auto_update_held"] is True
         assert _status("5.0.0-rc.3", "5.0.0", _hold(below=below))["auto_update_held"] is False
+
+    def test_an_rc_is_not_offered_the_stable_line_it_left(self):
+        # Community answers the latest stable release, 4.18.3 until 5.0.0 ships.
+        status = _status("5.0.0-rc.3", "4.18.3", _hold())
+        assert status["update_available"] is False
+        assert status["auto_update_held"] is False
+
+    def test_an_rc_still_gets_what_comes_after_it(self):
+        for latest in ("5.0.0", "5.0.1", "6.0.0"):
+            status = _status("5.0.0-rc.3", latest, _hold())
+            assert status["update_available"] is True, latest
+            assert status["auto_update_held"] is False, latest
 
     def test_field_absent_is_no_hold(self):
         import app.services.oss_updates as oss_updates

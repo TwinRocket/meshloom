@@ -36,11 +36,6 @@ When this README shows `<node_id>`, it always means that 12-character value. Nod
 
 **Entity IDs** are different — HA auto-generates them from the device name and entity name, not from the node ID. For example, a radio named "MyRadio" produces entities like `binary_sensor.myradio_connected` and `event.myradio_messages`. A contact named "Alice" produces `device_tracker.alice`. You can find your actual entity IDs in **Settings > Devices & Services > MQTT** in HA, and you can rename them in HA's UI without affecting the integration.
 
-You can also see the MQTT topic IDs in Meshloom's Home Assistant integration UI:
-
-- `What gets created in Home Assistant`
-- `Published topic summary`
-
 ## What Gets Created
 
 ### Local Radio Device
@@ -155,6 +150,8 @@ automation:
 
 ### Radio offline alert
 
+Meshloom also sends **Radio offline**, **Radio back online** and **Meshloom started** notifications itself (Settings → Notifications; Web Push by default, and any other channel you add: Home Assistant, ntfy, Telegram, e-mail, webhook...), after a delay of 60 s by default. They cannot reach you while Meshloom itself is down (power cut, host reboot): this automation, which runs in Home Assistant, still can. It remains the Home Assistant way to be warned while Meshloom is stopped. A Home Assistant notification channel can also send a periodic **heartbeat** (channel settings → Advanced), but Home Assistant does not alert on a missing message by itself; to be warned on silence without this automation, give the heartbeat a healthchecks-style ping URL (see the notifications guide, *Knowing when Meshloom itself is down*). The example below stays valid.
+
 Notify if the radio has been disconnected for more than 5 minutes.
 
 **GUI:** Settings > Automations > Create > State trigger on `binary_sensor.<radio_name>_connected`, to `off`, for `00:05:00`, action: notification.
@@ -174,6 +171,10 @@ automation:
           title: "MeshCore Radio Offline"
           message: "Radio has been disconnected for 5 minutes"
 ```
+
+### Meshloom notifications in the Home Assistant app
+
+Meshloom can send its own notifications (direct messages, radio offline, new contacts, alerts) to the Home Assistant companion app with its **Home Assistant** channel: **Settings → Notifications → Channels → Add a channel → Home Assistant**. Create a long-lived access token in your Home Assistant profile, then enter Home Assistant's address (`http://homeassistant.local:8123`), the token and the notify service of your phone (`mobile_app_your_phone`). Home Assistant is on your network, so tick **Allow a private-network destination**; press **Send a test and continue**, then choose what the channel receives (you can change it later in the rules table of **Settings → Notifications**; see the [notifications page](docs/user/en/deep/notifications.md)). The automations below stay useful when you want Home Assistant to decide.
 
 ### Alert on any message from a specific room
 

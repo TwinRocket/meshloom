@@ -10,11 +10,27 @@ import { api } from '../api';
 import type { UseWebSocketOptions } from '../useWebSocket';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
+import { isRadioKeyCode, radioKeyDocsAction } from '../utils/radioKeyError';
 import { RADIO_REBOOTING_TOAST_ID } from '../types';
 import { getStateKey } from '../utils/conversationState';
 import { mergeContactIntoList } from '../utils/contactMerge';
 import { getContactDisplayName } from '../utils/pubkey';
 import { clearRawPackets, MAX_RAW_PACKETS, recordRawPacket } from '../stores/rawPacketStore';
+import {
+  applyFeedAck,
+  recordFeedControlPacket,
+  recordFeedMessage,
+  removeFeedMessage,
+  renameFeedConversation,
+} from '../stores/feedStore';
+import { reconcileFeed } from '../components/feed/feedHistory';
+import {
+  forgetContact,
+  noteChannelFrame,
+  noteContactFrame,
+  noteNotificationEvent,
+  noteRadioHealth,
+} from '../utils/feedEvents';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
 import { noteCommunityLiveOptedOut, refreshCommunityStatus } from '../stores/communityStore';
 import { refreshRadioWifiAfterReconnect, setRadioWifiState } from '../stores/radioWifiStore';
@@ -33,6 +49,7 @@ import type {
   RadioWifiState,
   RawPacket,
 } from '../types';
+import { isMessageBlocked } from '../utils/messageBlocking';
 
 interface UseRealtimeAppStateArgs {
   prevHealthRef: MutableRefObject<HealthStatus | null>;
@@ -46,6 +63,8 @@ interface UseRealtimeAppStateArgs {
   blockedKeysRef: MutableRefObject<string[]>;
   blockedNamesRef: MutableRefObject<string[]>;
   channelsRef: MutableRefObject<Channel[]>;
+  /** The contact list as the client holds it, or null until its first load (feed event rows). */
+  contactsRef: MutableRefObject<Contact[] | null>;
   activeConversationRef: MutableRefObject<Conversation | null>;
   observeMessage: (msg: Message) => { added: boolean; activeConversation: boolean };
   recordMessageEvent: (args: {
@@ -71,27 +90,6 @@ interface UseRealtimeAppStateArgs {
   removeMessage: (messageId: number) => void;
   /** Buffer cap override. Defaults to the store's own cap; tests use it to force eviction. */
   maxRawPackets?: number;
-}
-
-function isMessageBlocked(msg: Message, blockedKeys: string[], blockedNames: string[]): boolean {
-  if (msg.outgoing) {
-    return false;
-  }
-
-  if (blockedKeys.length > 0) {
-    if (msg.type === 'PRIV' && blockedKeys.includes(msg.conversation_key.toLowerCase())) {
-      return true;
-    }
-    if (
-      msg.type === 'CHAN' &&
-      msg.sender_key &&
-      blockedKeys.includes(msg.sender_key.toLowerCase())
-    ) {
-      return true;
-    }
-  }
-
-  return blockedNames.length > 0 && !!msg.sender_name && blockedNames.includes(msg.sender_name);
 }
 
 /** Keys changed by WebSocket deltas while a reconnect REST snapshot is in flight. */
@@ -142,6 +140,7 @@ export function useRealtimeAppState({
   blockedKeysRef,
   blockedNamesRef,
   channelsRef,
+  contactsRef,
   activeConversationRef,
   observeMessage,
   recordMessageEvent,
@@ -188,6 +187,8 @@ export function useRealtimeAppState({
         const prev = prevHealthRef.current;
         prevHealthRef.current = data;
         setHealth(data);
+        // Store-side bookkeeping, no React state: a flag check until the feed is first opened.
+        noteRadioHealth(data);
         const nextRadioState =
           data.radio_state ??
           (data.radio_initializing
@@ -253,7 +254,17 @@ export function useRealtimeAppState({
         // `errors.<code>Detail`, when defined, replaces the backend's English details.
         const detailKey = key ? `${key}Detail` : '';
         const translatedDetail = detailKey ? i18n.t(detailKey, error.params) : '';
-        toast.error(key && translated !== key ? translated : error.message, {
+        const title = key && translated !== key ? translated : error.message;
+        // A feature that needs the radio key says why it is missing, in `params`.
+        const radioKeyCode = error.params?.radio_key_code;
+        if (typeof radioKeyCode === 'string' && isRadioKeyCode(radioKeyCode)) {
+          toast.error(title, {
+            description: i18n.t(`errors.${radioKeyCode}`),
+            ...radioKeyDocsAction(i18n.t, i18n.language),
+          });
+          return;
+        }
+        toast.error(title, {
           description:
             detailKey && translatedDetail !== detailKey ? translatedDetail : error.details,
         });
@@ -264,6 +275,14 @@ export function useRealtimeAppState({
         code?: string;
         params?: Record<string, unknown>;
       }) => {
+        // A decryption pass inserts old messages under new ids, a frame each: fetch what a
+        // lagging client may have missed (no-op until the feed is first opened).
+        if (
+          success.code === 'historical_decrypt_complete' ||
+          success.code === 'historical_decrypt_complete_rooms'
+        ) {
+          void reconcileFeed();
+        }
         const key = success.code ? `errors.${success.code}` : '';
         const translated = key ? i18n.t(key, success.params) : success.message;
         toast.success(key && translated !== key ? translated : success.message, {
@@ -273,6 +292,7 @@ export function useRealtimeAppState({
       onReconnect: () => {
         clearRawPackets();
         reconcileOnReconnect();
+        void reconcileFeed();
         refreshUnreads();
         // A Community change made while the socket was down sent us nothing.
         void refreshCommunityStatus();
@@ -313,6 +333,9 @@ export function useRealtimeAppState({
           return;
         }
 
+        // Store call only (no React state): a no-op until the feed is first opened.
+        recordFeedMessage(msg);
+
         const isMutedChannel =
           msg.type === 'CHAN' &&
           !!msg.conversation_key &&
@@ -331,6 +354,13 @@ export function useRealtimeAppState({
         }
       },
       onContact: (contact: Contact) => {
+        // A `contact` frame is a snapshot, not an event: the feed reports only a key the client
+        // never held, and nothing while the list is unloaded or a reconnect resync is in flight.
+        const held = contactsRef.current;
+        noteContactFrame(contact, {
+          previous: held?.find((c) => c.public_key === contact.public_key),
+          resyncing: held === null || activeSnapshotsRef.current.size > 0,
+        });
         noteDelta('contacts', contact.public_key);
         setContacts((prev) => mergeContactIntoList(prev, contact));
       },
@@ -343,6 +373,7 @@ export function useRealtimeAppState({
           )
         );
         renameConversationMessages(previousPublicKey, contact.public_key);
+        renameFeedConversation(previousPublicKey, contact.public_key);
         renameConversationState(
           getStateKey('contact', previousPublicKey),
           getStateKey('contact', contact.public_key)
@@ -360,6 +391,7 @@ export function useRealtimeAppState({
       onChannel: (channel: Channel) => {
         noteDelta('channels', channel.key);
         const existed = channelsRef.current.some((item) => item.key === channel.key);
+        noteChannelFrame(channel, existed);
         mergeChannelIntoList(channel);
         if (!existed && channel.membership === 'pending') {
           toast(i18n.t('discovered.toast', { name: channel.name }), {
@@ -375,7 +407,10 @@ export function useRealtimeAppState({
           });
         }
       },
+      // The Feed's event rows from the server's catalogue events (no React state).
+      onNotificationEvent: noteNotificationEvent,
       onContactDeleted: (publicKey: string) => {
+        forgetContact(publicKey);
         noteDelta('contacts', publicKey);
         setContacts((prev) => prev.filter((c) => c.public_key !== publicKey));
         removeConversationMessages(publicKey);
@@ -400,6 +435,8 @@ export function useRealtimeAppState({
       onRawPacket: (packet: RawPacket) => {
         emitStatusDotPulse(packet.payload_type);
         recordRawPacket(packet, maxRawPackets);
+        // The feed keeps its own control rows: `onReconnect` clears the raw buffer, not these.
+        recordFeedControlPacket(packet);
       },
       onCommunityPacket: (packet: CommunityPacket) => {
         recordCommunityPacket(packet);
@@ -418,9 +455,11 @@ export function useRealtimeAppState({
         extras?: { packet_hash?: string | null; observer_reach_eligible?: boolean | null }
       ) => {
         receiveMessageAck(messageId, ackCount, paths, packetId, extras);
+        applyFeedAck(messageId, ackCount, paths, packetId, extras);
       },
       onMessageDeleted: (messageId: number) => {
         removeMessage(messageId);
+        removeFeedMessage(messageId);
       },
       onRadioWifi: (state: RadioWifiState) => {
         setRadioWifiState(state);
@@ -431,6 +470,7 @@ export function useRealtimeAppState({
       blockedKeysRef,
       blockedNamesRef,
       channelsRef,
+      contactsRef,
       checkMention,
       fetchAllContacts,
       fetchConfig,

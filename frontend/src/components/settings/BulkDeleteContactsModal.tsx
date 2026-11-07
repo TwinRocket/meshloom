@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '../../api';
+import { api, formatApiError } from '../../api';
 import { getContactDisplayName } from '../../utils/pubkey';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -70,6 +70,8 @@ export function BulkDeleteContactsModal({
   const { t } = useTranslation();
   const [step, setStep] = useState<'select' | 'confirm'>('select');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  // Deleted so far, across a retry after a batch failed.
+  const deletedCountRef = useRef(0);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [lastHeardAfter, setLastHeardAfter] = useState('');
@@ -108,6 +110,7 @@ export function BulkDeleteContactsModal({
   );
 
   const resetAndClose = useCallback(() => {
+    deletedCountRef.current = 0;
     setStep('select');
     setSelectedKeys(new Set());
     setStartDate('');
@@ -230,16 +233,30 @@ export function BulkDeleteContactsModal({
 
   const handleDelete = async () => {
     setDeleting(true);
+    const keysToDelete = [...selectedKeys];
+    const done: string[] = [];
     try {
-      const keysToDelete = [...selectedKeys];
-      const result = await api.bulkDeleteContacts(keysToDelete);
-      toast.success(t('settings.radioApp.bulk.deleted', { count: result.deleted }));
+      await api.bulkDeleteContacts(keysToDelete, (keys, deleted) => {
+        done.push(...keys);
+        deletedCountRef.current += deleted;
+      });
+      toast.success(t('settings.radioApp.bulk.deleted', { count: deletedCountRef.current }));
       onDeleted(keysToDelete);
       resetAndClose();
     } catch (err) {
       console.error('Bulk delete failed:', err);
+      if (done.length > 0) {
+        onDeleted(done);
+        setSelectedKeys(new Set(keysToDelete.slice(done.length)));
+      }
+      const total = deletedCountRef.current;
       toast.error(t('settings.radioApp.bulk.failed'), {
-        description: err instanceof Error ? err.message : undefined,
+        description: [
+          total > 0 ? t('settings.radioApp.bulk.deleted', { count: total }) : null,
+          formatApiError(err, t),
+        ]
+          .filter(Boolean)
+          .join('. '),
       });
     } finally {
       setDeleting(false);

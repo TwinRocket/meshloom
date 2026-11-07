@@ -5,7 +5,7 @@
       "rebootingReconnectRequestedWifiConfig": "The radio is rebooting to apply its Wi-Fi settings. Meshloom reconnects automatically.",
       "wifi": {
         "title": "Wi-Fi",
-        "intro": "The radio's own Wi-Fi interface (companion firmware 1.18 or later, built with Wi-Fi). Changes apply after the radio reboots.",
+        "intro": "The radio's own Wi-Fi. Changes apply after it reboots.",
         "checking": "Checking the radio's Wi-Fi settings…",
         "checkFailed": "Could not check the radio's Wi-Fi settings.",
         "nextRetry": "Next automatic try at {{time}}.",
@@ -48,7 +48,7 @@
         "ssidInvalid": "The network name must be 1 to 32 bytes, without control characters.",
         "ssidReserved": "A network literally named \"(not set)\" cannot be used: the radio prints that when no name is set.",
         "openNetwork": "Open network (no password)",
-        "wrongPasswordWarning": "A wrong password, or \"Open network\" ticked for a protected network, stops the radio joining Wi-Fi after its next reboot.",
+        "wrongPasswordWarning": "With a wrong password, the radio will not join Wi-Fi after it reboots.",
         "save": "Store in the radio",
         "saving": "Storing…",
         "cancel": "Cancel",
@@ -61,7 +61,7 @@
         "confirmRebootTitle": "Reboot the radio now?",
         "confirmRebootBody": "The new Wi-Fi settings apply once the radio restarts. Meshloom reconnects on its own.",
         "rebootLater": "Later",
-        "tcpWarning": "Meshloom reaches this radio over the network: changing the Wi-Fi network or turning Wi-Fi off can make it unreachable. Reconnect it over USB or Bluetooth if that happens.",
+        "tcpWarning": "Changing Wi-Fi can make the radio unreachable: reconnect it over USB or Bluetooth if so.",
         "rebooting": "Rebooting the radio…",
         "storePartialWarning": "The radio may hold incomplete Wi-Fi credentials. Check them over USB or Bluetooth before rebooting it.",
         "storeIncompleteWarning": "Storing the Wi-Fi credentials for \"{{ssid}}\" was interrupted. Store them again before rebooting the radio.",
@@ -89,7 +89,7 @@
       },
       "factoryReset": {
         "wifiStoredWarning": "The Wi-Fi credentials stored in the radio will be erased. A radio reached over Wi-Fi may become unreachable.",
-        "wifiTcpWarning": "Meshloom reaches this radio over Wi-Fi: after the reset it may stay unreachable until you reconnect it over USB or Bluetooth, unless Wi-Fi credentials are built into its firmware."
+        "wifiTcpWarning": "After the reset, the radio may be unreachable over Wi-Fi: reconnect it over USB or Bluetooth."
       }
     }
   },
@@ -106,12 +106,12 @@
     "wifi_invalid_ssid": "Invalid Wi-Fi network name.",
     "wifi_invalid_password": "Invalid Wi-Fi password.",
     "wifi_store_unverified": "The radio did not keep the Wi-Fi credentials as sent; the previous values were restored.",
-    "wifi_store_partial": "Storing the Wi-Fi credentials was interrupted: the radio may hold incomplete ones. Check them over USB or Bluetooth before rebooting it.",
+    "wifi_store_partial": "Saving the Wi-Fi settings was interrupted. Check them over USB or Bluetooth before rebooting the radio.",
     "wifi_radio_changed": "The connected radio changed; this question was about another radio."
   },
   "wifiPrompt": {
     "title": "Store this radio's Wi-Fi password",
-    "reason": "Meshloom can store the Wi-Fi credentials in the radio itself. That lets the flasher update this radio without retyping Wi-Fi credentials. Meshloom never keeps the password.",
+    "reason": "Store the Wi-Fi settings in the radio so the flasher can update it without asking again.",
     "store": "Store in the radio",
     "dismiss": "Don't ask again for this radio",
     "dismissing": "Saving…",

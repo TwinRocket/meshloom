@@ -21,6 +21,32 @@ describe('formatApiError', () => {
     expect(formatApiError(err, i18n.t)).toBe(i18n.t('errors.radio_not_connected'));
   });
 
+  it('translates message_too_long in both languages with limit and bytes', async () => {
+    const err = new ApiError('Message too long', 400, {
+      code: 'message_too_long',
+      params: { limit: 156, bytes: 157 },
+    });
+    await i18n.changeLanguage('en');
+    expect(formatApiError(err, i18n.t)).toContain('157 bytes');
+    expect(formatApiError(err, i18n.t)).toContain('156 bytes');
+    await i18n.changeLanguage('fr');
+    expect(formatApiError(err, i18n.t)).toContain('157 octets');
+    expect(formatApiError(err, i18n.t)).toContain('156 octets');
+    await i18n.changeLanguage('en');
+  });
+
+  it('joins string arrays and leaves other params alone', async () => {
+    await i18n.changeLanguage('en');
+    i18n.addResource('en', 'translation', 'errors.t_params', '{{a}}|{{b}}|{{c}}');
+    const err = new ApiError('x', 400, {
+      code: 't_params',
+      params: { a: ['x', 'y'], b: 'plain', c: ['x', 1] },
+    });
+    const out = formatApiError(err, i18n.t);
+    expect(out.startsWith('x, y|plain|')).toBe(true);
+    expect(out).not.toContain('x, 1');
+  });
+
   it('falls back to Error.message for unknown values', () => {
     expect(formatApiError(new Error('boom'), i18n.t)).toBe('boom');
     expect(formatApiError('plain', i18n.t)).toBe('plain');
@@ -283,6 +309,35 @@ describe('fetchJson (via api methods)', () => {
   });
 
   describe('error handling', () => {
+    it('opens the Meshloom Remote login challenge on relay_login_challenge from the login form', async () => {
+      installMockFetch();
+      const assign = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign });
+      const relay = {
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: () =>
+          Promise.resolve(
+            '{"detail":"Login challenge required","code":"relay_login_challenge","server_time":1}'
+          ),
+      };
+      mockFetch.mockResolvedValueOnce(relay);
+      const err = await api
+        .authLogin({ username: 'a', password: 'b', remember: false })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect(getApiErrorCode(err.detail)?.code).toBe('relay_login_challenge');
+      expect(formatApiError(err, i18n.getFixedT('en'))).toContain('Meshloom Remote');
+      expect(assign).toHaveBeenCalledWith('/_meshloom/challenge');
+
+      // Not from another call: the code is only the login form's.
+      assign.mockClear();
+      mockFetch.mockResolvedValueOnce(relay);
+      await expect(api.getHealth()).rejects.toBeInstanceOf(ApiError);
+      expect(assign).not.toHaveBeenCalled();
+    });
+
     it('extracts detail from FastAPI JSON error response', async () => {
       installMockFetch();
       mockFetch.mockResolvedValueOnce({
@@ -678,6 +733,34 @@ describe('fetchJson (via api methods)', () => {
       expect(url).toContain('before_id=99');
     });
 
+    it('sends muted, membership and every conversation_keys value as repeated parameters', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+      const keys = ['ab'.repeat(16), 'cd'.repeat(32), 'ef'.repeat(16)];
+
+      await api.getMessages({
+        muted: 'exclude',
+        membership: 'pending',
+        conversation_keys: keys,
+      });
+
+      const [url] = mockFetch.mock.calls[0];
+      const params = new URL(url as string, 'http://x/').searchParams;
+      expect(params.get('muted')).toBe('exclude');
+      expect(params.get('membership')).toBe('pending');
+      expect(params.getAll('conversation_keys')).toEqual(keys);
+      expect((url as string).match(/conversation_keys=/g)).toHaveLength(3);
+    });
+
+    it('sends neither muted, membership nor conversation_keys when they are not given', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+
+      await api.getMessages({ limit: 5, conversation_keys: [] });
+
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/messages?limit=5');
+    });
+
     it('builds URL without query string when no params given', async () => {
       installMockFetch();
       mockFetch.mockResolvedValueOnce({
@@ -843,5 +926,135 @@ describe('fetchJson (via api methods)', () => {
       expect(mockFetch.mock.calls[2][1].body).toBe(JSON.stringify({ session_id: 's1' }));
       expect(mockFetch.mock.calls[3][0]).toBe('./api/community/iata/active');
     });
+  });
+});
+
+describe('bulkDeleteContacts', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends a long list in batches under the server body limit and adds up the result', async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(init.body as string);
+        const { public_keys } = JSON.parse(init.body as string);
+        return new Response(JSON.stringify({ deleted: public_keys.length }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      })
+    );
+    const keys = Array.from({ length: 16000 }, (_, i) => i.toString(16).padStart(64, '0'));
+    await expect(api.bulkDeleteContacts(keys)).resolves.toEqual({ deleted: 16000 });
+    expect(bodies.length).toBeGreaterThan(1);
+    for (const body of bodies) expect(body.length).toBeLessThan(1024 * 1024);
+    expect(bodies.flatMap((body) => JSON.parse(body).public_keys)).toEqual(keys);
+  });
+
+  it('tells the caller what each batch deleted before a later one fails', async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response(JSON.stringify({ deleted: 5000 }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          : new Response(JSON.stringify({ detail: 'nope' }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            });
+      })
+    );
+    const keys = Array.from({ length: 5001 }, (_, i) => String(i));
+    const onBatch = vi.fn();
+    await expect(api.bulkDeleteContacts(keys, onBatch)).rejects.toBeInstanceOf(ApiError);
+    expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(onBatch).toHaveBeenCalledWith(keys.slice(0, 5000), 5000);
+  });
+});
+
+describe('relay busy retry', () => {
+  const busy = () =>
+    new Response(JSON.stringify({ detail: 'Instance busy', code: 'relay_busy' }), {
+      status: 503,
+      headers: { 'Retry-After': '1', 'Content-Type': 'application/json' },
+    });
+  const ok = () => new Response('[]', { status: 200 });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('retries a refused request after Retry-After and returns the answer', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValueOnce(busy()).mockResolvedValueOnce(ok());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getChannels();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(result).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up with the relay error after four retries', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(async () => busy());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getChannels().catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(60000);
+    const err = await result;
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('caps the wait whatever Retry-After says', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: 'relay_busy' }), {
+          status: 503,
+          headers: { 'Retry-After': '3600' },
+        })
+      )
+      .mockResolvedValueOnce(ok());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getChannels();
+    await vi.advanceTimersByTimeAsync(5500);
+    await expect(result).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the instance's own 503 alone", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ detail: 'Radio busy' }), { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api.getChannels()).rejects.toBeInstanceOf(ApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops waiting when the caller aborts', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const fetchMock = vi.fn().mockImplementation(async () => busy());
+    vi.stubGlobal('fetch', fetchMock);
+    const result = api.getMessages({}, controller.signal).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(10);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    const err = await result;
+    expect(isAbortError(err)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

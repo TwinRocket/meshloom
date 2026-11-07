@@ -1,0 +1,11 @@
+{
+  "description": "Change the environment the next process would inherit.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

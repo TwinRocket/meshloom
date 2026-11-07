@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from app.services.legacy_env_settings import ENV_BOT_LOCK
+
 INSTALL_SH = Path(__file__).resolve().parents[1] / "scripts" / "setup" / "install.sh"
 
 _HELPERS = (
@@ -150,7 +152,7 @@ def test_installer_writes_compose_kind_and_ensure_helper() -> None:
     assert "compose-update --bootstrap" in text
     assert "docker-compose.yml.bak-" in text
     assert "MESHLOOM_INSTALL_KIND=package" in text
-    assert "MESHCORE_DISABLE_BOTS" not in text
+    assert ENV_BOT_LOCK not in text
     assert "_env_ensure_key" in text
     assert "apt upgrade" not in text or "apt-get install" in text
 
@@ -220,11 +222,11 @@ def test_the_apt_repository_lists_what_it_holds() -> None:
     One of them missing armhf is a repository that offers itself to a machine it
     cannot serve, which is the failure this whole change is about.
     """
-    workflow = (
-        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "publish-linux-repo.yml"
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_linux_repo.sh"
     ).read_text(encoding="utf-8")
-    assert 'Architectures="amd64 arm64"' not in workflow
-    assert "dpkg-deb -f" in workflow
+    assert 'Architectures="amd64 arm64"' not in script
+    assert "dpkg-deb -f" in script
 
 
 def _build_script_error(args: list[str]) -> str:
@@ -406,7 +408,7 @@ def test_a_release_asks_the_site_to_rebuild() -> None:
 
     release = (workflows / "release.yml").read_text(encoding="utf-8")
     job = release.split("\n  docs-site:\n", 1)[1].split("\n\n", 1)[0]
-    assert "needs: [publish]" in job
+    assert "needs: [version, publish]" in job
     assert "uses: ./.github/workflows/docs-site.yml" in job
     assert "DOCS_SITE_DEPLOY_HOOK: ${{ secrets.DOCS_SITE_DEPLOY_HOOK }}" in job
 

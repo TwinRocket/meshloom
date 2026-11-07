@@ -1,0 +1,14 @@
+{
+  "settings": {
+    "notifications": {
+      "language": {
+        "label": "Langue des notifications",
+        "auto": "Automatique",
+        "fr": "Français",
+        "en": "English",
+        "help": "Langue des notifications par e-mail et Apprise. Automatique suit la langue des navigateurs abonnés.",
+        "saveFailed": "Impossible d’enregistrer la langue des notifications"
+      }
+    }
+  }
+}

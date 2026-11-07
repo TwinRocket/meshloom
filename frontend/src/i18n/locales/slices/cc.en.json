@@ -1,0 +1,311 @@
+{
+  "settingsNav": {
+    "extensions": "Extensions"
+  },
+  "settings": {
+    "extensions": {
+      "title": "Extensions",
+      "intro": "Extensions add features to Meshloom and only do what you allow them to.",
+      "loading": "Loading extensions…",
+      "empty": "No extension installed yet. Add a bundled extension to get started.",
+      "cancel": "Cancel",
+      "enabled": "Enabled",
+      "openDetails": "Open the details of {{name}}",
+      "enableToggle": "Enable {{name}}",
+      "moveUp": "Move {{name}} up",
+      "moveDown": "Move {{name}} down",
+      "bundled": "Bundled",
+      "tabs": {
+        "installed": "Installed",
+        "store": "Store",
+        "updates": "Updates",
+        "storeSoon": "The Store is not available yet."
+      },
+      "kind": {
+        "bundled": "Bundled",
+        "store": "Store",
+        "custom": "Custom",
+        "local": "Local"
+      },
+      "status": {
+        "installed": "Installed",
+        "disabled": "Disabled",
+        "starting": "Starting",
+        "running": "Running",
+        "error": "Error",
+        "crash_loop": "Keeps crashing",
+        "needs_attention": "Needs attention",
+        "incompatible": "Incompatible",
+        "revoked": "Revoked",
+        "paused": "Paused"
+      },
+      "attention": {
+        "config_required": {
+          "badge": "Setup required",
+          "text": "This extension needs some settings before it can start. It stays off until they are filled in."
+        },
+        "review_permissions": {
+          "badge": "Review permissions",
+          "text": "This extension asks for different permissions than before. Review them below, then accept to start it."
+        },
+        "privacy_widened": {
+          "badge": "Privacy changed",
+          "text": "This update uses your data more widely. Review it below, then accept to start it."
+        },
+        "review_permissions_privacy": {
+          "badge": "Review permissions",
+          "text": "This update asks for other permissions and uses your data more widely. Review, then accept."
+        },
+        "consent_required": {
+          "badge": "Consent needed",
+          "text": "This extension needs your consent for the permissions below before it can start."
+        },
+        "migrated": {
+          "badge": "Migrated",
+          "text": "This extension comes from a converted bot. Review what it can do, then accept to start it."
+        },
+        "restored": {
+          "badge": "Restored",
+          "text": "Restored extension, turned off. Check it below, then accept to start it.",
+          "versionChanged": "Version {{version}} installed; the backup had {{previous}}."
+        },
+        "reinstall": {
+          "badge": "To reinstall",
+          "text": "Restored without its code: reinstall or uninstall it.",
+          "unavailable": "Restored without its code, and it cannot be reinstalled here. You can uninstall it."
+        },
+        "config_dropped": {
+          "badge": "Settings reset",
+          "text": "Some settings were reset: {{fields}}. Check them and save."
+        },
+        "other": {
+          "badge": "Needs review",
+          "text": "This extension waits for you to review it before it can start."
+        }
+      },
+      "blocked": {
+        "revoked": "This extension was revoked and cannot be started. Uninstall it.",
+        "incompatible": "Not compatible with this Meshloom version: uninstall it or wait for an update."
+      },
+      "enableBlocked": {
+        "frozen": "Cannot be enabled",
+        "config_required": "Setup required first",
+        "review": "Open it to review and accept",
+        "reinstall": "Reinstall it first",
+        "reinstall_unavailable": "Cannot be reinstalled here"
+      },
+      "isolation": {
+        "title": "Isolation level",
+        "level": {
+          "bwrap": "Sandbox (bubblewrap)",
+          "setuid": "Separate account",
+          "none": "Hooks only",
+          "unknown": "Not known yet"
+        },
+        "explain": {
+          "bwrap": "Each extension runs in a sandbox, with no access to other files.",
+          "setuid": "Each extension runs under a dedicated system account that cannot read Meshloom's files.",
+          "none": "No sandbox here: an extension could read your data. Only install extensions you trust.",
+          "unknown": "The isolation level is reported once the server has started the extension system."
+        },
+        "purgeBlocked": {
+          "title": "A temporary folder keeps extension accounts taken",
+          "text": "Meshloom could not clean the temporary folders of removed extensions, so these accounts stay reserved:",
+          "fix": "On the server, remove these folders or make them readable (chmod o+r), then restart Meshloom.",
+          "leaseFix": "Another Meshloom on this machine holds this account. If it no longer runs, delete this file from .meshloom-plugin-uids, then restart Meshloom."
+        }
+      },
+      "disabled": {
+        "env": "Extensions are turned off by this server's host. You can only view and uninstall them.",
+        "platform": "Extensions are not available on this platform. You can only view and uninstall them.",
+        "isolation": "Extensions are stopped: their isolation could not be set up. You can only view and uninstall them.",
+        "drawer": "Extensions are turned off on this server: nothing here can be changed or started."
+      },
+      "add": {
+        "button": "Add a bundled extension",
+        "title": "Add a bundled extension",
+        "intro": "These extensions ship with Meshloom and install without internet access.",
+        "none": "No bundled extension is available in this version.",
+        "instances": "{{count}} already installed",
+        "consentTitle": "Allow {{name}}?",
+        "consentIntro": "This extension will be able to do the following. You can lower these permissions later.",
+        "accept": "I understand what this extension can do and I allow it.",
+        "back": "Back",
+        "install": "Install",
+        "installed": "{{name}} installed."
+      },
+      "privacy": {
+        "title": "Privacy declaration",
+        "sends": "Sends data to: {{hosts}}.",
+        "sendsNone": "Sends nothing to third parties.",
+        "stores": "Keeps the content of messages.",
+        "storesNone": "Does not keep the content of messages."
+      },
+      "scope": {
+        "all": "All conversations",
+        "none": "No message",
+        "only": "Only the conversations I pick",
+        "except": "All conversations except the ones I pick",
+        "channels": "Channels",
+        "contacts": "Contacts"
+      },
+      "drawer": {
+        "statusTitle": "Status",
+        "summary": "Status message",
+        "lastError": "Last error",
+        "notice_permission_dropped_supervisor": "Permission cut: it targets Home Assistant's internal network, off limits to extensions. Remove that address to restore it.",
+        "restarts": "Restarts",
+        "dropped": "Events dropped",
+        "permissionsTitle": "Permissions",
+        "permissionsHint": "Untick a permission to take it away. An extension cannot be given more than it declares.",
+        "scopeTitle": "Messages it may read",
+        "quotasTitle": "Sending limits",
+        "quotasHint": "You can only lower these limits, never raise them above what the extension asks for.",
+        "perHour": "Messages per hour",
+        "perDay": "Messages per day",
+        "quotaInvalid": "Enter whole numbers from 1 to {{hour}} per hour and from 1 to {{day}} per day.",
+        "save": "Save changes",
+        "saved": "Changes saved.",
+        "acceptAndEnable": "Accept and enable",
+        "accepted": "Accepted and enabled.",
+        "restart": "Restart",
+        "restarted": "Restarted.",
+        "reinstall": "Reinstall",
+        "reinstallSource": "Source: {{repository}}",
+        "reinstalling": "Reinstalling...",
+        "reinstalled": "Reinstalled. Check it, then accept to start it.",
+        "copyDiagnostic": "Copy diagnostic",
+        "diagnosticCopied": "Diagnostic copied.",
+        "uninstall": "Uninstall",
+        "uninstalled": "Extension uninstalled."
+      },
+      "config": {
+        "title": "Settings",
+        "none": "This extension has no settings."
+      },
+      "logs": {
+        "title": "Logs",
+        "empty": "Nothing in the log yet.",
+        "failed": "The log could not be read.",
+        "truncated": "Showing the most recent lines only."
+      },
+      "uninstall": {
+        "title": "Uninstall {{name}}?",
+        "text": "The extension stops and its settings and secrets are deleted.",
+        "keepData": "Keep its data and secrets: restored if you reinstall it from the same source, deleted after 90 days.",
+        "confirm": "Uninstall"
+      },
+      "migration": {
+        "title": "Your bots were converted to extensions",
+        "text": "Review each converted extension: it only starts once you accept.",
+        "counts_one": "{{count}} bot was converted, {{attention}} need attention.",
+        "counts_other": "{{count}} bots were converted, {{attention}} need attention.",
+        "acknowledge": "Got it",
+        "bannerText_one": "{{count}} bot was converted into an extension and awaits your review.",
+        "bannerText_other": "{{count}} bots were converted into extensions and await your review.",
+        "bannerAction": "Review extensions"
+      },
+      "memberReadOnly": "Only an administrator can manage extensions.",
+      "drawerMemberReadOnly": "Only an administrator can change, restart or uninstall this extension, or read its log.",
+      "pause": {
+        "button": "Pause all extensions",
+        "hint": "Stops every extension at once, until you resume.",
+        "confirmTitle": "Pause all extensions?",
+        "confirmText": "Every extension stops, even across a restart, until you resume. They will not get the messages that arrive meanwhile.",
+        "confirm": "Pause all",
+        "banner": "All extensions are paused since {{time}} by {{user}}.",
+        "bannerNoUser": "All extensions are paused since {{time}}.",
+        "bannerNoTime": "All extensions are paused.",
+        "bannerUnreadable": "The pause state cannot be read: extensions stay stopped until an administrator resumes them.",
+        "bannerExplain": "None runs and none receives messages. Changes are saved and apply on resume.",
+        "resume": "Resume",
+        "paused": "All extensions are paused.",
+        "resumed": "Extensions resumed."
+      },
+      "store": {
+        "title": "Custom repositories",
+        "intro": "Add an extension published on GitHub, as owner/name.",
+        "warning": "Custom repositories are neither reviewed nor signed by Meshloom: install them at your own risk.",
+        "offline": "The Store is off: nothing is fetched from GitHub until you turn it back on above.",
+        "repositoryLabel": "GitHub repository (owner/name)",
+        "add": "Add",
+        "added": "Repository {{repository}} added.",
+        "removed": "Repository {{repository}} removed.",
+        "none": "No custom repository yet.",
+        "unsigned": "unsigned",
+        "install": "Install",
+        "remove": "Remove",
+        "removeTitle": "Remove {{repository}}?",
+        "removeIntro": "Extensions already installed stay, but their updates are no longer checked.",
+        "updateAvailable": "update available",
+        "checkFailed": "The last check failed.",
+        "accept": "I understand this plugin is not reviewed or signed by Meshloom, and I accept these permissions.",
+        "adminOnly": "Only an administrator can see and manage custom repositories."
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "plugins_restored": "{{value}} extension(s) restored turned off: accept each one in Settings > Extensions.",
+        "plugins_to_reinstall": "{{value}} extension(s) to reinstall from Settings > Extensions.",
+        "plugin_secrets_missing": "{{value}} extension(s) need their secrets: type them in their settings.",
+        "plugin_dropped": "An extension of the backup ({{value}}) could not be restored and was left out.",
+        "plugin_dropped_supervisor": "Extension {{value}} not restored: it targets Home Assistant's internal network.",
+        "plugin_kept": "The extension {{value}} is already installed here: it was kept as it is."
+      }
+    }
+  },
+  "errors": {
+    "plugins_disabled": "Extensions are turned off on this server.",
+    "plugin_not_found": "This extension no longer exists.",
+    "plugin_not_bundled": "This extension is not shipped with this version of Meshloom.",
+    "plugin_disabled": "This extension is disabled.",
+    "plugin_revoked": "This extension was revoked and cannot start.",
+    "plugin_incompatible": "This extension is not compatible with this version of Meshloom and cannot start.",
+    "attention_required": "This extension must be reviewed and accepted before it starts.",
+    "config_required": "This extension needs settings before it can start.",
+    "config_invalid": "Some settings of this extension are not valid.",
+    "config_value_invalid": "A setting of this extension has an invalid value.",
+    "consent_required": "You must allow all the permissions this extension asks for.",
+    "permission_exceeds_manifest": "That grants more than the extension declares.",
+    "package_invalid": "The extension package is not valid.",
+    "manifest_invalid": "The extension description is not valid.",
+    "lan_host_supervisor": "This address is on Home Assistant's internal network, off limits to extensions. Use an address on your own network.",
+    "install_failed": "The extension could not be installed.",
+    "instance_cap_reached": "Too many extensions are running. Disable one first.",
+    "instance_not_running": "This extension is not running.",
+    "uid_exhausted": "No free system account left: uninstall unused extensions, then try again.",
+    "uid_leased": "The system account of this extension is held by another Meshloom on this machine. See Settings → Extensions.",
+    "uid_lease_io_error": "Could not reserve an account: the temporary folder is full or read-only. Free some space, then try again.",
+    "quota_invalid": "A sending limit is out of range. It can only be lowered.",
+    "scope_invalid": "The conversations selection is not valid.",
+    "secret_required": "A secret value is missing.",
+    "plugin_not_reinstallable": "This extension does not need reinstalling.",
+    "plugin_kind_conflict": "This extension is already installed from another source.",
+    "plugin_code_missing": "The code of this extension is missing: uninstall its other copies, then try again.",
+    "incompatible": "This release does not support this version of Meshloom.",
+    "archive_too_large": "The extension's archive is too large.",
+    "plugin_reinstall_required": "This extension was restored without its code: reinstall it before starting it.",
+    "plugin_code_mismatch": "An update of this extension did not finish: restart Meshloom to complete it.",
+    "plugin_not_updatable": "This extension does not update from a repository.",
+    "plugin_up_to_date": "This extension is already at the latest release.",
+    "update_failed": "The extension could not be updated. Its previous version is kept.",
+    "plugin_repository_conflict": "Already installed from {{repository}}: remove its instances before installing it from here.",
+    "repository_invalid": "Enter a GitHub repository as owner/name.",
+    "repository_exists": "This repository is already in the list.",
+    "repository_limit": "At most {{limit}} custom repositories.",
+    "repository_not_found": "This repository is not in the list.",
+    "repository_no_release": "This repository has no published release.",
+    "repository_moved": "This repository was renamed or moved on GitHub: add it under its new name.",
+    "repository_tag_invalid": "The latest release has an unusable tag name.",
+    "repository_assets_missing": "The latest release is missing: {{missing}}.",
+    "repository_asset_too_large": "A release file is larger than allowed.",
+    "repository_manifest_invalid": "The release's manifest.json is not a valid plugin manifest.",
+    "repository_archive_invalid": "The release's plugin.zip is not a valid plugin archive, or does not match manifest.json.",
+    "repository_sha256_invalid": "plugin.zip.sha256 is unreadable or does not match plugin.zip.",
+    "archive_mismatch": "The downloaded archive does not match its expected checksum.",
+    "store_offline": "The Store is offline: put it online to do this.",
+    "download_blocked": "The download was refused (host not allowed or redirect to another host).",
+    "download_failed": "The download failed. Try again later.",
+    "plugin_source_unavailable": "This plugin's source is not available."
+  }
+}

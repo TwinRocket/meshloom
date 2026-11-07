@@ -913,3 +913,181 @@ class TestMaintenanceEndpoint:
         )
 
         assert response.status_code == 422
+
+
+class TestHistoricalDecryptionFlagsMessages:
+    """The WS `message` frames of historical decryption carry `historical: true`."""
+
+    @staticmethod
+    def _result(n: int):
+        return type(
+            "DecryptResult",
+            (),
+            {"sender": f"User{n}", "message": f"Hello {n}", "timestamp": 1700000000 + n},
+        )()
+
+    @pytest.mark.asyncio
+    async def test_single_channel_path_flags_message(self, test_db):
+        from app.routers.packets import _run_historical_channel_decryption
+
+        await _insert_raw_packets(1)
+        key_hex = "AABBCCDDAABBCCDDAABBCCDDAABBCCDD"
+        events: list[tuple[str, dict, dict]] = []
+
+        with (
+            patch(
+                "app.routers.packets.try_decrypt_packet_with_channel_key",
+                return_value=self._result(1),
+            ),
+            patch("app.routers.packets.parse_packet", return_value=None),
+            patch("app.routers.packets.broadcast_success"),
+            patch(
+                "app.packet_processor.broadcast_event",
+                side_effect=lambda t, d, **kw: events.append((t, d, kw)),
+            ),
+        ):
+            await _run_historical_channel_decryption(bytes.fromhex(key_hex), key_hex, "#test")
+
+        messages = [(d, kw) for t, d, kw in events if t == "message"]
+        assert len(messages) == 1
+        data, kw = messages[0]
+        assert kw == {"realtime": False}
+        assert data["historical"] is True
+
+    @pytest.mark.asyncio
+    async def test_bulk_channel_path_flags_message_and_toast_code(self, test_db):
+        from app.routers.channels import _run_historical_channel_decryption_for_channels
+
+        await _insert_raw_packets(1)
+        key_hex = "AABBCCDDAABBCCDDAABBCCDDAABBCCDD"
+        events: list[tuple[str, dict, dict]] = []
+
+        with (
+            patch(
+                "app.routers.channels.try_decrypt_packet_with_channel_key",
+                return_value=self._result(1),
+            ),
+            patch("app.routers.channels.parse_packet", return_value=None),
+            patch("app.routers.channels.broadcast_success") as mock_success,
+            patch(
+                "app.packet_processor.broadcast_event",
+                side_effect=lambda t, d, **kw: events.append((t, d, kw)),
+            ),
+        ):
+            await _run_historical_channel_decryption_for_channels(
+                [(bytes.fromhex(key_hex), key_hex, "#test")]
+            )
+
+        messages = [(d, kw) for t, d, kw in events if t == "message"]
+        assert len(messages) == 1
+        assert messages[0][1] == {"realtime": False}
+        assert messages[0][0]["historical"] is True
+        assert mock_success.call_args.kwargs["code"] == "historical_decrypt_complete_rooms"
+        assert mock_success.call_args.kwargs["params"] == {"count": 1}
+
+
+class TestPacketHistoryMultiType:
+    """`payload_type` takes one name or a comma-separated list (feed control history)."""
+
+    @pytest.mark.asyncio
+    async def test_comma_separated_types_match_any(self, test_db, client):
+        from app.decoder import PayloadType
+
+        base = 1700000000
+        # header byte = payload type << 2 | route type (FLOOD = 1); the body makes each unique
+        types = [PayloadType.REQUEST, PayloadType.ADVERT, PayloadType.RESPONSE, PayloadType.ACK]
+        for i, ptype in enumerate(types):
+            raw = bytes([(int(ptype) << 2) | 1, 0x00]) + bytes([i + 1]) * 12
+            await RawPacketRepository.create(raw, base + i)
+
+        response = await client.get(
+            "/api/packets/history?payload_type=REQUEST,RESPONSE,ANON_REQUEST"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert [item["payload_type"] for item in data["items"]] == ["RESPONSE", "REQUEST"]
+        # Rows written by the repository carry payload_type: served by the index, so only the
+        # matching rows are read (a NULL row would be walked and parsed: test_payload_type.py).
+        assert data["scanned"] == 2
+        assert data["truncated"] is False
+
+        bad = await client.get("/api/packets/history?payload_type=REQUEST,NOPE")
+        assert bad.status_code == 422
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [",", ",,", " , ,"])
+    async def test_only_empty_list_items_are_rejected(self, test_db, client, value):
+        response = await client.get("/api/packets/history", params={"payload_type": value})
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_blank_payload_type_is_still_no_filter(self, test_db, client):
+        assert (await client.get("/api/packets/history?payload_type=")).status_code == 200
+
+    @pytest.mark.slow
+    @pytest.mark.asyncio
+    async def test_four_type_filter_on_20000_rows_is_bounded(self, test_db, client):
+        """Worst case: the 20 000 newest rows hold few control packets, so the scan hits its cap."""
+        import os
+
+        from app.decoder import PayloadType
+
+        control = [
+            PayloadType.REQUEST,
+            PayloadType.RESPONSE,
+            PayloadType.ANON_REQUEST,
+            PayloadType.GROUP_DATA,
+        ]
+        base = 1700000000
+        rows = []
+        for i in range(25_000):
+            # 1 control packet in 200 among adverts: 125 matches over the whole table
+            ptype = control[(i // 200) % 4] if i % 200 == 0 else PayloadType.ADVERT
+            raw = bytes([(int(ptype) << 2) | 1, 0x00]) + i.to_bytes(4, "big") + os.urandom(28)
+            rows.append((base + i, raw, f"h{i}"))
+        async with test_db.tx() as conn:
+            await conn.executemany(
+                "INSERT INTO raw_packets (timestamp, data, payload_hash) VALUES (?, ?, ?)", rows
+            )
+
+        query = (
+            "/api/packets/history?payload_type=REQUEST,RESPONSE,ANON_REQUEST,GROUP_DATA"
+            "&limit=200&max_scan=20000"
+        )
+        t0 = time.perf_counter()
+        response = await client.get(query)
+        elapsed = time.perf_counter() - t0
+        data = response.json()
+        print(
+            f"four-type history, 25k rows, worst case: {elapsed * 1000:.0f} ms, "
+            f"scanned={data['scanned']}, items={len(data['items'])}, truncated={data['truncated']}"
+        )
+        assert response.status_code == 200
+        assert data["scanned"] == 20_000
+        assert data["truncated"] is True
+        assert len(data["items"]) == 100  # 20 000 / 200
+        assert elapsed < 5.0
+
+        dense = [
+            (
+                base + 100_000 + i,
+                bytes([(0 << 2) | 1, 0]) + i.to_bytes(4, "big") + os.urandom(28),
+                f"d{i}",
+            )
+            for i in range(2000)
+        ]
+        async with test_db.tx() as conn:
+            await conn.executemany(
+                "INSERT INTO raw_packets (timestamp, data, payload_hash) VALUES (?, ?, ?)", dense
+            )
+        t0 = time.perf_counter()
+        response = await client.get(query)
+        elapsed = time.perf_counter() - t0
+        data = response.json()
+        print(
+            f"four-type history, dense control, first page: {elapsed * 1000:.0f} ms, "
+            f"scanned={data['scanned']}, items={len(data['items'])}"
+        )
+        assert len(data["items"]) == 200
+        assert data["scanned"] == 200
+        assert elapsed < 2.0

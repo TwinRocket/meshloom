@@ -1,3 +1,4 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { api } from '../api';
 import {
@@ -49,6 +50,8 @@ export function useUnreadCounts(
   contacts: Contact[],
   activeConversation: Conversation | null
 ): UseUnreadCountsResult {
+  // Marking read needs `read_private` (the kiosk reads without leaving a read mark).
+  const { canReadPrivate } = useCapabilities();
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [mentions, setMentions] = useState<Record<string, boolean>>({});
   const [lastMessageTimes, setLastMessageTimes] = useState<ConversationTimes>(getLastMessageTimes);
@@ -115,12 +118,13 @@ export function useUnreadCounts(
       console.error('Failed to fetch unreads:', err);
     }
     const ac = activeConvRef.current;
+    if (!canReadPrivate) return;
     if (ac?.type === 'channel') {
       api.markChannelRead(ac.id).catch(() => {});
     } else if (ac?.type === 'contact') {
       api.markContactRead(ac.id).catch(() => {});
     }
-  }, [applyUnreads]);
+  }, [applyUnreads, canReadPrivate]);
 
   // On mount, consume the prefetched promise (started in index.html before
   // React loaded) or fall back to a fresh fetch.
@@ -177,6 +181,7 @@ export function useUnreadCounts(
   // Mark conversation as read on the server when the user views it, to persist
   // read state across devices (fire-and-forget, errors logged but not blocking).
   useEffect(() => {
+    if (!canReadPrivate) return;
     if (activeConversation?.type === 'channel') {
       api.markChannelRead(activeConversation.id).catch((err) => {
         console.error('Failed to mark channel as read on server:', err);
@@ -186,7 +191,7 @@ export function useUnreadCounts(
         console.error('Failed to mark contact as read on server:', err);
       });
     }
-  }, [activeConversation]);
+  }, [activeConversation, canReadPrivate]);
 
   const incrementUnread = useCallback(
     (stateKey: string, messageId: number, hasMention?: boolean) => {

@@ -45,9 +45,12 @@ class TestMigration013:
             # Run migration 13 (plus remaining which also run)
             await run_migrations(conn)
 
-            # Bots were migrated from app_settings to fanout_configs (migration 37)
-            # and the bots column was dropped (migration 38)
+            # Bots were migrated from app_settings to fanout_configs (migration 37),
+            # the bots column was dropped (migration 38), then each bot became a local
+            # plugin and its row was archived (migration 122).
             cursor = await conn.execute("SELECT * FROM fanout_configs WHERE type = 'bot'")
+            assert await cursor.fetchone() is None
+            cursor = await conn.execute("SELECT * FROM fanout_configs_bots_archive")
             row = await cursor.fetchone()
             assert row is not None
 

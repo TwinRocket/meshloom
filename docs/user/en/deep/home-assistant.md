@@ -24,7 +24,7 @@ This is different from the Home Assistant add-on, which runs Meshloom itself ins
 5. Under **Message Events**, choose which messages should trigger an event.
 6. Choose **Save as Enabled**.
 
-The devices appear in Home Assistant under **Settings → Devices & services → MQTT**. The form also lists what will be created and the exact topics.
+The devices appear in Home Assistant under **Settings → Devices & services → MQTT**. The entities and topics are listed below. Turning the integration off or deleting it removes its entities from Home Assistant.
 
 ## Names and identifiers
 
@@ -92,6 +92,10 @@ If the repeater has environment sensors (CayenneLPP format), Meshloom adds one s
 | `conversation_key` | `aabbccdd...` | Key of the contact or the channel |
 | `outgoing` | `false` | Whether you sent it |
 
+## Meshloom notifications in the Home Assistant app
+
+Meshloom can send its own notifications (direct messages, radio offline, new contacts, alerts) to the Home Assistant Companion app with the **Home Assistant** channel: **Settings → Notifications → Channels → Add a channel → Home Assistant**. Create a long-lived access token in your Home Assistant profile, then enter Home Assistant's address, the token and the notify service of your phone (`mobile_app_your_phone`). Tick **Allow a private-network destination** (Home Assistant is on your network), press **Send a test and continue**, and choose what the channel receives. The details are in [Notifications](notifications.md#telegram-gotify-and-home-assistant-channels). The automations below remain a good choice when you want Home Assistant to decide (conditions, several devices, actions).
+
 ## Example automations
 
 ### Low repeater battery
@@ -151,6 +155,10 @@ automation:
             {{ trigger.to_state.attributes.sender_name }}:
             {{ trigger.to_state.attributes.text }}
 ```
+
+## Display mode inside the add-on
+
+The Feed's **Display mode** button asks the browser for full screen. Inside Home Assistant the Meshloom page lives in a frame, and a browser only allows full screen from a frame that carries `allowfullscreen` (Home Assistant's own page does not give it to add-on panels). If the screen does not go full screen, the mode still works, only the Home Assistant bars stay; open Meshloom's own address (`http://<ip-address>:8000`) in a browser or on the kiosk for a true full screen. See [Raspberry Pi image](/en/docs/rpi/#display-mode).
 
 ## When it does not work
 

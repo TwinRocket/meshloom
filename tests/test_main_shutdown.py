@@ -80,48 +80,89 @@ async def test_synchronous_raise_in_step_is_contained():
     await main._shutdown_step("sync step", boom)
 
 
+def _patch_lifespan(stack: ExitStack, *, shutdown, db_disconnect) -> None:
+    """Patch every collaborator of ``main.lifespan`` so it runs without a radio or a database."""
+    configured = RadioTransportSnapshot(transport="serial", serial_port="/dev/ttyUSB0")
+    for target, kwargs in (
+        ("app.main.db.connect", {"new": AsyncMock()}),
+        ("app.main.db.disconnect", {"new": db_disconnect}),
+        ("app.main._shutdown", {"new": shutdown}),
+        ("app.radio_sync.ensure_default_channels", {"new": AsyncMock()}),
+        ("app.main.radio_manager.start_connection_monitor", {"new": AsyncMock()}),
+        ("app.main.radio_manager.reconnect_and_prepare", {"new": AsyncMock()}),
+        (
+            "app.services.radio_transport.maybe_import_legacy_env",
+            {"new": AsyncMock(return_value=configured)},
+        ),
+        (
+            "app.services.radio_transport.get_transport",
+            {"new": AsyncMock(return_value=configured)},
+        ),
+        (
+            "app.services.radio_transport.database_has_mesh_history",
+            {"new": AsyncMock(return_value=False)},
+        ),
+        ("app.fanout.manager.fanout_manager.load_from_db", {"new": AsyncMock()}),
+        ("app.radio_proxy.manager.radio_proxy_manager.start_from_db", {"new": AsyncMock()}),
+        ("app.services.legacy_env_settings.import_legacy_community_iata", {"new": AsyncMock()}),
+        ("app.main.start_radio_stats_sampling", {"new": AsyncMock()}),
+        ("app.main.start_oss_update_polling", {"new": AsyncMock()}),
+        ("app.main.start_hashtag_catalogue_polling", {}),
+        ("app.main.start_stale_contact_purge", {}),
+        ("app.push.vapid.ensure_vapid_keys", {"new": AsyncMock()}),
+        ("app.websocket.broadcast_health", {}),
+    ):
+        stack.enter_context(patch(target, **kwargs))
+
+
 @pytest.mark.asyncio
 async def test_db_disconnect_runs_even_if_teardown_raises():
-    configured = RadioTransportSnapshot(transport="serial", serial_port="/dev/ttyUSB0")
     db_disconnect = AsyncMock()
     with ExitStack() as stack:
-        for target, kwargs in (
-            ("app.main.db.connect", {"new": AsyncMock()}),
-            ("app.main.db.disconnect", {"new": db_disconnect}),
-            ("app.main._shutdown", {"new": AsyncMock(side_effect=RuntimeError("teardown"))}),
-            ("app.radio_sync.ensure_default_channels", {"new": AsyncMock()}),
-            ("app.main.radio_manager.start_connection_monitor", {"new": AsyncMock()}),
-            ("app.main.radio_manager.reconnect_and_prepare", {"new": AsyncMock()}),
-            (
-                "app.services.radio_transport.maybe_import_legacy_env",
-                {"new": AsyncMock(return_value=configured)},
-            ),
-            (
-                "app.services.radio_transport.get_transport",
-                {"new": AsyncMock(return_value=configured)},
-            ),
-            (
-                "app.services.radio_transport.database_has_mesh_history",
-                {"new": AsyncMock(return_value=False)},
-            ),
-            ("app.fanout.manager.fanout_manager.load_from_db", {"new": AsyncMock()}),
-            ("app.radio_proxy.manager.radio_proxy_manager.start_from_db", {"new": AsyncMock()}),
-            ("app.services.legacy_env_settings.import_legacy_community_iata", {"new": AsyncMock()}),
-            ("app.main.start_radio_stats_sampling", {"new": AsyncMock()}),
-            ("app.main.start_oss_update_polling", {"new": AsyncMock()}),
-            ("app.main.start_hashtag_catalogue_polling", {}),
-            ("app.main.start_stale_contact_purge", {}),
-            ("app.push.vapid.ensure_vapid_keys", {"new": AsyncMock()}),
-            ("app.websocket.broadcast_health", {}),
-        ):
-            stack.enter_context(patch(target, **kwargs))
-
+        _patch_lifespan(
+            stack,
+            shutdown=AsyncMock(side_effect=RuntimeError("teardown")),
+            db_disconnect=db_disconnect,
+        )
         cm = main.lifespan(main.app)
         await asyncio.wait_for(cm.__aenter__(), timeout=2)
         with pytest.raises(RuntimeError, match="teardown"):
             await asyncio.wait_for(cm.__aexit__(None, None, None), timeout=2)
 
     db_disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_the_payload_type_backfill():
+    """Migration 133 leaves raw_packets.payload_type NULL: startup must spawn the backfill."""
+    backfill = AsyncMock(return_value=0)
+    with ExitStack() as stack:
+        _patch_lifespan(stack, shutdown=AsyncMock(), db_disconnect=AsyncMock())
+        stack.enter_context(patch("app.repository.raw_packets.backfill_payload_types", backfill))
+        cm = main.lifespan(main.app)
+        await asyncio.wait_for(cm.__aenter__(), timeout=2)
+        for _ in range(20):
+            await asyncio.sleep(0)
+        await asyncio.wait_for(cm.__aexit__(None, None, None), timeout=2)
+
+    backfill.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_payload_type_backfill_is_logged_and_does_not_stop_startup(caplog):
+    backfill = AsyncMock(side_effect=RuntimeError("disk gone"))
+    with ExitStack() as stack:
+        _patch_lifespan(stack, shutdown=AsyncMock(), db_disconnect=AsyncMock())
+        stack.enter_context(patch("app.repository.raw_packets.backfill_payload_types", backfill))
+        with caplog.at_level(logging.ERROR, logger="app.main"):
+            cm = main.lifespan(main.app)
+            await asyncio.wait_for(cm.__aenter__(), timeout=2)  # the app starts
+            for _ in range(20):
+                await asyncio.sleep(0)
+            await asyncio.wait_for(cm.__aexit__(None, None, None), timeout=2)
+
+    backfill.assert_awaited_once()
+    assert any("payload_type failed" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio

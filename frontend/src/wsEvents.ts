@@ -1,3 +1,4 @@
+import type { NotificationChannelChange } from './notifications/types';
 import type {
   Channel,
   CommunityLiveStatus,
@@ -6,9 +7,11 @@ import type {
   HealthStatus,
   Message,
   MessagePath,
+  PluginStatusEntry,
   RadioWifiState,
   RawPacket,
 } from './types';
+import { WS_EVENT_PERMISSIONS, type WsEventType } from './wsEventTypes';
 
 export interface MessageAckedPayload {
   message_id: number;
@@ -34,6 +37,33 @@ export interface ChannelDeletedPayload {
   key: string;
 }
 
+/**
+ * A notification catalogue event that matched at least one rule
+ * (`app/notifications/ws_frame.py`, MSHL-138): typed `data` (the webhook v2 `data`, message
+ * text kept), never rendered text. The server filters it per socket: `notify.*` events reach
+ * admins only, and a direct conversation (`message.dm`, a `PRIV` conversation, a mention on a
+ * private-key channel) never reaches a session without `read_private` (kiosk). A message
+ * split across channels (a mention) is framed once; every other event is framed each time it
+ * is routed, re-fires included (`dispatcher._publish_frame`), so consumers dedup by their own keys.
+ * The Feed consumes four ids (`utils/feedEvents.ts`, `noteNotificationEvent`) and ignores
+ * every other one.
+ */
+export interface NotificationEventFrame {
+  version: number;
+  /** A catalogue id (`GET /api/notifications/events`), e.g. `message.channel`. */
+  event: string;
+  event_id: string;
+  occurred_at: number;
+  dedup_key: string;
+  urgent: boolean;
+  conversation_key: string | null;
+  /** `PRIV` or `CHAN` for a message, `CHAN` for `channel.found`, else null. */
+  conversation_type: 'PRIV' | 'CHAN' | null;
+  /** For a `CHAN` message: a Public or `#` channel. Else null. */
+  conversation_open: boolean | null;
+  data: Record<string, unknown>;
+}
+
 export interface ToastPayload {
   message: string;
   details?: string;
@@ -55,9 +85,30 @@ export type KnownWsEvent =
   | { type: 'message_acked'; data: MessageAckedPayload }
   | { type: 'message_deleted'; data: MessageDeletedPayload }
   | { type: 'radio_wifi'; data: RadioWifiState }
+  | { type: 'plugin_status'; data: PluginStatusEntry }
+  | { type: 'notification_channel_changed'; data: NotificationChannelChange }
+  | { type: 'notification_event'; data: NotificationEventFrame }
   | { type: 'error'; data: ToastPayload }
   | { type: 'success'; data: ToastPayload }
   | { type: 'pong'; data?: null };
+
+type SameTypes<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+/** Fails to compile unless `T` is `true`. */
+type Assert<T extends true> = T;
+
+/**
+ * Compile-time proof that `KnownWsEvent` covers exactly the server's event types:
+ * `wsEventTypes.ts` is generated from `WsEvent` (`app/auth/ws_events.py`) and
+ * checked in CI, so a type added or removed there breaks `tsc` until it is
+ * handled here. `pong` is the reply to the client's ping, not an event.
+ */
+export type KnownWsEventsMatchServer = Assert<
+  SameTypes<Exclude<KnownWsEvent['type'], 'pong'>, WsEventType>
+>;
+
+function isServerEventType(type: string): type is WsEventType {
+  return Object.prototype.hasOwnProperty.call(WS_EVENT_PERMISSIONS, type);
+}
 
 export interface UnknownWsEvent {
   type: 'unknown';
@@ -106,6 +157,13 @@ export function isDispatchableWsEvent(event: ParsedWsEvent): boolean {
     case 'community_packet':
     case 'community_live':
       return isRecord(data);
+    case 'notification_event':
+      return (
+        isRecord(data) &&
+        typeof data.event === 'string' &&
+        typeof data.event_id === 'string' &&
+        isRecord(data.data)
+      );
     case 'error':
     case 'success':
       return isRecord(data) && typeof data.message === 'string';
@@ -120,26 +178,14 @@ export function parseWsEvent(raw: string): ParsedWsEvent {
     throw new Error('Invalid WebSocket event envelope');
   }
 
+  if (isServerEventType(parsed.type)) {
+    return {
+      type: parsed.type,
+      data: parsed.data,
+    } as KnownWsEvent;
+  }
+
   switch (parsed.type) {
-    case 'health':
-    case 'message':
-    case 'contact':
-    case 'contact_resolved':
-    case 'channel':
-    case 'contact_deleted':
-    case 'channel_deleted':
-    case 'raw_packet':
-    case 'community_packet':
-    case 'community_live':
-    case 'message_acked':
-    case 'message_deleted':
-    case 'radio_wifi':
-    case 'error':
-    case 'success':
-      return {
-        type: parsed.type,
-        data: parsed.data,
-      } as KnownWsEvent;
     case 'pong':
       return { type: 'pong', data: parsed.data as null | undefined };
     default:

@@ -15,7 +15,9 @@ from pydantic import (
     model_validator,
 )
 
+from app.data.meshcore_channels import channel_key_is_name_derived
 from app.path_utils import normalize_contact_route, normalize_route_override
+from app.share_conversation import channel_conversation_id
 
 # Valid MeshCore contact types: 0=unknown, 1=client, 2=repeater, 3=room, 4=sensor.
 # Corrupted radio data can produce values outside this range.
@@ -382,6 +384,30 @@ class Channel(BaseModel):
         ),
     )
 
+    @computed_field(
+        description=(
+            "True when the key is SHA256 of the name or of '#' + name (anyone who knows "
+            "the name can read it; a hashtag channel "
+            "renamed without its '#' stays derived). Computed, never stored; the share "
+            "preview policy 'private' does not auto-load media in such a channel."
+        )
+    )
+    @property
+    def key_derived(self) -> bool:
+        return channel_key_is_name_derived(self.name, self.key)
+
+    @computed_field(
+        description=(
+            "Opaque id an encrypted share upload names this channel by "
+            "(X-Share-Conversation-Id), so the key never travels back from the browser. "
+            "Truncated, domain-separated SHA-256 of the key; computed, never stored, "
+            "null for a malformed key."
+        )
+    )
+    @property
+    def share_conversation_id(self) -> str | None:
+        return channel_conversation_id(self.key)
+
 
 class RejectedChannel(BaseModel):
     """A refused catalogue channel that must not auto-reopen."""
@@ -488,6 +514,14 @@ class Message(BaseModel):
             "Persisted so eligibility survives raw-packet purge. Sticky true."
         ),
     )
+    historical: bool | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description=(
+            "True only on a WebSocket `message` event produced by historical decryption "
+            "(an old message stored late). Absent everywhere else: live frames, REST rows, fanout."
+        ),
+    )
 
 
 class MessagesAroundResponse(BaseModel):
@@ -588,9 +622,13 @@ class RawPacketHistoryResponse(BaseModel):
         description="Rows in the since/until/after_id window (idx_raw_packets_timestamp)"
     )
     truncated: bool = Field(
-        description="True when the bounded header scan stopped at max_scan with more rows left"
+        description="True when the bounded header scan stopped at max_scan with more rows left. "
+        "Always false when the payload_type index serves the filter (no scan, no cap)"
     )
-    scanned: int = Field(description="Rows walked while building this page")
+    scanned: int = Field(
+        description="Rows walked while building this page; with the payload_type index, "
+        "the rows returned"
+    )
 
 
 class UndecryptedGroupTextSample(BaseModel):
@@ -1174,6 +1212,71 @@ class ServerLabel(BaseModel):
     )
 
 
+# Where the app may open when the URL has no hash: the tool ids of the hash grammar
+# (frontend/src/utils/urlHash.ts). Empty means the conversations. The PATCH route
+# enforces it; the model does not, so a stale stored value cannot reset the others.
+START_VIEW_IDS: frozenset[str] = frozenset(
+    {
+        "raw",
+        "feed",
+        "control",
+        "map",
+        "live",
+        "visualizer",
+        "search",
+        "trace",
+        "locate",
+        "discovered",
+        "test",
+    }
+)
+
+
+_START_VIEW_FEED_BASES = frozenset({"feed", "control"})
+_START_VIEW_LISTS: dict[str, frozenset[str]] = {
+    "src": frozenset({"messages", "control", "events"}),
+    "types": frozenset({"chan", "priv"}),
+    "dir": frozenset({"in", "out"}),
+}
+_START_VIEW_FLAGS = frozenset({"muted", "pending", "display"})
+_START_VIEW_MAX_LENGTH = 512
+_PUBKEY64 = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def is_valid_start_view(value: str) -> bool:
+    """True for a tool id, or ``feed?...`` / ``control?...`` in the feed hash grammar.
+
+    Stricter than the browser, which ignores what it does not know: a stored start page is
+    written by an administrator, so an unknown key, an unknown token, a repeated key or a
+    value that is not a 64-hex public key (a 32-hex channel key included) is refused rather
+    than kept. The grammar lives in ``frontend/src/utils/feedFilters.ts``.
+    """
+    if value in START_VIEW_IDS:
+        return True
+    base, sep, query = value.partition("?")
+    if not sep or base not in _START_VIEW_FEED_BASES or len(value) > _START_VIEW_MAX_LENGTH:
+        return False
+    seen: set[str] = set()
+    for pair in query.split("&"):
+        key, eq, raw = pair.partition("=")
+        if not eq or key in seen or "%" in raw:
+            return False
+        seen.add(key)
+        if key in _START_VIEW_LISTS:
+            tokens = raw.split(",") if raw else []
+            if len(set(tokens)) != len(tokens) or not set(tokens) <= _START_VIEW_LISTS[key]:
+                return False
+        elif key in _START_VIEW_FLAGS:
+            if raw not in ("0", "1"):
+                return False
+        elif key == "node":
+            if not _PUBKEY64.fullmatch(raw):
+                return False
+        else:
+            return False
+    return True
+
+
 class UiPreferences(BaseModel):
     """Interface preferences, kept with the instance rather than in a browser.
 
@@ -1195,6 +1298,16 @@ class UiPreferences(BaseModel):
         default="",
         description="Theme id, or empty to follow the operating system",
     )
+    start_view: str = Field(
+        default="",
+        description=(
+            "Where the app opens when the URL has no hash: a tool hash fragment "
+            "without the '#' (one of START_VIEW_IDS, or feed/control with a filter "
+            "query, see is_valid_start_view). Empty means the conversations. "
+            "Kept with the instance so a screen with no settings, the kiosk, opens "
+            "where an administrator chose."
+        ),
+    )
     server_label: ServerLabel = Field(
         default_factory=ServerLabel,
         description=(
@@ -1212,6 +1325,7 @@ class TelemetryAlertChannels(BaseModel):
     push: bool = True
     email: bool = False
     webhook: bool = False
+    apprise: bool = False
 
 
 class TelemetryRuleSpec(BaseModel):
@@ -1275,7 +1389,9 @@ class TelemetryAlertRuleOverride(BaseModel):
 class TelemetryAlertRules(BaseModel):
     """Global telemetry alert rules plus optional per-public-key overrides."""
 
-    channels: TelemetryAlertChannels = Field(default_factory=TelemetryAlertChannels)
+    # Deprecated, ignored: the notification rules choose the channels. Accepted so an old
+    # PATCH body still validates; never stored and never returned.
+    channels: TelemetryAlertChannels = Field(default_factory=TelemetryAlertChannels, exclude=True)
     rules: dict[str, TelemetryRuleSpec] = Field(default_factory=dict)
     overrides: dict[str, TelemetryAlertRuleOverride] | None = Field(
         default_factory=dict,
@@ -1343,13 +1459,66 @@ class NotificationEmailDest(BaseModel):
 
 
 class NotificationWebhookDest(BaseModel):
+    # Write-only, like hmac_secret: a webhook URL often carries its token.
     url: str = ""
     hmac_secret: str = ""
+    # Scheme and host of the stored URL, set only on the API form
+    # (present_notification_destinations); never stored.
+    url_redacted: str | None = Field(default=None, exclude_if=lambda v: v is None)
+    # Egress guard opt-in (app/net/egress_guard.py): a LAN or loopback target.
+    # A webhook saved before the guard existed reads as allowed and grandfathered
+    # (coerce_notification_destinations); the UI shows a one-time banner then.
+    allow_private_network: bool = False
+    private_network_grandfathered: bool = False
+
+
+def grandfather_legacy_webhook(raw: Any) -> Any:
+    """A stored webhook from before the egress guard keeps reaching its LAN target.
+
+    Lazy default, applied where stored or backed-up destinations are parsed (the
+    repository read, a backup restore): a raw ``webhook`` with a URL and no
+    ``allow_private_network`` key reads as allowed and grandfathered. The first
+    save writes the key, so this runs only until then. A new URL starts refused.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    webhook = raw.get("webhook")
+    if (
+        isinstance(webhook, dict)
+        and str(webhook.get("url") or "").strip()
+        and "allow_private_network" not in webhook
+    ):
+        raw = {
+            **raw,
+            "webhook": {
+                **webhook,
+                "allow_private_network": True,
+                "private_network_grandfathered": True,
+            },
+        }
+    return raw
+
+
+AppriseMessageText = Literal["always", "public_only", "never"]
+
+
+class NotificationAppriseDest(BaseModel):
+    """Apprise destination: one URL per line, a secret as a whole (``urls``)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    urls: str = ""
+    # Egress guard opt-in for the hosts the URLs name (ntfy, Gotify, Home Assistant).
+    allow_private_network: bool = False
+    # Message text sent for messages: always, only for public/# channels, or never.
+    include_message_text: AppriseMessageText = "public_only"
+    format: Literal["text", "markdown"] = "text"
 
 
 class NotificationDestinations(BaseModel):
     email: NotificationEmailDest = Field(default_factory=NotificationEmailDest)
     webhook: NotificationWebhookDest = Field(default_factory=NotificationWebhookDest)
+    apprise: NotificationAppriseDest = Field(default_factory=NotificationAppriseDest)
 
 
 class NotificationEmailDestUpdate(BaseModel):
@@ -1369,11 +1538,56 @@ class NotificationEmailDestUpdate(BaseModel):
 class NotificationWebhookDestUpdate(BaseModel):
     url: str | None = None
     hmac_secret: str | None = None
+    allow_private_network: bool | None = None
+    private_network_grandfathered: bool | None = None
+
+
+class NotificationAppriseDestUpdate(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    urls: str | None = None
+    allow_private_network: bool | None = None
+    include_message_text: AppriseMessageText | None = None
+    format: Literal["text", "markdown"] | None = None
 
 
 class NotificationDestinationsUpdate(BaseModel):
     email: NotificationEmailDestUpdate | None = None
     webhook: NotificationWebhookDestUpdate | None = None
+    apprise: NotificationAppriseDestUpdate | None = None
+
+
+class AppSettingsView(BaseModel):
+    """The slice of ``AppSettings`` every role may read (``GET /api/settings/view``).
+
+    An allowlist: a field added to ``AppSettings`` reaches the other roles only by
+    being added here. Display preferences, the blocked lists and the region names
+    the interface decorates with; no credential, destination, radio workaround or
+    other administration setting (``tests/test_settings_view.py`` pins the set).
+    """
+
+    ui_preferences: UiPreferences = Field(default_factory=UiPreferences)
+    last_message_times: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Conversation state keys to last message timestamps; the direct-message "
+            "keys are left out below the read_private permission"
+        ),
+    )
+    flood_scope: str = ""
+    known_regions: list[str] = Field(default_factory=list)
+    blocked_keys: list[str] = Field(default_factory=list)
+    blocked_names: list[str] = Field(default_factory=list)
+    directory_available: bool = False
+
+
+# Consent state: never written to a backup file nor restored.
+_CONSENT_FIELDS = {
+    "share_enabled",
+    "share_effective",
+    "share_terms_version",
+    "share_terms_accepted_at",
+}
 
 
 class AppSettings(BaseModel):
@@ -1465,8 +1679,15 @@ class AppSettings(BaseModel):
     )
     notification_destinations: NotificationDestinations = Field(
         default_factory=NotificationDestinations,
-        description="SMTP and webhook destinations for system telemetry alerts",
+        description="SMTP, webhook and Apprise destinations for system notifications",
     )
+
+    @field_validator("notification_destinations", mode="before")
+    @classmethod
+    def _grandfather_legacy_webhook(cls, value: Any) -> Any:
+        # A backup written before the egress guard restores its LAN webhook.
+        return grandfather_legacy_webhook(value)
+
     auto_resend_channel: bool = Field(
         default=False,
         description=(
@@ -1524,9 +1745,115 @@ class AppSettings(BaseModel):
             "ahead, during connection setup, at most once per radio per process"
         ),
     )
+    keep_channels_on_radio: bool = Field(
+        default=False,
+        description=(
+            "Keep the channels in the radio's slots: the connect sync copies them into "
+            "Meshloom without clearing them, and Meshloom sends on channels that are "
+            "not on the radio from one reserved scratch slot (the highest), so the "
+            "other slots keep their channels. Off: the slots are emptied at every "
+            "connect and loaded on demand"
+        ),
+    )
+    push_allow_private_endpoints: bool = Field(
+        default=False,
+        description=(
+            "Accept Web Push endpoints on a private network (LAN, localhost), for a "
+            "self-hosted UnifiedPush distributor. Off: such endpoints are refused"
+        ),
+    )
+    radio_offline_grace_s: int = Field(
+        default=60,
+        ge=0,
+        le=3600,
+        description=(
+            "Seconds the radio may stay unreachable before the radio_offline "
+            "notification is sent (0 = at once). An expected reboot or an operator "
+            "pause never notifies"
+        ),
+    )
+    share_enabled: bool = Field(
+        default=False,
+        description=(
+            "Instance-level consent to the link and file sharing service (shortened "
+            "links, shared images). Off: nothing is ever sent to it. Never restored "
+            "from a backup"
+        ),
+    )
+    share_effective: bool = Field(
+        default=False,
+        description=(
+            "Computed: sharing is actually on, that is share_enabled, the accepted terms "
+            "are the current version and Community is on (the state share_egress_state() and "
+            "GET /api/share/status report). share_enabled alone is the stored choice and "
+            "stays true when the terms changed since. Not stored, never restored from a backup"
+        ),
+    )
+    share_terms_version: int = Field(
+        default=0,
+        description=(
+            "Version of the share terms accepted in the consent dialog (0 = never). Sharing "
+            "is effective only while it equals the current version. Never restored from a backup"
+        ),
+    )
+    share_terms_accepted_at: int = Field(
+        default=0,
+        description="Unix time of that acceptance (0 = never). Never restored from a backup",
+    )
+    store_online: bool = Field(
+        default=True,
+        description=(
+            "Instance-level switch of the Store egress (custom GitHub repositories, later "
+            "the signed index on store.meshloom.app), on by default. Off: nothing is ever sent "
+            "for the Store and installed plugins keep working. Travels with backups, so a "
+            "choice to turn it off is not lost"
+        ),
+    )
+    share_shorten_mode: Literal["auto", "always", "never"] = Field(
+        default="auto",
+        description="When the composer shortens a link: auto (long links only), always, never",
+    )
+    share_preview_policy: Literal["always", "private", "never"] = Field(
+        default="always",
+        description=(
+            "When a shared image or link preview is fetched automatically: always, "
+            "private (conversations that are not public), never"
+        ),
+    )
+    notification_language: Literal["auto", "fr", "en"] = Field(
+        default="auto",
+        description=(
+            "Language of the e-mail and Apprise notifications: fr, en, or auto (English only "
+            "with a strict majority of English push subscriptions, a tie is French)"
+        ),
+    )
+    push_private_endpoints_grandfathered: bool = Field(
+        default=False,
+        description=(
+            "push_allow_private_endpoints was turned on by the upgrade because a "
+            "subscription stored before the egress guard is not a browser push "
+            "service; the UI shows a one-time notice until dismissed"
+        ),
+    )
+    push_private_endpoints_review: bool = Field(
+        default=False,
+        description=(
+            "Migration 104 turned push_allow_private_endpoints off for a subscription behind "
+            "a hostname (split DNS, Tailscale *.ts.net) it cannot tell from a public one; "
+            "sends to a private address are refused until the box is ticked. The UI shows a "
+            "notice with a one-click re-enable until it is dismissed or the setting is saved"
+        ),
+    )
     auto_update: bool = Field(
         default=False,
         description="When true, apply a newer Meshloom package/image through the helper",
+    )
+    auth_allowed_origins: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Other sites (scheme://host[:port]) whose browser requests may call this "
+            "API with credentials (CORS). Empty: same-origin only"
+        ),
     )
     auto_update_window_start: str = Field(
         default="00:00",
@@ -1885,6 +2212,12 @@ class BackupExport(BaseModel):
     and push preferences. No messages, raw packets, radio private key or VAPID
     keys: the full backup (``BackupExportV2``) adds those. Restore must not emit
     first-seen.
+
+    The download (``GET /settings/backup/json``) holds no notification secret:
+    the SMTP password and the webhook HMAC secret read ``********`` and
+    ``secret_omitted`` lists their paths. Restoring it keeps the stored secrets
+    (``********`` means "unchanged", ``app/secret_fields.py``). The full backup
+    keeps them in clear (it can be encrypted) and leaves ``secret_omitted`` empty.
     """
 
     format: str = "meshloom-backup-v1"
@@ -1896,6 +2229,17 @@ class BackupExport(BaseModel):
     push_defaults: dict[str, Any] | None = None
     push_conversation_overrides: dict[str, bool | dict[str, bool]] | None = None
     vapid_subject: str | None = None
+    secret_omitted: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Secrets written as ``********`` instead of their value, by path.",
+    )
+
+    @field_serializer("settings", when_used="always")
+    def _serialize_settings(self, settings: AppSettings | None) -> dict[str, Any] | None:
+        """The sharing consent never travels: it is not written to the file."""
+        if settings is None:
+            return None
+        return settings.model_dump(mode="python", exclude=_CONSENT_FIELDS)
 
 
 class BackupRestoreRequest(BackupExport):
@@ -1912,6 +2256,8 @@ class BackupRestoreResult(BaseModel):
     channels_upserted: int = 0
     settings_updated: bool = False
     groups_upserted: int = 0
+    # ``code:value`` strings, as in the full restore job's warnings.
+    warnings: list[str] = Field(default_factory=list)
     private_key_warning: str = (
         "This Meshloom-only restore never touches the radio or its private key "
         "(the full backup in Settings > Database carries both). It does not replace "
@@ -2148,6 +2494,9 @@ class BackupPushSubscription(BaseModel):
     auth: str = Field(min_length=1)
     label: str = ""
     language: str = "fr"
+    # The owner's username (never the numeric id, which names someone else on another
+    # instance). Absent in files from before MSHL-320: the device goes to the first admin.
+    owner: str | None = Field(default=None, max_length=256)
 
 
 class BackupRadioProxy(BaseModel):
@@ -2179,6 +2528,37 @@ class MeshloomExtra(BaseModel):
     fanout_configs: list[BackupFanoutConfig] = Field(default_factory=list)
 
 
+class BackupSection(BaseModel):
+    """One named section of a full backup, written and read by the code that
+    registered it (``app/services/backup_sections.py``, ``docs/dev/backup.md``)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    version: int = Field(default=1, ge=1, description="The section's own format version")
+    sensitive: bool = Field(
+        default=False, description="The section holds secrets (hashes included)"
+    )
+    secrets_omitted: bool = Field(
+        default=False,
+        description="Secrets were left out on export: a restore never clears a stored one",
+    )
+    data: Any = None
+
+
+class BackupSectionSummary(BaseModel):
+    """A section of a file, as the restore summary shows it."""
+
+    name: str
+    known: bool = Field(description="This version restores it (else it is ignored)")
+    too_new: bool = Field(
+        default=False, description="Written by a newer version of its owner: not restored"
+    )
+    sensitive: bool = False
+    description: dict[str, str] | None = Field(
+        default=None, description="What it holds, per language (en, fr); None when unknown"
+    )
+
+
 class BackupV1Document(BackupExport):
     format: Literal["meshloom-backup-v1", "remoteterm-backup-v1"] = "meshloom-backup-v1"
 
@@ -2196,6 +2576,10 @@ class BackupExportV2(BackupExport):
     radio: RadioNodeSettings | None = None
     wifi: BackupWifi | None = None
     meshloom_extra: MeshloomExtra | None = None
+    sections: dict[str, BackupSection] = Field(
+        default_factory=dict,
+        description="Optional named sections; a reader ignores the ones it does not know",
+    )
 
 
 class BackupKdfParams(BaseModel):
@@ -2232,6 +2616,10 @@ class BackupExportRequest(BaseModel):
 
     passphrase: SecretStr | None = Field(
         default=None, description="Encrypt the file with this passphrase (8 characters or more)"
+    )
+    include_accounts: bool = Field(
+        default=True,
+        description="Include the accounts (password hashes and two-factor secrets)",
     )
 
 
@@ -2280,6 +2668,14 @@ class BackupPushSummary(BaseModel):
 
     label: str
     host: str
+    owner: str | None = Field(
+        default=None,
+        description=(
+            "The account that receives these notifications after the restore: the file's"
+            " owner username when an account of that name exists then (the file's accounts"
+            " when they are restored, else the current ones). None: the first administrator."
+        ),
+    )
 
 
 class BackupInspectResult(BaseModel):
@@ -2302,10 +2698,9 @@ class BackupInspectResult(BaseModel):
         default=False, description="Those credentials are an open network (no password)"
     )
     counts: BackupCounts = Field(default_factory=BackupCounts)
-    bot_names: list[str] = Field(default_factory=list)
-    bots_will_be_skipped: bool = Field(
-        default=False,
-        description="Bots are turned off on this server: the file's bots are not restored",
+    bot_names: list[str] = Field(
+        default_factory=list,
+        description="4.18 bots in the file: restored as disabled extensions awaiting review",
     )
     integrations: list[BackupIntegrationSummary] = Field(
         default_factory=list,
@@ -2333,6 +2728,23 @@ class BackupInspectResult(BaseModel):
     identity_refusal: str | None = Field(
         default=None, description="Error code when the restore would be refused"
     )
+    secret_store_unavailable: bool = Field(
+        default=False,
+        description=(
+            "The restore (Meshloom step on) would have to encrypt integration or notification"
+            " secrets and secrets.key cannot be read or created: it would be refused with 503"
+            " backup_secret_store_unavailable, before any write"
+        ),
+    )
+    channels_kept_on_radio: bool = Field(
+        default=False,
+        description=(
+            "Whether the channels step's slots stay on the radio (MSHL-41): the file's "
+            "keep_channels_on_radio when it carries one (the channels step needs the "
+            "Meshloom step, which restores it), else this Meshloom's. False: the next "
+            "connect empties the pushed slots"
+        ),
+    )
     live_radio_public_key: str | None = None
     live_radio_name: str | None = None
     ble_pin_differs_on_ble: bool = False
@@ -2340,6 +2752,9 @@ class BackupInspectResult(BaseModel):
     wifi_off_on_tcp: bool = Field(
         default=False,
         description="Meshloom reaches the radio over TCP and the file turns Wi-Fi off",
+    )
+    sections: list[BackupSectionSummary] = Field(
+        default_factory=list, description="The file's named sections"
     )
     warnings: list[str] = Field(default_factory=list)
 
@@ -3024,3 +3439,185 @@ class RadioProxyUpdate(BaseModel):
     bind: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
     max_clients: int | None = Field(default=None, ge=1, le=32)
+
+
+class ShareStatus(BaseModel):
+    """``GET /api/share/status``: what the UI needs to offer sharing. No egress."""
+
+    enabled: bool = Field(
+        description=(
+            "Sharing is actually on: instance-level consent, current terms and Community on"
+        )
+    )
+    community_enabled: bool = Field(
+        description=(
+            "Community is on. Sharing needs it (MSHL-445): while it is off, turning sharing "
+            "on answers 409 share_community_off and enabled is false"
+        ),
+    )
+    host: str = Field(description="The share service host links are written to")
+    hosts: list[str] = Field(description="Every host a share link may carry")
+    identity_ready: bool = Field(
+        description="The instance share key exists (created on the first write)"
+    )
+    dm_encryption_available: bool = Field(
+        description="The radio private key is held, so shared files can be encrypted for a contact"
+    )
+    banned: bool = Field(description="The service banned this instance: writes are refused")
+    unreachable: bool = Field(
+        description=(
+            "The circuit breaker is open: recent calls to the service failed, so its terms "
+            "pages are probably unreadable too. Known locally, no request is made to find out"
+        )
+    )
+    shorten_mode: Literal["auto", "always", "never"]
+    preview_policy: Literal["always", "private", "never"]
+    terms_version: int = Field(description="The current version of the share terms (server-side)")
+    terms_accepted_version: int = Field(
+        description="The terms version the owner accepted (0 = never)"
+    )
+    terms_accepted_at: int | None = Field(
+        description="Unix time of the recorded acceptance, null when never accepted"
+    )
+    terms_stale: bool = Field(
+        description=(
+            "Sharing was enabled under an older terms version (or before acceptances were "
+            "recorded): it is off until the owner accepts the current terms again"
+        )
+    )
+
+
+class ShareLinkRequest(BaseModel):
+    url: str = Field(description="The http(s) URL to shorten")
+
+
+class ShareLinkResponse(BaseModel):
+    id: str
+    url: str
+    expires_at: int
+
+
+class ShareFileResponse(BaseModel):
+    """``POST /api/share/files``: the stored file and the composer's proposed text.
+
+    ``text`` is ``📷 <url>`` for a public file and ``🔒 <url>`` for an encrypted
+    one (30 bytes on ``meshl.ink``, cadrage 4.2); the user may edit it before
+    sending. ``size`` is the stored bytes (the envelope when encrypted).
+    """
+
+    id: str
+    url: str
+    expires_at: int
+    size: int
+    mode: Literal["public", "encrypted"]
+    text: str
+
+
+class ShareMetaResponse(BaseModel):
+    """``GET /api/share/{id}/meta``: a link (``target_host``) or a file.
+
+    File members are null for a link. ``name`` is null for a public file (the
+    contract stores none); ``decryptable`` is true for a public file (nothing to
+    decrypt). For an encrypted file it is true when this instance decrypted it
+    with the secret of the ``message_id`` conversation (``content_type``,
+    ``name`` and ``size`` then describe the decrypted image), false with those
+    members null when it cannot, and null when the object cannot be fetched now.
+    """
+
+    kind: str
+    target_host: str | None = None
+    expires_at: int | None = None
+    created_at: int | None = None
+    mode: str | None = None
+    content_type: str | None = None
+    size: int | None = None
+    name: str | None = None
+    decryptable: bool | None = None
+
+
+class ShareCacheClearResponse(BaseModel):
+    freed_bytes: int
+
+
+# The contract's report reasons (links-files.md, ``POST /v1/reports``).
+ShareReportReason = Literal[
+    "illegal", "child_abuse", "phishing", "malware", "spam", "copyright", "privacy", "other"
+]
+
+
+class ShareReportRequest(BaseModel):
+    """``POST /api/share/{id}/report``: forwarded to the service (JWT variant)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: ShareReportReason
+    details: str = Field(default="", max_length=2000, description="Optional free text")
+
+
+class ShareReportResponse(BaseModel):
+    """The service took the report (it never says whether it will act on it)."""
+
+    received: bool = True
+
+
+class ShareMineItem(BaseModel):
+    """One object this instance posted (``GET /api/share/mine``).
+
+    A link carries ``target_host``; a file ``mode``, ``content_type`` and
+    ``size`` (bytes, public) or ``size_kib`` (encrypted, rounded up). A blocked
+    object carries ``blocked_category`` (one of the report reasons) and cannot
+    be deleted by its author.
+    """
+
+    id: str
+    kind: Literal["link", "file"]
+    status: Literal["active", "blocked"]
+    blocked_category: ShareReportReason | None = None
+    created_at: int | None = None
+    expires_at: int | None = None
+    target_host: str | None = None
+    mode: Literal["public", "encrypted"] | None = None
+    content_type: str | None = None
+    size: int | None = None
+    size_kib: int | None = None
+
+
+class ShareMineResponse(BaseModel):
+    """One page of ``GET /api/share/mine``, newest first; ``next_cursor`` null on the last."""
+
+    objects: list[ShareMineItem]
+    next_cursor: str | None = None
+
+
+class StoreStatus(BaseModel):
+    """``GET /api/store/status``: whether the Store is on and what it may reach. No egress."""
+
+    enabled: bool = Field(
+        description="The Store egress switch (app_settings.store_online). On by default"
+    )
+    hosts: list[str] = Field(
+        description=(
+            "Every host a Store request may reach: the egress guard allowlist of "
+            "app/plugins/store_egress.py, nothing else"
+        )
+    )
+    sends: list[Literal["ip_address", "user_agent"]] = Field(
+        description=(
+            "What each Store request reveals: the instance's public IP address and the "
+            "User-Agent (with the Meshloom version). No account, key or radio data"
+        )
+    )
+    user_agent: str = Field(description="The User-Agent every Store request carries")
+    refresh_interval_s: int = Field(
+        description=(
+            "Background refresh cadence while enabled and at least one custom or store "
+            "instance is installed"
+        )
+    )
+    missed_when_disabled: list[Literal["updates"]] = Field(
+        description="What the instance does not receive while the Store is off"
+    )
+    refresh_running: bool = Field(description="The background refresh loop is running")
+    last_refresh_at: int | None = Field(
+        description="Unix time of the last background refresh, null when none ran since start"
+    )

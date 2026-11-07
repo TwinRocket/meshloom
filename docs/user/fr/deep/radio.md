@@ -39,7 +39,21 @@ Au démarrage, il vide les emplacements de salon de la radio. Ensuite, un envoi 
 Deux exceptions à cette réutilisation :
 
 - Avec une **radio réseau (TCP)**, chaque envoi vers un salon réécrit le salon dans la radio, car un autre programme peut utiliser la même radio.
-- **Réécrire le salon avant chaque envoi**, dans **Réglages → Radio → Avancé**, fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
+- **Réécrire le canal avant chaque envoi**, dans **Réglages → Radio → Avancé**, fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
+
+Supprimer un salon dans Meshloom vide aussi son emplacement sur la radio, tout de suite ou à la prochaine connexion si la radio est absente. Sinon, cette connexion ferait revenir le salon.
+
+### Garder les salons sur la radio
+
+**Garder les canaux sur la radio**, dans **Réglages → Radio → Messagerie**, est désactivé par défaut. Activez-le si vous utilisez aussi la radio sans Meshloom (l’application MeshCore officielle, un autre client) ou si vous voulez que les salons d’une restauration restent sur la radio. Le réglage s’applique à la prochaine connexion :
+
+- Meshloom copie toujours chaque salon de la radio à la connexion, mais ne vide plus les emplacements.
+- Un envoi vers un salon déjà présent sur la radio utilise son emplacement tel quel.
+- Meshloom garde un emplacement pour lui, le dernier, pour envoyer vers les salons absents de la radio. Il n’écrase jamais les autres. Une radio à 8 emplacements garde 7 salons ; la page des réglages affiche le nombre pour votre radio.
+- Avec une radio réseau (TCP), ou avec **Réécrire le canal avant chaque envoi**, chaque envoi vers un salon passe par ce dernier emplacement.
+- Le **Test radio** (dans la barre latérale) emprunte lui aussi le dernier emplacement.
+
+Le choix des salons gardés vous revient : ajoutez-les ou retirez-les sur la radio avec une autre application MeshCore, ou restaurez une sauvegarde (voir [Sauvegarder votre radio](/docs/backup/)).
 
 ## L’audit horaire
 
@@ -113,6 +127,12 @@ Le groupe **Contournements** du même onglet rassemble les correctifs cités sur
 
 Sous les réglages du firmware, **Capteurs de la radio** montre ce que la radio signale d’elle-même : la tension de sa batterie, la température du microcontrôleur si la carte a un capteur, et la position GPS quand le GPS est activé. Le stockage utilisé sur la radio s’affiche aussi, en Ko utilisés / total avec un pourcentage, quand la radio le signale. Les valeurs sont lues à l’ouverture de l’onglet ; **Actualiser** les relit.
 
+## Télémétrie des répéteurs et des contacts
+
+Chaque fois que Meshloom récupère la télémétrie d’un répéteur ou des capteurs d’un contact (depuis son volet, par l’API ou par le relevé automatique), il garde les lectures 30 jours, et au plus 1 000 échantillons par nœud. Le relevé automatique se règle dans **Réglages → Gestion Radio-App** : l’intervalle, et les répéteurs et contacts relevés, 8 de chaque au plus pour ne pas encombrer le mesh.
+
+Sur un répéteur ou un serveur de salon, **Mémoriser le mot de passe** l’enregistre en clair dans le stockage de ce navigateur. Préférez une entrée ACL une fois la première connexion réussie.
+
 ## Wi-Fi
 
 Les radios dotées du firmware compagnon 1.18 ou plus récent, compilé avec le Wi-Fi, ont une interface Wi-Fi que Meshloom lit et règle par la ligne de commande compagnon de la radio. Cela couvre les versions officielles Bluetooth + Wi-Fi et les versions Wi-Fi produites par le flasheur Meshloom. **Réglages → Radio → Connexion** montre alors un groupe **Wi-Fi** : le nom du réseau (SSID), si le Wi-Fi est activé, si la radio est connectée et son adresse, et **Identifiants enregistrés dans la radio** (oui ou non). Le nom affiché est celui enregistré, ou celui intégré au firmware quand rien n’est enregistré : la radio ne sait pas dire lequel. Le groupe est masqué quand le firmware n’a pas de ligne de commande (antérieur à 1.18, ou radio jointe par le proxy radio d’un autre Meshloom) ou pas de Wi-Fi.
@@ -150,7 +170,7 @@ Meshloom n’enregistre jamais le mot de passe Wi-Fi, ni dans sa base de donnée
 
 ## Remise à zéro usine
 
-Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio. Le bouton demande que la radio soit connectée. Une fenêtre liste ce qui va se passer, et vous devez saisir exactement le nom de la radio pour activer le bouton de confirmation.
+Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio. Le bouton demande que la radio soit connectée. Une fenêtre résume ce qui est effacé et ce qui est gardé (le détail est ci-dessous), et vous devez saisir exactement le nom de la radio pour activer le bouton de confirmation.
 
 **Effacé de la radio :**
 
@@ -166,14 +186,32 @@ Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio
 
 La radio redémarre et Meshloom se reconnecte tout seul. Il vous demande ensuite s’il faut adopter la nouvelle identité, avec l’invite d’identité habituelle. Cette action est irréversible.
 
+## Autres réglages de la radio
+
+- **Transmission ACK directe supplémentaire** fait envoyer à la radio un accusé de réception de plus, avant l’accusé normal, pour chaque message direct reçu. C’est un comportement du firmware, pas une relance de Meshloom.
+- **Partage de télémétrie** décide de ce que répond la radio quand un autre nœud demande sa télémétrie : **Refuser** rejette toutes les demandes, **Par contact** suit l’autorisation réglée pour chaque contact sur la radio, **Autoriser tous** répond à tout le monde.
+- L’export enregistre la configuration actuelle du serveur dans un fichier JSON ; l’import applique un tel fichier et redémarre la radio. Un fichier qui contient une clé privée donne cette identité à la radio : les autres nœuds voient alors un autre appareil, et seule la clé d’origine permet de revenir à l’ancienne.
+
+## Suivi de télémétrie et blocage
+
+**Réglages → Gestion radio-application** collecte la télémétrie des nœuds que vous choisissez, selon un planning :
+
+- **Télémétrie des répéteurs suivis** : jusqu’à 8 répéteurs. Pour limiter le trafic sur le mesh, tous les nœuds suivis se partagent au plus 24 interrogations par jour : plus vous en suivez, plus l’intervalle s’allonge. Quand vous en suivez trop pour l’intervalle choisi, Meshloom en prend un plus long et l’indique ; votre choix revient dès que vous en suivez moins.
+- **Télémétrie des contacts suivis** : jusqu’à 8 autres contacts (compagnons, salons, capteurs), pour leur télémétrie LPP (batterie, capteurs, GPS). Ils se partagent le même plafond quotidien.
+- **Interroger les répéteurs à chemin direct/routé toutes les heures** interroge toutes les heures les répéteurs suivis qui ont un chemin direct ou routé ; ceux joignables seulement en flood gardent le planning.
+
+**Bloquer** un contact le masque seulement, lui et ses messages, dans l’interface. Ses messages restent stockés et reviennent quand vous le débloquez, et le relais MQTT et les extensions les reçoivent toujours. **Bloquer la découverte de nouveaux types de nœuds** empêche Meshloom d’ajouter de nouveaux contacts des types cochés quand il entend leurs annonces ; les contacts existants de ces types restent mis à jour, et ceux ajoutés à la main ou par un message direct ne sont pas concernés.
+
 ## Proxy radio
 
 **Réglages → Proxy** peut faire passer Meshloom pour une radio MeshCore sur votre réseau, afin qu’une application mobile ou un autre Meshloom se connecte à travers lui. Il est désactivé par défaut. Une fois activé, il écoute sur le port 5001, sur toutes les adresses réseau, pour 8 clients au plus à la fois. Vous pouvez changer l’adresse, le port et le nombre de clients.
 
-Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Un second Meshloom doit utiliser une nouvelle base de données.
+Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Une connexion qui ne commence pas comme celle d’un client MeshCore, par exemple une page web ou un scan de ports, est fermée. Un second Meshloom doit utiliser une nouvelle base de données (ou adopter explicitement cette identité), et Meshloom refuse de brancher sa propre connexion radio sur son propre proxy. Quand c’est l’hôte qui fixe le port publié (l’add-on Home Assistant, par exemple), changez-le dans les réglages réseau de l’hôte.
+
+Le proxy ne donne jamais la clé privée de la radio, et c’est voulu. Un Meshloom connecté à travers lui ne détient donc pas cette clé, et ce qui en a besoin reste éteint chez lui : **Meshloom Community**, et avec lui Meshloom Remote, le partage de liens et de fichiers et Live ; le déchiffrement des messages directs par le serveur ; le laissez-passer LetsMesh et l’envoi vers la carte ; l’identité dans la sauvegarde complète. Meshloom l’indique quand vous essayez : **la clé de cette radio n’est pas disponible ici**. Pour utiliser ces fonctions, branchez la radio directement sur ce Meshloom, ou utilisez-les sur le Meshloom qui détient la clé, celui sur lequel la radio est branchée. Lire et envoyer à travers le proxy ne change pas.
 
 ## La clé privée
 
 À la connexion, Meshloom demande à la radio sa clé privée et la garde **en mémoire uniquement**. Elle n’est jamais écrite dans sa base. Grâce à elle, Meshloom peut déchiffrer lui-même les messages directs, même quand le contact n’est pas chargé sur la radio, et lire d’anciens messages dès qu’une clé devient connue.
 
-Quiconque atteint l’interface peut relire la clé, par `GET /api/radio/private-key` et dans la sauvegarde complète de **Réglages → Base de données** : c’est ainsi que l’on garde l’identité de la radio d’un flashage à l’autre (voir [Sauvegarder la radio](/docs/backup/)). Un firmware compilé sans export de clé n’en donne aucune, et ses sauvegardes ne contiennent pas d’identité. Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud).
+Quiconque atteint l’interface peut relire la clé, par `GET /api/radio/private-key` et dans la sauvegarde complète de **Réglages → Base de données** : c’est ainsi que l’on garde l’identité de la radio d’un flashage à l’autre (voir [Sauvegarder la radio](/docs/backup/)). Un firmware compilé sans export de clé n’en donne aucune, un [proxy radio](#proxy-radio) non plus, et les sauvegardes faites ainsi ne contiennent pas d’identité. Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud).

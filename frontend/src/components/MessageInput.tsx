@@ -8,23 +8,37 @@ import {
   useMemo,
   useSyncExternalStore,
   type ChangeEvent,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { Send, Smile, X } from 'lucide-react';
+import { Plus, Send, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
+import { api, formatApiError } from '../api';
 import { cn } from '@/lib/utils';
 import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
+import type { IncomingFile } from './ComposerFileTab';
+import type { ShareShortenMode } from '../types';
+import type { ShareTarget } from '../utils/channelClass';
 import {
   getTextReplaceEnabled,
   getTextReplaceMapJson,
   applyTextReplacements,
 } from '../utils/textReplace';
 import { loadConversationDraft, saveConversationDraft } from '../utils/conversationDrafts';
+import { radioKeyToastAction } from '../utils/radioKeyError';
 import { getDesktopEnterSends, subscribeDesktopEnterSends } from '../utils/composerEnterKey';
 import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
+import {
+  AUTO_SHORTEN_MIN_BYTES,
+  findLongUrls,
+  isShareLink,
+  rewriteUrls,
+  shortenedByteLength,
+} from '../utils/share';
+import { refreshShareStatus, useShareStatus } from '../stores/shareStatusStore';
 
 // MeshCore message size limits (empirically determined from LoRa packet constraints)
 // Direct delivery allows ~156 bytes; multi-hop requires buffer for path growth.
@@ -33,11 +47,15 @@ import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
 const DM_HARD_LIMIT = 156; // Max bytes for direct delivery
 const DM_WARNING_THRESHOLD = 140; // Conservative for multi-hop
 const CHANNEL_HARD_LIMIT = 156; // Base byte limit before sender overhead
+const CHANNEL_SENDER_SEPARATOR_BYTES = 2; // ": " after the sender name
+const UNKNOWN_SENDER_NAME_BYTES = 10; // Assumed name size while the radio name is unknown
 const CHANNEL_WARNING_THRESHOLD = 120; // Conservative for multi-hop
 const CHANNEL_DANGER_BUFFER = 8; // Red zone starts this many bytes before hard limit
 
 const textEncoder = new TextEncoder();
 const RADIO_NO_RESPONSE_SNIPPET = 'no response was heard back';
+// `auto` mode: how long Send waits for short links before sending the links as typed.
+const AUTO_SHORTEN_WAIT_MS = 4000;
 /** Get UTF-8 byte length of a string (LoRa packets are byte-constrained, not character-constrained). */
 function byteLen(s: string): number {
   return textEncoder.encode(s).length;
@@ -56,6 +74,8 @@ interface MessageInputProps {
   /** Radio advert coordinates used to send an Open location pin. */
   radioLat?: number | null;
   radioLon?: number | null;
+  /** Share class of the conversation (`utils/channelClass.ts`) for the File tab's mode offer. */
+  shareTarget?: ShareTarget | null;
 }
 
 type LimitState = 'normal' | 'warning' | 'danger' | 'error';
@@ -88,14 +108,16 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     senderName,
     radioLat,
     radioLon,
+    shareTarget = null,
   },
   ref
 ) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [text, setText] = useState('');
   const [replyQuote, setReplyQuote] = useState<{ sender: string; quote: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [composerPanel, setComposerPanel] = useState<ComposerAttachTab | null>(null);
+  const [incomingFile, setIncomingFile] = useState<IncomingFile | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef(text);
@@ -186,8 +208,11 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       };
     } else if (conversationType === 'channel') {
       // Channel hard limit = 156 bytes - senderName bytes - 2 (for ": " separator)
-      const nameByteLen = senderName ? byteLen(senderName) : 10;
-      const hardLimit = Math.max(1, CHANNEL_HARD_LIMIT - nameByteLen - 2);
+      const nameByteLen = senderName ? byteLen(senderName) : UNKNOWN_SENDER_NAME_BYTES;
+      const hardLimit = Math.max(
+        1,
+        CHANNEL_HARD_LIMIT - nameByteLen - CHANNEL_SENDER_SEPARATOR_BYTES
+      );
       return {
         warningAt: CHANNEL_WARNING_THRESHOLD,
         dangerAt: Math.max(1, hardLimit - CHANNEL_DANGER_BUFFER),
@@ -197,8 +222,37 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     return null; // Raw/other - no limits
   }, [conversationType, senderName]);
 
-  // UTF-8 byte length of the current text (LoRa packets are byte-constrained)
-  const textByteLen = useMemo(() => byteLen(text), [text]);
+  // Link shortening needs sharing on; `/api/share/status` is local (no egress).
+  const shareStatus = useShareStatus();
+  useEffect(() => {
+    if (!shareStatus) void refreshShareStatus();
+  }, [shareStatus]);
+  const shareHosts = shareStatus?.hosts;
+  const shareServiceDown = !!shareStatus && (shareStatus.unreachable || shareStatus.banned);
+  const shortenMode: ShareShortenMode = shareStatus?.enabled ? shareStatus.shorten_mode : 'never';
+  const shortenMinBytes = shortenMode === 'auto' ? AUTO_SHORTEN_MIN_BYTES : 0;
+  // `auto` does not ask a service known to refuse for a message that fits as typed. One
+  // that does not fit still tries: the status may be stale, and an error says why.
+  const skipShortening =
+    shortenMode === 'auto' &&
+    shareServiceDown &&
+    (limits === null || byteLen(text) <= limits.hardLimit);
+  const longUrls = useMemo(
+    () =>
+      shortenMode === 'never' || skipShortening
+        ? []
+        : findLongUrls(text, shareHosts, shortenMinBytes),
+    [shortenMode, skipShortening, text, shareHosts, shortenMinBytes]
+  );
+  // `auto` and `always`: Send shortens first, the size guard judges what goes on the air.
+  const shortenOnSend = longUrls.length > 0;
+
+  // UTF-8 bytes the message will take (LoRa packets are byte-constrained). Long URLs
+  // count as the short links Send will turn them into.
+  const textByteLen = useMemo(
+    () => (longUrls.length > 0 ? shortenedByteLength(text, longUrls, shareHosts) : byteLen(text)),
+    [text, longUrls, shareHosts]
+  );
 
   // Determine current limit state
   const { limitState, warningMessage } = useMemo((): {
@@ -207,7 +261,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   } => {
     if (!limits) return { limitState: 'normal', warningMessage: null };
 
-    if (textByteLen >= limits.hardLimit) {
+    if (textByteLen > limits.hardLimit) {
       return { limitState: 'error', warningMessage: t('chat.tooLong') };
     }
     if (textByteLen >= limits.dangerAt) {
@@ -221,12 +275,108 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
 
   const remaining = limits ? limits.hardLimit - textByteLen : 0;
 
+  /**
+   * Shorten every long URL of `source` through the backend, one after the other.
+   * All or nothing: on any failure null is returned, so the caller keeps the
+   * original text; a coded toast is shown unless `silent`.
+   */
+  const shortenText = useCallback(
+    async (
+      source: string,
+      { silent = false, signal }: { silent?: boolean; signal?: AbortSignal } = {}
+    ): Promise<string | null> => {
+      const mapping = new Map<string, string>();
+      try {
+        for (const url of findLongUrls(source, shareHosts, shortenMinBytes)) {
+          const link = await api.shortenLink(url, signal);
+          // Only ever write a link of the share service into the message.
+          if (!isShareLink(link.url, shareHosts)) throw new Error('unexpected short link');
+          mapping.set(url, link.url);
+        }
+      } catch (err) {
+        console.error('Failed to shorten link:', err);
+        if (!silent) {
+          toast.error(t('chat.shortenFailed'), {
+            description: err instanceof Error ? formatApiError(err, t) : undefined,
+            ...radioKeyToastAction(err, t, i18n.language),
+          });
+        }
+        return null;
+      }
+      return rewriteUrls(source, mapping);
+    },
+    [shareHosts, shortenMinBytes, t, i18n.language]
+  );
+
+  /** Put a rewritten text in the textarea, saving the draft; Undo restores `original`. */
+  const applyShortened = useCallback(
+    (original: string, shortened: string, withUndo: boolean, notify = true) => {
+      setText(shortened);
+      textRef.current = shortened;
+      if (draftIdentity) saveConversationDraft(draftIdentity.type, draftIdentity.id, shortened);
+      if (!notify) return;
+      toast.success(
+        t('chat.linkShortened', { before: byteLen(original), after: byteLen(shortened) }),
+        withUndo
+          ? {
+              action: {
+                label: t('chat.shortenUndo'),
+                onClick: () => {
+                  // An edit made since would be lost: undo only the untouched rewrite.
+                  if (textRef.current !== shortened) return;
+                  setText(original);
+                  textRef.current = original;
+                  if (draftIdentity) {
+                    saveConversationDraft(draftIdentity.type, draftIdentity.id, original);
+                  }
+                  textareaRef.current?.focus();
+                },
+              },
+            }
+          : undefined
+      );
+    },
+    [draftIdentity, t]
+  );
+
   const submitMessage = useCallback(async () => {
-    const trimmed = text.trim();
-    if (!trimmed || sending || disabled || limitState === 'error') return;
+    let trimmed = text.trim();
+    if (!trimmed || sending || disabled) return;
+    // The size guard stays: with long URLs it already counts them as short links.
+    if (limitState === 'error') return;
 
     setSending(true);
     try {
+      if (shortenOnSend) {
+        // `auto` is best effort: a message that fits as typed never waits long for the
+        // service (off-grid, a mesh must keep working) and never fails because of it.
+        const fitsAsTyped = limits === null || byteLen(trimmed) <= limits.hardLimit;
+        const bestEffort = shortenMode === 'auto' && fitsAsTyped;
+        const controller = new AbortController();
+        const timer = bestEffort
+          ? window.setTimeout(() => controller.abort(), AUTO_SHORTEN_WAIT_MS)
+          : undefined;
+        const shortened = await shortenText(trimmed, {
+          silent: bestEffort,
+          signal: controller.signal,
+        });
+        window.clearTimeout(timer);
+        if (shortened === null) void refreshShareStatus();
+        if (shortened === null && !bestEffort) return;
+        // Edited while waiting: do not send or overwrite, let the user re-read.
+        if (textRef.current.trim() !== trimmed) return;
+        if (shortened !== null) {
+          const rewritten = shortened.trim();
+          const stillTooLong = limits !== null && byteLen(rewritten) > limits.hardLimit;
+          // Nothing sent when the shortened text still fails the guard: the user
+          // sees it in the textarea and can undo. `auto` says nothing otherwise.
+          applyShortened(trimmed, rewritten, stillTooLong, shortenMode !== 'auto' || stillTooLong);
+          if (stillTooLong) return;
+          trimmed = rewritten;
+        }
+      }
+      // Nothing else re-reads the status: this is how `auto` notices the service is back.
+      if (shareServiceDown) void refreshShareStatus();
       await onSend(trimmed);
       setText('');
       setReplyQuote(null);
@@ -235,7 +385,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      const description = err instanceof Error ? err.message : t('chat.checkRadio');
+      const description = err instanceof Error ? formatApiError(err, t) : t('chat.checkRadio');
       const isRadioNoResponse =
         err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
       toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {
@@ -249,7 +399,21 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     textareaRef.current?.focus();
     requestAnimationFrame(() => textareaRef.current?.focus());
     window.setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [text, sending, disabled, limitState, onSend, draftIdentity, t]);
+  }, [
+    text,
+    sending,
+    disabled,
+    limitState,
+    limits,
+    shortenOnSend,
+    shortenMode,
+    shareServiceDown,
+    shortenText,
+    applyShortened,
+    onSend,
+    draftIdentity,
+    t,
+  ]);
 
   const handleSubmit = useCallback(
     (e: FormEvent) => {
@@ -313,28 +477,49 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   );
 
   const sendPayload = useCallback(
-    async (wire: string) => {
-      if (sending || disabled) return;
+    async (wire: string): Promise<boolean> => {
+      if (sending || disabled) return false;
       const payload = replyQuote ? `@[${replyQuote.sender}] ${wire}` : wire;
       setSending(true);
       try {
         await onSend(payload);
         setReplyQuote(null);
         setComposerPanel(null);
+        return true;
       } catch (err) {
         console.error('Failed to send message:', err);
-        const description = err instanceof Error ? err.message : t('chat.checkRadio');
+        const description = err instanceof Error ? formatApiError(err, t) : t('chat.checkRadio');
         const isRadioNoResponse =
           err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
         toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {
           description,
         });
+        return false;
       } finally {
         setSending(false);
       }
     },
     [disabled, onSend, replyQuote, sending, t]
   );
+
+  // A pasted image goes to the File tab (never into the text); other pastes are untouched.
+  const handlePaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const image = Array.from(event.clipboardData?.files ?? []).find((f) =>
+        f.type.startsWith('image/')
+      );
+      if (!image || disabled) return;
+      event.preventDefault();
+      setIncomingFile((prev) => ({ file: image, key: (prev?.key ?? 0) + 1 }));
+      setComposerPanel('file');
+    },
+    [disabled]
+  );
+
+  // The file message must fit the same limit as typed text, after the reply prefix.
+  const fileByteLimit = limits
+    ? limits.hardLimit - (replyQuote ? byteLen(`@[${replyQuote.sender}] `) : 0)
+    : null;
 
   const insertEmoji = useCallback(
     (emoji: string) => {
@@ -375,10 +560,14 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (target && pickerRef.current?.contains(target)) return;
+      // A dialog opened from the panel (sharing consent) lives in a portal.
+      if (target instanceof Element && target.closest('[role="dialog"]')) return;
       setComposerPanel(null);
     };
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setComposerPanel(null);
+      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) {
+        setComposerPanel(null);
+      }
     };
     document.addEventListener('mousedown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
@@ -431,6 +620,11 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
               void sendPayload(formatGif(gifId));
             }}
             onSendLocation={sendLocation}
+            onSendFile={sendPayload}
+            fileByteLimit={fileByteLimit}
+            incomingFile={incomingFile}
+            onIncomingFileConsumed={() => setIncomingFile(null)}
+            fileTarget={shareTarget}
             onClose={() => setComposerPanel(null)}
             disabled={disabled || sending}
             hasShareableLocation={hasShareableLocation}
@@ -451,7 +645,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
             setComposerPanel((open) => (open ? null : 'emoji'));
           }}
         >
-          <Smile className="h-5 w-5" />
+          <Plus className="h-5 w-5" />
         </Button>
         <textarea
           ref={textareaRef}
@@ -464,6 +658,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholder || t('chat.messagePlaceholder')}
           disabled={disabled}
           enterKeyHint={enterSends ? 'send' : 'enter'}

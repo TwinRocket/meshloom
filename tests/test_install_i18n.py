@@ -49,7 +49,7 @@ def test_release_asset_downloads_and_validates_before_install() -> None:
     curl_at = body.index('curl -fL --proto \'=https\' --max-time 180 "$url" -o "$tmp"')
     valid_at = body.index('pkg_file_is_valid "$tmp"')
     sha_at = body.index('[ "$(sha256_of "$tmp")" != "$expected" ]')
-    apt_at = body.index('apt-get install -y "$tmp"')
+    apt_at = body.index('apt_get install -y "$tmp"')
     dnf_at = body.index('dnf install -y "$tmp"')
     repo_at = body.index("add_signed_repo")
 

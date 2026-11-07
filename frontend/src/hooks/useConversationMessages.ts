@@ -334,9 +334,7 @@ interface UseConversationMessagesResult {
 function isMessageConversation(conversation: Conversation | null): conversation is Conversation {
   return (
     !!conversation &&
-    !['raw', 'control', 'map', 'visualizer', 'search', 'trace', 'locate'].includes(
-      conversation.type
-    )
+    !['raw', 'feed', 'map', 'visualizer', 'search', 'trace', 'locate'].includes(conversation.type)
   );
 }
 

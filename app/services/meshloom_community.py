@@ -62,6 +62,7 @@ from app.models import (
     CommunityOptOutPending,
     CommunityStatus,
 )
+from app.net.breaker import CircuitBreaker
 from app.services.community_ban import (
     banned_http_exception,
     banned_route,
@@ -121,6 +122,8 @@ OPT_OUT_RETRY_TIMEOUT_S = 20.0
 OPT_OUT_LAST_CALL_HTTP_TIMEOUT = httpx.Timeout(OPT_OUT_LAST_CALL_TIMEOUT_S + 1, connect=2.5)
 OPT_OUT_RETRY_HTTP_TIMEOUT = httpx.Timeout(OPT_OUT_RETRY_TIMEOUT_S, connect=3.0)
 OPT_OUT_PATH = "/v1/me/opt-out"
+# Community attestations of the instance keys (app/services/community_attestation.py).
+ATTESTATIONS_PATH = "/v1/me/attestations"
 OptOutReason = Literal["privacy", "not_useful", "technical_issue", "other"]
 # Circuit breaker: after this many consecutive transport failures or 5xx, stop
 # calling Community for BREAKER_OPEN_SECONDS and answer 503 at once instead of
@@ -205,8 +208,8 @@ class CommunityUpstreamError(HTTPException):
         self.upstream_status = upstream_status
 
 
-class CommunityBreaker:
-    """Consecutive-failure circuit breaker for Community HTTP (closed/open/half-open)."""
+class CommunityBreaker(CircuitBreaker):
+    """The Community client's breaker (``app/net/breaker.py``) with its thresholds."""
 
     def __init__(
         self,
@@ -214,37 +217,7 @@ class CommunityBreaker:
         threshold: int = BREAKER_FAILURE_THRESHOLD,
         open_seconds: float = BREAKER_OPEN_SECONDS,
     ) -> None:
-        self.threshold = threshold
-        self.open_seconds = open_seconds
-        self.failures = 0
-        self.open_until = 0.0
-        self.trial_in_flight = False
-
-    def allow(self, *, now: float | None = None) -> bool:
-        """True when a call may go out. Half-open lets exactly one trial through."""
-        current = time.monotonic() if now is None else now
-        if self.failures < self.threshold:
-            return True
-        if current < self.open_until or self.trial_in_flight:
-            return False
-        self.trial_in_flight = True
-        return True
-
-    def record_success(self) -> None:
-        self.failures = 0
-        self.open_until = 0.0
-        self.trial_in_flight = False
-
-    def record_failure(self, *, now: float | None = None) -> None:
-        current = time.monotonic() if now is None else now
-        self.failures += 1
-        self.trial_in_flight = False
-        if self.failures >= self.threshold:
-            self.open_until = current + self.open_seconds
-
-    @property
-    def is_open(self) -> bool:
-        return self.failures >= self.threshold
+        super().__init__(threshold=threshold, open_seconds=open_seconds)
 
 
 _breaker = CommunityBreaker()
@@ -330,7 +303,38 @@ async def get_community_effective() -> CommunityEffective:
 
 
 async def community_enabled() -> bool:
+    """The stored Community opt-in (waiting for a position counts as on).
+
+    The gate of every feature backed by TwinRocket infrastructure outside
+    Community itself (MSHL-445): Meshloom Remote (``app/services/remote.py``,
+    ``remote_relay.py``) and Links & Files (``app/services/share.py``) need it.
+    """
     return (await get_community_effective()).enabled
+
+
+# Called (sync or async, under ``_update_lock``, so a listener must not call
+# ``update_community``) after the stored opt-in flips: on a join and once an
+# opt-out's teardown is done. Remote and Links listen, so turning Community off
+# pauses them at once.
+_enabled_listeners: list[Callable[[], Any]] = []
+
+
+def add_enabled_change_listener(callback: Callable[[], Any]) -> None:
+    """Run ``callback`` after Community is turned on or off. Adding it twice is a no-op."""
+    if callback not in _enabled_listeners:
+        _enabled_listeners.append(callback)
+
+
+async def _notify_enabled_change() -> None:
+    import inspect
+
+    for callback in list(_enabled_listeners):
+        try:
+            result = callback()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception("Community enabled-change listener failed")
 
 
 async def update_community(
@@ -574,6 +578,9 @@ async def _update_community_locked(
         elif written and before.enabled:
             topic_moved = await _run_to_completion(_move_status_topic(before, status_retired))
     state = await get_community_effective()
+    if state.enabled != before.enabled:
+        # Remote and Links follow the Community opt-in (MSHL-445).
+        await _notify_enabled_change()
     if opting_out:
         return state
     if state.enabled and not before.enabled:
@@ -792,7 +799,7 @@ async def retry_opt_out() -> None:
             )
         current = _current_pubkey_hex()
         if not current:
-            raise HTTPException(status_code=503, detail="Radio key is not available")
+            raise radio_key_http_exception()
         if left_with != current:
             raise HTTPException(
                 status_code=409,
@@ -1017,8 +1024,10 @@ def _hashtag_publish_names(names: list[str]) -> list[str]:
 
 
 def _path_requires_iata(path: str) -> bool:
-    if path == OPT_OUT_PATH:
-        return False  # identity.md: the opt-out needs no ``iata`` claim
+    if path in (OPT_OUT_PATH, ATTESTATIONS_PATH):
+        # identity.md: the opt-out needs no ``iata`` claim; attestation.md: nor does
+        # ``POST /v1/me/attestations`` (app/services/community_attestation.py).
+        return False
     return path.startswith("/v1/me/") or path == "/v1/hashtags/samples"
 
 
@@ -1154,6 +1163,14 @@ async def schedule_hashtag_names_publish(
     spawn(_put_hashtag_names(cleaned))
 
 
+def radio_key_http_exception() -> HTTPException:
+    """503 for a call that needs the radio key: the code says why it is missing."""
+    from app.keystore import RADIO_KEY_ERRORS, radio_key_unavailable_code
+
+    code = radio_key_unavailable_code()
+    return HTTPException(status_code=503, detail={"code": code, "message": RADIO_KEY_ERRORS[code]})
+
+
 def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False) -> str:
     from app.fanout.community_mqtt import _generate_jwt_token
     from app.keystore import get_private_key, get_public_key
@@ -1161,7 +1178,7 @@ def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False)
     private_key = get_private_key()
     public_key = get_public_key()
     if private_key is None or public_key is None:
-        raise HTTPException(status_code=503, detail="Radio key is not available")
+        raise radio_key_http_exception()
     if require_iata and not iata:
         raise HTTPException(status_code=400, detail="IATA is required for Community tokens")
     return _generate_jwt_token(private_key, public_key, audience=audience, iata=iata)
@@ -1505,7 +1522,7 @@ async def stats_request(
     except BaseException:
         # Cancellation or a local bug: release a half-open trial without judging Community.
         if uses_breaker:
-            _breaker.trial_in_flight = False
+            _breaker.release_trial()
         raise
     if not uses_breaker:
         return response

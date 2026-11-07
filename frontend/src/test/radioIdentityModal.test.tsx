@@ -62,7 +62,6 @@ const baseHealth: HealthStatus = {
   database_size_mb: 1.2,
   oldest_undecrypted_timestamp: null,
   fanout_statuses: {},
-  bots_disabled: false,
 };
 
 describe('RadioIdentityModal', () => {
@@ -232,7 +231,7 @@ describe('RadioIdentityModal', () => {
       has_wifi: false,
       counts: { contacts: 0, channels: 0, groups: 0, fanout_configs: 0, push_subscriptions: 0 },
       bot_names: [],
-      bots_will_be_skipped: false,
+
       integrations: [],
       radio_proxy_enabled: null,
       identity_relation: 'same',

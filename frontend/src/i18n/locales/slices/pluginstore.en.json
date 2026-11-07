@@ -1,0 +1,100 @@
+{
+  "pluginStore": {
+    "navBadge_one": "{{count}} update",
+    "navBadge_other": "{{count}} updates",
+    "online": {
+      "toggle": "Store online",
+      "help": "Off, the Store stays offline. Installed plugins keep running."
+    },
+    "refresh": {
+      "button": "Refresh",
+      "last": "Store online. Last refresh: {{time}}.",
+      "never": "Store online. No refresh since this Meshloom started.",
+      "done": "Releases checked.",
+      "skipped": "Checked less than 10 minutes ago: showing the stored releases."
+    },
+    "card": {
+      "custom": "Custom repository",
+      "unreviewed": "Not reviewed, not signed",
+      "incompatible": "This release does not support this version of Meshloom: it cannot be installed.",
+      "incompatibleBadge": "Not compatible",
+      "details": "Details",
+      "disabledLocked": "Extensions are turned off on this server: installing is disabled.",
+      "checkedAt": "Last checked: {{time}}",
+      "neverChecked": "Not checked yet."
+    },
+    "install": {
+      "next": "Next",
+      "configIntro": "This plugin asks for settings. Fill them in, then install; you can change them later."
+    },
+    "page": {
+      "close": "Close",
+      "readme": "README",
+      "readmeNote": "Text written by the plugin's author, shown as plain text (language: {{lang}}). Nothing in it is run or opened.",
+      "noReadme": "This release has no README to show.",
+      "permissions": "What it may do",
+      "hosts": "Hosts it connects to",
+      "hostsNone": "It declares no host to connect to.",
+      "versions": "Versions",
+      "latest": "Latest release: v{{version}} ({{tag}}).",
+      "installedVersion": "Installed: {{label}}, v{{version}}.",
+      "notInstalled": "Not installed.",
+      "reportTitle": "Report this plugin",
+      "reportIssues": "Report a problem to its author on its issue tracker:",
+      "reportMail": "Report a problem with this plugin by writing to",
+      "reportAddress": " To report abuse, write to {{address}}.",
+      "copyDiagnostic": "Copy diagnostic",
+      "diagnosticCopied": "Diagnostic copied."
+    },
+    "updates": {
+      "title": "Plugin updates",
+      "intro": "Newer releases found by the last Store refresh.",
+      "adminOnly": "Only an administrator can see and apply plugin updates.",
+      "offline": "The Store is off: turn it on in the Store tab to look for updates.",
+      "none": "Every plugin installed from a repository is up to date.",
+      "review": "Review and update",
+      "update": "Update",
+      "hold": {
+        "consent_required": "{{label}} would wait for you to accept new permissions.",
+        "config_required": "{{label}} would wait for settings it now requires."
+      },
+      "dropped": "{{label}}: the new version no longer accepts the value of {{fields}}; the update resets it.",
+      "droppedWarning": "{{label}}: {{fields}} will go back to its default.",
+      "autoHeld": {
+        "consent_required": "Automatic update waits for you: the new version asks for new permissions. Review and update it yourself.",
+        "config_required": "Automatic update waits for you: the new version requires new settings. Review and update it yourself.",
+        "config_dropped": "Automatic update waits for you: the new version would reset a setting. Review and update it yourself."
+      },
+      "dialogTitle": "Update {{name}}",
+      "dialogIntro": "From v{{from}} to v{{to}}.",
+      "changelog": "Changelog",
+      "noChangelog": "This source provides no changelog.",
+      "permissionsTitle": "Permissions",
+      "noPermissionChange": "No change in permissions.",
+      "permAdded": "New:",
+      "permChanged": "Changed:",
+      "permRemoved": "No longer asked:",
+      "privacyWidened": "Its privacy declaration is wider than before.",
+      "settingsTitle": "Settings",
+      "schemaUnknown": "The settings of this release were not read yet: refresh the Store to see what changes.",
+      "noSettingChange": "No change in settings.",
+      "fieldsAdded": "New settings: {{fields}}",
+      "fieldsRequired": "Now required: {{fields}}",
+      "fieldsRemoved": "Removed settings: {{fields}}",
+      "sharedNote": "Every instance of this plugin is updated together; the others wait for your review in the Installed tab.",
+      "reviewLater": "This release will be installed, then wait for your review in the Installed tab.",
+      "consentTitle": "Accept the permissions of this release",
+      "configIntro": "Fill in the settings this release needs.",
+      "updated": "{{name}} updated to v{{version}}.",
+      "autoTitle": "Automatic updates",
+      "autoIntro": "Installs new releases on its own, except those that ask for new permissions or settings.",
+      "autoToggle": "Update {{name}} automatically",
+      "openMeshloomUpdates": "Meshloom updates",
+      "openExtensionUpdates": "Plugin updates",
+      "linkCount_one": "{{count}} plugin has an update.",
+      "linkCount_other": "{{count}} plugins have an update.",
+      "linkNone": "No plugin update is waiting.",
+      "consentUnavailable": "This release is no longer available. Refresh the Store, then try again."
+    }
+  }
+}

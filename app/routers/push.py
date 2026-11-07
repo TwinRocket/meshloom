@@ -1,20 +1,35 @@
-"""Web Push subscription management endpoints."""
+"""Web Push subscription management endpoints.
+
+A subscription belongs to the account that subscribed it (MSHL-290, migration 118). Every
+account holding ``send`` lists, renames, tests and deletes its own devices only; another
+account's device answers 404, as if it did not exist. An administrator also lists every
+device (``GET /push/subscriptions?scope=all``, with the owner's username and the endpoint
+reduced to its origin) and may delete any of them, but neither renames nor tests another
+account's device. A token acts for its account; ``kiosk`` holds no ``send`` and owns none.
+"""
 
 import asyncio
 import json
 import logging
 from typing import Literal
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from pywebpush import WebPushException
 
+from app.auth.permissions import forbidden, has_permission, require
+from app.auth.principal import Principal, get_principal
+from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.push.send import send_push
 from app.push.vapid import (
+    VapidSubjectSource,
+    get_cached_remote_vapid_subject,
     get_vapid_claims,
     get_vapid_private_key,
     get_vapid_public_key,
     normalize_vapid_subject,
+    resolve_vapid_subject_with_source,
     set_cached_vapid_subject,
     vapid_subject_is_usable,
 )
@@ -50,12 +65,14 @@ class NotificationMediaModel(BaseModel):
     push: bool = True
     email: bool = False
     webhook: bool = False
+    apprise: bool = False
 
 
 class NotificationMediaPatch(BaseModel):
     push: bool | None = None
     email: bool | None = None
     webhook: bool | None = None
+    apprise: bool | None = None
 
 
 class PushDefaultsModel(BaseModel):
@@ -67,6 +84,9 @@ class PushDefaultsModel(BaseModel):
     channel_found: NotificationMediaModel
     telemetry_alert: NotificationMediaModel
     oss_update: NotificationMediaModel
+    radio_offline: NotificationMediaModel
+    radio_online: NotificationMediaModel
+    app_started: NotificationMediaModel
 
 
 class PushDefaultsPatch(BaseModel):
@@ -78,12 +98,22 @@ class PushDefaultsPatch(BaseModel):
     channel_found: NotificationMediaPatch | bool | None = None
     telemetry_alert: NotificationMediaPatch | bool | None = None
     oss_update: NotificationMediaPatch | bool | None = None
+    radio_offline: NotificationMediaPatch | bool | None = None
+    radio_online: NotificationMediaPatch | bool | None = None
+    app_started: NotificationMediaPatch | bool | None = None
 
 
 class PushPreferencesResponse(BaseModel):
     defaults: PushDefaultsModel
     overrides: dict[str, dict[str, bool]]
-    vapid_subject: str
+    vapid_subject: str = Field(description="The subject typed in Settings (may be empty)")
+    vapid_subject_effective: str = Field(
+        description="The subject Web Push signs with: the typed one, else the Meshloom "
+        "Remote address while Remote is on, else the built-in default"
+    )
+    vapid_subject_source: VapidSubjectSource = Field(
+        description="Where vapid_subject_effective comes from"
+    )
 
 
 class PushPreferencesPatch(BaseModel):
@@ -96,7 +126,7 @@ class PushConversationOverrideBody(BaseModel):
 
 
 def _validate_vapid_subject(subject: str) -> str:
-    """Empty stores as '' (env fallback). Non-empty must be a usable mailto: or https origin."""
+    """Empty stores as '' (Remote address or built-in default). Non-empty must be a usable mailto: or https origin."""
     stored = normalize_vapid_subject(subject)
     if not stored:
         return ""
@@ -109,10 +139,65 @@ def _validate_vapid_subject(subject: str) -> str:
     return stored
 
 
+def _caller(request: Request) -> Principal:
+    principal = get_principal(request)
+    if principal is None:  # the ``send`` declaration already refused it
+        raise forbidden("send")
+    return principal
+
+
+def _public_view(sub: dict, caller_id: int) -> dict:
+    """A subscription as the API returns it: ``mine`` tells the caller's devices apart.
+
+    Another account's device (the administrator's listing) keeps only the endpoint's
+    origin: its path is the push service's secret for that browser, and the keys too.
+    """
+    out = {
+        key: sub[key]
+        for key in (
+            "id",
+            "endpoint",
+            "p256dh",
+            "auth",
+            "label",
+            "language",
+            "created_at",
+            "last_success_at",
+            "failure_count",
+        )
+    }
+    mine = sub.get("user_id") == caller_id
+    out["mine"] = mine
+    out["owner_username"] = sub.get("owner_username")
+    if not mine:
+        parts = urlsplit(sub["endpoint"])
+        out["endpoint"] = f"{parts.scheme}://{parts.netloc}" if parts.netloc else ""
+        out["p256dh"] = ""
+        out["auth"] = ""
+    return out
+
+
+async def _owned(subscription_id: str, principal: Principal, *, admin_ok: bool) -> dict:
+    """The caller's subscription, or any one for an administrator when ``admin_ok``; 404
+    otherwise (another account's device is not revealed)."""
+    sub = await PushSubscriptionRepository.get(subscription_id)
+    if sub is None:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if sub.get("user_id") == principal.user_id:
+        return sub
+    if admin_ok and has_permission(principal, "admin"):
+        return sub
+    raise HTTPException(status_code=404, detail="Subscription not found")
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
-@router.get("/vapid-public-key", response_model=VapidPublicKeyResponse)
+@router.get(
+    "/vapid-public-key",
+    response_model=VapidPublicKeyResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def vapid_public_key() -> VapidPublicKeyResponse:
     """Return the VAPID public key for browser PushManager.subscribe()."""
     key = get_vapid_public_key()
@@ -121,31 +206,55 @@ async def vapid_public_key() -> VapidPublicKeyResponse:
     return VapidPublicKeyResponse(public_key=key)
 
 
-@router.post("/subscribe")
-async def subscribe(body: PushSubscribeRequest) -> dict:
-    """Register or update a push subscription (device). Upserts by endpoint."""
+@router.post("/subscribe", dependencies=[Depends(require("send"))])
+async def subscribe(body: PushSubscribeRequest, request: Request) -> dict:
+    """Register or update this browser's push subscription. Upserts by endpoint.
+
+    The caller's account owns it, even when the endpoint was another account's (a shared
+    browser follows whoever subscribes it last). The endpoint must pass the egress
+    guard: a private-network endpoint (a self-hosted UnifiedPush distributor) needs
+    ``push_allow_private_endpoints``.
+    """
+    principal = _caller(request)
+    allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
+    try:
+        await validate_destination(body.endpoint, allow_private_network=allow_private)
+    except EgressBlocked as exc:
+        logger.info("Push subscribe refused by the egress guard: %s", exc.code)
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
     sub = await PushSubscriptionRepository.create(
         endpoint=body.endpoint,
         p256dh=body.p256dh,
         auth=body.auth,
         label=body.label,
         language=body.language,
+        user_id=principal.user_id,
     )
-    return sub
+    return _public_view(sub, principal.user_id)
 
 
-@router.get("/subscriptions")
-async def list_subscriptions() -> list[dict]:
-    """List all push subscriptions (devices)."""
-    return await PushSubscriptionRepository.get_all()
+@router.get("/subscriptions", dependencies=[Depends(require("send"))])
+async def list_subscriptions(
+    request: Request, scope: Literal["mine", "all"] = "mine"
+) -> list[dict]:
+    """The caller's devices; ``scope=all`` (administrator only) lists every account's."""
+    principal = _caller(request)
+    if scope == "all":
+        if not has_permission(principal, "admin"):
+            raise forbidden("admin")
+        subs = await PushSubscriptionRepository.list_with_owner()
+    else:
+        subs = await PushSubscriptionRepository.list_for_user(principal.user_id)
+    return [_public_view(sub, principal.user_id) for sub in subs]
 
 
-@router.patch("/subscriptions/{subscription_id}")
-async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate) -> dict:
-    """Update a subscription's label."""
-    existing = await PushSubscriptionRepository.get(subscription_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Subscription not found")
+@router.patch("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
+async def update_subscription(
+    subscription_id: str, body: PushSubscriptionUpdate, request: Request
+) -> dict:
+    """Update the label or language of one of the caller's devices."""
+    principal = _caller(request)
+    existing = await _owned(subscription_id, principal, admin_ok=False)
 
     updates = {}
     if body.label is not None:
@@ -154,24 +263,42 @@ async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate
         updates["language"] = body.language
 
     result = await PushSubscriptionRepository.update(subscription_id, **updates)
-    return result or existing
+    return _public_view(result or existing, principal.user_id)
 
 
-@router.delete("/subscriptions/{subscription_id}")
-async def unsubscribe(subscription_id: str) -> dict:
-    """Delete a push subscription (device)."""
+@router.delete("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
+async def unsubscribe(subscription_id: str, request: Request) -> dict:
+    """Delete one of the caller's devices; an administrator may delete any device."""
+    await _owned(subscription_id, _caller(request), admin_ok=True)
     deleted = await PushSubscriptionRepository.delete(subscription_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Subscription not found")
     return {"deleted": True}
 
 
-@router.post("/subscriptions/{subscription_id}/test")
-async def test_push(subscription_id: str) -> dict:
-    """Send a test notification to a subscription."""
-    sub = await PushSubscriptionRepository.get(subscription_id)
-    if not sub:
-        raise HTTPException(status_code=404, detail="Subscription not found")
+# The test route answers a fixed code, never the exception text: the endpoint
+# is client-supplied, so a network error would reveal what lives on the LAN.
+# The egress guard refuses a private endpoint before any connection (unless
+# push_allow_private_endpoints), so neither the status code nor the answer time
+# says anything about the LAN: every delivery failure, timeout included, is a
+# 422, and push_stale (410) only follows an answer from a guarded endpoint.
+# The cause goes to the server log only. Translated by the UI under errors.<code>.
+_TEST_PUSH_MESSAGES = {
+    "push_timeout": "Push delivery timed out",
+    "push_stale": "Subscription is stale (VAPID key mismatch or expired). "
+    "Re-enable push from a conversation header.",
+    "push_delivery_failed": "Push delivery failed",
+}
+
+
+def _coded(code: str) -> dict:
+    return {"code": code, "message": _TEST_PUSH_MESSAGES[code]}
+
+
+@router.post("/subscriptions/{subscription_id}/test", dependencies=[Depends(require("send"))])
+async def test_push(subscription_id: str, request: Request) -> dict:
+    """Send a test notification to one of the caller's devices."""
+    sub = await _owned(subscription_id, _caller(request), admin_ok=False)
 
     vapid_key = get_vapid_private_key()
     if not vapid_key:
@@ -191,6 +318,7 @@ async def test_push(subscription_id: str) -> dict:
             "url_hash": "",
         }
     )
+    allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
 
     try:
         async with asyncio.timeout(15):
@@ -202,10 +330,14 @@ async def test_push(subscription_id: str) -> dict:
                 payload=payload,
                 vapid_private_key=vapid_key,
                 vapid_claims=get_vapid_claims(),
+                allow_private_network=allow_private,
             )
         return {"status": "sent"}
+    except EgressBlocked as e:
+        logger.info("Test push refused by the egress guard: %s", e.code)
+        raise HTTPException(status_code=422, detail=egress_detail(e.code)) from None
     except TimeoutError:
-        raise HTTPException(status_code=408, detail="Push delivery timed out") from None
+        raise HTTPException(status_code=422, detail=_coded("push_timeout")) from None
     except WebPushException as e:
         status_code = getattr(getattr(e, "response", None), "status_code", 0)
         if status_code in (403, 404, 410):
@@ -215,35 +347,258 @@ async def test_push(subscription_id: str) -> dict:
                 subscription_id,
             )
             await PushSubscriptionRepository.delete(subscription_id)
-            raise HTTPException(
-                status_code=410,
-                detail="Subscription is stale (VAPID key mismatch or expired). "
-                "Re-enable push from a conversation header.",
-            ) from None
-        logger.warning("Test push failed: %s", e)
-        raise HTTPException(status_code=422, detail=f"Push delivery failed: {e}") from None
+            raise HTTPException(status_code=410, detail=_coded("push_stale")) from None
+        # The type only: a WebPushException carries the push service's body.
+        logger.warning("Test push failed: %s", type(e).__name__)
+        raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
     except Exception as e:
-        logger.warning("Test push failed: %s", e)
-        raise HTTPException(status_code=422, detail=f"Push delivery failed: {e}") from None
+        logger.warning("Test push failed: %s", type(e).__name__)
+        raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
 
 
-# ── Preferences ──────────────────────────────────────────────────────────
+# ── My notification rules (MSHL-321, 362, 363) ───────────────────────────
+#
+# The admin defaults are ``/api/notifications/rules``. These routes are the caller's own
+# choices for its own devices (``app/notifications/user_rules.py``): per event, and per contact
+# type for ``contact.first_seen``, "follow the defaults" (no entry), on or off; per
+# conversation, on or off over those; and a pause of its own devices. They touch nobody else's
+# choices and no instance channel.
 
 
-@router.get("/preferences", response_model=PushPreferencesResponse)
+class MyRulesPatch(BaseModel):
+    """``null`` clears a choice (back to the defaults). ``conversations`` is keyed by
+    ``channel-<key>`` or ``contact-<pubkey>``."""
+
+    events: dict[str, bool | None] = Field(default_factory=dict, max_length=64)
+    contact_types: dict[str, bool | None] = Field(default_factory=dict, max_length=8)
+    conversations: dict[str, bool | None] = Field(default_factory=dict, max_length=64)
+
+
+class MyPause(BaseModel):
+    """Pause the caller's devices until ``until`` (epoch seconds); ``null`` until it resumes."""
+
+    until: int | None = None
+
+
+def _my_user_id(request: Request) -> int:
+    principal = _caller(request)
+    if principal.user_id is None:
+        raise forbidden("send")
+    return principal.user_id
+
+
+async def _my_rules_view(user_id: int) -> dict:
+    import time
+
+    from app.notifications.rules import load_rules
+    from app.notifications.user_rules import (
+        CONTACT_KIND_NAMES,
+        FIRST_SEEN_EVENT,
+        OVERRIDABLE_EVENTS,
+        default_state,
+        is_paused,
+        pause_until,
+    )
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    rules = await load_rules()
+    mine = await UserNotificationRulesRepository.get(user_id)
+    chosen_events = mine.get("events") or {}
+    chosen_types = mine.get("contact_types") or {}
+    return {
+        "events": {
+            event_id: {
+                "default": default_state(rules, event_id),
+                "choice": chosen_events.get(event_id),
+            }
+            for event_id in OVERRIDABLE_EVENTS
+        },
+        "contact_types": {
+            kind: {
+                "default": default_state(rules, FIRST_SEEN_EVENT, kind),
+                "choice": chosen_types.get(kind),
+            }
+            for kind in CONTACT_KIND_NAMES
+        },
+        "conversations": dict(mine.get("conversations") or {}),
+        "pause": {"active": is_paused(mine, time.time()), "until": pause_until(mine)},
+    }
+
+
+@router.get("/my-rules", dependencies=[Depends(require("send"))])
+async def get_my_rules(request: Request) -> dict:
+    """What reaches the caller's devices: per event (and contact type) the admin default and
+    the caller's own choice (``null`` follows the default), the caller's conversation
+    exceptions and its pause (``active`` once ``until`` is not over)."""
+    return await _my_rules_view(_my_user_id(request))
+
+
+@router.patch("/my-rules", dependencies=[Depends(require("send"))])
+async def patch_my_rules(body: MyRulesPatch, request: Request) -> dict:
+    from app.notifications.user_rules import (
+        CONTACT_KIND_NAMES,
+        CONVERSATION_KEY,
+        MAX_CONVERSATIONS,
+        OVERRIDABLE_EVENTS,
+    )
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    unknown = (
+        [e for e in body.events if e not in OVERRIDABLE_EVENTS]
+        + [k for k in body.contact_types if k not in CONTACT_KIND_NAMES]
+        + [c for c in body.conversations if not CONVERSATION_KEY.match(c)]
+    )
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "notification_rule_unknown", "params": {"ids": unknown}},
+        )
+    mine = await UserNotificationRulesRepository.get(user_id)
+    events = dict(mine.get("events") or {})
+    types = dict(mine.get("contact_types") or {})
+    conversations = dict(mine.get("conversations") or {})
+    for target, patch in (
+        (events, body.events),
+        (types, body.contact_types),
+        (conversations, body.conversations),
+    ):
+        for key, value in patch.items():
+            if value is None:
+                target.pop(key, None)
+            else:
+                target[key] = value
+    if len(conversations) > MAX_CONVERSATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "notification_conversations_limit",
+                "params": {"max": MAX_CONVERSATIONS},
+            },
+        )
+    await UserNotificationRulesRepository.set(
+        user_id,
+        {**mine, "events": events, "contact_types": types, "conversations": conversations},
+    )
+    return await _my_rules_view(user_id)
+
+
+@router.delete("/my-rules", dependencies=[Depends(require("send"))])
+async def reset_my_rules(request: Request) -> dict:
+    """Forget the caller's event, contact type and conversation choices: its devices follow
+    the admin defaults again. A pause in force stays (``DELETE /my-pause`` ends it)."""
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    mine = await UserNotificationRulesRepository.get(user_id)
+    await UserNotificationRulesRepository.set(
+        user_id, {"pause": mine["pause"]} if "pause" in mine else {}
+    )
+    return await _my_rules_view(user_id)
+
+
+@router.put("/my-pause", dependencies=[Depends(require("send"))])
+async def pause_my_notifications(body: MyPause, request: Request) -> dict:
+    """Pause the caller's own devices until ``until`` (epoch seconds, at most a year away) or,
+    with ``null``, until it resumes. Urgent and always-deliver events still arrive; other
+    accounts and the instance channels are not affected."""
+    import time
+
+    from app.notifications.user_rules import MAX_PAUSE_S
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    now = int(time.time())
+    if body.until is not None and not now < body.until <= now + MAX_PAUSE_S:
+        raise HTTPException(status_code=400, detail={"code": "notification_pause_invalid"})
+    mine = await UserNotificationRulesRepository.get(user_id)
+    await UserNotificationRulesRepository.set(user_id, {**mine, "pause": {"until": body.until}})
+    return await _my_rules_view(user_id)
+
+
+@router.delete("/my-pause", dependencies=[Depends(require("send"))])
+async def resume_my_notifications(request: Request) -> dict:
+    """End the caller's pause."""
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    mine = await UserNotificationRulesRepository.get(user_id)
+    await UserNotificationRulesRepository.set(
+        user_id, {k: v for k, v in mine.items() if k != "pause"}
+    )
+    return await _my_rules_view(user_id)
+
+
+# ── Preferences (deprecated shims) ───────────────────────────────────────
+#
+# Removed in 5.2.0 (MSHL-111): the data is read and written through
+# /api/notifications/rules now. Until the producers read the rules (MSHL-112) these
+# routes keep writing the 4.18.x columns that still drive delivery, and the repository
+# mirrors every write into the rules and the ``legacy:*`` channels
+# (``app/notifications/legacy_sync.py``). Channels other than ``builtin:push`` and the
+# ``legacy:*`` ones are invisible here.
+
+
+DEPRECATED_SINCE = "@1792368000"
+
+
+def deprecated_route(response: Response) -> None:
+    """Mark a response of a 4.18.x route that is kept for one release."""
+    # RFC 9745: the date the route was deprecated (2026-10-19, 5.0.0); removal is in 5.2.0.
+    response.headers["Deprecation"] = DEPRECATED_SINCE
+    response.headers["Link"] = '</api/notifications/rules>; rel="successor-version"'
+
+
+async def _require_legacy_channels(raw: bool | dict[str, bool] | None) -> None:
+    """400 ``channel_missing`` when an override turns on a medium whose legacy channel
+    does not exist (no SMTP host, no URL: it could not deliver)."""
+    from app.migrations._113_notification_channels import MEDIUM_CHANNEL
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    if not isinstance(raw, dict):
+        return
+    for medium, on in raw.items():
+        channel_id = MEDIUM_CHANNEL.get(medium)
+        if (
+            on is True
+            and channel_id
+            and await NotificationChannelRepository.get(channel_id) is None
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "channel_missing", "params": {"medium": medium}},
+            )
+
+
+@router.get(
+    "/preferences",
+    response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
+)
 async def get_push_preferences() -> PushPreferencesResponse:
     """Return global push defaults, per-conversation overrides, and VAPID subject."""
     defaults = await AppSettingsRepository.get_push_defaults()
     overrides = await AppSettingsRepository.get_push_conversation_overrides()
     vapid_subject = await AppSettingsRepository.get_vapid_subject()
+    effective, source = resolve_vapid_subject_with_source(
+        vapid_subject, get_cached_remote_vapid_subject()
+    )
     return PushPreferencesResponse(
         defaults=PushDefaultsModel.model_validate(defaults),
         overrides=overrides,
         vapid_subject=vapid_subject,
+        vapid_subject_effective=effective,
+        vapid_subject_source=source,
     )
 
 
-@router.patch("/preferences", response_model=PushPreferencesResponse)
+@router.patch(
+    "/preferences",
+    response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
+)
 async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesResponse:
     """Partially update push defaults and/or the stored VAPID subject."""
     if body.defaults is not None:
@@ -260,6 +615,8 @@ async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesR
 @router.put(
     "/preferences/conversations/{key}",
     response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
 )
 async def put_push_conversation_override(
     key: str, body: PushConversationOverrideBody
@@ -273,17 +630,28 @@ async def put_push_conversation_override(
         raw = override.model_dump(exclude_none=True)
     else:
         raw = override
+    await _require_legacy_channels(raw if isinstance(raw, dict) else None)
     await AppSettingsRepository.set_push_conversation_override(key, raw)
     return await get_push_preferences()
 
 
-@router.api_route("/conversations", methods=["GET", "POST"], include_in_schema=False)
+@router.api_route(
+    "/conversations",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+    dependencies=[Depends(require("admin"))],
+)
 async def removed_push_conversations() -> None:
     """Removed in favor of GET/PATCH /push/preferences."""
     raise HTTPException(status_code=404, detail="Use /api/push/preferences")
 
 
-@router.api_route("/conversations/toggle", methods=["GET", "POST"], include_in_schema=False)
+@router.api_route(
+    "/conversations/toggle",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+    dependencies=[Depends(require("admin"))],
+)
 async def removed_push_conversation_toggle() -> None:
     """Removed in favor of PUT /push/preferences/conversations/{key}."""
     raise HTTPException(status_code=404, detail="Use /api/push/preferences")

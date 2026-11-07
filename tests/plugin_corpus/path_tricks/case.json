@@ -1,0 +1,21 @@
+{
+  "description": "Paths the open rule refuses by their shape: relative, or a .. segment out of the work dir.",
+  "events": [
+    {
+      "params": {
+        "how": "relative"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "dotdot"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

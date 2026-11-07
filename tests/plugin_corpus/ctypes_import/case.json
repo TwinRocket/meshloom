@@ -1,0 +1,21 @@
+{
+  "description": "Load ctypes (raw memory, dlopen): refused by name, and every ctypes audit event is refused too.",
+  "events": [
+    {
+      "params": {
+        "name": "ctypes"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "name": "_ctypes"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

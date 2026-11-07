@@ -1,0 +1,21 @@
+{
+  "description": "Reach the network through the standard library's HTTP clients.",
+  "events": [
+    {
+      "params": {
+        "how": "urllib"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "http.client"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

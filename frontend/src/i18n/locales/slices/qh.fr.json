@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "notifications": {
+      "quiet": {
+        "title": "Heures calmes",
+        "help": "Pendant la plage, les notifications sont retenues puis résumées à la fin. Les urgences passent quand même.",
+        "enabled": "Retenir les notifications pendant les heures calmes",
+        "start": "Début de la plage",
+        "end": "Fin de la plage",
+        "weekdays": "Jours",
+        "digest": "Envoyer un résumé après les heures calmes et après une pause",
+        "digestHelp": "Un message de résumé par canal, sans le texte des messages.",
+        "timezone": "Les heures suivent l'horloge de cette machine ({{zone}}), pas celle de ce navigateur."
+      },
+      "channels": {
+        "quietExempt": "Exempté des heures calmes",
+        "quietExemptHelp": "Ce canal continue de recevoir les notifications pendant les heures calmes.",
+        "quietExemptFailed": "Impossible de modifier les heures calmes de {{name}}"
+      }
+    }
+  }
+}

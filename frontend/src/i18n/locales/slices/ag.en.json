@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "notifications": {
+      "pushReview": "An upgrade turned off the private network option for your push devices. If one of them is a UnifiedPush distributor on your network, tick the box below.",
+      "pushReviewEnable": "Allow private networks",
+      "pushReviewDismiss": "Dismiss"
+    }
+  }
+}

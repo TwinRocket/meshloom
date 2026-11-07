@@ -1,0 +1,51 @@
+{
+  "manifest": 1,
+  "id": "acme.echo",
+  "version": "1.0.0",
+  "name": {
+    "en": "Echo",
+    "fr": "Écho"
+  },
+  "summary": {
+    "en": "Repeats what it hears",
+    "fr": "Répète ce qu'il entend"
+  },
+  "authors": [
+    {
+      "name": "Acme"
+    }
+  ],
+  "license": "MIT",
+  "categories": [
+    "utility"
+  ],
+  "runtime": {
+    "type": "python",
+    "api": 1,
+    "python": ">=3.11"
+  },
+  "compat": {
+    "meshloom": ">=5.0.0"
+  },
+  "entry": "plugin.py",
+  "hooks": [
+    "message"
+  ],
+  "permissions": {
+    "messages.read": {
+      "channels": "public",
+      "direct": true,
+      "outgoing": false
+    },
+    "messages.send": {
+      "targets": "reply"
+    }
+  },
+  "privacy": {
+    "sends_to_third_parties": [],
+    "stores_message_content": false
+  },
+  "readme": {
+    "en": "README.md"
+  }
+}

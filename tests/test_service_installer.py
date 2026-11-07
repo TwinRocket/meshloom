@@ -15,6 +15,8 @@ Dangerous characters by format:
 import re
 import subprocess
 
+from app.services.legacy_env_settings import ENV_BOT_LOCK
+
 SERVICE_SCRIPT = "scripts/setup/install_service.sh"
 DOCKER_SCRIPT = "scripts/setup/install_docker.sh"
 INSTALL_SCRIPT = "scripts/setup/install.sh"
@@ -240,7 +242,7 @@ class TestSystemdEscape:
             content = f.read()
         assert "as_root()" in content
         assert "MESHCORE_BASIC_AUTH_USERNAME" not in content
-        assert "MESHCORE_DISABLE_BOTS" not in content
+        assert ENV_BOT_LOCK not in content
 
     def test_generated_unit_omits_transport_env(self):
         with open(SERVICE_SCRIPT, encoding="utf-8") as f:
@@ -248,7 +250,7 @@ class TestSystemdEscape:
         for var in _TRANSPORT_ENV_VARS:
             assert f"Environment={var}" not in content, var
         assert "Environment=MESHCORE_DATABASE_PATH" in content
-        assert "MESHCORE_DISABLE_BOTS" not in content
+        assert ENV_BOT_LOCK not in content
         assert "MESHCORE_BASIC_AUTH" not in content
 
 
@@ -279,7 +281,7 @@ class TestYamlQuote:
             content = f.read()
         assert "yaml_quote()" in content
         assert "MESHCORE_BASIC_AUTH_USERNAME" not in content
-        assert "MESHCORE_DISABLE_BOTS" not in content
+        assert ENV_BOT_LOCK not in content
 
     def test_generated_compose_omits_transport_env(self):
         with open(DOCKER_SCRIPT, encoding="utf-8") as f:
@@ -288,7 +290,7 @@ class TestYamlQuote:
             assert var not in content, var
         assert "MESHCORE_DATABASE_PATH" in content
         assert "devices:" in content
-        assert "MESHCORE_DISABLE_BOTS" not in content
+        assert ENV_BOT_LOCK not in content
         assert "MESHCORE_BASIC_AUTH" not in content
 
     def test_one_liner_omits_transport_env(self):
@@ -299,5 +301,5 @@ class TestYamlQuote:
         assert "MESHCORE_DATABASE_PATH" in content
         assert "devices:" in content
         assert "as_root()" in content
-        assert "MESHCORE_DISABLE_BOTS" not in content
+        assert ENV_BOT_LOCK not in content
         assert "MESHCORE_BASIC_AUTH" not in content
