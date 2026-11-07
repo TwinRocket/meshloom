@@ -1,5 +1,27 @@
 ## [Unreleased]
 
+---
+
+## [5.0.0-rc.2] - 2026-11-07
+
+Second release candidate of Meshloom 5.0. It fixes the installer. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new. The copy made before an upgrade is now named `meshcore.db.schema87.before-5.0.0-rc.2.db`.
+
+### Fixed
+
+- **Installer.** Run by a sudo user, the installer no longer replaces `/etc/meshloom/meshloom.env`, and no longer stops without a word on a package question while moving from 4.18: your file is kept. It can also pick up an install that was stopped midway.
+- **If rc.1's installer looks frozen** on "Installing from the Meshloom package repository": press Enter once and it finishes.
+
+### Français
+
+Deuxième version candidate de Meshloom 5.0. Elle corrige l'installeur. [Les notes de la rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) restent valables : avant d'essayer, limites connues et nouveautés. La copie faite avant une mise à niveau s'appelle désormais `meshcore.db.schema87.before-5.0.0-rc.2.db`.
+
+#### Corrections
+
+- **Installeur.** Lancé par un utilisateur sudo, l'installeur ne remplace plus `/etc/meshloom/meshloom.env` et ne s'arrête plus sans rien dire sur une question du paquet lors du passage depuis la 4.18 : votre fichier est conservé. Il sait aussi reprendre une installation interrompue.
+- **Si l'installeur de la rc.1 semble figé** sur « Installation depuis le dépôt de paquets Meshloom. » : appuyez une fois sur Entrée et il se termine.
+
+---
+
 ## [5.0.0-rc.1] - 2026-11-06
 
 First release candidate of Meshloom 5.0, for people who accept to test. Meshloom now has accounts and everyone signs in; Python bots become sandboxed extensions; notifications go through channels you choose; the Feed puts everything in one timeline; Meshloom Remote and link and photo sharing arrive, both optional. It changes your database and there is no way back in place, so read *Before you try it* first.

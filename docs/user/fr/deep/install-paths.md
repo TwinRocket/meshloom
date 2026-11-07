@@ -33,7 +33,7 @@ Une installation par paquet crée :
 
 - un service systemd nommé `meshloom`, exécuté par un utilisateur dédié `meshloom` qui peut utiliser les périphériques série et Bluetooth ;
 - le programme dans `/opt/meshloom`, que le service peut lire mais pas modifier ;
-- le fichier de réglages `/etc/meshloom/meshloom.env`, où `MESHCORE_DISABLE_PLUGINS=true` (commenté par défaut) verrouille toutes les extensions ;
+- le fichier de réglages `/etc/meshloom/meshloom.env`, où `MESHCORE_DISABLE_PLUGINS=true` (commenté par défaut) verrouille toutes les extensions, conservé tel quel quand vous mettez à jour ou relancez l’installeur ;
 - la base de données et vos données dans `/var/lib/meshloom`.
 
 Le paquet recommande aussi bubblewrap, qui enferme les extensions dans un bac à sable (voir [Extensions](/docs/deep/plugins/)), et le service peut lancer au plus 512 processus et fils d’exécution au total, extensions comprises.
