@@ -1,6 +1,6 @@
 ---
 title: Security
-description: What Meshloom does not protect, and the few locks that exist: Basic auth, turning bots off, an encrypted backup.
+description: "What Meshloom does not protect, and the few locks that exist: Basic auth, turning bots off, an encrypted backup."
 level: deep
 order: 20
 ---
