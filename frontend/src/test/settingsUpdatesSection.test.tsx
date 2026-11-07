@@ -55,6 +55,69 @@ describe('SettingsUpdatesSection', () => {
     expect(onApply).toHaveBeenCalled();
   });
 
+  it('explains a hold in plain text, announces no install time and keeps the manual button', () => {
+    const onApply = vi.fn();
+    render(
+      <SettingsUpdatesSection
+        updates={status({
+          auto_update: true,
+          auto_update_held: true,
+          next_auto_apply_at: 1_700_086_400,
+          auto_update_hold_reason: {
+            fr: '<b data-testid="injected">raison</b>',
+            en: 'reason',
+          },
+        })}
+        onApply={onApply}
+      />
+    );
+    expect(screen.getByTestId('updates-hold-reason')).toHaveTextContent(
+      '<b data-testid="injected">raison</b>'
+    );
+    expect(screen.queryByTestId('injected')).toBeNull();
+    expect(
+      screen.queryByText(i18n.t('settings.updates.nextAutoApply'), { exact: false })
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.updates.installNow') }));
+    expect(onApply).toHaveBeenCalled();
+  });
+
+  it('uses the local text when a hold comes without a reason', () => {
+    render(
+      <SettingsUpdatesSection
+        updates={status({ auto_update_held: true, auto_update_hold_reason: null })}
+      />
+    );
+    expect(screen.getByTestId('updates-hold-reason')).toHaveTextContent(
+      i18n.t('updates.holdFallback')
+    );
+  });
+
+  it('puts the hold reason next to the install button, ahead of the automatic settings', () => {
+    render(
+      <SettingsUpdatesSection updates={status({ auto_update_held: true })} onApply={vi.fn()} />
+    );
+    const reason = screen.getByTestId('updates-hold-reason');
+    const install = screen.getByRole('button', { name: i18n.t('settings.updates.installNow') });
+    const auto = screen.getByLabelText(i18n.t('updates.autoUpdate'));
+    expect(install.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(reason.compareDocumentPosition(auto) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('says when the last check got no answer', () => {
+    const { rerender } = render(<SettingsUpdatesSection updates={status()} />);
+    expect(screen.queryByTestId('updates-check-failed')).toBeNull();
+    rerender(<SettingsUpdatesSection updates={status({ check_stale: true })} />);
+    expect(screen.getByTestId('updates-check-failed')).toHaveTextContent(
+      i18n.t('settings.updates.checkFailed')
+    );
+  });
+
+  it('shows nothing about a hold when none applies', () => {
+    render(<SettingsUpdatesSection updates={status()} />);
+    expect(screen.queryByTestId('updates-hold-reason')).toBeNull();
+  });
+
   it('shows a leftover job error only while an update is still available', () => {
     const failedJob: OssUpdateJob = {
       state: 'failed',

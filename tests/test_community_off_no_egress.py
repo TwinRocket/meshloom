@@ -7,10 +7,10 @@ Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``/api/share`` (``POST /api/share/files`` and ``/{id}/report`` included) and
 ``/api/remote`` (``POST /api/remote/enable`` included: Remote needs Community, MSHL-445)
 is called (found dynamically from
-``app.routes``), plus the hashtag catalogue and the update check with GitHub
-answering 503. Any request to ``*.meshloom.app``, ``*.meshloom.link`` (Meshloom Remote),
-``api.fx-port.com`` (the retired airport search) or the effective Community API
-base fails the test. Placing an IATA code reads the bundled airport list.
+``app.routes``), plus the hashtag catalogue and the update check, whose route
+``/v1/meshloom/latest`` is the one Community route allowed. Any other request to
+``*.meshloom.app``, ``*.meshloom.link`` (Meshloom Remote), ``api.fx-port.com`` (the
+retired airport search) or the effective Community API base fails the test. Placing an IATA code reads the bundled airport list.
 
 The transition tests cover the opt-out itself (on → off) and an IATA change:
 the retained MQTT status is cleared before the DISCONNECT, the Live socket is
@@ -101,7 +101,6 @@ from app.services.meshloom_community import (
     update_community,
     upload_hashtag_sample,
 )
-from app.services.oss_updates import fetch_github_latest as _real_fetch_github_latest
 from app.services.oss_updates import refresh_oss_update_cache
 
 _RealAsyncClient = httpx.AsyncClient
@@ -114,6 +113,9 @@ PUBKEY = bytes(range(32))
 PUBKEY_HEX = PUBKEY.hex().upper()
 # The airport search Meshloom once asked (removed): never contacted again.
 FX_PORT_HOST = "api.fx-port.com"
+# The one route every instance may reach, opted out included. Kept out of
+# ``EgressRecorder.events``: everything those assertions see stays a leak.
+RELEASE_PATH = "/v1/meshloom/latest"
 
 
 def _forbidden(host: str | None, *, store_online: bool = False) -> bool:
@@ -135,6 +137,7 @@ class EgressRecorder:
 
     def __init__(self) -> None:
         self.events: list[tuple[Any, ...]] = []
+        self.release_requests: list[httpx.Request] = []
         self.http_gate: asyncio.Event | None = None
         self.mqtt_connects = True
         self.ws_connects = True
@@ -158,6 +161,12 @@ class EgressRecorder:
         return [h for h in self.hosts(since) if _forbidden(h, store_online=store_online)]
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == RELEASE_PATH:
+            self.release_requests.append(request)
+            canned = self.responses.get(RELEASE_PATH)
+            if canned is not None:
+                return httpx.Response(canned.status_code, content=canned.content)
+            return httpx.Response(503)
         # A pinned client connects to the IP and names the host in ``Host``.
         host = urlsplit("//" + request.headers.get("host", "")).hostname or request.url.host
         self.events.append(("http", host, request.url.path))
@@ -242,8 +251,7 @@ def egress(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", RecordingAsyncClient)
     monkeypatch.setattr("websockets.connect", ws_connect)
     monkeypatch.setattr("app.fanout.mqtt_base.aiomqtt.Client", mqtt_client)
-    # conftest stubs both release lookups; this file wants the real ones.
-    monkeypatch.setattr("app.services.oss_updates.fetch_github_latest", _real_fetch_github_latest)
+    # conftest stubs the release lookup; this file wants the real one.
     monkeypatch.setattr(
         "app.services.oss_updates.fetch_meshloom_latest", _real_fetch_meshloom_latest
     )
@@ -536,14 +544,26 @@ class TestCommunityOffNoEgress:
         await subscribe_live()
         await asyncio.sleep(0.05)
 
-        # The update check, with GitHub down: no fallback to the Community mirror.
-        assert await refresh_oss_update_cache() is None
-        assert await fetch_meshloom_latest() is None
+        # The update check: the public release route, and nothing else.
+        egress.release_requests.clear()
+        egress.responses[RELEASE_PATH] = httpx.Response(
+            200, json={"version": "9.9.9", "tag": "9.9.9", "released_at": None, "html_url": None}
+        )
+        assert (await refresh_oss_update_cache() or {}).get("version") == "9.9.9"
+        assert (await fetch_meshloom_latest() or {}).get("version") == "9.9.9"
         assert lookup_airport("LYS")  # bundled list: nothing leaves
 
         assert egress.forbidden() == [], egress.events
-        assert set(egress.hosts()) <= {"github.com"}, egress.events
-        assert ("http", "github.com", "/TwinRocket/meshloom/releases/latest") in egress.events
+        assert egress.hosts() == [], egress.events
+        assert len(egress.release_requests) == 2
+        for request in egress.release_requests:
+            # A plain GET on the official base: no JWT, nothing that identifies the node.
+            assert request.method == "GET"
+            assert str(request.url) == f"{EGRESS_API_BASE}{RELEASE_PATH}"
+            assert request.content == b""
+            assert "authorization" not in request.headers
+            assert "cookie" not in request.headers
+            assert request.headers["user-agent"] == "Meshloom"
 
     async def test_full_backup_restore_job_makes_no_egress(
         self, backup_db, egress, cleanup_community
@@ -1786,7 +1806,7 @@ class TestWaitingForPosition:
 
         new = egress.events[mark:]
         # No HTTP to Community, no Live socket, no packet.
-        assert [e for e in new if e[0] == "http" and e[1] != "github.com"] == [], new
+        assert [e for e in new if e[0] == "http"] == [], new
         assert [e for e in new if e[0] == "ws_connect"] == []
         assert get_live_relay().connected is False
         assert _packets_published(egress, "CDG") == 0
@@ -1998,7 +2018,7 @@ class TestWaitingForPosition:
         await _wait_state_applied()
 
         new = egress.events[mark:]
-        bind = next(e for e in new if e[0] == "http" and e[1] != "github.com")
+        bind = next(e for e in new if e[0] == "http")
         assert bind[2] == "/v1/me/iata"
         # Re-published at once, without ``state``.
         assert _active_status_since(egress, "CDG", mark)

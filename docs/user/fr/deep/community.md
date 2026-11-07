@@ -39,7 +39,7 @@ Community a besoin de savoir à peu près où se trouve votre radio : il place c
 
 - une bannière indique « Pour fonctionner, Meshloom Community a besoin de votre position », sur toutes les pages, réglages compris ;
 - votre serveur garde sa connexion au broker Community uniquement pour publier son **état**, marqué en attente de position, afin que Community sache que l’observateur est là ;
-- **aucun paquet n’est publié**, et la page Live, l’annuaire (noms de sauts, localisation RF, « entendu par »), le test radio, les statistiques, les noms hashtag et les recherches de canaux et le miroir des versions de Community sont tous coupés, comme si vous l’aviez quitté. La page Live, le détail « entendu par » et le test radio indiquent que Community a besoin de votre position et proposent de la choisir.
+- **aucun paquet n’est publié**, et la page Live, l’annuaire (noms de sauts, localisation RF, « entendu par »), le test radio, les statistiques, les noms hashtag et les recherches de canaux sont tous coupés, comme si vous l’aviez quitté. La page Live, le détail « entendu par » et le test radio indiquent que Community a besoin de votre position et proposent de la choisir.
 
 Vous pouvez rejoindre alors que votre radio n’a pas de position : Community démarre alors dans cet état. Depuis la bannière :
 
@@ -110,7 +110,7 @@ Vous pouvez aussi indiquer pourquoi vous partez (vie privée, pas utile, problè
 
 Si Community ne confirme pas dans les 5 secondes, **vous quittez quand même**, et les réglages affichent **Suppression non confirmée** avec un bouton **Réessayer**. Meshloom ne renvoie jamais la désinscription de lui-même, même après un redémarrage : seul ce bouton le fait, et l’envoyer deux fois est sans conséquence. Il faut la même radio, car la requête est signée avec sa clé ; si Meshloom ne sait pas quelle radio est partie (elle était déconnectée et n’avait jamais publié), le bouton ne peut rien : écrivez à [privacy@meshloom.app](mailto:privacy@meshloom.app). Rejoindre de nouveau rend la chose inutile : Community lève la désinscription quand vous rejoignez de nouveau.
 
-**Désactiver Community coupe toute connexion à Community** (`*.meshloom.app`), immédiatement et sans redémarrage, avec les exceptions décrites au premier point, dans [Quitter Community](#quitter-community) (le bouton **Réessayer**) et dans [Codes proposés](#codes-proposés) :
+**Désactiver Community coupe toute connexion à Community** (`*.meshloom.app`), immédiatement et sans redémarrage, avec les exceptions décrites au premier point, dans la vérification des versions ci-dessous, dans [Quitter Community](#quitter-community) (le bouton **Réessayer**) et dans [Codes proposés](#codes-proposés) :
 
 - l’état de votre nœud sur le broker passe à `offline` puis est effacé, avant la fermeture de la connexion MQTT, pour qu’il ne reste pas affiché en ligne. Quand Community a confirmé la désinscription, il efface lui-même cet état (aussitôt, ou peu après), et Meshloom ne fait aucune autre tentative ; de même quand la requête de désinscription a expiré, car Community l’a peut-être enregistrée (utilisez **Réessayer**). Sinon, si le broker est injoignable à ce moment-là, rien ne peut être envoyé : le broker marque alors lui-même le nœud `offline` quand il s’aperçoit que la connexion est perdue, et cet `offline` resterait. C’est la **seule connexion que Meshloom fait de lui-même après votre départ**, et seulement quand Community n’a sûrement pas reçu la désinscription : Meshloom se reconnecte au broker, seul, pour effacer cet état restant et rien d’autre (ni paquet, ni état, ni autre requête). Il essaie 6 fois au plus en 13 heures environ (après 1 minute, puis 5 minutes, 15 minutes, 1 heure, 4 heures et 8 heures), tient compte d’un redémarrage entre-temps, et abandonne définitivement au bout de 24 heures. Une fois l’état effacé, ou l’abandon acté, plus rien ne se connecte à Community ;
 - le flux Live se ferme, et les requêtes Community encore en cours sont annulées ;
@@ -120,7 +120,7 @@ Changer le code IATA efface de la même façon l’état laissé sous l’ancien
 
 **Community désactivé ne veut pas dire zéro trafic réseau.** Ceci continue :
 
-- la vérification des nouvelles versions de Meshloom interroge GitHub seulement, une fois toutes les 6 heures. Avec Community activé, elle a lieu toutes les 5 minutes et se rabat sur un miroir de Community (`/v1/meshloom/latest`) quand GitHub ne répond pas ;
+- chaque Meshloom, membre ou non, demande la dernière version à Community (`GET /v1/meshloom/latest` sur `api.meshloom.app`) une fois toutes les 6 heures. Votre adresse IP parvient à Community et rien d’autre n’est envoyé : ni clé, ni identifiant, ni position. Tant que Community est injoignable, les nouvelles versions ne sont pas découvertes et rien ne s’installe automatiquement ;
 - Web Push et les intégrations que vous configurez appellent leurs propres serveurs ;
 - un clic sur **Proposer des codes** envoie à Community la position arrondie de votre radio (voir [Codes proposés](#codes-proposés)) ;
 - les e-mails d’alerte partent par le serveur de messagerie que vous avez configuré. Le logo de Meshloom est inclus dans l’e-mail : l’ouvrir ne charge rien depuis `meshloom.app` ;

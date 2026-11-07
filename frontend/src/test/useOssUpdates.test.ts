@@ -87,6 +87,25 @@ describe('useOssUpdates', () => {
     sessionStorage.clear();
   });
 
+  it('leaves a held update to the banner, without marking the toast seen', async () => {
+    vi.spyOn(api, 'getUpdates').mockResolvedValue(
+      status({ auto_update: true, auto_update_held: true })
+    );
+    const { result } = renderHook(() => useOssUpdates());
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(UPDATE_TOAST_SEEN_KEY)).toBeNull();
+  });
+
+  it('still toasts a held update when auto-update is off', async () => {
+    vi.spyOn(api, 'getUpdates').mockResolvedValue(
+      status({ auto_update: false, auto_update_held: true })
+    );
+    const { result } = renderHook(() => useOssUpdates());
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
   it('loads /api/updates on mount', async () => {
     const payload = status();
     vi.spyOn(api, 'getUpdates').mockResolvedValue(payload);

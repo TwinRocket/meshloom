@@ -9,9 +9,10 @@ import type {
   OssUpdateSettingsPatch,
   OssUpdateStatus,
 } from '../types';
+import { updateHoldNeedsAttention } from '../utils/updateHold';
 import { getSettingsHash } from '../utils/urlHash';
 
-/** Backend already caches at 300s; this is just so a long-lived tab notices. */
+/** Reads the backend's cached status (it asks Community every 6 h), so a long-lived tab notices. */
 export const OSS_UPDATE_POLL_MS = 5 * 60 * 1000;
 export const OSS_UPDATE_JOB_POLL_MS = 1500;
 export const OSS_UPDATE_RESTART_TIMEOUT_MS = 5 * 60 * 1000;
@@ -163,6 +164,8 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
 
   const notifyIfUpdateAvailable = (next: OssUpdateStatus) => {
     if (!next.update_available || !next.latest) return;
+    // UpdateHoldBanner announces this one.
+    if (updateHoldNeedsAttention(next)) return;
     const seen = toastSeenRef.current ?? readToastSeen();
     if (seen === next.latest) return;
     toastSeenRef.current = next.latest;

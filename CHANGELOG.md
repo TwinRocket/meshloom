@@ -291,6 +291,37 @@ Ce que la 5.0 ferme ou renforce par rapport à la 4.18. Ce fichier est public : 
 ---
 
 
+## [4.18.3] - 2026-11-07
+
+Meshloom now learns about new versions from Community, and some versions are no longer installed automatically.
+
+### Changed
+
+- **Version check through Community.** Every Meshloom, joined or not, asks `api.meshloom.app` for the latest version once every 6 hours, instead of asking GitHub. Your IP address reaches Community; nothing else is sent if you have not joined. While Community cannot be reached, new versions are not discovered and nothing is installed automatically.
+- **Some updates must be started by hand.** Meshloom can be told not to install a version on its own, such as a new major version. If automatic updates are on, a banner says the update is available, and **Settings > Updates** says why. **Install now** still works.
+
+### Fixed
+
+- **Automatic updates start when their time window opens.** On Linux package installs, the update due at the start of the window could stop before it began, then report a timeout and wait 6 hours before trying again.
+
+---
+
+### Français
+
+Meshloom découvre désormais les nouvelles versions par Community, et certaines versions ne s’installent plus automatiquement.
+
+#### Modifications
+
+- **Vérification des versions par Community.** Chaque Meshloom, membre ou non, demande la dernière version à `api.meshloom.app` une fois toutes les 6 heures, au lieu de la demander à GitHub. Votre adresse IP parvient à Community ; rien d’autre n’est envoyé si vous n’êtes pas membre. Tant que Community est injoignable, les nouvelles versions ne sont pas découvertes et rien ne s’installe automatiquement.
+- **Certaines mises à jour se lancent à la main.** Meshloom peut recevoir la consigne de ne pas installer une version de lui-même, par exemple une nouvelle version majeure. Si les mises à jour automatiques sont activées, un bandeau indique que la mise à jour est disponible, et **Réglages > Mises à jour** en donne la raison. **Installer maintenant** reste disponible.
+
+#### Corrections
+
+- **Les mises à jour automatiques démarrent à l’ouverture de leur plage horaire.** Sur les installations par paquet Linux, la mise à jour prévue au début de la plage pouvait s’arrêter avant de commencer, puis signaler un délai dépassé et attendre 6 heures avant de réessayer.
+
+---
+
+
 ## [4.18.2] - 2026-10-10
 
 Re-running the installer on a Docker stack now keeps the changes you made to your compose file.

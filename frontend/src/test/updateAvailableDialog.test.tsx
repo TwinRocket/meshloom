@@ -25,6 +25,24 @@ const updates: OssUpdateStatus = {
 };
 
 describe('UpdateAvailableDialog', () => {
+  it('says why a held update will not install on its own, with Install still there', () => {
+    render(
+      <UpdateAvailableDialog
+        open
+        updates={{
+          ...updates,
+          apply_supported: true,
+          auto_update_held: true,
+          auto_update_hold_reason: { fr: 'raison fr', en: 'reason en' },
+        }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('dialog-hold-reason')).toHaveTextContent('raison fr');
+    expect(screen.getByRole('button', { name: i18n.t('updates.install') })).toBeInTheDocument();
+  });
+
   it('shows both upgrade recipes and the release link', () => {
     render(<UpdateAvailableDialog open updates={updates} onClose={vi.fn()} />);
 

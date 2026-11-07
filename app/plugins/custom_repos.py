@@ -11,9 +11,8 @@ capped. No API, no token:
 1. ``GET https://github.com/<owner>/<name>/releases/latest``, not followed: the answer
    must be a redirect whose ``Location`` is exactly
    ``https://github.com/<owner>/<name>/releases/tag/<tag>`` (the repository compared
-   case-insensitively, the case GitHub gives kept for the next URLs), the same lookup as
-   ``fetch_github_latest`` in ``app/services/oss_updates.py``. A 404 or a redirect to
-   the repository page is ``repository_no_release``; a redirect elsewhere (a rename or
+   case-insensitively, the case GitHub gives kept for the next URLs). A 404 or a redirect
+   to the repository page is ``repository_no_release``; a redirect elsewhere (a rename or
    a transfer) is ``repository_moved``: the admin adds the new name.
 2. The three release assets under ``releases/download/<tag>/``, followed to the asset
    host: ``manifest.json`` (``MANIFEST_MAX_BYTES``), ``plugin.zip.sha256``

@@ -13,6 +13,7 @@ import { BottomNav } from './BottomNav';
 import { DesktopRail } from './DesktopRail';
 import { RadioStatusDialog } from './RadioStatusDialog';
 import { UpdateAvailableDialog } from './UpdateAvailableDialog';
+import { UpdateHoldBanner } from './UpdateHoldBanner';
 import { useOssUpdates } from '../hooks/useOssUpdates';
 import { useCapabilities } from '../auth/SessionProvider';
 import { RAIL_ITEMS, type BottomNavTarget } from './navDestinations';
@@ -441,6 +442,12 @@ export function AppShell({
             enabled={communityStatus.enabled}
             iata={communityStatus.iata}
             onOpenSettings={() => handleOpenSettings('community')}
+          />
+        )}
+        {!(showSettings && settingsSection === 'updates') && !ossUpdates.applying && (
+          <UpdateHoldBanner
+            updates={ossUpdates.status}
+            onOpenUpdates={() => handleOpenSettings('updates')}
           />
         )}
       </div>

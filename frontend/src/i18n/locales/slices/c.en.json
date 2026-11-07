@@ -824,6 +824,7 @@
       },
       "nodeClockHelp": "Times follow this node's clock, not this browser.",
       "nextAutoApply": "Next automatic install",
+      "checkFailed": "The last version check got no answer. Meshloom will try again within 6 hours.",
       "manualHelp": "How to upgrade",
       "legacyHelper": "Run the Meshloom installer again on the host to switch to the signed update helper."
     },
@@ -838,6 +839,11 @@
     }
   },
   "updates": {
+    "holdRegionLabel": "Update to start by hand",
+    "holdBanner": "Update v{{latest}} is available and must be started by hand.",
+    "holdOpenSettings": "Update settings",
+    "holdDismiss": "Dismiss",
+    "holdFallback": "This update will not install automatically. You can start it when you are ready.",
     "helpApply": "A newer Meshloom release is published. Install it on this node.",
     "addonManual": "Please update via Home Assistant",
     "manual": "You must update Meshloom manually",

@@ -1,4 +1,4 @@
-"""Release check (GitHub, Community mirror) plus Meshloom-only apply."""
+"""Release check (Community) plus Meshloom-only apply."""
 
 from __future__ import annotations
 
@@ -10,9 +10,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.auth import audit
 from app.auth.permissions import require
+from app.background_tasks import spawn
 from app.repository import AppSettingsRepository
 from app.services.install_kind import detect_install_kind
-from app.services.oss_updates import get_update_status, refresh_oss_update_cache
+from app.services.oss_updates import (
+    get_update_status,
+    recheck_auto_apply,
+    refresh_oss_update_cache,
+)
 from app.services.update_apply import (
     UpdateApplyBusy,
     expire_stale_applying_job,
@@ -40,17 +45,19 @@ class UpdateJobResponse(BaseModel):
     started_at: int | None = None
 
 
+class AutoUpdateHoldReason(BaseModel):
+    fr: str
+    en: str
+
+
 class UpdateStatusResponse(BaseModel):
     current: str = Field(description="Local Meshloom SemVer from get_app_build_info()")
     latest: str | None = Field(description="Latest published SemVer, or null if unknown")
     update_available: bool
     html_url: str | None = Field(description="GitHub release page of `latest`, or null")
-    latest_source: Literal["github", "community", "env"] | None = Field(
+    latest_source: Literal["community", "env"] | None = Field(
         default=None,
-        description=(
-            "Where `latest` came from: GitHub releases/latest (primary), the "
-            "Community mirror (fallback), or the MESHLOOM_UPDATE_LATEST pin"
-        ),
+        description="Where `latest` came from: Community, or the MESHLOOM_UPDATE_LATEST pin",
     )
     install_kind: Literal["package", "compose", "addon", "container", "source"]
     apply_supported: bool
@@ -58,10 +65,24 @@ class UpdateStatusResponse(BaseModel):
     auto_update_window_start: str
     auto_update_window_end: str
     auto_update_weekdays: list[int]
+    auto_update_held: bool = Field(
+        default=False,
+        description="Community asks not to auto-apply this update; a manual apply stays allowed",
+    )
+    auto_update_hold_reason: AutoUpdateHoldReason | None = Field(
+        default=None, description="Why, shown as plain text; null when absent or malformed"
+    )
     checked_at: int | None = Field(description="Unix time of the last successful catalogue fetch")
+    check_stale: bool = Field(
+        default=False,
+        description="The last check got no usable answer: the status is the last known one",
+    )
     tz_name: str
     next_auto_apply_at: int | None = Field(
-        description="Unix time when the next auto-apply window opens, or now if already open"
+        description=(
+            "Unix time when the next auto-apply window opens, or now if already open; "
+            "null when nothing will auto-apply (off, held, or the last check got no answer)"
+        )
     )
     legacy_update_helper: bool = Field(
         default=False,
@@ -122,7 +143,14 @@ async def build_update_status() -> UpdateStatusResponse:
     kind, supported = detect_install_kind()
     settings = await AppSettingsRepository.get()
     now = datetime.now().astimezone()
-    pending_auto = bool(catalogue["update_available"] and settings.auto_update and supported)
+    held = bool(catalogue.get("auto_update_held"))
+    pending_auto = bool(
+        catalogue["update_available"]
+        and settings.auto_update
+        and supported
+        and not held
+        and not catalogue.get("check_stale")
+    )
     return UpdateStatusResponse(
         current=catalogue["current"],
         latest=catalogue["latest"],
@@ -135,7 +163,10 @@ async def build_update_status() -> UpdateStatusResponse:
         auto_update_window_start=settings.auto_update_window_start,
         auto_update_window_end=settings.auto_update_window_end,
         auto_update_weekdays=settings.auto_update_weekdays,
+        auto_update_held=held,
+        auto_update_hold_reason=catalogue.get("auto_update_hold_reason"),
         checked_at=catalogue.get("checked_at"),
+        check_stale=bool(catalogue.get("check_stale")),
         tz_name=host_tz_name(),
         next_auto_apply_at=(
             _next_auto_apply_at(
@@ -218,4 +249,6 @@ async def patch_update_settings(body: UpdateSettingsPatch) -> UpdateStatusRespon
         kwargs["auto_update_weekdays"] = body.auto_update_weekdays
     if kwargs:
         await AppSettingsRepository.update(**kwargs)
+        # In the background: next_auto_apply_at can say "now", and this must not fail the PATCH.
+        spawn(recheck_auto_apply(), name="oss-update-settings-recheck")
     return await build_update_status()

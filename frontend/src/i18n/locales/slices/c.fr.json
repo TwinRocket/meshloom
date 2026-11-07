@@ -824,6 +824,7 @@
       },
       "nodeClockHelp": "Les horaires suivent l’horloge du nœud, pas celle de ce navigateur.",
       "nextAutoApply": "Prochaine installation automatique",
+      "checkFailed": "La dernière vérification des versions n’a pas abouti. Meshloom réessaiera d’ici 6 heures.",
       "manualHelp": "Comment mettre à jour",
       "legacyHelper": "Relancez l’installeur Meshloom sur l’hôte pour passer à l’assistant de mise à jour signé."
     },
@@ -838,6 +839,11 @@
     }
   },
   "updates": {
+    "holdRegionLabel": "Mise à jour à lancer à la main",
+    "holdBanner": "La mise à jour v{{latest}} est disponible et doit être lancée à la main.",
+    "holdOpenSettings": "Réglages des mises à jour",
+    "holdDismiss": "Masquer",
+    "holdFallback": "Cette mise à jour ne s’installera pas automatiquement. Vous pouvez la lancer quand vous le souhaitez.",
     "helpApply": "Une version plus récente de Meshloom est publiée. Installez-la sur ce nœud.",
     "addonManual": "Veuillez mettre à jour via Home Assistant",
     "manual": "Vous devez mettre à jour Meshloom manuellement",

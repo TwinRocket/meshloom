@@ -39,7 +39,7 @@ Community needs to know roughly where your radio is: it places each observer on 
 
 - a banner says "Meshloom Community needs your position to work", on every page, the settings included;
 - your server keeps its connection to the Community broker only to publish its **status**, marked as waiting for a position, so Community knows the observer is there;
-- **no packet is published**, and the Live page, the directory (hop names, RF locate, "heard by"), the radio test, the statistics, the hashtag names and channel look-ups and the Community release mirror are all off, as if you had left. The Live page, the "heard by" details and the radio test say Community needs your position and offer to choose it.
+- **no packet is published**, and the Live page, the directory (hop names, RF locate, "heard by"), the radio test, the statistics and the hashtag names and channel look-ups are all off, as if you had left. The Live page, the "heard by" details and the radio test say Community needs your position and offer to choose it.
 
 You can join while your radio has no position: Community then starts in this state. From the banner:
 
@@ -108,7 +108,7 @@ You can also say why you leave (privacy, not useful, technical issue, other); th
 
 If Community does not confirm within 5 seconds, **you leave anyway**, and the settings show **Deletion not confirmed** with a **Retry** button. Meshloom never sends the opt-out again on its own, not even after a restart: only that button does, and sending it twice is harmless. It needs the same radio, since the request is signed with its key; if Meshloom does not know which radio left (it was disconnected and had never published), the button cannot help: write to [privacy@meshloom.app](mailto:privacy@meshloom.app). Joining again makes it moot: Community lifts the opt-out when you join again.
 
-**Turning Community off cuts every connection to Community** (`*.meshloom.app`), at once and without a restart, with the exceptions described in the first point, in [Leaving](#leaving) (the **Retry** button) and in [Suggested codes](#suggested-codes):
+**Turning Community off cuts every connection to Community** (`*.meshloom.app`), at once and without a restart, with the exceptions described in the first point, in the version check below, in [Leaving](#leaving) (the **Retry** button) and in [Suggested codes](#suggested-codes):
 
 - your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. When Community confirmed the opt-out, it clears that status itself (at once, or shortly after), and Meshloom makes no further attempt; the same goes when the opt-out request timed out, since Community may have recorded it (use **Retry**). Otherwise, if the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone, and that `offline` would stay. This is the **only connection Meshloom makes on its own after you leave**, and only when Community surely did not receive the opt-out: Meshloom reconnects to the broker, alone, to delete that leftover status and nothing else (no packets, no status, no other request). It tries at most 6 times over about 13 hours (after 1 minute, then 5 minutes, 15 minutes, 1 hour, 4 hours and 8 hours), survives a restart, and gives up for good after 24 hours. Once the status is deleted, or once it gives up, nothing connects to Community any more;
 - the Live feed closes, and Community requests still in flight are cancelled;
@@ -118,7 +118,7 @@ Changing the IATA code clears the status left under the old code the same way, w
 
 **Community off does not mean no network traffic at all.** These still happen:
 
-- the check for new Meshloom versions asks GitHub only, once every 6 hours. With Community on it runs every 5 minutes and falls back to a Community mirror (`/v1/meshloom/latest`) when GitHub cannot be reached;
+- every Meshloom, joined or not, asks Community for the latest version (`GET /v1/meshloom/latest` on `api.meshloom.app`) once every 6 hours. Your IP address reaches Community, and nothing else is sent: no key, no identifier, no position. While Community cannot be reached, new versions are not discovered and nothing is installed automatically;
 - Web Push and the integrations you set up call their own servers;
 - a click on **Suggest codes** sends your radio's rounded position to Community (see [Suggested codes](#suggested-codes));
 - alert emails leave through the mail server you set up. The Meshloom logo is inside the email, so opening one loads nothing from `meshloom.app`;
