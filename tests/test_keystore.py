@@ -24,11 +24,9 @@ def reset_keystore():
     """Reset keystore state before each test."""
     import app.keystore as ks
 
-    ks._private_key = None
-    ks._public_key = None
+    ks.clear_keys()
     yield
-    ks._private_key = None
-    ks._public_key = None
+    ks.clear_keys()
 
 
 def _make_valid_private_key() -> bytes:
@@ -172,3 +170,111 @@ class TestExportAndStorePrivateKey:
 
         assert result is False
         assert not has_private_key()
+
+
+def _device_info(model: str) -> MagicMock:
+    event = MagicMock()
+    event.type = EventType.DEVICE_INFO
+    event.payload = {"model": model}
+    return event
+
+
+def _refusing_mc(device_query: AsyncMock) -> MagicMock:
+    refused = MagicMock()
+    refused.type = EventType.DISABLED
+    refused.payload = {}
+    mc = MagicMock()
+    mc.commands.export_private_key = AsyncMock(return_value=refused)
+    mc.commands.send_device_query = device_query
+    return mc
+
+
+class TestWhyTheKeyIsMissing:
+    """MSHL-471: the proxy announces itself in DEVICE_INFO; nothing else is guessed."""
+
+    @pytest.mark.asyncio
+    async def test_a_meshloom_proxy_is_named_and_the_firmware_is_not_blamed(self, caplog):
+        from app.keystore import radio_key_unavailable_code
+
+        mc = _refusing_mc(AsyncMock(return_value=_device_info("MeshloomProxy/0123456789ab")))
+        assert await export_and_store_private_key(mc) is False
+        assert radio_key_unavailable_code() == "radio_key_behind_proxy"
+        assert "radio proxy" in caplog.text
+        assert "firmware" not in caplog.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_a_real_model_keeps_both_possible_causes(self, caplog):
+        from app.keystore import radio_key_unavailable_code
+
+        mc = _refusing_mc(AsyncMock(return_value=_device_info("Heltec V3")))
+        await export_and_store_private_key(mc)
+        assert radio_key_unavailable_code() == "radio_key_export_disabled"
+        assert "ENABLE_PRIVATE_KEY_EXPORT" in caplog.text
+        assert "proxy" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_host_like_model_says_nothing(self):
+        from app.keystore import radio_key_unavailable_code
+
+        mc = _refusing_mc(AsyncMock(return_value=_device_info("proxy.example.org")))
+        await export_and_store_private_key(mc)
+        assert radio_key_unavailable_code() == "radio_key_export_disabled"
+
+    @pytest.mark.asyncio
+    async def test_no_device_info_claims_no_cause(self):
+        from app.keystore import last_export_disabled, radio_key_unavailable_code
+
+        mc = _refusing_mc(AsyncMock(side_effect=OSError("link lost")))
+        assert await export_and_store_private_key(mc) is False
+        assert last_export_disabled() is True
+        assert radio_key_unavailable_code() == "radio_key_unavailable"
+
+    def test_never_asked_is_the_generic_code(self):
+        from app.keystore import radio_key_unavailable_code
+
+        assert radio_key_unavailable_code() == "radio_key_unavailable"
+
+    @pytest.mark.asyncio
+    async def test_a_later_good_export_and_a_disconnect_forget_the_cause(self):
+        from app.keystore import radio_key_unavailable_code
+
+        mc = _refusing_mc(AsyncMock(return_value=_device_info("MeshloomProxy/0123456789ab")))
+        await export_and_store_private_key(mc)
+        clear_keys()
+        assert radio_key_unavailable_code() == "radio_key_unavailable"
+
+        await export_and_store_private_key(mc)
+        good = MagicMock()
+        good.type = EventType.PRIVATE_KEY
+        good.payload = {"private_key": VALID_KEY}
+        mc.commands.export_private_key = AsyncMock(return_value=good)
+        await export_and_store_private_key(mc)
+        assert radio_key_unavailable_code() == "radio_key_unavailable"
+
+
+class TestMissingKeyNotice:
+    """MSHL-471: what runs on every advert says it once per connection and cause."""
+
+    def test_once_per_topic(self):
+        from app.keystore import first_missing_key_notice
+
+        assert first_missing_key_notice("a") is True
+        assert first_missing_key_notice("a") is False
+        assert first_missing_key_notice("b") is True
+
+    @pytest.mark.asyncio
+    async def test_again_when_the_cause_becomes_known(self):
+        from app.keystore import first_missing_key_notice
+
+        assert first_missing_key_notice("a") is True
+        mc = _refusing_mc(AsyncMock(return_value=_device_info("MeshloomProxy/0123456789ab")))
+        await export_and_store_private_key(mc)
+        assert first_missing_key_notice("a") is True
+        assert first_missing_key_notice("a") is False
+
+    def test_again_after_a_disconnect(self):
+        from app.keystore import first_missing_key_notice
+
+        assert first_missing_key_notice("a") is True
+        clear_keys()
+        assert first_missing_key_notice("a") is True

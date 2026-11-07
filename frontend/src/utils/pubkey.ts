@@ -7,6 +7,8 @@
  * module provides utilities for working with both formats consistently.
  */
 
+import type { Contact } from '../types';
+
 /** Length of a public key prefix in hex characters */
 const PUBKEY_PREFIX_LENGTH = 12;
 
@@ -14,7 +16,7 @@ const PUBKEY_PREFIX_LENGTH = 12;
  * Extract the 12-character prefix from a public key.
  * Works with both full keys and existing prefixes.
  */
-function getPubkeyPrefix(key: string): string {
+export function getPubkeyPrefix(key: string): string {
   return key.slice(0, PUBKEY_PREFIX_LENGTH);
 }
 
@@ -37,4 +39,13 @@ export function isPrefixOnlyContact(pubkey: string): boolean {
 
 export function isUnknownFullKeyContact(pubkey: string, lastAdvert?: number | null): boolean {
   return pubkey.length === 64 && !lastAdvert;
+}
+
+export function resolveContactsByPrefix(hash: string, contacts: Contact[]): Contact[] {
+  const needle = hash
+    .trim()
+    .replace(/^hash1:/i, '')
+    .toLowerCase();
+  if (!needle) return [];
+  return contacts.filter((contact) => contact.public_key.toLowerCase().startsWith(needle));
 }

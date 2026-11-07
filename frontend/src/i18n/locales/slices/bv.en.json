@@ -1,0 +1,39 @@
+{
+  "settings": {
+    "access": {
+      "pairing": {
+        "title": "Pair a device",
+        "help": "Pair a phone app such as meshenger by scanning a QR code. The code works once and expires quickly.",
+        "ingressNotice": "The device cannot pair through Home Assistant: it will reach Meshloom at the address in the QR code.",
+        "none": "No pairing code waiting.",
+        "add": "Pair a device",
+        "createTitle": "Pair a device",
+        "createHelp": "Name the device, choose what it may do and how long the code stays valid. Meshloom then shows a QR code for the device to scan.",
+        "label": "Device name",
+        "labelPlaceholder": "Nadia's phone",
+        "scopes": "Scopes",
+        "scopesHelp": "Tick only what the device needs. The device never gets more than your role allows.",
+        "lifetime": "The code is valid for",
+        "lifetimeMinutes_one": "{{count}} minute",
+        "lifetimeMinutes_other": "{{count}} minutes",
+        "create": "Show the QR code",
+        "qrTitle": "Scan to pair “{{label}}”",
+        "qrHelp": "Scan this QR code with meshenger on the device. It will not be shown again.",
+        "secretWarning": "This QR code works like a password: do not share it, and scan it only with your own device.",
+        "qrAlt": "QR code to pair a device with Meshloom",
+        "countdown": "Expires in {{time}}",
+        "expired": "This code has expired and the QR code is hidden. Create a new one.",
+        "scopesGiven": "The device will get: {{scopes}}.",
+        "regenerate": "Create a new code",
+        "cancelCode": "Cancel the code",
+        "cancelNamed": "Cancel the code for {{label}}",
+        "cancelled": "Pairing code cancelled.",
+        "done": "Close",
+        "owner": "By {{user}}",
+        "expiresAt": "Expires {{when}}",
+        "used": "This code was used by the device: pairing is done. Create a new code to pair another device.",
+        "closeRevokes": "Close and cancel the code"
+      }
+    }
+  }
+}

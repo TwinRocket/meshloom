@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "notifications": {
+      "quiet": {
+        "title": "Quiet hours",
+        "help": "During the window, notifications are held, then summed up at the end. Urgent ones still go through.",
+        "enabled": "Hold notifications during quiet hours",
+        "start": "Window start",
+        "end": "Window end",
+        "weekdays": "Days",
+        "digest": "Send a summary after quiet hours and after a pause",
+        "digestHelp": "One summary message per channel, without message text.",
+        "timezone": "Times follow this machine's clock ({{zone}}), not this browser."
+      },
+      "channels": {
+        "quietExempt": "Exempt from quiet hours",
+        "quietExemptHelp": "This channel keeps receiving notifications during quiet hours.",
+        "quietExemptFailed": "Could not change quiet hours for {{name}}"
+      }
+    }
+  }
+}

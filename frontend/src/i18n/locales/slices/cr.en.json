@@ -1,0 +1,15 @@
+{
+  "feed": {
+    "events": {
+      "sessionOnly": "Events are kept for this session only.",
+      "radioOffline": "The radio is offline.",
+      "radioOnline": "The radio is back online after {{duration}}.",
+      "contactFirstSeen": "New contact heard: {{name}}.",
+      "contactRenamed": "{{from}} is now called {{to}}.",
+      "channelFound": "Channel discovered: {{name}}.",
+      "openContact": "Open contact",
+      "reviewChannel": "Review in Discovered channels",
+      "openRadio": "Radio status"
+    }
+  }
+}

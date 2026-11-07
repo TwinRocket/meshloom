@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { VolumeX } from 'lucide-react';
 
 import { cn } from '../lib/utils';
+import { formatClockTime } from '../utils/formatTime';
 
 export const MUTE_DURATIONS = [
   { seconds: 15 * 60, label: 'chatHeader.mute15m' },
@@ -43,10 +44,7 @@ export function ChannelMuteMenu({ muted, mutedUntil, onMute }: ChannelMuteMenuPr
     mutedUntil,
     (ts) =>
       t('chatHeader.mutedUntil', {
-        time: new Date(ts * 1000).toLocaleTimeString(i18n.language, {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
+        time: formatClockTime(ts, i18n.language),
       }),
     t('chatHeader.mutedIndefinite')
   );

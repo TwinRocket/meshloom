@@ -17,11 +17,11 @@ After you send, the message shows how its delivery is going:
 
 - A **receipt** (an acknowledgement) means the recipient confirmed it received the message. Without one, the message was sent, but nothing proves it arrived.
 - A direct message with no receipt is retried automatically, up to three attempts in all. Before the last attempt, Meshloom forgets the route it had learned, so the message goes out as a *flood*: it spreads from repeater to repeater until it finds the recipient.
-- Click the hop count or the path next to a message to see which repeaters it went through.
+- Click the hop count or the path next to a message to see which repeaters it went through. Repeater identities are worked out from the adverts and routes Meshloom knows, so a hop can be missing or misidentified.
 
 A receipt takes time. The message has to cross every repeater on the way, and the confirmation has to come back. Over several hops, a few tens of seconds is normal.
 
-Meshloom decrypts incoming direct messages on the server, with the private key it reads from the radio when it connects. This works even when the contact is no longer loaded in the radio's memory. It needs a radio firmware that allows reading the key.
+Meshloom decrypts incoming direct messages on the server, with the private key it reads from the radio when it connects. This works even when the contact is no longer loaded in the radio's memory. It needs a radio firmware that allows reading the key, and a radio that is not reached through a [radio proxy](/en/docs/deep/radio/#radio-proxy), which never gives it.
 
 ## Channels
 
@@ -35,11 +35,13 @@ Channel messages often come back several times: each repeater that relays one ca
 
 Right after you send a channel message, a **Resend** button stays available for 30 seconds, in case it clearly reached nobody. Resend repeats the exact same message, so only repeaters that have not seen it yet pass it on. **Resend as new** sends it as a new message, which receivers may see as a duplicate. If you would rather not do this by hand, **Auto-Resend Unheard Channel Messages** in **Settings > Radio** (off by default) resends a channel message once if no echo comes back within 2 seconds.
 
-A message holds at most 156 bytes, which is about 156 characters without accents (an accented character takes two). On a channel, your node's name is sent with each message and takes part of that space. Sending is blocked when your text is too long, and the composer says "too long". Meshloom does not cut a message for you.
+A message holds at most 156 bytes, which is about 156 characters without accents (an accented character takes two). On a channel, your node's name is sent with each message and takes part of that space. Sending is blocked when your text is too long, and the composer says "too long". The server enforces the same limit for every way of sending (web app, extensions, API clients) and refuses an oversized message with a clear error. Meshloom does not cut a message for you. A long web address is the usual culprit: if an administrator turned on the optional sharing service, Send replaces each public address over 26 characters with a short `meshl.ink` link (a 25-byte link that anyone can open), and the byte counter already counts it that way. Nothing is requested while the service is off, which is the default. See [Short links and photos](/en/docs/deep/share/).
 
 ## Replying, reacting and sharing
 
-In a conversation you can reply to a message, react to it with an emoji, copy it, and open its details. The composer can also insert an emoji, a GIF (searching for GIFs needs a Giphy key in **Settings > Local Configuration**; pasting a link works without one) and your radio's position as a location pin. **Delete** removes a message from this Meshloom only. Other nodes keep their copy.
+In a conversation you can reply to a message, react to it with an emoji, copy it, and open its details. The **+** button of the composer inserts an emoji, your radio's position as a location pin or a photo, and a GIF once you have entered a Giphy key in **Settings > Local Configuration** (GIFs load from `media.giphy.com`, which sees your IP address; GIFs you receive show without a key). MeshCore Open sends emoji reactions as encoded text (such as `r:1a2b:05`); **Render MeshCore Open reactions as emoji**, in **Settings > Local Configuration**, shows the ones Meshloom cannot attach to a message as the emoji instead. **Delete** removes a message from this Meshloom only. Other nodes keep their copy.
+
+With the optional sharing service turned on, the composer can also send a **photo** (see [Short links and photos](/en/docs/deep/share/)): drop one on the **Send a photo** panel, paste it or choose a file. Meshloom shrinks it in your browser and removes its position and camera data, then the message carries only a link, and the photo stays online for 30 days. In a private channel or a direct message you can choose **Encrypted**, so that only the members of that conversation can open it. On the Public channel, in a hashtag channel and on a room server a photo is always public: anyone who has the link can see it. Encryption has limits, in particular no forward secrecy: see [Encrypted files](/en/docs/deep/share/#encrypted-files).
 
 ## Hashtag channels
 
@@ -50,7 +52,7 @@ The name, with its leading `#`, goes through a hash function (SHA-256, a recipe 
 Some consequences:
 
 - **The name is hashed exactly as written.** One extra capital letter, space or accent gives a different key, so a different channel. By default Meshloom prevents these near misses, as the official MeshCore app does: it trims spaces at both ends, writes the name in lower case, and accepts only unaccented letters, digits and hyphens. The option **Permit capitals, whitespace, and extended characters** lets you join a channel created elsewhere with an unusual name: the name is then hashed as typed, except for spaces at both ends. Not every app removes those outer spaces, so avoid them in a channel name.
-- **The name must be short.** 30 bytes at most including the `#` by default (the same as the official app), and 32 with the option (the radio's limit). An accented character can take more than one byte.
+- **The name must be short.** 30 bytes at most including the `#` by default (the same as the official app), and 32 with the option (the radio keeps the first 31 bytes of the name, and the channel works the same). An accented character can take more than one byte.
 - **A name that is easy to guess is an open channel.** Anyone can type `#meteo`. A hashtag channel organizes conversations, it does not hide them.
 
 You can also add many at once: the **Bulk Add Channel** tab takes a list of names, separated by lines, spaces or commas. Meshloom also finds some hashtag channels by itself: they wait in **Discovered channels**, where you **Adopt** or **Refuse** each one.

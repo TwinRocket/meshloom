@@ -16,6 +16,7 @@ async def legacy_get_unread_counts(
     name: str | None = None,
     blocked_keys: list[str] | None = None,
     blocked_names: list[str] | None = None,
+    now: int = 5000,
 ) -> dict:
     """Get unread counts, mention flags, last-message times/previews, and read boundaries.
 
@@ -38,6 +39,11 @@ async def legacy_get_unread_counts(
     first_unread_ids: dict[str, int | None] = {}
 
     mention_token = f"@[{name}]" if name else None
+    # The mute rule, written out here on purpose: the code under test shares one fragment
+    # between the feed filter and this query, the oracle must not.
+    not_muted = (
+        f"(COALESCE(c.muted, 0) = 0 OR (c.muted_until IS NOT NULL AND c.muted_until <= {int(now)}))"
+    )
 
     blocked_clause, blocked_params = MessageRepository._build_blocked_incoming_clause(
         "m", blocked_keys, blocked_names
@@ -68,7 +74,7 @@ async def legacy_get_unread_counts(
             JOIN channels c ON m.conversation_key = c.key
             WHERE m.type = 'CHAN' AND m.outgoing = 0
               AND m.received_at > COALESCE(c.last_read_at, 0)
-              AND COALESCE(c.muted, 0) = 0
+              AND {not_muted}
               {blocked_sql}
             GROUP BY m.conversation_key
             """,
@@ -148,7 +154,7 @@ async def legacy_get_unread_counts(
                           CASE WHEN m.type = 'CHAN' THEN c.last_read_at ELSE ct.last_read_at END,
                           0
                       )
-                  AND (m.type <> 'CHAN' OR COALESCE(c.muted, 0) = 0)
+                  AND (m.type <> 'CHAN' OR {not_muted})
                   {blocked_sql}
             )
             SELECT type, conversation_key, id FROM ranked WHERE rn = 1
@@ -208,17 +214,25 @@ async def legacy_get_unread_counts(
     }
 
 
+NOW = 5000
+
+
 async def _seed(seed: int) -> None:
     rnd = random.Random(seed)
     channels = [f"{i:032X}" for i in range(6)]
     contacts = [f"{i:02x}" * 32 for i in range(1, 9)]
     names = ["Alice", "Bob", "Carol", "me", None]
     async with messages_module.db.tx() as conn:
-        # Channels: some read, some muted; channel 5 has no row (orphan).
+        # Channels: some read, some muted; channel 5 has no row (orphan). Mutes: 3 is
+        # indefinite, 2 expired (counts again), 4 runs past NOW (hidden), 1 has a stale
+        # muted_until but muted = 0 (counts).
+        mutes = {3: (1, None), 2: (1, NOW - 60), 4: (1, NOW + 3600), 1: (0, NOW + 3600)}
         for i, key in enumerate(channels[:5]):
+            muted, muted_until = mutes.get(i, (0, None))
             await conn.execute(
-                "INSERT INTO channels (key, name, last_read_at, muted) VALUES (?, ?, ?, ?)",
-                (key, f"#c{i}", rnd.choice([None, 0, 1050, 1100]), 1 if i == 3 else 0),
+                "INSERT INTO channels (key, name, last_read_at, muted, muted_until)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (key, f"#c{i}", rnd.choice([None, 0, 1050, 1100]), muted, muted_until),
             )
         # Contacts: some read; the last two have no row (prefix / unknown DMs).
         for key in contacts[:6]:
@@ -277,16 +291,40 @@ SCENARIOS = [
 @pytest.mark.parametrize("kwargs", SCENARIOS)
 async def test_unread_counts_match_legacy_query(test_db, seed, kwargs):
     await _seed(seed)
-    expected = await legacy_get_unread_counts(**kwargs)
-    actual = await MessageRepository.get_unread_counts(**kwargs)
+    expected = await legacy_get_unread_counts(**kwargs, now=NOW)
+    actual = await MessageRepository.get_unread_counts(**kwargs, now=NOW)
     assert actual == expected
     # Sanity: the scenario actually exercises unreads, mentions and orphans.
     assert expected["counts"]
     assert "channel-00000000000000000000000000000005" in expected["last_message_times"]
+    counted = set(expected["counts"])
+    # Indefinite and running timed mutes hide their channel; an expired one, a cleared one
+    # (stale muted_until) and an unmuted one count.
+    assert "channel-00000000000000000000000000000003" not in counted
+    assert "channel-00000000000000000000000000000004" not in counted
+    assert "channel-00000000000000000000000000000002" in counted
+    assert "channel-00000000000000000000000000000001" in counted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("seed", [1, 2])
+async def test_unread_counts_follow_the_clock_for_timed_mutes(test_db, seed):
+    await _seed(seed)
+    before = await MessageRepository.get_unread_counts(name="me", now=NOW)
+    after = await MessageRepository.get_unread_counts(name="me", now=NOW + 3600)
+    assert after == await legacy_get_unread_counts(name="me", now=NOW + 3600)
+    ch4 = "channel-00000000000000000000000000000004"
+    ch3 = "channel-00000000000000000000000000000003"
+    assert ch4 not in before["counts"] and ch4 in after["counts"]
+    assert ch3 not in after["counts"]  # an indefinite mute never expires
+    # The unmuted counts do not move.
+    assert {k: v for k, v in before["counts"].items() if k != ch4} == {
+        k: v for k, v in after["counts"].items() if k != ch4
+    }
 
 
 @pytest.mark.asyncio
 async def test_unread_counts_on_empty_database(test_db):
-    assert await MessageRepository.get_unread_counts(name="me") == await legacy_get_unread_counts(
-        name="me"
-    )
+    assert await MessageRepository.get_unread_counts(
+        name="me", now=NOW
+    ) == await legacy_get_unread_counts(name="me", now=NOW)

@@ -12,8 +12,175 @@ and the OpenAPI page (`/docs`), not a table here.
   `radio_sync.py` reach the global `RadioManager`. Radio access goes through
   `radio_operation()` (the radio lock).
 - `radio_workarounds.py` holds an in-memory copy of the workaround settings
-  (Settings → Radio → Advanced): loaded at startup, refreshed by
-  `AppSettingsRepository.update()`. Write through the repository, never around it.
+  (Settings → Radio → Advanced) and of `keep_channels_on_radio` (Settings → Radio →
+  Messaging): loaded at startup, refreshed by `AppSettingsRepository.update()`.
+  Write through the repository, never around it.
+- `origin_policy.py` is the one origin policy for CORS and the WebSocket
+  upgrade: it keeps the allowlist (`app_settings.auth_allowed_origins`, Settings
+  → Local Configuration → Allowed origins) the same way, and parses stored
+  entries and request `Origin`/`Host` headers alike (pydantic `AnyHttpUrl`:
+  lowercase, punycode, default port dropped). `normalize_origin()` refuses `*`,
+  paths and credentials (typed trailing slashes are dropped); a request `Origin`
+  with a path, even `/`, or `null` matches nothing. `cors.py` feeds the list to
+  Starlette's `CORSMiddleware` (rebuilt when the list changes, `is_allowed_origin`
+  overridden by the policy). Empty means same-origin only.
+- `auth/middleware.py` (`AuthMiddleware`) is the one gate for HTTP and the
+  WebSocket upgrade: it resolves the `Principal` (the Home Assistant ingress
+  identity, `auth/providers/ingress.py`, only from the Supervisor address on
+  the add-on; then the session cookie (any other `Authorization` scheme, Basic
+  included, is no credential),
+  never under ingress; last a trusted network rule, `auth/providers/trusted_network.py`,
+  only while `lan_login_free` is on, never for an admin account, never through any proxy, the relay, ingress or (outside the add-on) loopback,
+  with a strict `Host` guard; `Authorization: Bearer` API and device tokens,
+  `auth/providers/token.py`, header only, refused under ingress), applies the CSRF
+  rule to unsafe methods (`origin_policy.unsafe_request_allowed`) and refuses
+  every `/api` route outside `PUBLIC_ROUTES` without a principal (401 coded;
+  a WebSocket is closed 1008 before `accept()`). A new public route goes in
+  `PUBLIC_ROUTES` and its route decides what an anonymous caller sees (see
+  `/api/health`). Read the principal with `app.auth.principal.get_principal`.
+  Route tests are signed in as an admin by `tests/conftest.py` (`sign_in_as`
+  for another role); gate tests use `@pytest.mark.real_auth`. Details:
+  `docs/dev/auth.md`.
+- **Every new route declares a permission** (`auth/permissions.py`):
+  `dependencies=[Depends(require("read"))]` (`read`, `read_private`, `send`,
+  `repeater_admin`, `admin`), `Depends(public())` for a `PUBLIC_ROUTES` entry
+  or `Depends(own_account())` for the caller's own profile. An undeclared
+  `/api` route is admin-only, and `tests/test_auth_route_coverage.py` fails on
+  it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
+  messages, conversations or DM activity must also honour `read_private`
+  (`can_read_private(request)`): the `kiosk` role never gets a direct message.
+- `auth/ratelimit.py` (login delays) runs on `POST /api/auth/login` (and on the
+  second-factor code checks of `routers/auth_totp.py`, which count a wrong code as a
+  failed login) before any argon2id check: progressive delay per (address, username), one attempt a second
+  per slowed username, hard refusal per address past 100 failures in 15 minutes.
+  Addresses are keyed IPv4 /32, IPv6 /64; on a shared address (`compose`/`container`
+  without a trusted proxy: configuration only, never a request header) only the
+  username rule applies; a relayed request is never a shared address (the frame's
+  visitor address). A signed known-device cookie (`auth/device_cookie.py`,
+  set on a successful login) skips the rules with a per-device failure budget.
+  No lockout by name. 429
+  `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
+  every table bounded (`docs/dev/auth.md`, "Login delays").
+- `auth/fail_log.py` writes one `AUTH_FAIL` line (logger `meshloom.auth`) per refused
+  credential: login, second factor, passkey, Bearer, pairing code.
+  The format is a contract (`docs/dev/auth-fail-log.md`, `CONTRACTS:` commits): a new
+  credential check calls `log_auth_failure()` with a route and reason from
+  `ROUTE_REASONS`, never a clear-text name; ingress never writes it. Through the
+  relay the line is always `proxied=0` and `ip` is the frame's client only when it
+  is public (else `-`, nothing banned, MSHL-431).
+- "Local client address" has one definition, `app/net/local_address.py`
+  (`is_local`, `is_public`, `parse_address`, `network_is_local`; RFC 1918, loopback,
+  link-local, ULA, CGNAT; documentation and reserved ranges are public): the login
+  delays' `client_is_public`, the exposed first run and the trusted-network gate ask
+  `is_local`; `AUTH_FAIL` `proxied` and the ban's exclusions ask `is_ban_exempt`
+  (the same without `TAILNET_NETWORKS`, `100.64.0.0/10` and
+  `fd7a:115c:a1e0::/48`: a tailnet address is bannable, MSHL-434). Never `is_private`/`is_global`.
+  `ratelimit.is_trusted_proxy(peer, proxies)` is the one "peer is a declared proxy" test.
+- `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
+  `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending
+  logins between `POST /api/auth/login` and `POST /api/auth/login/2fa`). Sessions are
+  issued only after the second factor;
+  `require_2fa_for_admins` confines an admin without one to the enrolment routes (the
+  gate, fail closed). Details: `docs/dev/auth.md`, "Second factor (TOTP)".
+- `auth/webauthn.py` is passkeys on **py_webauthn** (the `webauthn` dependency, with
+  `cbor2`, `pyasn1`, `pyOpenSSL`; `cryptography` was already there): the RP id is the
+  request's host only for `localhost`, a declared public address over https, or the
+  Remote hostname (relay or https), else 400 `auth_passkey_unsupported`; challenges in
+  memory, single use, 5 min, bound to the session, the pending login or the client;
+  user verification required for the passwordless sign-in; counter checked and stored
+  conditionally. Routes `routers/auth_webauthn.py`; a passkey is also a second factor
+  at `POST /api/auth/login/2fa` when TOTP is on. Details: `docs/dev/auth.md`, "Passkeys".
+- `auth/oidc.py` is sign-in with one OpenID Connect provider the admin configures in the UI
+  (MSHL-427; never an environment variable), on **joserfc** (its only dependency is
+  `cryptography`, already there; a pure-Python wheel, so nothing to build on armv7). Code flow
+  with PKCE S256, state and nonce in memory bound to a cookie and the client; ID token
+  verified with asymmetric algorithms only, exact `iss`, `aud`/`azp`, `exp`/`iat`, `nonce`;
+  every request to the provider through `net/egress_guard`. It signs in an existing local
+  account linked by an admin (`oidc_links`: subject, or verified e-mail bound to the subject
+  at first use); `auto_create` (off) creates a `viewer` only. TOTP still applies. Routes
+  `routers/auth_oidc.py` (start and callback public, the rest admin), storage
+  `repository/oidc.py`. Details: `docs/dev/auth.md`, "OpenID Connect".
+- `auth/email_factor.py` is the e-mail code (a second factor after the password: 6 digits,
+  10 minutes, single use, five tries) and sign-in links (in place of the password: 15
+  minutes, single use, `#magic_link=` fragment), both opt-in per account (MSHL-426). No SMTP
+  of its own: the admin picks one native e-mail notification channel (`email_sign_in`) and
+  `deliver()` sends through `notifications/transports/email.send_message(to=...)`; without
+  a usable channel both answer 503 `auth_email_unavailable`. Codes, links and send counters
+  live in memory. The e-mail code rides the TOTP pending login (`PendingLogin.email`,
+  `email_code`); OpenID Connect never asks for it. Routes `routers/auth_email.py` (included
+  by `main.py`), storage `repository/email_factor.py`. Details: `docs/dev/auth.md`, "E-mail
+  code and sign-in links".
+- `auth/pairing.py` is device pairing (MSHL-71; contract `docs/dev/device-pairing.md`):
+  an `admin` session creates a single-use `mlp_` code (SHA-256 at rest, at most
+  10 minutes) whose QR payload carries the public, Remote and LAN addresses (the creator's
+  address only when it is a private, link-local, ULA or `.local`/`.lan`/`.home.arpa` one:
+  `is_lan_host`; never a public host over http); `POST /api/auth/pair` (public) spends it and inserts the device token in one
+  transaction (`PairingCodeRepository.redeem`), checking the creator again (fail closed).
+  Every bad code is one 410 `auth_pairing_expired` and a failure for the login delays
+  (key `LIMIT_KEY`, `name_rule=False`: per client only, no global slow-down); refused under ingress before any lookup. Routes `routers/auth_pairing.py`.
+- `middleware/host_guard.py` is the `Host` guard (docs/dev/auth.md, "Host guard"):
+  `host_allowed` is the one rule (trusted-network auto-login calls it directly and
+  stays strict in both modes); `HostGuardMiddleware` (inside the proxy-headers
+  middleware) follows `auth_settings.host_guard_mode`: `observe` (5.0.0 default)
+  records unknown names in a bounded in-memory list (`rejected_hosts`, in `GET
+  /api/auth/settings`) and logs each once, `enforce` answers 421
+  `auth_host_rejected` (with the static security headers). Ingress and relay-tagged
+  requests are exempt. Only LDH names are recorded, and the first-sighting warning is
+  rate limited. `public_urls` and `host_guard_mode` are changed through `PATCH
+  /api/auth/settings` (`normalize_public_urls`, 400 `auth_public_urls_invalid`; 400
+  `auth_host_guard_would_lock_out` when the result would reject the current request).
+  Both modes record the refused names; `meshloom-admin host-guard-observe` is the
+  recovery path that needs no UI. Declaring the first public address switches the
+  mode to `enforce` (MSHL-437; not when the same PATCH sets the mode or enforcing
+  would reject the current request; audited with `details.automatic`); without a
+  public address the mode stays `observe`.
+- `middleware/https_required.py` (`HttpsRequiredMiddleware`, between the proxy-headers
+  middleware and the Host guard, MSHL-437): once a public address is declared, a
+  plain `http`/`ws` request from a non-local client (`ip_ban.is_local` on the rewritten
+  client) answers 403 `auth_https_required` (WebSocket: 1008), with a rate-limited
+  warning. Relay, ingress and local clients pass; nothing is checked without a public
+  address. `PATCH /api/auth/settings` refuses (400 `auth_https_would_lock_out`) a
+  non-empty list that `would_refuse` the current request (docs/dev/auth.md, "HTTPS
+  from the internet").
+- `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
+  middleware): HSTS only over direct https (never ingress or relay: the relay owns it), `no-store` on
+  `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).
+- `middleware/body_limit.py` (`BodyLimitMiddleware`, just outside the auth gate, MSHL-461):
+  1 MiB per request by default, on `Content-Length` before reading and counted for a
+  chunked body; 413 `request_too_large` with `Connection: close`. `SELF_LIMITED_ROUTES`
+  (backup inspect and restore, share uploads) read in chunks and refuse with their own
+  code; `LARGER_ROUTES` holds JSON routes that need more (plugin source). A new route
+  taking a large body goes in one of the two. Capped routes also have a read deadline
+  (408 `request_timeout`) and, with no principal, share a budget for what they hold past
+  16 KiB (503 `server_busy`); self-limited ones have neither: the gate answers first.
+- `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
+  gate and CORS) is the only interpreter of `X-Forwarded-For` and
+  `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
+  `auth_settings.trusted_proxies` (Settings → Local Configuration → Trusted
+  proxies, `GET/PATCH /api/auth/settings`, admin; empty by default, loopback not
+  implied, wider than `/8`/`/16` refused; recommend the proxy's own address,
+  never a Docker network or gateway). It rewrites `scope["client"]` (rightmost untrusted
+  `X-Forwarded-For` entry) and `scope["scheme"]` for a listed peer only;
+  everything else (`client_ip()`, `request_is_secure()`, audit, sessions) reads
+  the scope. `peer_address(scope)` keeps the TCP peer (the ingress check uses it).
+  It also holds `auth_settings.addresses_identify_clients` in memory
+  (`addresses_identify_clients()`, read live by the login limiter, MSHL-424).
+  The built-in IP ban (`app/auth/ip_ban.py`, MSHL-422) is fed only by `fail_log`
+  (same events and address as `AUTH_FAIL`, `proxied=0` and not ban-exempt only) and
+  checked first in `AuthMiddleware`; thresholds are `auth_settings` columns
+  (`apply()` on load and on `PATCH /auth/settings`), never env vars. `meshloom-admin`
+  writes the tables directly; the server re-reads a cached ban on each request
+  (a whitelisted address is cached 10 s) and treats the host's on-link global
+  IPv6 prefixes (`/proc/net/if_inet6` /64 to /128, `/proc/net/ipv6_route` on-link
+  routes, both failing safe) as local for the ban only. A repeat ban within 7 days
+  doubles, capped by `ip_ban_max_duration_minutes` (`ip_bans.strikes`, MSHL-434;
+  `docs/dev/auth.md`, "IP ban").
+  **Launchers rule:** every uvicorn command line (the four launchers, the
+  snake-oil compose, every documented command) carries `--no-proxy-headers`, so
+  uvicorn never rewrites the scope itself (`tests/test_auth_ingress.py` parses the
+  launchers, `tests/test_proxy_headers.py` greps the repository). `origin_policy.py`
+  still reads `X-Forwarded-Host`, for same-origin only. Do not parse any of these
+  headers anywhere else.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
   repeater and room routers.
 - `push/` is Web Push, separate from the fanout bus (`fanout/`, see `fanout/AGENTS.md`).
@@ -21,11 +188,651 @@ and the OpenAPI page (`/docs`), not a table here.
   from meshloom-community's snapshot: regenerate it, never edit it by hand.
 - `services/test_channel.py` (`#meshloom-testing`, radio self-test and
   `POST /tools/mesh-test`) stores no channel and no message.
+- `plugins/` is the plugin package format: manifest model, permission registry, config
+  schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`),
+  plus the static attention scan of local sources (`plugins/attention.py`, whose import
+  lists are `meshloom_plugin/policy.py`'s). The data model is `repository/plugins.py`
+  (instances, KV, write-only secrets: only `config_for_init()` returns a secret in
+  clear). Change the contract only through `scripts/build/export_plugin_contract.py`.
+  `plugins/bundled_update.py` (MSHL-337) updates the installed bundled instances in place
+  at start, from `lifecycle.start()` before any child: newer packaged version only, config
+  and data kept, added or changed permissions and a widened privacy declaration hold the
+  instance (`review_permissions`), the rows of a plugin are written in one transaction
+  (the old tree goes back if that fails; if that fails too, `PluginManager.code_matches`
+  refuses to start the instance with `plugin_code_mismatch` until a later start writes
+  the rows), a failure is logged and keeps the old version, nothing under the host lock.
+  `plugins/updates.py` (MSHL-197) updates installed `custom` instances from the release
+  their repository's refresh cached: `available_updates()` (`GET /api/store/updates`,
+  no egress), `update_plugin()` (`POST /api/plugins/{id}/update`: the install pipeline,
+  every instance of the plugin together, config/secrets/KV kept, new permissions hold
+  `consent_required`, new required fields `config_required`, a rejected optional value
+  dropped and reported as `config_dropped`), `auto_update()` (a Store evaluator: hourly on
+  the cached releases, per-instance `auto_update`, inside the app update window, never on
+  a hold nor when a stored value would be dropped, `auto_hold` in the listing; a failed or
+  held try is not retried for `REFRESH_INTERVAL_S`)
+  and `mark_compat()` (from `lifecycle.start()` before `load_from_db`: out of
+  `compat.meshloom` is `incompatible`, back in range is `installed`, or
+  `needs_attention` when its kept attention is a hold).
+  `installer.sweep_staging()` clears `<data>/plugins/_staging` leftovers at start, before
+  the update, without following symlinks. `plugins/installer.py` is also the generic
+  install pipeline (MSHL-195: sources, fail-closed download gate, egress-guarded streaming
+  download, size and sha256 checks before extraction, manifest equal to the source's entry,
+  atomic move; `docs/dev/plugins.md`, "Installing").
+  `plugins/launch.py` builds the launch contract of the plugin child, which runs
+  the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
+  `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
+  `plugins/isolation/` is the OS boundary around each child (MSHL-180): one
+  backend per process, detected once and logged (`selection.py`: `setuid` as root
+  with the `meshloom-plugin` account, or not root but holding `CAP_SETUID` and
+  `CAP_SETGID` (docker-entrypoint.sh keeps exactly those two ambient under
+  `MESHLOOM_RUN_AS_USER`; no `CAP_KILL`: the work dir, the group signals and the
+  temp purge then go through a helper running as the instance uid), else `bwrap` if its self-test passes, else
+  `none`, "hooks only", with a warning); `startup()` applies the file model of
+  `permissions.py` under `setuid` (data dir `0711`, files `0600`, server umask
+  `077`); if it fails, `lifecycle.start()` fails closed (`fail_closed()`, health
+  `plugins_disabled_source: "isolation"`). The account (uid/gid 10002 in the image) only opts into `setuid`: each instance runs under
+  its own uid from 40000-49999 (`setuid.INSTANCE_UIDS`, table `plugin_uids`,
+  `PluginUidRepository`; `PluginManager` allocates at start, purges and frees it
+  on delete, `reap_uids()` at startup; MSHL-339; the purge fails closed on a directory
+  the uid may enter but not list, then `owns_something` re-checks; MSHL-347; it restores owner
+  rwx on the uid's own dirs before removing them and skips only `0711` work dirs of other plugin
+  uids, the account's uid read from passwd at runtime; MSHL-348/349; the dirs that block a
+purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
+  `uid_lease.py`, MSHL-357: allocation, purge and startup take the uid's lease in each
+  shared temp dir, another install's lease skips the uid or blocks its purge, start
+  refused `uid_leased`, or `uid_lease_io_error` when the lease cannot be written (MSHL-360);
+  see docs/dev/plugins-security.md). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  source and Docker data dirs live under it). The child's own kernel guards
+  (dropped capabilities, a seccomp filter refusing clone/fork/exec, unshare/setns, sockets and
+  pidfd/ptrace, required for a root child and at `setuid`) are `meshloom_plugin/seccomp.py`; the
+  bwrap level adds a filter of its own (`BWRAP_DENIED`, `--seccomp FD` through a pipe in
+  `pass_fds`) and `--disable-userns` when bubblewrap is 0.8 or later (`bwrap.probe()`). Stdlib only, so
+  `tests/test_plugin_isolation.py`, `test_plugin_runner.py` and
+  `test_plugin_seccomp.py` run with `--noconftest` in the root container
+  job (`plugin-isolation-root`, which also runs them as uid 10001 with those three
+  capabilities); details in `docs/dev/plugins-security.md`, "OS isolation".
+  `plugins/host.py` supervises the children (one per enabled instance: budgets,
+  bounded inbox, restarts, `crash_loop`, statuses); the app reaches it only
+  through `plugins/lifecycle.py` (lifespan `start()`, the bounded `stop()`
+  shutdown step, `health_fields()`) and `plugin_manager.dispatch()` from the
+  fanout bus. Its long-lived tasks (one per instance and per child) are kept in
+  attributes and cancelled at stop, per the background-work rule. What a child
+  may ask and read is `plugins/capabilities/` (one module per capability, every
+  method checked against the instance's effective permissions before any side
+  effect, typed refusals; `notifications.send` goes through the notification dispatcher as
+  `plugin.notification`, MSHL-213) and `plugins/quotas.py` (per-instance send quotas in
+  `plugin_send_quota`, the host-side send guards in `plugin_send_guard` and
+  `plugin_send_limits` (`send_guard`), and `send_spacer`, the 2 s spacing of every automatic
+  send); `docs/dev/plugins.md`, "Capabilities". Host lock:
+  `MESHCORE_DISABLE_PLUGINS`, a user variable (`docs/user/*/deep/environment.md`).
+  The global pause (`plugins/pause.py`, `GET`/`PUT /api/plugins/pause`) is the admin's
+  incident switch: it stops every instance (converted bots included), starts none and keeps the
+  `enabled` flags; the host lock, the platform and an isolation failure win over it in
+  health (`docs/dev/plugins.md`, "Gates"). Roles in `routers/plugins.py`: reads `send`,
+  every write and the logs/diagnostic `admin`, each write audited (`plugin.*`,
+  `plugins.paused`/`plugins.resumed`) with field names only, never a value or the source.
+  Every artefact that copies `app/` copies
+  `meshloom_plugin/` too (`Dockerfile`, `copy_project_files` in
+  `scripts/build/build_nfpm_packages.sh`, `Dockerfile.nfpm-armhf` and the armhf
+  tag overlay, the upgrade-matrix image); `tests/test_plugin_packaging.py` checks them.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
 
+## Instance identities (`services/instance_identity.py`)
+
+- One Ed25519 key per service, owned by the instance, never the radio key and never
+  derived from it (owner decision Q-T5): `share` (links and files, migration 102) and
+  `remote` (Meshloom Remote, migration 138). Each has its own column `app_settings.<service>_instance_seed`
+  (32 random bytes from `secrets.token_bytes`, hex), so two services' public keys
+  cannot be linked. A new service adds its name to `INSTANCE_SEED_SERVICES`
+  (`repository/settings.py`) and its column in a migration; the repository's
+  `get/set/claim_instance_seed(service)` refuse any other name.
+- `ensure_instance_key(service)` creates the seed on first use (a conditional
+  `UPDATE` plus a per-service lock: concurrent first uses end with one key) and
+  reuses it afterwards; `identity_ready`, `instance_public_key` and `fingerprint`
+  never create it. `regenerate(service)` replaces it. The `on_restore` hook
+  `instance_identity` regenerates every seed that exists after any restore (JSON
+  or SQLite); an empty one stays empty until its first use. `services/backup.py`
+  imports the module so the hook is registered before the lifespan runs them.
+- `mint_instance_jwt(service, audience, *, lifetime, jti=True, extra_claims=None)`
+  mints in the Community wire format through `_generate_jwt_token`
+  (`fanout/community_mqtt.py`) with a PyNaCl signer, `client = meshloom/<version>`
+  and no `owner`. `mint_share_jwt(binding, *, account_id=None)` is the share wrapper:
+  `aud` `meshloom-share`, 110 s (the links-files contract allows 120), `jti`, `bh` =
+  sha256 hex of the binding string, and `acct` when `account_id` is given. One token
+  per request, never cached. `share_account_id(user_id)` is that `acct` (MSHL-445):
+  HMAC-SHA256 of the local user id under a subkey of the share seed
+  (`HMAC(seed, "meshloom/links-acct/v1")`), cut to 16 bytes, base64url (22
+  characters, inside the contract's `[A-Za-z0-9_-]{1,64}`). Stable while the Links key
+  is, new after `regenerate` or a restore, not reversible without the seed; never a
+  username, an e-mail or a name. Pinned for the vector seed in
+  `tests/test_share_identity.py`.
+  `mint_remote_jwt()` is the Remote wrapper: `aud` `relay.meshloom.link`, 300 s (the
+  contract allows 3600), `jti`, one per registry request or relay connect attempt.
+  `sign_with_instance_key(service, message)` signs the Remote device passes
+  (`services/remote_passes.py`); there is no second identity module.
+- `_generate_jwt_token`'s keywords `sign`, `lifetime`, `extra_claims`, `owner`,
+  `client` and `jti` exist for these helpers only: the Community call sites pass
+  none, and `tests/test_community_jwt_golden.py` pins their tokens byte for byte.
+  An extra claim that names a registered claim (`iss`, `sub`, `aud`, `exp`, `iat`,
+  `nbf`, `jti`) or one the function sets is a `ValueError`, never an override.
+- **Never log, return or export a seed or a token.** The seed is not in
+  `AppSettings`; the backup rules are in `docs/dev/backup.md` (rule 4). Tests:
+  `tests/test_share_identity.py` (a local re-implementation of the Worker's checks,
+  proved on the links-files vectors copied in `tests/fixtures/links_files_vectors.json`).
+
+## Meshloom Remote (`services/remote.py`, `services/remote_passes.py`, `routers/remote.py`)
+
+Contracts: `meshloom-community/docs/contracts/remote-registration.md` and
+`remote-relay.md` (vectors copied in `tests/fixtures/remote_frames_vectors.json`).
+Design and flows: `docs/dev/remote.md`.
+
+- **Opt-in and egress.** `remote_state.enabled` (off). Nothing leaves towards
+  `relay.meshloom.link` unless it is on: every registry call goes through
+  `remote._registry` (409 `remote_disabled` first, then the egress guard with
+  `RELAY_HOST` as the only host). `tests/test_remote_off_no_egress.py` classifies every
+  coroutine of the module and sweeps every `/api/remote` route but `POST /enable`;
+  `tests/test_community_off_no_egress.py` forbids `*.meshloom.link` while off. The
+  relay socket (`services/remote_relay.py`) connects only while Remote is on,
+  Community is on and Remote is registered, to `wss://<RELAY_HOST>/v1/connect` only,
+  without a system proxy.
+- **Community required** (MSHL-445). Remote runs on TwinRocket infrastructure: with
+  Community off (`remote.community_on()`), `enable()` and every registry call answer 409
+  `remote_community_off`, and the relay link stays down (`link_status` `community_off`).
+  Turning Community off pauses an enabled Remote (state and devices kept, socket closed,
+  pending access requests dropped) through `meshloom_community.add_enabled_change_listener`;
+  turning it on resumes it. `GET /api/remote` reports `community_enabled`. Tests:
+  `tests/test_community_required.py`, `TestRemoteNeedsCommunity` in
+  `tests/test_community_off_no_egress.py`; `docs/dev/remote.md`, "Opt-in and egress".
+- **Attestation** (MSHL-445). `POST /v1/instances` carries `X-Meshloom-Attestation`,
+  the Community attestation of the Remote key (`services/community_attestation.py`,
+  audience `remote`), on every registration (enable, rotate, re-registration after a
+  close `4003`). Without one it is still sent (the relay's grace for keys registered
+  before 2026-11-10); a relay that wants one gets the Community reason as the error
+  (`remote_radio_not_heard`, `remote_community_opted_out`, `remote_community_banned`,
+  `remote_attestation_unavailable`), stored in `last_error` and translated in the UI. A
+  refused one (`attestation_*`) is renewed once and the registration retried once, then,
+  for an instance already registered, once without it; three requests at most. The
+  relay socket never carries it. `docs/dev/remote.md`, "Attestation".
+- **Identity.** The `remote` instance key (above) signs the instance JWT and the device
+  passes. Rotation, unregistration and the `remote` on_restore hook are in
+  `docs/dev/remote.md`; any restore leaves Remote off, unregistered and without devices.
+- **Passes.** `remote_passes.verify_pass` is the contract's verifier (checked on every
+  vector case); `remote.verify_device_pass` adds the instance's own device table
+  and the device's account (the third check of the edge lock). Deleting an account revokes
+  its devices (`remote.revoke_account_devices`). `remote.renew_browser_pass` renews a browser pass
+  through `x-meshloom-set-pass`, which only `HttpStream` adds (`docs/dev/remote.md`, "Renewal
+  of a browser pass"). Never log a pass, a token, an enrolment URL or an access code.
+- **Relay link.** The relay client (`services/remote_relay.py`, codec
+  `services/remote_frames.py`) plugs in with `set_relay_link`, `handle_control`,
+  `instance_info`, `plugins_info`, `gate_state`, `verify_device_pass` and
+  `add_change_listener`; `services/remote.py` never opens a socket itself.
+- **In-process dispatch.** Each relayed `REQ_HEAD`/`WS_OPEN` runs the app in process
+  (`await app(scope, receive, send)`), never through a local socket, with
+  `scope["state"]["via"] = "relay"`, `client = (client_ip, 0)`, scheme `https`/`wss`
+  and the slug `Host` (checked against the Remote hostname), the hop-by-hop,
+  forwarding, ingress and `x-meshloom-*` headers dropped. A request without a valid
+  `x-meshloom-pass` of a known device is answered 401 `remote_pass_required` and never
+  reaches the app. `via = relay` is set nowhere else; the auth gate, trusted networks,
+  ingress, host guard and HSTS read it. Close codes, credits and batching:
+  `docs/dev/remote.md`, "Relay client".
+- **Custom domain test.** `remote.check_custom_domain` (`POST /api/remote/domain/test`,
+  MSHL-428) sends one GET per scheme to the user's own domain, as a user-chosen destination
+  through the egress guard (private addresses refused), no redirect followed, and compares the
+  `Location` host with the registered hostname. It needs Remote on and registered, and never
+  reaches the relay (`docs/dev/remote.md`, "Custom domain test").
+- **Routes** (`/api/remote`, `Cache-Control: no-store`): `admin` for enable, disable,
+  unregister (`DELETE`), rotate, revoke-all, `POST /domain/test` and `/alert-email` (the address goes to
+  the relay only, never stored or logged, `docs/dev/remote.md`, "Alert e-mail"); `own_account()` for the rest (state,
+  own devices, enrolment QR, client pass, access requests). `POST /enroll` is refused
+  through the relay (`remote_lan_only`). Writes are audited (`remote.*`,
+  `docs/dev/auth.md`).
+
+## Share service client (`services/share.py`)
+
+Contract: `meshloom-community/docs/contracts/links-files.md`. A distinct opt-in
+from Community, with its own hosts and switch, never an exception to the
+Community guard, and it needs Community on (MSHL-445).
+
+- **Community required.** `share_is_effective(settings, community_on=...)` is also false
+  while Community is off (`share.community_on()`, the stored opt-in), so
+  `share_egress_state()` is None, `GET /api/share/status` says `enabled: false` with
+  `community_enabled: false`, and `share_effective` in `GET /api/settings` is false.
+  `PATCH /api/settings` `{share_enabled: true}` answers 409 `share_community_off`
+  (turning it off stays possible). Turning Community off pauses sharing: `share_enabled`
+  and the accepted terms are kept, and the `_on_community_change` listener
+  (`meshloom_community.add_enabled_change_listener`) cancels the requests in flight like a
+  share opt-out, without ending a banned state. Tests: `tests/test_community_required.py`;
+  the share test modules turn Community on with the `community_on` fixture.
+
+- **Hosts.** `SHARE_HOST` (write host, `meshl.ink`) and `SHARE_HOSTS` (every
+  recognised host, current and former; `is_share_host()`) are module constants
+  read at call time; tests monkeypatch them. No environment variable.
+- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled` and
+  `app_settings.share_terms_version == SHARE_TERMS_VERSION` (MSHL-292: the owner's acceptance
+  is recorded server-side, and raising the constant asks for a new one);
+  `share_request()` checks it first and answers 403 `share_disabled` with no
+  DNS lookup and no connection.
+- **Turning it off cuts at once** (as Community does). `AppSettingsRepository.update`
+  calls `note_share_settings_changed(enabled=...)`; with sharing now off it bumps
+  `_state.generation` and cancels every send in `_state.inflight`, whose caller
+  gets `share_disabled` (a caller's own cancellation stays a `CancelledError`;
+  neither counts against the breaker). `share_request` checks the generation
+  after the opt-in read, again after minting the token (right before the send)
+  and once the answer arrived: an answer from before the cut is never used.
+- **Egress.** Every request goes through `follow_checked_redirects`
+  (`app/net/egress_guard.py`) with `HostAllowlist.of(SHARE_HOST)`, HTTPS only, no
+  redirect followed, the answer capped (64 KiB JSON, 11 MiB bytes) and pinned to
+  a validated public IP (a fresh pinned client per request). Timeouts
+  (`SHARE_TIMEOUT`): connect 5 s, read 30 s, upload (write) 60 s, plus
+  `SHARE_TOTAL_TIMEOUT_S` on the whole call.
+- **Auth.** A write passes its contract binding string as `binding` and gets
+  `Authorization: Bearer <mint_share_jwt(binding)>`, minted per request; a read
+  (`binding=None`) carries none. `User-Agent: Meshloom/<version>`. A creation
+  (`POST /v1/links`, `POST /v1/files`) run inside `share.share_account(user_id)` (a
+  context variable; the routes `POST /api/share/links` and `/files` pass the
+  principal's `user_id`) gets the `acct` claim; no principal, or any other request,
+  sends none.
+- **Attestation** (MSHL-445). `POST /v1/links` and `POST /v1/files` also carry
+  `X-Meshloom-Attestation`, the Community attestation of the Links key
+  (`services/community_attestation.py`, audience `links`). `share_request` gets it after
+  the opt-in and banned checks; without one the creation does not leave and answers
+  `share_radio_not_heard`, `share_community_opted_out`, `share_community_banned` or
+  `share_attestation_unavailable` (503), or a `radio_key_*` code (503,
+  `keystore.RADIO_KEY_ERRORS`) when this instance does not hold the radio key. A service
+  `attestation_*` refusal (internal
+  `share_attestation_rejected`) renews it once and resends once (a streamed upload body
+  is opened again); refused again: `share_attestation_unavailable`. The single request
+  is `_share_request_once`. Tests: `tests/test_community_attestation.py`; every other
+  test gets a fake token from the `_fake_community_attestation` autouse fixture.
+- **Errors.** `ShareError` is an `HTTPException` with `{code, message, params}`
+  (`SHARE_ERRORS`, translated as `errors.<code>` in the `ah` i18n slice). The
+  service's codes map one to one (`banned`, `quota_exceeded` with
+  `params.retry_after` and `params.scope`, `rate_limited` with
+  `params.retry_after`, `too_large`, `type_refused`, `not_found`, `gone`,
+  `target_blocked`, `invalid_url`); everything else (network, timeout, a guard
+  refusal, 5xx, `kill_switch`, the `token_*` family, `invalid_request`, a
+  redirect, an unexpected body) is 502 `share_unavailable`. **Any answer that is
+  not `application/json`** (a Cloudflare 1027 page, a challenge, an HTML 404) is
+  `share_unavailable`, whatever its status. An id outside the grammar is a local
+  404 `share_not_found` (400 `share_invalid_id` on `GET /{id}`). `fetch_object` accepts only `OBJECT_CONTENT_TYPES`
+  (`image/jpeg`, `image/png`, `image/gif`, `image/webp`,
+  `application/octet-stream`); a 2xx of any other type (`text/html`, SVG) is
+  `share_unavailable`; a bytes answer past `MAX_OBJECT_RESPONSE_BYTES` (the contract's maximum encrypted
+  envelope, 10 489 891 bytes; an image is also capped at `MAX_IMAGE_BYTES`, 10 MiB; the
+  guard's `egress_response_too_large`) is 413 `share_too_large`, counts as a breaker
+  success and is negatively cached. A service code is logged only when it matches
+  `^[a-z_]{1,32}$` ("unknown" otherwise).
+- **Banned.** A 403 `banned` holds a banned state in memory for 12 h
+  (`BANNED_HOLD_S`): later writes are refused locally (403 `share_banned`) with
+  no request; reads stay open, as on the service. A restart or any change of a
+  share setting (`AppSettingsRepository.update` calls
+  `note_share_settings_changed(enabled=...)`) ends it. `GET /api/share/status`
+  reports it as `banned`; `SettingsShareSection` shows a banner (contact
+  ban@meshloom.app, the ban is per instance); the composer sends links as typed in
+  `auto` and toasts the coded `errors.share_banned` in `always`.
+- **Read protections.** Order in `share_request`: opt-in, ban (writes, except
+  `banned_ok=True`: listing one's own objects stays possible; deleting does not, the
+  service refuses a banned key too), negative
+  cache, breaker cooling, read bucket, breaker trial, then the request.
+  - Buckets: `aiolimiter.AsyncLimiter` per instance, `meta` 60 and `bytes` 20 per
+    minute (`READ_LIMITS`). They refuse, never queue (`has_capacity()` then
+    `acquire()`): 429 `share_rate_limited` with `params.scope = "local"`.
+    Writes are not limited here (the service has its own quotas).
+  - Negative cache: a JSON `not_found` 404 or `gone` 410 answer to a read is
+    replayed for 10 min (`NEGATIVE_CACHE_S`, keyed by method and path, 1024
+    entries). A non-JSON error page is never cached (the contract never answers
+    404/410 for a storage failure; an edge page proves nothing).
+  - Breaker (`app/net/breaker.py`, shared with the Community client, separate
+    instance): three consecutive failures (transport error, timeout, guard
+    refusal, 5xx, a non-JSON 4xx) open it for 5 min (`BREAKER_OPEN_SECONDS`);
+    while open every call answers `share_unavailable` locally; then one trial
+    decides. A contract 4xx closes it, and so does a JSON 503 `kill_switch` (a
+    received status is authoritative: httpcore reads an answer sent before the
+    upload body was read, so an early kill switch is not a write failure).
+- **Functions.** `create_link`, `get_meta`, `fetch_object`, `read_object`,
+  `report_object`, `list_mine`, `delete_object` (and `share_request` underneath), plus
+  `share_upload.upload_file` and `share_upload.upload_encrypted`; `clear_object_cache`,
+  `share_egress_state`, `_forget_object`, `share_upload._seal` and
+  `share_secrets.upload_secret` are local (`_LOCAL` in the sweep).
+- **Own objects (MSHL-247).** `list_mine(limit, cursor)` is `GET /v1/mine` (binding
+  `mine`, `banned_ok`); each entry is re-checked (`_mine_object`: an id outside the
+  grammar is dropped, an unknown `blocked_category` becomes `other` and an active object
+  carries none, a `content_type` outside `OBJECT_CONTENT_TYPES` becomes null) and a
+  `next_cursor` outside `MINE_CURSOR_RE` is dropped. `delete_object(id)` is
+  `DELETE /v1/objects/{id}` (binding = id; a ban refuses it locally, `share_banned`);
+  success, `not_found` or `gone`
+  evict the local copies (`_forget_object`: first, with no await, a tombstone in
+  `_state.deleted` for `ShareCache.ttl_s`, the meta cache entry dropped and a negative
+  `gone` for both read keys; then `ShareCache.delete`). `read_object` checks the
+  tombstone before and after the disk cache read and around its store, and `get_meta`
+  before its cache and after its fetch (never re-caching a deleted object's meta), so
+  the next read answers 410 with no request, even when the disk delete failed or a read
+  raced it (MSHL-383, MSHL-387). `ShareCache.delete` writes a disk tombstone
+  (`deleted:<id>`, expiring after `TTL_S`) before dropping the entry, so an entry whose
+  drop failed is still never served (`get` drops it then) nor stored again after a
+  restart; a failed tombstone write is logged and the drop still attempted; if both
+  fail, the entry lives at most `TTL_S`. `gone` (blocked by the service) is re-raised
+  as 409 `share_object_blocked`; `not_owner` is 403 `share_not_owner` and keeps the local
+  copy. A disk eviction failure is logged (exception type only) and never fails the
+  delete.
+  Every new network function must be added to `SERVICE_CALLS` in
+  `tests/test_share_off_no_egress.py` (the test finds them from `services/share.py`,
+  `services/share_secrets.py` and `services/share_upload.py` and fails otherwise); `/api/share/*` routes are found from
+  `app.routes` and swept too.
+- **Uploads (`services/share_upload.py`, MSHL-243, MSHL-375).** `upload_file`
+  (`POST /v1/files`, public mode) is in `SERVICE_CALLS`; its route is in the
+  `/api/share/*` sweep and `tests/test_share_upload.py` asserts no request
+  and no DNS lookup for every local refusal. The body is staged, never read whole into
+  memory: `staged_upload` streams `request.stream()` to `<data dir>/share-tmp/`
+  (`tmp_directory()`, next to `MESHCORE_DATABASE_PATH`, mode 0700 enforced on every use;
+  each file 0600, `O_EXCL | O_NOFOLLOW`, random name) and computes the sha256 on the way;
+  one byte past the declared `Content-Length` stops the read, a short body is refused
+  (400 `share_invalid_request`); the whole body must arrive within `RECEIVE_TIMEOUT_S`
+  (120 s; uvicorn has no body read timeout, so a trickled body would hold a slot), else
+  408 `share_upload_timeout`; a local `OSError` while staging, checking or streaming the
+  file to the service (`ENOSPC`, `share-tmp` replaced by a link or a file, file removed
+  mid-send) is 500 `share_storage_failed` (errno name or fixed reason logged, never a
+  path; not a breaker failure); the file is removed in `finally` in every case, and
+  `clean_tmp_directory()` empties the folder at startup (`main.py` lifespan; files and
+  links unlinked, never followed). `check_staged` runs before any egress: magic bytes =
+  declared type, else 415 `share_type_refused`; `imagesize` (2.x, `exif_rotation=False`)
+  must read the dimensions, else 415; GIF over 5 MiB or more than 40 Mpx is 413
+  `share_too_large` (as the contract answers). `upload_slot()` allows
+  `MAX_CONCURRENT_UPLOADS` (2) at once; one more is 429 `share_rate_limited`,
+  `params.scope = "local"`, never queued. `upload_file` sends `X-Share-Mode`,
+  `X-Share-Sha256`, the image `Content-Type` and the binding
+  `mode LF sha256 LF proposed_id LF content_length` (`proposed_id` empty in public mode)
+  through `share_request(body=StreamedBody(...))`; the answer must keep the id grammar,
+  a share host, `url == https://<host>/<id>` and the sent size, else 502
+  `share_unavailable`. The HA add-on keeps `share-tmp` out of backups.
+  **Encrypted mode (MSHL-255).** `upload_encrypted(staged, secret, name)` reads the
+  checked image, then per attempt (at most `ENCRYPTED_ATTEMPTS`, 3): a fresh id from
+  `new_share_id()` (`secrets.choice` over the base58 alphabet, 7 characters, never a
+  reserved path such as `privacy`), `encrypt_envelope_async` under `secret_scope`, the
+  envelope written to a `share-tmp` file (removed in `finally`), then `POST /v1/files`
+  with `X-Share-Mode: encrypted`, `X-Share-Id`, `X-Share-Sha256` of the envelope,
+  `Content-Type: application/octet-stream` and the binding with the proposed id; no name,
+  type or conversation header leaves. 409 `id_taken` (`share_id_taken`, internal, a
+  breaker success) retries with a new id AND a new envelope (the key derives from the
+  id); three in a row is 502 `share_unavailable`. A service without encrypted mode
+  answers 415 `type_refused`: mapped to 422 `share_mode_unavailable`. The answer must
+  also echo the proposed id. `header_name()` reads `X-Share-Name` as percent-encoded
+  UTF-8 (strict), checks it as a plain name, then `share_crypto.sanitize_name`; the name
+  only ever travels inside the envelope. `suggested_text(url, encrypted=True)` is
+  `🔒 <url>`.
+- **Conversation secrets (`services/share_secrets.py`, MSHL-255).** Local only.
+  `upload_secret(type, conversation)` from the `X-Share-Conversation-Type` (`channel` or
+  `contact`) and `X-Share-Conversation-Id` headers (MSHL-378: the browser never sends a
+  channel key back). A channel is named by its opaque `Channel.share_conversation_id`
+  (`app/share_conversation.py`: the first 24 hex of SHA-256 over
+  `meshloom-share-conversation-v1\0` and the key bytes; a pydantic `computed_field` on
+  every channel payload, never stored, null for a malformed key), resolved by scanning
+  `ChannelRepository.get_all()` with `hmac.compare_digest`; a raw 32-hex key never
+  matches, and an id matching more than one channel (a duplicate key row) matches none
+  (MSHL-382). A contact is named by its public key. A private channel gives its 16-byte
+  `Channel.key`; a contact gives the 32-byte X25519 shared secret
+  (`decoder.derive_shared_secret` of the keystore private key and the contact key).
+  Malformed or unknown is 400 `share_invalid_request`; the Public channel, a
+  name-derived channel (`channel_key_is_name_derived`: the key is `SHA256(name)[:16]` or
+  `SHA256("#"+name)[:16]`, `#` or not, so a channel created by name without a key and a
+  `#hashtag` renamed locally without its `#` both count, MSHL-385), a room (`CONTACT_TYPE_ROOM`: each
+  member has a different secret with it) or an unusable/low-order contact key is 422
+  `share_mode_not_allowed`; a DM without the radio private key is 503
+  `share_radio_key_unavailable` (public mode and private channels keep working; its own code
+  because that remedy differs from `radio_key_*`, and its copy covers a key not read yet and
+  a radio proxy, where it never comes). On the
+  read side `message_secret(message)` resolves the secret from the message row only
+  (`CHAN` → its channel key, `PRIV` → the shared secret with its contact), never from the
+  client; None makes the file `share_undecryptable`. A secret is never logged, returned
+  or sent: `tests/test_share_encrypted.py` scans the service requests (raw bytes and
+  hex), the log records, the access-log request lines and the answers.
+- **Encrypted envelope v1 (`services/share_crypto.py`, MSHL-254).** Pure crypto, no
+  egress; used by `share_upload.upload_encrypted` and `GET /api/share/{id}` (MSHL-255). Implements the contract's "Encrypted envelope
+  v1" with pycryptodome: `derive_file_key` (HKDF-SHA256, salt `meshloom-share-v1`, info
+  = id), `encrypt_envelope` (fresh `secrets.token_bytes(12)` nonce per call, AES-256-GCM,
+  AAD `MLF1 || id`), `decrypt_envelope` (single shot, `decrypt_and_verify` before any
+  plaintext is used, then the contract's checks in order) returning `EnvelopeContent`
+  with the name already through `sanitize_name` (empty falls back to the id plus the
+  type's extension). Every failure raises `EnvelopeError` with the contract code in
+  `.code` (`EnvelopeAuthError` for `auth_failed`); a secret that is not 16 or 32 bytes,
+  or the all-zero DM secret (constant-time check), is `refused_secret` before HKDF.
+  The decrypted `content_type` is sender-controlled: the caller applies the image
+  allowlist and magic-byte checks. Async callers use `encrypt_envelope_async` /
+  `decrypt_envelope_async` (default executor), never the sync functions on the event
+  loop: 10 MiB of AES-GCM stalls a Pi 4. `MAX_DATA_BYTES` / `MAX_ENVELOPE_BYTES` equal
+  `share.MAX_IMAGE_BYTES` / `share.MAX_ENVELOPE_BYTES` (pinned by
+  `tests/test_share_crypto.py`). Vectors: `tests/test_share_vectors.py` runs the
+  `envelope` section of `tests/fixtures/links_files_vectors.json` (same sha256 pin as
+  `tests/test_share_identity.py`); refresh the copy from meshloom-community in a
+  `CONTRACTS:` commit, never edit it.
+- **Meta cache.** `get_meta` replays a good answer for `META_CACHE_S` (10 min,
+  256 ids), after the opt-in check; turning sharing off clears it.
+- **Objects (`read_object`, MSHL-244).** Opt-in check first (off answers
+  `share_disabled` even for a cached object), then the disk cache
+  (`services/share_cache.py`, a thin `diskcache` wrapper: `<data dir>/share-cache/`
+  next to `MESHCORE_DATABASE_PATH`, mode 0700, created on first use; 200 MiB
+  (files, SQLite index, `-shm`, plus a write-ahead log budget of at most 4 MiB reserved up front;
+  approximate: a reader pinning a snapshot blocks WAL truncation, the excess is then
+  left uncounted) with least-recently-used eviction done by `_set` itself BEFORE the
+  write, under a lock, so concurrent fills never overshoot (diskcache's batch culling is
+  off, `cull_limit=0`: it writes first and over-evicts; the LRU order needs
+  `cache._sql`, so diskcache is pinned `<5.7`, checked once at open, and a failed check
+  or query falls back to clearing the cache before the write, with a warning), an
+  object over the cap is not stored, 5000 entries, 1 h per entry; blocking calls in the default
+  executor; the HA add-on excludes it from backups, `backup_exclude`). A hit makes no request. A miss calls `fetch_object` then
+  `checked_object`: an image type must match its magic bytes (`sniff_image_type`),
+  GIF at most 5 MiB, `imagesize` must read the dimensions, at most 40 Mpx
+  (`MAX_IMAGE_PIXELS`); anything else is 415 `share_type_refused`.
+  `application/octet-stream` (an encrypted envelope) passes unchanged and is never
+  upgraded to an image; the cache key is the id and the value the ciphertext, so no
+  plaintext or key material is ever stored (decrypted per request by the route).
+  A refusal is negatively cached like a 404/410, so a refused object is not
+  downloaded again for 10 min. Only validated objects are stored. Opting out does
+  not empty the disk cache (`POST /cache/clear` does). Deletion tombstones
+  (`deleted:<id>`, see Own objects) are entries too: they count toward the 5000 and
+  `POST /cache/clear` drops them with the objects. Tests:
+  `tests/test_share_cache.py`.
+- **Routes (`routers/share.py`, prefix `/api/share`).** `GET /status` (`read`; no
+  egress: `enabled`, `host`, `hosts`, `identity_ready`, `dm_encryption_available`
+  = `keystore.has_private_key()`, `banned`, `unreachable` (share breaker open), `shorten_mode`, `preview_policy`),
+  `POST /links` (`send`, i.e. member+; off answers `share_disabled` before
+  anything; the URL is checked locally: http/https, host, 2048 characters, no
+  whitespace), `GET /{id}/meta` (`read`, so a viewer or kiosk reads it; the id
+  is checked against the grammar before any call; a link keeps `kind`,
+  `target_host`, `expires_at`, a file adds `created_at`, `mode`, `content_type`
+  (images only), `size`, `name` (null for a public file) and `decryptable` (true for a
+  public file; for an encrypted one the route fetches and decrypts it with the secret
+  of `message_id`'s conversation: true with the decrypted `content_type`, `name` and
+  `size`, false with those null when that fails or there is no message, null when the
+  object cannot be fetched now); always `Cache-Control: no-store`, MSHL-382), `GET /{id}` (`read`; the object bytes:
+  bad id 400 `share_invalid_id` with no request, then off `share_disabled`;
+  headers `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
+  'none'; sandbox`, `Cache-Control: private, max-age=3600` (a public object),
+  `Content-Disposition` `inline` for an image, `filename*=` built from the id. An
+  `application/octet-stream` object is an envelope: decrypted (`decrypt_envelope_async`
+  under `secret_scope`) with the secret of `message_id`'s conversation, else 422
+  `share_undecryptable` (no message, wrong conversation, no radio key, any
+  `EnvelopeError`; only its code is logged); the decrypted type must be an allowlisted
+  image passing `checked_object`, else 415/413; served `inline` with
+  `Cache-Control: no-store` (plaintext never reaches the browser's disk cache) and the
+  sanitised name in `filename*=UTF-8''...` (percent-encoded), its extension forced to
+  the checked type by `_served_name` (`x.html` on a PNG/HTML polyglot is served
+  `x.png`; `jpg`/`jpeg` and any case are kept; the meta `name` is the same; MSHL-378;
+  the stem is shortened so the name stays within `share_crypto.NAME_MAX`, MSHL-382)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
+  sharing off, no egress), `GET /mine` (`send`; MSHL-247; query `limit` 1..200,
+  default 100, and `cursor` only, anything else 400 `share_invalid_request`; off
+  `share_disabled`; answers `ShareMineResponse` with `Cache-Control: no-store`),
+  `DELETE /{id}` (`send` + `refuse_cross_site`; off `share_disabled`, bad id
+  `share_invalid_id`, then `share.delete_object`; 204; tests `tests/test_share_mine.py`,
+  which also prove a viewer, a kiosk and an anonymous caller can neither list nor
+  delete), `POST /{id}/report` (`send`; MSHL-246; body
+  `ShareReportRequest` `{reason, details?}`, `extra=forbid`, the contract's 8 reasons,
+  details up to 2000, else 422 with no request; then off `share_disabled`, bad id
+  `share_invalid_id`, then `share.report_object` (JWT bound to `id\nreason`, so the
+  service records the instance key); 202 `{received: true}`, service errors coded
+  (`share_quota_key`, `share_banned`...); tests `tests/test_share_report.py`),
+  `POST /files` (`send`; raw image body, not multipart; checks in
+  order: off `share_disabled`, a mode other than `public`/`encrypted` or a
+  `Transfer-Encoding` 400, a type outside `IMAGE_CONTENT_TYPES` 415, `Content-Length`
+  missing/malformed 400 or over the type cap 413 before reading, `X-Share-Name`
+  (optional, percent-encoded UTF-8, validated as a plain name; never sent in public mode)
+  400, the retired `X-Share-Conversation-Key` header in any mode (400), in encrypted
+  mode both conversation headers (`X-Share-Conversation-Type`, `X-Share-Conversation-Id`;
+  400), ban, breaker, the conversation secret (`share_secrets.upload_secret`, before
+  staging), then the upload slot, staging and checks above, all under
+  `secret_scope(secret)` in encrypted mode; 201 `ShareFileResponse` `{id, url, expires_at, size, mode, text}`,
+  `text` = `📷 <url>` (public) or `🔒 <url>` (encrypted), 30 bytes on `meshl.ink`, the
+  composer's suggested message; `size` is the stored bytes, the envelope when encrypted). On both reads the only query parameter is
+  `message_id` (anything else or a repeat is 400 `share_invalid_request`); when
+  given, the message must exist and contain the id (else 404 `share_not_found`)
+  and a non-channel message needs `read_private` (a kiosk gets 403 `share_role_forbidden`,
+  checked in the router before any cache read or egress; MSHL-248). Every write route depends on
+  `refuse_cross_site`: 403 `share_cross_site` when `Sec-Fetch-Site` is
+  anything but `same-origin` or `none` (`same-site` included: without the
+  Public Suffix List every `<slug>.meshloom.link` instance is the same site; a
+  missing header passes. Defence in depth: the auth gate already refuses unsafe
+  cross-origin requests that are not bearer-token ones). Tests:
+  `tests/test_share_routes.py`.
+- **Roles and audit (MSHL-248).** Member+ routes (`send`: `POST /links`, `POST /files`,
+  `GET /mine`, `DELETE /{id}`, `/{id}/report`; member, admin); `/cache/clear` and the share settings
+  (`PATCH /api/settings`) are `admin`; status and the two reads are `read` (every role,
+  kiosk limited to channel messages as above). Audit rows (`app/auth/audit.py`), actor
+  from `RequestActor`: `share.enabled` / `share.disabled` from `PATCH /api/settings` only
+  when `share_enabled` actually changes (`details.terms_version` on enable),
+  `share.object_deleted` (target `share:<id>`) and `share.report_sent` (target
+  `share:<id>`, `details.reason` only, never the free-text details) through `audited()`;
+  a request refused by the permission gate writes nothing. Tests:
+  `tests/test_share_roles.py`.
+- **Never log** a token, a request body or a response body: log lines carry the
+  status, the service code (truncated) or `error_code(exc)` only.
+- Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected
+  clock, buckets, negative cache, hanging server), `tests/test_share_off_no_egress.py`
+  (off: no request, no DNS lookup; on: only `SHARE_HOST`, no seed, channel key,
+  radio private key or DM shared secret, hex or raw, in any request),
+  `tests/test_share_encrypted.py` (encrypted round trips, refused conversations,
+  retries, no secret in requests, logs, access log, answers or cache). Fakes: `tests/share_fakes.py`. User docs:
+  `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans, photo
+  sizes and types, quotas, retention and the encrypted-mode limits must follow this
+  section; its numbers are the constants above and the service defaults in
+  `src/settings.ts` of TwinRocket/meshloom-links). `messages.md`, `trust.md`,
+  `deep/security.md` and `deep/install-paths.md` repeat parts of it.
+
+## Store egress (`plugins/store_egress.py`)
+
+The Store's own egress class (MSHL-194): distinct from Community and from the share
+service, with its own switch, `app_settings.store_online` (in `AppSettings`, on by
+default, `PATCH /api/settings`). Community on or off changes nothing here.
+
+- **Hosts.** `STORE_HOSTS`, fixed in code: the GitHub hosts of custom repositories
+  (`github.com` and the release-asset redirect hosts `objects.githubusercontent.com`,
+  `release-assets.githubusercontent.com`) and the one TwinRocket host,
+  `store.meshloom.app` (`STORE_INDEX_HOST`, the signed index, M2b). `STORE_ALLOWLIST` is
+  `HostAllowlist.of(*STORE_HOSTS)`, HTTPS only. No environment variable.
+- **The one gate.** Every Store request goes through `store_fetch()`
+  (`follow_checked_redirects` with `STORE_ALLOWLIST`, redirects re-validated, capped
+  answers, `User-Agent: Meshloom/<version>` set by the module, a caller's one dropped).
+  While `store_egress_allowed()` is false it raises `StoreOffline` (`code
+  "store_offline"`) before any DNS lookup; a URL with user info (`https://user:pw@host`)
+  is refused with `egress_userinfo`, also before any lookup. A caller's `allowed_hosts` is
+  intersected with `STORE_ALLOWLIST` (it can narrow, never widen). Installer and refresh
+  code call it and never open their own client: `installer.download_archive` goes through
+  it, and `app/main.py` wires `set_download_gate(store_egress_allowed)` (MSHL-366).
+- **Turning it off cuts at once.** `AppSettingsRepository.update` calls
+  `note_store_online_changed()`: off bumps a generation, cancels the requests in flight
+  (they raise `StoreOffline`) and stops the refresh loop; a switch from off to on starts
+  or wakes it (a `true` sent again while already on does nothing). A restore re-applies
+  the stored switch: the `store_egress` restore hook (`register_on_restore`, run after
+  JSON restores and by `run_sqlite_restore_hooks`) calls `note_store_online_changed()`.
+- **Refresh loop.** Started at boot unless the switch is off; every
+  `REFRESH_INTERVAL_S` (6 h), and once when turned on, but never twice within
+  `MIN_REFRESH_GAP_S` (10 min; a tick skipped by that gap waits only the rest of it),
+  it runs the steps registered with
+  `register_store_refresher()`, then those registered with `register_store_evaluator()`,
+  and only when at least one `custom` or `store` instance is installed. Exception: the
+  manual **Refresh** button (`POST /api/store/refresh`) runs even with nothing installed,
+  still gated by `store_online` and the 10-minute gap. Between refreshes the loop runs the
+  evaluators alone every `EVALUATE_INTERVAL_S` (1 h, `run_store_evaluation()`): same
+  switch and installed-instance gates, never the gap nor `last_refresh_at`, and an
+  evaluator must not fetch on its own (it reads the cache; applying an update goes
+  through the usual install pipeline). The lock is created lazily (`_lock()`).
+  Registered: `custom_repos.refresh_repositories` (MSHL-196) as a refresher,
+  `updates.auto_update` (MSHL-197/393, registered by `lifecycle.start()`) as an evaluator.
+- **Custom repositories** (`plugins/custom_repos.py`, MSHL-196, `docs/dev/plugins.md`,
+  "Custom repositories"): GitHub `owner/name` read through `store_fetch` with
+  `CUSTOM_REPO_HOSTS` (the GitHub hosts only), the `releases/latest` redirect never
+  followed, assets capped; the `custom` installer resolver and the refresher are wired by
+  `custom_repos.register()` in `app/main.py`. Routes `GET/POST/DELETE
+  /api/store/repositories` (admin); table `store_repositories` (migration 126; 127 adds
+  `config_schema`, 128 `readme`; `GET .../{owner}/{name}/readme`, `POST /api/store/refresh`). Updates: `plugins/updates.py`, `GET /api/store/updates`.
+- **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
+  switch, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
+  reaches), what is sent (IP address, User-Agent), the cadence, what is missed while off
+  (updates only: online revocation alerts do not exist in 5.0.0) and the last refresh.
+- **Backups.** `store_online` is an ordinary setting since MSHL-456 (`V1_SETTING_COLUMNS`):
+  exported, kept in a database copy, and a restore applies only an off (`_restore_settings`:
+  every default export says on, which must not undo a later off).
+- Tests: `tests/test_store_egress.py` (nothing leaves by default with nothing installed,
+  nothing leaves while off, Community on or off,
+  loop included, the repository routes included); `tests/test_store_repositories.py`
+  (custom repositories, GitHub mocked); `tests/test_store_updates.py` (updates, holds,
+  auto-update window, compat at start); `tests/test_community_off_no_egress.py` allows exactly
+  `store.meshloom.app` when `store_online` is on.
+
+## Recovery CLI (`app/cli.py`)
+
+- `meshloom-admin` is `python -m app.cli` behind the wrapper `pkg/nfpm/meshloom-admin`:
+  `pyproject.toml` has no build backend, so the venv never gets a console script.
+  The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
+  and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
+  On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
+  `/etc/meshloom/meshloom.env` (root:root 0640, nfpm `file_info`; directory root:meshloom 0750,
+  `postinstall.sh`) as data, never sources it, and refuses
+  it unless it and its directory are root-owned, not group/world-writable and not a link
+  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with
+  `runuser -s /bin/sh -c 'exec "$0" "$@"'` (never `-u`, which keeps root's session): the child
+  always starts a new session, so it never has root's controlling terminal (TIOCSTI), piped or
+  not, and runuser kills it on Ctrl-C; `--pty` too when stdin, stdout and stderr are all
+  terminals (`scripts/test/meshloom_admin_tty.sh`, run as root in `nfpm.yml`). It runs python with `-P` so a local `app/` cannot shadow the
+  install. It finds the database the way the service does (that env file, `/config` for the
+  add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
+- It opens the file itself (`mode=rw`, never created, no schema script, no migration:
+  the server owns those) and attaches `app.database.db` to that connection, then uses the
+  repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
+  server on its next read. Every command writes one `auth_audit` row through `app/auth/audit.py` (`via = "cli"`,
+  the action shared with the API, such as `password.changed`; outcome `refused` for a refusal).
+- `disable-2fa <user>` removes a lost TOTP factor and its recovery codes and turns the
+  e-mail code off (`totp.disabled` row, `details.email_factor = off`); it refuses a database the server has not migrated to 109 yet.
+- `remove-passkeys <user>` removes every passkey of the account (`passkey.removed` row);
+  it refuses a database the server has not migrated to 110 yet.
+- `rotate-device-key` replaces `auth_settings.device_cookie_key` (every known-device
+  cookie becomes unknown; `settings.changed` row, target
+  `auth_settings.device_cookie_key`); it refuses a database not migrated to 119 yet.
+- Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
+  policy belongs to the login routes, which should share it with this file.
+- Tests: `tests/test_cli.py`. User docs: `docs/user/{en,fr}/deep/access.md`.
+
+## Process hardening
+
+`services/hardening.py` `set_not_dumpable()` calls `prctl(PR_SET_DUMPABLE, 0)`
+through `ctypes`; it is the first line of the lifespan, before the database
+opens. Linux only: elsewhere it does nothing, and a failure is logged at
+warning and never stops startup. With the flag at 0, `/proc/<pid>/environ` and
+`/proc/<pid>/mem` are unreadable by every non-root process (the radio private key held by `keystore.py`), and no core dump is
+written. Side effects: `py-spy dump`, `gdb -p` and `strace -p` on the server
+need root (`sudo`); a same-uid debugger gets "permission denied". There is no
+switch to turn it off (no environment variable on purpose): to debug, start the
+server under the debugger (`py-spy record -- uv run uvicorn ...`) or run the
+tool as root. It is inherited by child processes (`fork`) but reset by `execve`
+of any normal program, so the helpers the server launches are not hardened. The flag protects against other non-root programs
+only: it does nothing against root (the default Docker image and the HA add-on
+run as root).
+
 ## Migrations
 
+- `app/database_copy.py` runs first (`Database.connect`): it refuses a schema newer than
+  the highest migration, and copies a populated database with pending migrations, or
+  stops the start if it cannot (`docs/dev/database.md`).
 - One file per version: `app/migrations/_NNN_description.py`, discovered by numeric
   prefix, run in order, tracked by `PRAGMA user_version`.
 - Never rename or delete one (root `AGENTS.md`, "Deployments that never delete
@@ -35,10 +842,192 @@ and the OpenAPI page (`/docs`), not a table here.
   in a transaction (`VACUUM`, `journal_mode`) sets `TRANSACTIONAL = False` and must
   be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs).
+- Migration 101 adds the local accounts tables (`users`, `sessions`, `auth_audit`,
+  `auth_settings`); their DDL is in `SCHEMA_TABLES` too. The two differ as written (101 still has the
+  columns later migrations drop) and are equal only once the migrations have run
+  (`tests/test_migrations/test_migration_101.py` compares the results).
+  Model, repository and rules: `docs/dev/auth.md`.
+- Migration 146 drops `auth_settings.setup_code_hash`: there is no installation code any more
+  (`app/auth/first_run.py`).
+- Migration 145 (MSHL-459) adds `channel_slot_clears_pending` (keys of deleted channels
+  still on a radio slot); `IF NOT EXISTS`, no `SCHEMA_TABLES` change. Excluded from the JSON
+  backup, emptied in a database copy (`SNAPSHOT_EMPTIED_TABLES`).
+- Migration 144 sets `share_preview_policy` to `always`, the new default, where it holds
+  `private`, sharing is off and the share terms were never accepted (`share_terms_version = 0`); any other keeps its value. The column
+  default from migration 102 stays `private` (SQLite cannot change it), which is harmless:
+  the singleton row exists before the migrations run.
+- Migration 142 (MSHL-445) adds `community_attestations` (one row per audience,
+  `links` or `remote`: the last Community attestation of that instance key, CHECK on the
+  audience); `IF NOT EXISTS`, no `SCHEMA_TABLES` change. `patched_database()` patches
+  `app.repository.community_attestations`. Excluded from the JSON backup, emptied in a
+  database copy (`SNAPSHOT_EMPTIED_TABLES`) and by every restore.
+- Migration 141 (MSHL-426) adds `email_sign_in` (one row, `id = 1`: the SMTP profile's
+  channel id) and `user_email_factor` (an account's verified address and its two opt-in
+  flags, `ON DELETE CASCADE`); `IF NOT EXISTS`, no `SCHEMA_TABLES` change.
+  `patched_database()` patches `app.repository.email_factor`. Both tables are excluded from
+  the JSON backup; an accounts restore deletes `user_email_factor`.
+- Migration 140 (MSHL-427) adds `oidc_provider` (one row, `id = 1`; `client_secret` sealed
+  by `secret_store`) and `oidc_links` (an identity of the provider's issuer, by subject or
+  e-mail, to a `users` row, `ON DELETE CASCADE`, plus `idx_oidc_links_user`); `IF NOT EXISTS`,
+  no `SCHEMA_TABLES` change. `patched_database()` patches `app.repository.oidc`. Both tables
+  are excluded from the JSON backup; the SQLite snapshot nulls `client_secret`.
+- Migration 138 (MSHL-79) adds `app_settings.remote_instance_seed` and the
+  `remote_state` (one row), `remote_devices` and `remote_enroll_tokens` tables (`IF NOT
+  EXISTS`, plus `idx_remote_devices_user`); no `SCHEMA_TABLES` change.
+  `patched_database()` patches `app.repository.remote`.
+- Migration 137 (MSHL-434) adds `auth_settings.ip_ban_max_duration_minutes` (1440)
+  and `ip_bans.strikes` (1), each only when its table exists; no `SCHEMA_TABLES` change.
+- Migration 135 (MSHL-422) adds the four `auth_settings.ip_ban_*` columns and the
+  `ip_bans` and `ip_ban_whitelist` tables (`IF NOT EXISTS`, safe on any database);
+  no `SCHEMA_TABLES` change. `patched_database()` patches `app.repository.ip_ban`.
+- Migration 134 (MSHL-424) adds `auth_settings.addresses_identify_clients` (off); no
+  `SCHEMA_TABLES` change, like the other columns added after 101.
+- Migration 133 (MSHL-163) adds `raw_packets.payload_type` and its index but does not backfill:
+  the lifespan runs `backfill_payload_types` in the background (batched, resumable); the
+  history route uses the index only once no row is NULL (`docs/dev/database.md`, `raw_packets`).
+- Migration 124 (MSHL-365) rewrites Slack preset channels from `token_a`/`token_b`/`token_c` to one
+  `webhook` secret (`tests/test_migrations/test_migration_124.py`).
+- Migration 102 adds the share settings to `app_settings` (`share_enabled`,
+  `share_shorten_mode`, `share_preview_policy`, `share_instance_seed`). Fresh databases get
+  them from the migration, not from `SCHEMA_TABLES` (later columns are all added that
+  way). `share_instance_seed` is outside `AppSettings`, read and written only through
+  `services/instance_identity.py` (see "Instance identities"); the `*_seed` rule of
+  `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
+  the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
+  behaviours are restored.
+- Migration 116 adds `share_terms_version` and `share_terms_accepted_at` (consent state,
+  same backup rule as `share_enabled`). `PATCH /api/settings` takes `share_terms_accepted: true`
+  only together with `share_enabled: true` (else 422): the server stamps its own
+  `SHARE_TERMS_VERSION` and the time. `share_enabled: true` without an acceptance of the
+  current version is a 409 `share_terms_required`. `GET /api/share/status` returns
+  `terms_version`, `terms_accepted_version`, `terms_accepted_at` and `terms_stale`; its
+  `enabled` is the effective state (consent and current terms). `GET /api/settings` keeps
+  `share_enabled` as the stored choice (the settings toggle edits it, and it stays true after a
+  terms bump) and adds the computed, unstored `share_effective` (`share_enabled` and current
+  terms: what `share_egress_state()` uses), excluded from backups like the consent. No `/api/share/status`
+  contract exists in `meshloom-community/docs/contracts` (checked): no `CONTRACTS:` commit.
+- Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
+  also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
+  and `app_settings.store_online` (Store switch, on since migration 143; in `AppSettings` since MSHL-194,
+  see "Store egress"; travels with backups). Additive: bots in `fanout_configs`
+  were untouched until migration 122 converted them. One `plugin_id` can have several instances, each
+  with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
+  never exported (`plugin_secrets` emptied in the database download, `secret_omitted`
+  names only in the JSON `plugins` section, `services/backup_plugins.py`); `plugin_kv`
+  is never exported. Rules: `docs/dev/plugins.md`, "Data model", and
+  `docs/dev/backup.md`, "Plugins".
+- Migration 125 adds `plugin_kept_data` (MSHL-366: the owner of the KV rows and secrets an
+  uninstall with "keep data" left, so a reinstall from the same source takes them back and
+  the hourly cleanup deletes them after 90 days; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_125.py`). It records the orphans of earlier
+  uninstalls with an empty `plugin_id` (never reattached, deleted after 90 days). Excluded
+  from the JSON backup, kept in the SQLite download.
+- Migration 105 adds `plugin_send_quota` (the per-instance send counters of the
+  plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_105.py`), excluded from backups.
+- Migration 106 adds `plugin_send_guard` and `plugin_send_limits` (the Meshloom-wide
+  budget, per-destination counters, loop-guard stamps and the user's lowered limits of
+  the plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_106.py`), excluded from backups.
+- Migration 107 adds `auth_settings.ingress_admin_granted` (set once the first Home
+  Assistant identity was made admin, never cleared; backfilled from existing ingress
+  identities; `docs/dev/auth.md`, "Ingress"). Like every later column, fresh databases
+  get it from the migration, not from `SCHEMA_TABLES`.
+- Migration 108 adds `api_tokens` (API and device tokens: SHA-256 of the secret, scopes,
+  expiry, last use, revocation, origin; DDL and `idx_api_tokens_user` also in
+  `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_108.py`).
+  Rules: `docs/dev/auth.md`, "API and device tokens". It travels in the `api_tokens`
+  backup section with the accounts.
+- Migration 109 adds `recovery_codes` (TOTP recovery code hashes, DDL also in
+  `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_109.py`) and
+  `auth_settings.require_2fa_for_admins` (off; a later column, so from the migration
+  only). The TOTP columns of `users` came with 101. Rules: `docs/dev/auth.md`,
+  "Second factor (TOTP)".
+- Migration 110 adds `webauthn_credentials` (passkeys: credential id, COSE public key,
+  counter, transports, AAGUID, name, backup flags; DDL and `idx_webauthn_credentials_user`
+  also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by
+  `tests/test_migrations/test_migration_110.py`). It travels inside the `users` backup
+  section (version 3). Rules: `docs/dev/auth.md`, "Passkeys".
+- Migration 114 fills `push_defaults.telemetry_alert` from the old `telemetry_alert_rules.channels`
+  when that key is missing (4.18.x read it as a fallback) and sets the legacy media of
+  `telemetry.alert` in the rules; it is idempotent.
+- Migration 113 adds the notification channels (`notification_channels`,
+  `notification_deliveries`, `notification_counters`, `notification_state`, DDL also in
+  `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_113.py`)
+  and `app_settings.notification_rules`, then imports the 4.18.x preferences once
+  (`builtin:push`, `legacy:email|webhook|apprise`, `push_defaults` and
+  `push_conversation_overrides` as rules). The legacy columns stay and are no longer written.
+  The pure transform (`build_channels`, `build_rules`) lives in the migration module so the
+  restore of a 4.18 backup can reuse it. Model, registry and deletion rule:
+  `app/notifications/AGENTS.md`.
+- Migration 112 adds `pairing_codes` (device pairing codes: SHA-256 of the code, creator,
+  scopes, QR addresses, expiry, use, revocation, the token it gave and the device's opaque
+  `extensions`; DDL and `idx_pairing_codes_user` also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`,
+  compared by `tests/test_migrations/test_migration_112.py`). Never exported, emptied in the
+  database download, purged hourly once it can no longer give a token. Rules:
+  `docs/dev/device-pairing.md`.
+- Migration 119 adds `auth_settings.device_cookie_key` (the HMAC key of the known-device
+  cookies, NULL until first use; cleared in the database download; `docs/dev/auth.md`,
+  "Known devices").
+- Migration 129 (MSHL-133) encrypts in place the non-empty `notification_channels.secrets`
+  values and the fanout secret keys (frozen copy of `FANOUT_SECRET_KEYS`); idempotent, skips
+  `v1:` tokens, changes nothing without a key (`tests/test_migrations/test_migration_129.py`).
+  It delegates to `services/secrets_backfill.encrypt_plain_secrets`, which `Database.connect()`
+  also runs at every start after the migrations (live `FANOUT_SECRET_KEYS`, never blocks
+  startup, logs counts only): values left plain by a keyless run are encrypted as soon as a
+  key exists (`tests/test_secrets_backfill.py`).
+  Migration tests read secrets through `opened_secrets()`/`opened_config()` in their conftest.
+- Migration 120 adds `app_settings.plugins_paused`, `plugins_paused_at` and
+  `plugins_paused_by` (the global plugin pause, `plugins/pause.py`; excluded from backups).
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
   index list drifts from a freshly migrated database.
+
+## Secrets at rest (`secret_store.py`)
+
+- Scope: `notification_channels.secrets` and the `FANOUT_SECRET_KEYS` of
+  `fanout_configs.config`. Plain on purpose: MeshCore channel keys, the VAPID private
+  key, `app_settings.notification_destinations` (4.18), every other setting. Plugin
+  secrets are scrubbed from downloads, not encrypted here.
+- Key: `<dir of database_path>/secrets.key`, 32 bytes, `O_EXCL` + mode 0600, created by
+  `ensure_key()` in `Database.connect()` before the migrations. Never overwritten; a
+  broader mode is tightened, a wrong size is moved aside (`secrets.key.invalid-<time>`).
+  No rotation. Never log the key or a plain value (errors carry the field name at most).
+- Token `v1:` + base64(nonce 12 + ciphertext + tag 16), AES-256-GCM (pycryptodome), a
+  fresh nonce per call, AAD `meshloom:<table>:<row id>:<field>` (`aad()`). Channel
+  secrets are strings (`encrypt`/`decrypt`); fanout values are JSON (`seal`/`unseal`,
+  the webhook `headers` is an object).
+- Reads are tolerant: a non-`v1:` value is returned as is and encrypted on the next
+  write. A token that does not open raises `SecretUnreadable`; repositories treat the
+  secret as absent and list the field: a channel reads `enabled: false`,
+  `status.last_error: "secret_unreadable"` (no DB write; a test is 409 until the secret
+  is typed again; a PATCH that leaves the secrets alone, `enabled` included, is saved and
+  the channel still reads off); a fanout config carries `secret_unreadable` and the
+  manager does not start it (status error `secret_unreadable`); its PATCH of name,
+  `enabled`, scope or an unchanged config (display-only `*_redacted` keys ignored) is
+  saved, another config change without the secret is 409 `secret_unreadable`. The
+  matching key brings both back. Startup never fails on it. A legacy plain value that
+  happens to start with `v1:` reads as unreadable (accepted, see `decrypt`).
+- No key at all (unwritable folder): fail closed. `encrypt`/`seal` raise
+  `SecretStoreUnavailable` and no secret is ever written plain: the API answers 503
+  `secret_store_unavailable` (handler in `main.py`, FR+EN `errors.secret_store_unavailable`)
+  to any save that carries a secret. The full restore job checks first
+  (`secret_store.available()`, `check_secret_store` in `services/backup_restore.py`): a
+  file whose fanout configs hold a secret, whose 4.18.x notification destinations give a
+  `legacy:*` channel a secret, or whose `notifications` section matches a channel with a
+  stored secret, is refused with 503
+  `backup_secret_store_unavailable` before any step runs, so nothing is half applied
+  (MSHL-397). The flat v1 merge refuses the same way (`check_v1_secret_store`), and
+  `POST /backup/inspect` reports it ahead as `secret_store_unavailable` (MSHL-398) through the
+  read-only `secret_store.probe_available()`, which never creates the key file nor changes
+  its mode (MSHL-405). Reads, and saves
+  without a secret, still work.
+- Backups: the SQLite download carries ciphertext without the key (the
+  `X-Private-Key-Warning` header says so); the JSON backup exports plain values as
+  before and a restore encrypts with the local key. Tests: `tests/test_secret_store.py`,
+  `tests/test_fanout_secrets_at_rest.py`, `tests/test_backup_restore_secret_store.py`,
+  the secrets-at-rest tests of `tests/test_notifications_api.py`.
 
 ## Radio lifecycle
 
@@ -118,6 +1107,29 @@ and the OpenAPI page (`/docs`), not a table here.
   `radio_reboot_timeout` (`params.reason`) on that pass, then reconnect errors
   surface again. Monitor logs name the reason; the debug snapshot shows it
   (`runtime.expected_reboot_reason`).
+- **Radio offline / online watch** (`notifications/radio_watch.py`): the monitor
+  loop calls `radio_watch.observe(radio_manager)` once per pass (no second poll,
+  never raises). A lost transport starts a pending loss; `radio_offline` is sent
+  once per outage when it has lasted `app_settings.radio_offline_grace_s`
+  (default 60, 0 = at once) **and** that much time has passed since the process
+  started, judged on a monotonic clock at each pass (no timer to lose at
+  shutdown). Granularity: one pass per loop iteration, and an iteration can
+  block in `reconnect_and_prepare_radio` (setup timeout), so the offline
+  notification can be late and the loss is stamped at the first pass that sees
+  it. A transport that is up with setup incomplete does not clear a pending loss
+  (only a completed setup does), so a connect/setup-failure loop cannot reset the
+  grace forever. It never starts for an expected reboot (`expected_reboot_reason`),
+  with the connection paused (`connection_desired` false: closes a notified
+  outage silently), before the first completed setup since start, or while the
+  transport is up (setup still running counts as up). Only a *notified* outage is
+  persisted (`radio_outage_started_at`, not in `AppSettings`, excluded from
+  backups) so `radio_online` carries the right downtime after a restart; a pending
+  loss does not survive one. `app_started` comes from
+  `_startup_radio_connect_and_setup` (`main.py`) once, after the first connect
+  attempt (connected or not; not when shutdown cancels it). Events go through
+  `app/notifications/producers.py` (`emit_payload`), from a `spawn()`ed task, and the
+  rules choose the channels; `radio_offline` carries `urgent` (e-mail subject prefix `[URGENT]`).
+  Tests: `tests/test_radio_watch.py` (fake clock).
 - A broadcast `error` with a `code` is translated by the frontend from
   `errors.<code>`; its details from `errors.<code>Detail` when that key exists,
   else the backend's `details` are shown as sent.
@@ -198,8 +1210,41 @@ and the OpenAPI page (`/docs`), not a table here.
 ## Sending
 
 - Routers validate, then delegate to `services/message_send.py`.
+- **Byte limit, one helper.** `app/message_limits.py` holds the limits (DM 156 bytes;
+  channel `max(1, 156 - len(sender name) - 2)`, 10-byte name fallback when the radio
+  name is unknown; UTF-8 bytes). The three services in `message_send.py`
+  (`send_direct_message_to_contact`, `send_channel_message_to_channel`,
+  `resend_channel_message_record`) call it, so REST, plugins, the radio proxy and both
+  resends are covered; a new send path must call it too. Refusal: coded 400
+  `message_too_long` with `params.limit` and `params.bytes` (`errors.message_too_long`
+  in the UI). The constants are "empirically determined" from the firmware's packet
+  budget; `tests/test_message_limits.py` reads the composer's TSX constants and fails
+  when they drift or are not found.
 - Channel slots are reused through a session LRU cache, except on TCP or with
-  `force_channel_slot_reconfigure`, where every send calls `set_channel(...)`.
+  `force_channel_slot_reconfigure`, where every send rewrites the slot. A real channel is
+  always written through `services/channel_slots.py` (`write_channel_slot`, raw
+  `CMD_SET_CHANNEL` frame), never `mc.commands.set_channel`: the library replaces the secret
+  of any `#` name by the hash of the name, which breaks a private channel named `#x`.
+  `set_channel` remains for emptying a slot (empty name, zero secret).
+- `keep_channels_on_radio` (MSHL-41, `app_settings`, off by default, migration 139).
+  Off: `sync_and_offload_channels()` copies every slot into the DB and empties it
+  at each connect. On: it copies them without clearing (`on_radio=True`) and seeds
+  the send cache with each slot; `RadioManager.plan_channel_send_slot()` reuses a
+  cached slot and sends any other channel from the scratch slot
+  (`get_scratch_channel_slot()`, the highest index within the firmware limit), so
+  the `max_channels - 1` kept slots are never evicted; without slot reuse (TCP,
+  forced reconfigure) every send rewrites the scratch slot. One-off sends that
+  borrow a slot (the mesh test, `routers/tools.py`) ask
+  `temp_channel_slot()`, which answers the scratch slot in keep mode. Deleting a
+  channel (`DELETE /api/channels/{key}`) forgets its cached slot and empties the slots
+  holding it in both modes (`radio_sync.clear_channel_from_radio_slots()`), or the next
+  connect would adopt it again. The delete writes the key to `channel_slot_clears_pending`
+  (migration 145) in the same transaction and drops it once the slots are empty; the scan
+  stops at the first radio timeout. A key still there is never adopted by the drain of
+  queued messages, and the next connect sync empties its slot without adopting it, unless
+  the channel was added back. A slot keeps 31 bytes of a name (`name_as_kept_by_radio`): the
+  hourly audit compares through it and the sync never shortens the stored name. The setting is in the v1 backup settings. Tests:
+  `tests/test_keep_channels_on_radio.py`.
 - Path hash modes `0`/`1`/`2` mean 1-, 2- and 3-byte hop IDs. `path_len` in the
   API is always a hop count.
 - DM route precedence: override, then learned direct route, then flood.
@@ -212,7 +1257,7 @@ and the OpenAPI page (`/docs`), not a table here.
   limit and creates a new row. The web UI sends `?client_age_seconds=` (its
   browser-clock age, authoritative for the window): the 30 s check then uses it,
   and the server clock only refuses messages older than 300 s
-  (`RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS`). Without it (bots, older
+  (`RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS`). Without it (plugins, older
   clients, or the UI when it has not measured the clock skew) the 30 s window is
   measured on the server clock, as before. Expiry is a coded 400
   (`resend_window_expired` / `resend_window_expired_server`, `params.seconds`).
@@ -234,7 +1279,7 @@ and the OpenAPI page (`/docs`), not a table here.
   `mc.commands.run_cli_command` directly.
 - **Owner task.** `run()` refuses unless the calling task itself holds the lock,
   so a task spawned inside a session is refused. Never wrap a CLI call in
-  `asyncio.wait_for`/`shield`/`gather` (on 3.11 they run it in a new task); use
+  `asyncio.shield`/`gather` (they run it in a new task; `wait_for` did too before 3.12); use
   `run(timeout=...)` or `async with asyncio.timeout(...)`.
 - **Gate.** `capabilities()` and `run()` send nothing when `firmware_ver_code` is
   unknown or below 14, or through a Meshloom radio proxy (it reports fw ver 10
@@ -264,13 +1309,34 @@ and the OpenAPI page (`/docs`), not a table here.
   `poweroff`, `shutdown`, `erase` and `start` are refused: reboot with
   `mc.commands.reboot()` plus `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
   use the remote CLI over the mesh.
+- **No message text at INFO or above**, and no private channel's name on the message lines:
+  they use `channel_log_label()` (`app/data/meshcore_channels.py`), because logs end up in bug
+  reports. A few DEBUG lines keep the first 50 characters; `docs/user/*/deep/security.md` says so.
+- **Never log a channel key.** App code does not pass a whole key to a logger. A key in a
+  request URL (uvicorn's access log, the server-error lines, the `GET /api/debug` buffer) is
+  replaced by the formatter (`_URL_CHANNEL_KEY_RE`, `app/log_redaction.py`), and the SET_CHANNEL
+  and CHANNEL_INFO frames meshcore logs at DEBUG are redacted like the other secret frames.
+  A few debug and audit lines in `radio_sync.py` and `message_send.py` carry `key[:8]`: 4 bytes
+  of the secret, which identify a channel across logs.
 - **Never log a Wi-Fi password or a private key, at any level.**
   `app/log_redaction.py` enforces it for what meshcore logs: a filter at index 0
   of the `meshcore` logger (structural rules on the frame codes 0x42/0x18 out,
   0x1D/0x0E in, plus `secret_scope()` literals), a redacting formatter on the
-  app's handlers (tracebacks included), `bleak`/`dbus_fast` clamped to INFO
+  app's handlers (tracebacks included; it also escapes CR, LF and every other control
+  character in the message, its arguments and exception texts, so untrusted text can
+  never forge a log line such as `AUTH_FAIL`, MSHL-432, and caps every line at
+  `MAX_LINE_BYTES`, 8 KiB, so journald (48 KiB) or Docker (16 KiB) never split it
+  into a forged entry, MSHL-435: new handlers go through
+  `install_redacting_formatter()`; `setup_logging()` also routes warnings,
+  uncaught exceptions, thread exceptions and unraisable ones through logging with
+  `install_uncaught_handlers()`, so no raw text reaches standard error), `bleak`/`dbus_fast` clamped to INFO
   (their DEBUG output dumps every BLE frame: `bluezdbus/client.py` write on
-  Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`), and
+  Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`),
+  `aiosqlite` clamped to INFO too (its DEBUG output prints every statement with
+  its parameters: password and token hashes, VAPID and fanout secrets),
+  `urllib3` clamped to INFO (its DEBUG output prints each request line: the
+  Web Push endpoint path is the subscription's token;
+  `tests/test_push_send_egress.py` checks the records and `/api/debug`), and
   an app-wide 422 handler that drops each error's `input` and `ctx`.
   `tests/test_meshcore_log_sites.py` pins the meshcore log calls: on a meshcore
   or bleak bump, review the rules, then refresh its fixture.
@@ -289,19 +1355,63 @@ conversations with an index skip-scan. `tests/test_unreads_equivalence.py` keeps
 the old `ROW_NUMBER()` query as an oracle: both outputs must stay identical.
 `first_unread_ids` is the first unread row by `(received_at, id)`; `MIN(id)` would
 be wrong, because historical decryption inserts old messages with new ids.
+A muted channel is skipped by `effective_mute_sql` (the Feed filter's fragment): an indefinite
+mute and a timed mute still running hide the channel, an expired one does not. The oracle
+writes that rule out on its own and takes the same `now`.
 
 ## Backups
 
 - **Three kinds.** `GET /settings/backup/database` (a SQLite snapshot, never
   restored from the UI, no private key); `meshloom-backup-v1` (`export_json` /
   `restore_json`, Meshloom data only; `GET /settings/backup/json` stays v1 for
-  scripts); and the full backup `meshloom-backup-v2` (`POST
+  scripts and leaves out the notification secrets: they read `********`,
+  `secret_omitted` lists their paths, and a restore of that file keeps the
+  stored ones; only the full backup calls `export_json(include_secrets=True)`); and the full backup `meshloom-backup-v2` (`POST
   /settings/backup/export`): the v1 fields unchanged plus `identity`, `radio`
   (`RadioNodeSettings`), `wifi` and `meshloom_extra`. Code:
   `services/backup.py` (formats, coverage, export, Meshloom restore),
   `services/backup_radio.py` (radio reads and writes),
   `services/backup_restore.py` (identity decision, inspect, restore job),
-  `services/backup_crypto.py` (envelope).
+  `services/backup_crypto.py` (envelope), `services/backup_sections.py` (sections, hooks).
+- **Sections and restore hooks** (`services/backup_sections.py`, contract in
+  `docs/dev/backup.md`). Other features add a named entry to the v2 file's
+  optional `sections` with `register_backup_section(name, export_fn,
+  restore_fn, *, description=..., sensitive=..., version=..., requires=..., restore_with=...)`,
+  never a new top-level field or a second v2 format; the job restores them in
+  its `meshloom` step after `meshloom_extra`, each in its own `db.tx()`
+  (`restore_fn(section, conn)` writes through `conn` only; a failure rolls that
+  section back and the others go on; a restore that keeps the current data on
+  purpose raises `SectionKept`, so what requires it is skipped; a
+  `restore_with` section, such as `api_tokens` with `users`, runs in its
+  owner's transaction only when the owner was written), skips a section newer than its owner
+  (`section_too_new`) and ignores unknown ones with a log line. Inspect lists
+  them (`sections[]`: description, sensitive, known, too_new); a sensitive
+  section exported without a passphrase adds
+  `section_sensitive_unencrypted:<name>`. `register_on_restore(name, hook)`
+  runs once per restore: a flat v1 restore, a job that wrote something (the
+  job passes `run_hooks=False` to `restore_json` and runs them at its end), or
+  a SQLite snapshot put back in place (the download carries a
+  `meshloom_backup_snapshot` table; the lifespan runs the hooks after
+  `db.connect()` and drops it). The JSON export refuses (500
+  `backup_identity_seed_leak`, coded on both routes) any document holding an
+  `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
+  the BLE PIN, the previous-transport snapshot, `users.password_hash`,
+  `users.totp_secret` and `auth_settings.device_cookie_key` set to NULL and
+  `sessions`, `recovery_codes`, `pairing_codes` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
+  login secrets are never exported. The accounts travel in the JSON full
+  backup's `users` section, the API tokens in its `api_tokens` section and each account's notification
+  choices in `notification_user_rules`
+  (`services/backup_accounts.py`, `docs/dev/backup.md`,
+  "Accounts"; the export's `include_accounts`, true by default, leaves
+  `ACCOUNT_SECTIONS` out): its restore replaces the accounts, deletes every
+  session, keeps only trusted network rules whose account is unchanged, and
+  refuses a file without an enabled admin who can sign in here (`accounts_no_admin`: a local admin with a password, or an ingress admin on the add-on), strips password material the API forbids and closes the accounts' sockets at once.
+  The `notifications` section (`services/backup_notifications.py`) holds the channels
+  without their write-only fields and the rules; a channel restored without its secret is
+  disabled with `last_error = "secret_missing"` (`docs/dev/backup.md`, "Notifications").
+  `NEVER_EXPORTED_SECTIONS` (sessions, pairing codes, audit, Remote identity)
+  can never be registered and are ignored in a file. Inspect and
+  restore bodies over 64 MiB are a 413 `backup_too_large`.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
   table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
   column or table until it is listed (one direction: extra entries are fine).
@@ -355,16 +1465,26 @@ be wrong, because historical decryption inserts old messages with new ids.
   pauses the link when the gate was open.
 - **Restore order** (owner decision): identity, Meshloom data (only the settings
   present in the file; `meshloom_extra` through the route code paths: fanout
-  validation shared with the create route, `system:*` ids refused, bots
-  restored disabled and skipped while bots are disabled, VAPID keys and
-  subscriptions only on a host with no subscriptions of its own, proxy through
+  validation shared with the create route, `system:*` ids refused, bot entries
+  of an old file restored as disabled local plugins needing review (`bots_converted:<names>`), an Apprise row whose
+  URLs the allowlist refuses restored disabled (`apprise_restored_disabled`), a
+  row with a private-network opt-in (`allow_private_network`, a legacy row the
+  restore grandfathers included) restored disabled
+  (`private_network_restored_disabled:<name>`), a fanout secret sent as
+  `********` keeping the stored one (`merge_secrets`) unless its destination
+  moved (`secret_dropped_destination_changed:<name>`), VAPID keys and
+  subscriptions only on a host with no subscriptions of its own (owners matched by
+  username after the sections, `restore_push_owners`), proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot
   then skips the rest; `tx_power` is a signed byte meshcore reads unsigned, so it
   is read as int8, and a negative power is written back with a raw `0x0C` frame
   since `set_tx_power` refuses it), channels into slots `0..n-1` with raw `0x20` frames (the secret is
   never re-derived from a `#name`; the slots above are emptied and dropped from
-  the slot cache), contacts (reconcile stopped and always restarted, an
+  the slot cache; with `keep_channels_on_radio` the highest slot stays the empty
+  scratch slot, else the step warns `channels_offloaded_next_connect`; inspect's
+  `channels_kept_on_radio` gives the mode the step will run under, the file's
+  setting first), contacts (reconcile stopped and always restarted, an
   unreadable table fails the step `radio_contacts_unreadable`,
   non-selected radio contacts removed first, favourites first, 0x10 always
   stripped, favourite bit from Meshloom's `favorite`, cleared under auto-evict),
@@ -405,10 +1525,11 @@ be wrong, because historical decryption inserts old messages with new ids.
   (handled job ids in sessionStorage); until then the client keeps its old
   contacts and conversations. That section shows the latest job while it runs,
   or finished until a view handled it; a handled job is not shown again.
-- **Inspect** also lists the non-bot integrations with their `enabled` flag,
-  the file's proxy setting, `bots_will_be_skipped` and `push_targets` (label and
-  endpoint host of each push subscription the restore would write, per
-  `push_restore_applies`): integrations, the proxy and push subscriptions come
+- **Inspect** also lists the integrations with their `enabled` flag,
+  the file's proxy setting, `bot_names` (they become extensions) and `push_targets` (label,
+  endpoint host and `owner` of each push subscription the restore would write, per
+  `push_restore_applies`; `owner` is the username it goes to, or null for the first
+  administrator, `preview_push_owners`, MSHL-328): integrations, the proxy and push subscriptions come
   back as in the file and start at once, so the summary names them.
 - **Restore body.** `POST /settings/backup/restore` reads a raw dict: no
   `backup` key is the v1 flat request (synchronous); a `backup` key starts the
@@ -424,6 +1545,52 @@ floor, never the percentage alone, and do not remove the floor.
 
 ## WebSocket (server side)
 
+- **Account before accept.** `AuthMiddleware` closes an upgrade with no
+  principal (1008, HTTP 403) before the route runs; `/api/ws` needs `read`.
+- **Events per principal.** `WsEvent` (`auth/ws_events.py`) is the only list
+  of event types; each member declares its permission (`radio_wifi`,
+  `plugin_status` and `notification_channel_changed` `admin`, the rest `read`). Every emit call takes a member,
+  never a string (pyright, plus an AST scan in
+  `tests/test_auth_route_coverage.py`); a new type needs a member, a payload
+  model in `app/events.py` and `scripts/build/export_ws_events.py` run for
+  the frontend. `ws_manager` keeps each socket's principal and skips clients
+  without the type's permission; a type that is not a member reaches no one
+  (fail closed). A `message` that is not `CHAN` (live, historical or outgoing;
+  no `type` counts as private) needs `read_private`, a `raw_packet`
+  decrypted from a DM goes to the others without its decryption, `contact`
+  frames lose `last_contacted`/`last_read_at` (as on REST) and a
+  `message_acked` reaches them only for a channel message
+  (`audience="read"`). A `notification_event` (MSHL-138, the Feed's typed
+  notification frame, `app/notifications/ws_frame.py`) goes through the same
+  filter: one about a DM, a `PRIV` conversation, a conversation key without
+  type `CHAN`, or a mention on a channel with its own key (`conversation_open`
+  not `true`) needs `read_private`, so a kiosk never gets it; a `notify.*` or
+  unknown event id is `admin` only. Below `admin`, `health` has every `last_error` emptied
+  (`without_admin_details`, also on REST). Toasts are admin-only unless the
+  caller passes a lower `audience`. `send_raw` is for the `pong` reply only
+  (the AST scan allows no other frame).
+- **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
+  (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
+  and port (missing port = the scheme's default) differ from both `Host` and
+  the first `X-Forwarded-Host`, and that is not in the allowlist
+  (`origin_policy.websocket_origin_allowed()`), is closed with 1008, which uvicorn sends as an
+  HTTP 403 (no frame). No `Origin` is accepted (scripts, meshenger);
+  `Origin: null` is refused. Trusting `X-Forwarded-Host` is safe against
+  CSWSH because a browser page cannot set it; DNS rebinding is the `Host`
+  guard's job, not this one. The scheme is not compared (a TLS
+  terminator). Keep a new WebSocket
+  route behind the same call. `tests/test_origin_policy.py` runs one table of
+  origins through CORS and the WebSocket.
+- **Revocation closes sockets.** `ws_manager` indexes clients by session id
+  and token id; revoking through `app/auth/sessions.py` or
+  `app/auth/providers/token.py` closes them at once (1008), and a 30 s recheck
+  of sessions and tokens catches revocations from `meshloom-admin`,
+  expiries and disabled accounts (`docs/dev/auth.md`, "Sessions and the cookie").
+  Client frames slide the session once a minute (`note_activity`), so a
+  socket-only kiosk stays signed in. A socket keeps its opening role: a change of
+  the account (role, disable, deletion, password) goes through
+  `sessions.sign_out_user()`, which also closes its ingress and trusted network sockets
+  (`ws_manager.close_user()`).
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses
@@ -435,7 +1602,12 @@ floor, never the percentage alone, and do not remove the floor.
   socket: use `ws_manager.send_raw`.
 - When `realtime=True`, `broadcast_event()` also notifies the radio proxy and
   dispatches to fanout and Web Push; `realtime=False` (historical decryption)
-  skips all three.
+  skips all three. `broadcast_message()` (`services/messages.py`) adds
+  `historical: true` to the WS `message` payload in that case; the field is
+  `exclude_if` None on `Message`, so live frames, REST rows and the dict handed
+  to fanout never carry the key. The single-room historical toasts use
+  `code="historical_decrypt_complete"` (`name` param); the bulk run uses
+  `historical_decrypt_complete_rooms` (`count` param, i18n plural).
 - When a change touches an API or WS payload, update `frontend/src/types.ts`
   and the frontend tests in the same PR.
 
@@ -453,6 +1625,17 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
   a position**. `community_enrolled_state()` (on, waiting or not) is reserved to
   `FanoutManager.sync_system_modules()`, the Stats publisher and the
   `PUT /v1/me/iata` binds.
+- **Attestations** (`services/community_attestation.py`, MSHL-445). The only caller of
+  `POST /v1/me/attestations`, through `stats_request` (so the egress guard applies; no
+  `iata` claim needed, `_path_requires_iata`). One token per audience (`links`,
+  `remote`) for that service's instance key, cached in `community_attestations` with its
+  `expires_at` (survives a restart), renewed under 24 h left, renewed at once after a
+  service refusal (one renewal, one retry). Community allows 12 per radio key and hour:
+  a lock per audience, a local budget of 6 per audience and hour, holds after refusals
+  (`radio_not_heard` 15 min, `opted_out`/`banned` 1 h, 429 `Retry-After` or 15 min,
+  `attestation_unconfigured` 15 min, other failures 1 to 15 min backoff). Banned keys are
+  refused locally (`BANNED_REFUSED_ROUTES`). Turning Community off or a restore forgets
+  the tokens. `docs/dev/community-client.md`, "Attestations".
 - **Four bounded exceptions**, each scoped by a context variable read by
   `stats_request`: the leftover status clear (`community_status_clear.py`), the
   join bind (`_bind_state`), the opt-out call and its manual retry
@@ -475,7 +1658,17 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
   a placement by name stays `rounded` (no distance), and a prefix is never used.
 - **Hashtag names** are published only for a `#` channel whose key is derived
   from its name (`is_public_hashtag_channel`); a `#` name on a channel with its
-  own secret is private and never leaves.
+  own secret is private and never leaves. This stays strict (the `#` name is required);
+  the privacy tests (`key_derived`, the share encryption refusal) use the broader
+  `channel_key_is_name_derived`. Plugins' `is_public_channel` and the notification
+  body rule still use `is_public_hashtag_channel`.
+- **`Channel.key_derived`** (MSHL-246): a pydantic `computed_field` on the `Channel`
+  model, `channel_key_is_name_derived(name, key)` (MSHL-385: `SHA256(name)` or
+  `SHA256("#"+name)`, so a renamed hashtag channel stays derived), so every channel payload (REST and WS)
+  carries it and input ignores it; never stored. `Channel.share_conversation_id`
+  (MSHL-378) follows the same pattern (see "Conversation secrets"). The Public channel is `false` (its
+  key is not name-derived): the frontend treats it apart (`isPublicChannelKey`).
+  Tests: `tests/test_channel_key_derived.py`.
 - **Parsing.** An unknown `position_precision` parses as `null`, so a successful
   bind never turns into a 500.
 - **Live relay** (`community_live.py`): one process-wide upstream socket; frames go
@@ -541,8 +1734,74 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Telemetry alerts and notifications
 
-- Secrets (SMTP password, webhook secret in `notification_destinations`) are
-  returned as `********`; a PATCH that sends `********` back keeps the stored value.
+- **User guide: `docs/user/{en,fr}/deep/notifications.md`** (channels, privacy, rules, backups, upgrading); `push.md` keeps only the browser side (HTTPS, VAPID, devices). Same headings in both languages. A change to a channel type, an event, an error code or a default (text policy, limits) updates them in the same PR.
+- **Catalogue and renderer: `app/notifications/AGENTS.md`.** Every notification
+  text (push payload, e-mail subject and bodies, Apprise text, webhook enrichment) is
+  rendered in `app/notifications/render.py`; `push/manager.py` and `email_template.py`
+  only re-export it. `app_settings.notification_language` (`auto`|`fr`|`en`) picks the
+  e-mail and Apprise language (`resolve_instance_language()`).
+- Four **legacy** media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
+  `app/repository/settings.py`; the deprecated push router models and
+  the frontend legacy forms list them). They are the 4.18.x fixed media, kept for the shims
+  until 5.2.0; the engine itself has N typed channels (`app/notifications/AGENTS.md`). A missing key reads as off
+  (`coerce_notification_media`), so adding one needs no migration. A channel
+  reaches a medium other than push only through its conversation exception.
+- Secrets (SMTP password, webhook `url` and secret, Apprise `urls` in
+  `notification_destinations`, `NOTIFICATION_SECRET_KEYS` in
+  `app/secret_fields.py`) are returned as `********`; a PATCH that sends
+  `********` back keeps the stored value. The settings API adds
+  `webhook.url_redacted` (scheme and host, `present_notification_destinations`;
+  never stored, not in the JSON backup). A
+  kept secret never follows a destination change (`NOTIFICATION_DESTINATION_KEYS`:
+  email `host`/`port`/`mode`, webhook `url`): the PATCH answers 400
+  `secret_required`, and a v1 restore drops it with the warning
+  `secret_dropped_destination_changed:email.password` (or
+  `webhook.hmac_secret`). Apprise `urls` and the webhook `url` are the secret
+  and the destination at once: `********` keeps them, `""` clears them. The fanout configs follow
+  the same rules (`app/fanout/AGENTS.md`, "Secrets").
+- Any change of `notification_destinations` (`AppSettingsRepository.update`,
+  so a restore too) pushes `notify.destination_changed` to every administrator's subscription
+  (`notify_destination_changed`; `ADMIN_ONLY_EVENTS`, MSHL-399): the proof of modification,
+  not configurable.
+- **Apprise medium** (`app/notifications/apprise_medium.py`, `send_apprise_alert`
+  in `app/notify.py`). URLs checked at save (`_check_webhook_destination` in
+  the settings router, coded 400) and again before each send; one Apprise
+  object per URL, one result per URL. Retries (tenacity, `RETRY_WAITS` 0/5/30 s)
+  on a network error, a 5xx or a 429 (`Retry-After`, capped at 120 s), never
+  another 4xx, and only for a URL with one target (`len(server) <= 1`: a retry
+  resends to every target of the URL, so ntfy topics, Telegram chats or e-mail
+  recipients already reached would get duplicates); the HTTP status comes from a `requests.Session.send` wrapper
+  that records only inside `_send_sync` (a context variable, carried into
+  Apprise 2's own pool by `submit_with_context`). Blocking sends run in
+  `app/notifications/executor.py` (4 threads, with e-mail and pywebpush).
+  The producers never send directly: they emit the event to the
+  dispatcher (`app/notifications/producers.py`, `app/notifications/AGENTS.md`, "Dispatcher"), whose `legacy:apprise`
+  worker is the limiter (one send at a time, 2 s apart; the channel's token buckets, daily
+  quota and the global cap of `app/notifications/limits.py`, a full bucket held one minute
+  then one `notifications_grouped` summary of counts; `first_seen` capped at 10 an hour, the
+  rest one `first_seen_grouped`). The text policy (`include_message_text`:
+  `public_only` default, `always`, `never`) and the format apply once, in
+  `event_notification_text` (`app/notifications/render.py`, re-exported by `app/push/manager.py`); room-wide mentions
+  (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`, `<#…>`) are
+  always neutralised (the Apprise text format too), Markdown escapes the text. Every Apprise parse and send
+  (the medium, save-time validation, the fanout) runs inside `secret_scope()`
+  with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
+  the ring buffer and `/api/debug` masked. Blocked senders and muted channels
+  never reach it (the rules cut them for every channel, `app/notifications/rules.py`;
+  `app/services/message_filters.py` is the shared block-list rule, also used by the Apprise
+  fanout). Its status (a code with the line, never the URL) is in the
+  health payload as `notification_statuses["legacy:apprise"]`.
+- Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
+  fixed-host callers (Store egress `store_fetch()`, plugin `http` capability: host allowlist,
+  redirects re-validated hop by hop, streaming size caps).
+- The system webhook goes through the egress guard (`app/net/AGENTS.md`): checked
+  at save and before each send, then sent pinned to a validated IP. Its LAN
+  opt-in is `notification_destinations.webhook.allow_private_network`; a
+  webhook stored before the guard reads as allowed and grandfathered (one-time
+  banner, cleared by a PATCH or a URL change). A dispatch failure is logged at
+  WARNING (code, type, host, HTTP status); the dispatcher retries a 5xx, a 429, a
+  timeout or a network error (0/5/30 s) and shows the channel status in the health
+  payload (`notification_statuses["legacy:webhook"]`).
 - The email transport builds an Apprise `mailto` URL on the fly from the SMTP
   settings; the URL is never stored. The HTML email references no remote content
   (inline `cid:` logo, no remote image, no link).
@@ -554,12 +1813,155 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Web Push (`app/push/`)
 
-VAPID subject: `app_settings.vapid_subject`, falling back to `DEFAULT_VAPID_SUBJECT`;
-Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
-`frontend/src/utils/pushPolicy.ts`) decides per conversation. A push service
-answering 403, 404 or 410 deletes the subscription.
+VAPID subject (`push/vapid.py`, `get_vapid_claims`): the usable `app_settings.vapid_subject`,
+else `https://<remote_state.hostname>` while Remote is on and registered (MSHL-446; derived and
+cached, refreshed by a `services/remote.add_change_listener` callback installed by
+`ensure_vapid_keys`, never written to `app_settings`; the MSHL-428 custom domain is not stored,
+so it is never used), else `DEFAULT_VAPID_SUBJECT`; Apple rejects `.local`. `GET /push/preferences`
+reports `vapid_subject_effective` and `vapid_subject_source` (`stored`/`remote`/`default`) for
+the Settings line under the field. Subscriptions depend on the keys only, not on the subject. Which events reach Web Push is the notification rules' decision
+(`app/notifications/rules.py`, `conversation_channel_enabled`; `app/push/policy.py` is a
+deprecated adapter kept for one release; `frontend/src/utils/notificationPolicy.ts` mirrors it
+over the same fixture, `pushPolicy.ts` only re-exports it for one release). `PushManager` only sends
+(`dispatch_event`) and keeps the subscriptions healthy. Each subscription has an owner
+(`user_id`, migration 118, FK `ON DELETE CASCADE`; MSHL-290): the routes in `app/routers/push.py`
+scope list, PATCH, DELETE and test to the caller's own rows (another account's answers 404);
+an admin also gets `GET /subscriptions?scope=all` (endpoint reduced to its origin, keys blanked,
+`owner_username`) and may DELETE any row, never PATCH or test one. Subscribing upserts by
+endpoint and moves the row to the caller; `create(user_id=None)` (backup restore) keeps the
+owner or falls back to the first admin (`FIRST_ADMIN_SQL`). An unowned row counts as the
+first admin's when read (`_OWNER_SQL`; reads never write). An empty label on subscribe keeps
+the stored one unless the row changes owner. `UserRepository.delete` also deletes the rows
+explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
+`send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
+user). `dispatch_event` still renders a message's text only for a device whose owner may read
+it (`user_rules.may_read_message`, otherwise a generic FR/EN notice), and keeps admin notices,
+keyword alerts and watched nodes to administrators' devices (MSHL-399, MSHL-400). The rules are the admin defaults, and each account may override them for its own
+devices (`user_notification_rules`, migration 123, MSHL-321; `app/notifications/AGENTS.md`,
+"Per-account rules"; routes `GET/PATCH/DELETE /push/my-rules` and `PUT/DELETE /push/my-pause`,
+`send`; MSHL-361/362/363 add the grouped summaries, conversation exceptions and pause). `restore_users` unowns rows before replacing the accounts
+so the cascade keeps them, then gives each back to the account of the same `username_key`
+(unowned when none). The full backup carries each subscription's owner by username
+(`BackupPushSubscription.owner`, MSHL-320, never the id); `_restore_push` and, after the
+sections, `restore_push_owners` match it to an account here; no match, or an older file
+without it, keeps the first-admin fallback. A push service
+answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
+egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
+urllib3 connections); a private endpoint needs the instance setting
+`push_allow_private_endpoints`. The send connects to the validated IPs only
+(`PinnedHTTPAdapter`; SNI, `Host` and certificate check keep the host name;
+no redirect; connect 3 s, then 10 s on the IPv4 retry, read 10 s), resolving
+once: `tests/test_push_send_egress.py` drives a fake resolver and a local TLS
+push server. A send refused by the guard for good deletes the subscription
+lazily (`_SendResult.invalid`, one WARNING with the id and code): at once for
+`EgressBlocked.permanent` (bad URL or scheme, a metadata or documentation IP
+literal or host name), and for a name whose DNS answer holds such an address
+(`always_refused`) only when a send at least `FORBIDDEN_ANSWER_CONFIRM_SECONDS`
+(1 h) after the first such answer meets it again, with no other outcome in
+between (a resolver can be wrong once). The bookkeeping (`_forbidden_since`,
+`_refusals_logged`) is in memory, bounded to 1024 entries (least recently
+touched dropped) and forgotten when the subscription delivers or is removed.
+Any other refusal (private address while the setting is off,
+`egress_unresolvable`) keeps the subscription, is logged at WARNING once per
+subscription and code, and does not count toward `MAX_CONSECUTIVE_FAILURES`
+(`_SendResult.refused`): it is a configuration state. A send error is logged
+with its type only (a requests error names the endpoint URL, whose path is a
+secret). The
+migration that adds it turns it on, with `push_private_endpoints_grandfathered`
+(one-time notice, cleared by a PATCH of either field), when a stored
+subscription is not a browser push service (FCM, Mozilla, WNS, Apple). Migration
+104 refines it (097 is shipped, never edited): while the notice is pending it withdraws
+both flags unless an endpoint visibly targets a private network (non-global IP literal,
+dotless name, `.local`/`.lan`/`.home.arpa`/`.internal`/`.localdomain`; no DNS), so a public
+distributor such as ntfy.sh is not opted in. A restore of a backup whose settings lack
+`push_allow_private_endpoints` (pre-guard) applies the same rule to the restored
+subscriptions (`endpoint_looks_private`, `_regrandfather_private_push` in
+`app/services/backup.py`, which also clears `push_private_endpoints_review`; migration 104 keeps a frozen copy, both with a listed set of
+networks, not `is_global`). When 104 withdraws the opt-in and a stored endpoint is a
+hostname it cannot place (split DNS, Tailscale `*.ts.net`), it sets
+`push_private_endpoints_review`: a persistent notice (excluded from backups) with a
+one-click re-enable, cleared by a PATCH of `push_allow_private_endpoints` or
+`push_private_endpoints_review: false`.
+
+The test routes (`POST /push/subscriptions/{id}/test`,
+`POST /notifications/channels/test` and `.../{id}/test`, and the deprecated
+`POST /settings/notification-destinations/test` over them) send to a destination
+the client chose: they answer coded details only (`push_delivery_failed`,
+`push_stale`, `push_timeout` for a subscription; for a channel the guard's
+`egress_*`, `invalid_config`, `auth_failed`, `timeout`, `tls_error`,
+`rate_limited`, `service_error`, no `params`), never
+the exception text, which would be a LAN-scanning oracle. The guard refuses a
+private destination before any connection, so neither the answer time nor the
+status says anything about the LAN: every push delivery failure, timeout
+included, is a 422, and `push_stale` (410) only follows an answer from a
+guarded endpoint. The log gets the exception type only (plus the
+webhook's host and HTTP status), never its text: an `httpx.HTTPStatusError`
+carries the full webhook URL and its token, a `WebPushException` the push
+service's body (`tests/test_test_route_error_oracles.py`).
+
+## Messages listing (`GET /messages`)
+
+- Without `conversation_key` it is the global timeline, ordered `received_at DESC, id DESC`
+  (`before`/`before_id`, `after`/`after_id` cursors). `outgoing=true|false` filters sent or
+  received messages and combines with `type`, `q` and the cursors; absent means both.
+- `since_id=N` (integer in 1..2**63-1; 400 otherwise) returns `id > N` ordered by `id ASC`, up to
+  `limit`, with the same blocked-list, `type` and `outgoing` predicates. It is the
+  reconnect reconciliation cursor: historical decryption inserts old `received_at` with new
+  ids, which `after`/`after_id` on `(received_at, id)` never returns. It answers 400 when
+  combined with `before`, `after` (or their ids) or a non-zero `offset`. `get_around` takes none of these.
+- The app never runs `ANALYZE`, so SQLite plans without statistics: each filter form needs an
+  index that starts with its equality columns and ends in `received_at` (`id` is the rowid,
+  implicit). `idx_messages_feed_*` (migration 98) cover no filter, `type`, `outgoing` and
+  `type`+`outgoing`; `tests/test_messages_feed_filters.py` asserts no temp B-tree sort. With `since_id`, `type`/`outgoing` are written `+col` so the planner walks the rowid range instead of sorting.
+  A conversation prefix in `conversation_key` is LIKE-escaped.
+- `muted=all|exclude|only` and `membership=all|adopted|pending` (enumerations, 422 otherwise)
+  and `conversation_keys` (repeatable, 1 to 50 values of 32 or 64 hex characters, any case;
+  normalised like `conversation_key`, 64 lowercase / 32 uppercase, duplicates collapsed;
+  `normalize_conversation_keys` in `repository/messages.py`; 400 otherwise, and 400 with
+  `conversation_key`; a contact key without `read_private` is a 403) are the filters the Feed
+  the Feed pushes to the server (`filtersToQuery`, see `frontend/AGENTS.md`, "Feed";
+  `feedFilters.json` replays them). They read the `channels` LEFT JOIN, whose columns are NULL for every
+  `PRIV` row and for a `CHAN` row whose channel was deleted (`ChannelRepository.delete` removes
+  only the channel): the predicates are NULL-safe (`channels.key IS NULL OR NOT
+  COALESCE(muted, 0)`, `COALESCE(channels.membership, 'adopted') <> 'pending'`), so those rows
+  are kept by `exclude` and `adopted`, and dropped by `only` and `pending`. "Muted" is
+  `effective_mute_sql` (`repository/channels.py`: `muted = 1 AND (muted_until IS NULL OR
+  muted_until > now)`, the SQL twin of `effective_channel_muted`), judged at the request's
+  clock, so a timed mute that has ended is not muted. `get_unread_counts` builds its mute rule
+  from the same fragment (it used to read `muted` alone and hid an expired mute's channel).
+  The keys are bound as `IN (?, ...)`. Plans (`test_messages_feed_filters.py`): type + 1 key
+  seeks `idx_messages_pagination`; type + several keys walks `idx_messages_feed_type` newest
+  first and filters (no index orders by `received_at` across keys, and a temp sort would read
+  every row of the picked conversations at each page); none sorts. With `since_id` the unary
+  plus is also on the join terms (`+messages.type = 'CHAN'`): a filter that needs a channel
+  makes the join inner, and its `type` term would otherwise pull the planner onto a type index
+  and a temp sort by id.
+  These plans hold because nothing runs `ANALYZE` or `PRAGMA optimize`: with statistics SQLite
+  picks temp-sort plans (for instance CHAN + 10 keys with a cursor and `membership=pending`), and
+  the plan tests would fail. Do not add either without redoing them.
+- `GET /messages/conversation-counts?type&outgoing` (`read`) is the Feed's facet source: messages per
+  conversation `{type, conversation_key, count}`, busiest first, at most `MAX_CONVERSATION_COUNTS`
+  (2 000), with the listing's `type` / `outgoing` / blocked-list rules and `CHAN` only without
+  `read_private` (`PRIV` is a 403). Mute and membership are deliberately not applied: the client holds
+  the channel list and the clock, and one answer serves the Muted / Pending counts and the
+  Channels / Contacts lists. It is a `GROUP BY type, conversation_key` that the covering
+  `idx_messages_conversation` serves when no `outgoing` filter narrows it (no plan test).
 
 ## Route behaviours that are easy to break
+
+- `ui_preferences` (`UiPreferences`, one JSON column, no migration per field): `nav_rail`,
+  `theme`, `start_view`, `server_label`. `start_view` is the tool hash fragment the app
+  opens on when the URL has no hash (empty = conversations). `PATCH /settings` answers 400
+  for a value outside `START_VIEW_IDS` (models.py); the model itself does not validate, and
+  the repository reads an unknown stored value as "" so a stale id (restored backup) never
+  resets the other preferences or makes a later save fail. The frontend router applies it
+  (`useConversationRouter`) after hash and reopen-last; the kiosk role reads it through
+  `AppSettingsView` (pinned in `tests/test_settings_view.py`). `start_view` also accepts
+  `feed?...` / `control?...` in the feed hash grammar (`parseFeedQuery`,
+  `frontend/src/utils/feedFilters.ts`): `is_valid_start_view` (models.py) is the allowlist
+  (keys `src`, `types`, `dir`, `muted`, `pending`, `node` = 64 hex, `display`; no repeated key,
+  no unknown token, 512 chars). Stricter than the browser, which ignores what it does not know.
+  Change the grammar in both places (`tests/test_settings_router.py`, `feedHash.test.tsx`).
 
 - `GET /radio/private-key` is ungated (404 when the keystore is empty);
   `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (`RETIRED_ENV`).
@@ -575,7 +1977,23 @@ answering 403, 404 or 410 deletes the subscription.
 - `PATCH /radio/proxy` answers 409 to a port change under `MESHCORE_MANAGED_PORTS`.
 - `DELETE /channels/{key}`: the canonical Public channel cannot be deleted (400).
 - `DELETE /messages/{id}` is local only.
-- Bots: create/patch answer 403 while bots are disabled (`MESHCORE_DISABLE_BOTS`).
+- Bots: create (`type: "bot"`) and patch of an archived bot answer 410 `bot_type_retired`.
+- `/api/plugins` (`routers/plugins.py`, `docs/dev/plugins.md`, "API"): reads `send`, everything
+  else `admin`; a write is 403 `plugins_disabled` under the host lock. **Plugin secrets are
+  write-only**: never return `config_for_init()`; logs, diagnostic and `test` output go through
+  `_clean_line` (instance secrets, `redact_text`, 1000 characters). `test` is captured by the
+  host and must never reach `send_channel_message`/`send_direct_message`; `check` never runs
+  plugin code. `PATCH config` replaces the plain fields. A route that starts a process must go
+  through `plugin_manager` and `announce()` its status.
+
+## Host flags (files)
+
+Provisioned by the host (image build, package scripts), never user settings and
+never in `docs/user/**` or the environment docs.
+
+| Flag | Effect |
+|---|---|
+| `/var/lib/meshloom/kiosk` | Raspberry Pi kiosk host (`services/kiosk.py`). Written by `scripts/build/build_rpi_kiosk_image.sh` and, on an image flashed before 5.0.0, by `pkg/nfpm/postinstall.sh` (it finds `/etc/xdg/autostart/meshloom-kiosk.desktop` or `/usr/lib/meshloom/meshloom-kiosk-setup`, installed by the image; the launcher is not a signal, the deb ships it). With it, `prepare_first_run` creates the `kiosk` account (role `kiosk`, provider `system`, no password, **no trusted-network rule**) when absent, and `GET /auth/session` answers `kiosk_screen: true` to a direct loopback request (no proxy header) while setup is open, which only chooses the setup page's banner. `UserRepository.any_exist()` ignores `kiosk` accounts so this account never closes setup. The same start keeps one live `read` device token of that account in `/var/lib/meshloom-kiosk/kiosk.token` (`ensure_kiosk_token`; directory `meshloom:meshloom-kiosk` `2750` from `postinstall.sh`, file `0640`; rotated when the file does not hold it or an admin revokes it, which signs the account out and voids pending codes; the directory must be of group `meshloom-kiosk` with setgid; the token is refused on every route but the bootstrap). The launcher (`pkg/rpi/meshloom-kiosk`, shipped by the deb at `/usr/lib/meshloom/meshloom-kiosk`) probes `GET /api/auth/session`, then trades the token (header through curl's stdin config, never argv) at `POST /api/auth/kiosk-bootstrap` for a one-time `GET /api/auth/kiosk-session?code=` that Chromium opens to get the session cookie; both routes answer a direct loopback request on a kiosk host only (`routers/auth_kiosk.py`, `docs/dev/auth.md`, "Kiosk device token"). |
 
 ## Developer-only variables
 

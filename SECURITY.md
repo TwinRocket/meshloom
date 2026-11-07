@@ -27,32 +27,140 @@ Meshloom is maintained on a best-effort basis. As a guide, not a commitment:
 Only the latest release receives security fixes. Older versions are not
 patched: update to the latest release (see [Update](README.md#update)).
 
+## Plugin isolation
+
+Plugins (Meshloom 5) run in a child process behind an operating-system
+boundary: a bubblewrap sandbox (deb/rpm, Raspberry Pi image, source install),
+or a uid of its own per plugin instance (Docker image, Home Assistant add-on).
+`docs/dev/plugins-security.md` ("OS isolation") describes both, and the level in
+force is shown in the extension settings and in `/api/health`. These are
+vulnerabilities; report them as above:
+
+- **An escape from that boundary**: a plugin that reads the database, the data
+  directory, the server's environment or memory, or another plugin's work
+  directory or memory; that writes Meshloom's files; that signals the server or
+  another plugin; that starts a process or thread; that opens a socket
+  on Linux (loopback and the radio proxy included: the child's seccomp filter
+  refuses every socket at every level); that reaches the network or outlives
+  its kill under bubblewrap.
+- **A bypass of the lock**: starting or running an extension while
+  `MESHCORE_DISABLE_PLUGINS=true` is set or the global pause holds.
+- **A bypass of the permissions**, at any level: a plugin that receives events,
+  or calls the server, beyond what an administrator granted it (scope, quotas,
+  the egress guard of `http.fetch`).
+
+**The "hooks only" level (`none`) is weaker by design.** It applies where
+neither bubblewrap nor a dedicated account is available (macOS, a Linux host
+without bubblewrap or user namespaces). The child then runs under the server's
+uid, guarded only by in-process hooks and the child's seccomp filter (no
+process, no thread, no socket, no namespace on Linux): a plugin that gets past
+the hooks can read the database and Meshloom's code and, when the server runs
+as root, read its environment. It is logged at every start and reported in
+`/api/health`. Do not install a plugin you would not run as the server's user at
+that level.
+
+Out of scope, documented as known limits:
+
+- a bypass of the in-process guards alone (the audit hook, the module purge, the
+  import allowlist): they are defence in depth, not the boundary;
+- what a plugin past its hooks reaches at the "hooks only" level;
+- under the dedicated uid or "hooks only", a process that left its session
+  surviving the group kill until the service or container stops;
+- what a plugin does with the permissions an administrator granted it, and two
+  plugins exchanging data through what they are both allowed to reach;
+- code an administrator writes or installs: any administrator can already run
+  code on the host (see below).
+
 ## Known limits, not vulnerabilities
 
-Meshloom is built for a trusted network, and some of its behaviour is
-deliberate. These are documented and are not treated as vulnerabilities:
+Meshloom is built for a network whose users you know, and some of its behaviour
+is deliberate. These are documented and are not treated as vulnerabilities:
 
-- **No user accounts.** Anyone who can reach the web interface controls the
-  node, and the server accepts requests from any origin.
-- **Bots run Python with no sandbox.** Anyone who can reach the interface can
-  make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
-  turns them off; the Linux package does so by default.
-- **Basic auth is a single shared login.** It is an optional, coarse gate, and
-  it sends the password in clear text unless you serve Meshloom over HTTPS.
-- **The radio proxy has no authentication.** When turned on in
-  **Settings > Proxy**, it listens on every interface, and Basic auth does not
-  cover it.
-- **The radio's private key is readable by anyone who can reach the
-  interface** (`GET /api/radio/private-key`, the full backup in
-  **Settings > Database**). Because the server accepts any origin with
-  credentials, a web page opened in a browser that can reach Meshloom can read
-  the key and download the full backup (Wi-Fi password included): the export
-  accepts a POST without a body, which needs no preflight. The backup file can
-  be encrypted with a passphrase.
+- **Accounts are keys, not walls.** Every `/api` route and the WebSocket need a
+  signed-in account and declare the role that may call them (`admin`, `member`,
+  `viewer`, `kiosk`; `docs/dev/auth.md`). Whoever holds an account has its
+  powers: an `admin` can read all history, send as the node, write extensions and
+  change every setting, and a `member` can send as the node. A trusted-network
+  rule, which an administrator can add, signs a device in without a login with
+  the account it names (choose a viewer or kiosk account; an administrator is
+  refused, and never signed in by a rule). Rules apply only
+  once an administrator turns on **Login-free on the local network** (off by
+  default and after an upgrade, audited), only to a direct peer on a local
+  address, and never behind any proxy, tunnel, ingress or relay. A router that
+  forwards a port with source NAT makes Internet visitors look local: do not
+  turn it on there. HTTP Basic auth is removed: an `Authorization: Basic`
+  header is ignored and gets a 401. Wrong
+  passwords slow sign-in down; they never lock an account. On a Docker install
+  with no trusted proxy, sign-in delays apply per account only until an
+  administrator turns on **Client addresses identify clients** (Users & Access).
+- **The first account goes to whoever reaches an instance from the local network.**
+  While no account exists, Meshloom creates its administrator for a local-network
+  visitor on the machine's IP address or a local name, on a new database and on one
+  upgraded from an older version alike. From a public address, through an unlisted
+  proxy, under a domain name (a web page can point its own name at a LAN address), or
+  once a public address is declared, setup is refused. Meshloom cannot detect every
+  exposure. For example, every client looks local behind Docker's userland proxy (also
+  for a port published over IPv6), behind a reverse proxy that adds no forwarding
+  header (a bare nginx `proxy_pass`), through a router port forwarded with source NAT,
+  and through a local tunnel that adds no forwarding header (`ssh -R`, `socat`, HAProxy
+  in TCP mode, seen as 127.0.0.1). On a machine reachable that way
+  the first visitor can become administrator, so create the account with
+  `meshloom-admin create-admin` before publishing it.
+- **Other web pages are kept out, with documented gaps.** CORS is same-origin
+  plus the origins listed in **Settings > Local Configuration > Allowed
+  origins** (empty by default; a listed site can do what the signed-in user
+  can, WebSocket included), and `POST`, `PUT`, `PATCH` and `DELETE` from another
+  site are refused (`auth_origin_rejected`), with or without a session. Requests
+  that carry neither `Origin` nor `Sec-Fetch-Site` (curl, scripts, sensors) are
+  not browsers and pass that rule; they still need an account or a token. The
+  WebSocket refuses an upgrade whose `Origin` neither matches `Host` (or the
+  first `X-Forwarded-Host`) nor is listed; one without `Origin` is accepted if
+  authenticated. CORS and the WebSocket share one origin policy
+  (`app/origin_policy.py`). `X-Forwarded-Host` counts only for the WebSocket's
+  same-origin match, and is trusted from any client: a browser page cannot set
+  it. DNS rebinding: the `Host` header is checked in observation mode in 5.0.0
+  (an unknown name is logged and let through, so a reverse proxy name keeps
+  working; refused by default in 5.1), and always strictly before a trusted
+  network signs anyone in.
+- **Share writes accept only same-origin browser requests.** `POST /api/share/links`
+  (and every later write under `/api/share`) answers 403 `share_cross_site` when
+  the browser sends a `Sec-Fetch-Site` other than `same-origin` or `none`
+  (`same-site` included). A request without the header
+  (curl, scripts) passes; the route's permission (`send`) still applies. Defence in
+  depth on top of the auth gate.
+- **Extensions run administrator-approved Python.** Each runs in a process of its
+  own with only the permissions an administrator accepted, behind the walls of the
+  isolation level in force (`bwrap`, `setuid`, or `none`, where a hostile extension
+  could read Meshloom's files; `docs/user/en/deep/plugins.md`). Any administrator can
+  therefore get code running on the host. `MESHCORE_DISABLE_PLUGINS=true` locks the
+  whole extension system. The Python bots of 4.18 and earlier, which ran with no
+  sandbox, became extensions in 5.0.0, switched off until reviewed.
+- **Over plain HTTP the password and the session cookie travel in clear text.**
+  Serve Meshloom over HTTPS beyond a network you know. Passkeys are offered only
+  where the browser allows them (HTTPS on a declared name, or `localhost`).
+- **The radio proxy has no authentication, by owner decision.** When turned on
+  in **Settings > Proxy**, it listens on every interface (port 5001 by default,
+  `0.0.0.0`), accounts do not cover it, and anyone who can reach the port can
+  use the radio and send as the node. The apps that speak the protocol cannot
+  sign in. Do not forward the port; keep it on a network you know. A connection
+  must open with a protocol frame or it is closed, so a web page cannot drive the
+  radio through a browser request; anything that speaks the protocol still can.
+- **Home Assistant and its add-ons trust each other.** Under ingress, Meshloom
+  accepts the user the Supervisor names (only from the Supervisor's address,
+  never from a published port), and the add-on shares the host's D-Bus with
+  root rights. Do not run an add-on you would not trust with Home Assistant.
+- **The radio's private key is readable by any administrator**
+  (`GET /api/radio/private-key`, the full backup in **Settings > Database**,
+  which can also carry password hashes and two-factor secrets when **Include
+  accounts** is checked). A listed allowed origin can read them too. The backup
+  file can be encrypted with a passphrase.
 
-They are described in [A trusted network](docs/user/en/trust.md) and
-[Security](docs/user/en/deep/security.md). A way around one of the protections
-that does exist (for example, bypassing Basic auth when it is set, running a
-bot while `MESHCORE_DISABLE_BOTS=true`, or getting the updater to install
-something that is not a signed Meshloom release) is a vulnerability: please
-report it.
+They are described in [A trusted network](docs/user/en/trust.md),
+[Security](docs/user/en/deep/security.md) and
+[Accounts and access](docs/user/en/deep/access.md). A way around one of the
+protections that does exist (for example, reaching a route above the role it
+declares, signing in without a valid credential, creating the first account from a request
+Meshloom can see comes from outside the local network, getting a trusted-network rule
+to apply through a proxy, starting an extension while `MESHCORE_DISABLE_PLUGINS=true`, or
+getting the updater to install something that is not a signed Meshloom release)
+is a vulnerability: please report it.

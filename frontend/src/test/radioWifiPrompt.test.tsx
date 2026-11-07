@@ -66,7 +66,6 @@ const connected: HealthStatus = {
   database_size_mb: 1,
   oldest_undecrypted_timestamp: null,
   fanout_statuses: {},
-  bots_disabled: false,
 };
 
 function typePasswords(dialog: HTMLElement, first: string, second = first) {

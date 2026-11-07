@@ -3,6 +3,13 @@ Description=Meshloom
 Documentation=https://github.com/TwinRocket/meshloom
 After=network-online.target bluetooth.target
 Wants=network-online.target
+# A start that keeps failing (a migration that fails, for one) stops here: each try can
+# write what the migrations write. Far above what a crash now and then adds up to. Clear
+# it with `systemctl reset-failed meshloom`. Not RestartSteps=: its counter never resets
+# while the service keeps restarting, so months of rare crashes would end at its longest
+# delay, and systemd before 254 (Debian 12) ignores it.
+StartLimitIntervalSec=1h
+StartLimitBurst=20
 
 [Service]
 Type=simple
@@ -10,18 +17,28 @@ User=meshloom
 Group=meshloom
 WorkingDirectory=/opt/meshloom
 EnvironmentFile=/etc/meshloom/meshloom.env
-ExecStart=/opt/meshloom/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/meshloom/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 Restart=on-failure
 RestartSec=5s
 
+# Without a mode, StateDirectory= resets the directory to 0755 at every start. The
+# umask keeps what the server creates (database, -wal, -shm, copies) from other
+# accounts; explicit modes (kiosk token 0640) are unaffected.
 StateDirectory=meshloom
+StateDirectoryMode=0750
+UMask=0027
 
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
-ReadWritePaths=/opt/meshloom /var/lib/meshloom
+# /opt/meshloom (root-owned code) stays read-only. The kiosk device token
+# directory exists on kiosk hosts only ("-": optional).
+ReadWritePaths=/var/lib/meshloom -/var/lib/meshloom-kiosk
 SupplementaryGroups=dialout
+# Caps every task of the unit (server threads, plugin children and their
+# helpers): a plugin that escapes its own limits cannot fork-bomb the host.
+TasksMax=512
 
 [Install]
 WantedBy=multi-user.target

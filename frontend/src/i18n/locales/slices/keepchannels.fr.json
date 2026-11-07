@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "radio": {
+      "keepChannels": {
+        "title": "Canaux sur la radio",
+        "label": "Garder les canaux sur la radio",
+        "help": "Activé, les canaux restent sur la radio et la suivent dans une autre application MeshCore. Meshloom garde le dernier emplacement pour lui.",
+        "slots_one": "Avec cette radio : {{count}} emplacement de canal conservé, plus 1 emplacement réservé à Meshloom.",
+        "slots_other": "Avec cette radio : {{count}} emplacements de canal conservés, plus 1 emplacement réservé à Meshloom.",
+        "slotsUnknown": "Tous les emplacements de canal sauf le dernier sont conservés ; le dernier est réservé à Meshloom.",
+        "deleteNote": "Supprimer un canal dans Meshloom vide aussi son emplacement sur la radio."
+      }
+    },
+    "fullRestore": {
+      "channelsKept": "Les canaux restent sur la radio. Le dernier emplacement reste libre pour Meshloom.",
+      "channelsOffloaded": "Ces canaux ne resteront sur la radio que jusqu’à la prochaine connexion. Pour les garder, activez Réglages > Radio > Messagerie > Garder les canaux sur la radio.",
+      "warnings": {
+        "channels_offloaded_next_connect": "Canaux écrits sur la radio jusqu’à la prochaine connexion. Pour les y garder, activez Réglages > Radio > Messagerie > Garder les canaux sur la radio."
+      }
+    }
+  }
+}

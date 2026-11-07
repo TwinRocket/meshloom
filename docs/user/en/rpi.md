@@ -54,7 +54,33 @@ Without a screen, use the `.local` name from another device on the same network,
 
 With no network at all, open `http://127.0.0.1:8000` on the Pi itself. Messaging and the radio work offline. Maps, Meshloom Community, Web Push and in-app updates wait until the Pi can reach the Internet.
 
-Bots, which run code on the machine, are turned off on this image, like in every Linux package. See [A trusted network](/en/docs/trust/).
+Extensions run code on the machine: nothing runs until an administrator adds one, and `MESHCORE_DISABLE_PLUGINS=true` in `/etc/meshloom/meshloom.env` locks them all. See [A trusted network](/en/docs/trust/).
+
+## Kiosk image (screen on the wall)
+
+The kiosk image shows Meshloom full screen on a display plugged into the Pi, with a read-only `kiosk` account that has no password: it reads channel messages, never direct messages, and has no settings.
+
+On a new kiosk image, or on a kiosk image flashed before 5.0 once it has been updated, the screen first shows **Administrator account not created yet**. From a phone or a computer on the same network, open `http://meshloom.local:8000` and create the administrator account. A few seconds later the wall screen opens Meshloom by itself, signed in as the kiosk account.
+
+The screen signs in with a **device token** that Meshloom writes on the Pi, in `/var/lib/meshloom-kiosk/kiosk.token`: only the desktop user of the Pi can read it, the token never appears in an address or in the list of running programs, and it only works from the Pi itself. No trusted network is needed. In **Settings → Users & Access → API and device tokens**, an administrator sees it as **Kiosk screen** (owner `kiosk`): **Revoke** replaces it with a new one at once: the screen is signed out, then signs in again with the new token within a few seconds. To keep the screen signed out, disable the `kiosk` account in **Users & Access**. The token only opens the screen's session on the Pi itself: a copy used from another machine, or on any other address of the API, is refused.
+
+On a kiosk image flashed before 5.0, restart the Pi once after the update: the desktop session then gets access to the token and the screen signs in.
+
+To make the wall screen open on the Feed (or any tool) after a reboot, an administrator sets **Settings → Navigation → Start page**: it applies to every session, the kiosk account included, and needs no SSH. `MESHLOOM_KIOSK_URL` remains a bootstrap variable of the launcher on a hand-built image; a start page only applies when that address has no `#` part.
+
+### Display mode
+
+Display mode is the Feed made for a wall screen: larger text (25 % on top of your own text size), no menu or rail, no filter chips, the newest messages always in view, day separators and a small clock. It is a **display choice**, not a lock. Three ways to turn it on:
+
+- the **Display mode** button in the Feed's header, which also asks the browser for full screen when it allows it (an **Exit** control stays at the top right);
+- `#feed?display=1` as the **Start page** (`feed?display=1`, without the `#`), the way that needs no SSH;
+- `#feed?display=1` at the end of `MESHLOOM_KIOSK_URL` on a hand-built image, for example `http://127.0.0.1:8000/#feed?display=1`. A start page is ignored when the address has a `#` part.
+
+What it changes: the Feed's own filters are untouched and come back when you leave the mode. Only channels are asked from the server (`type=CHAN`), **direct messages are hidden** and **images and GIFs are not loaded**, whatever the address says: nothing inside the mode turns them back on. Rows can no longer be clicked or focused, and **Exit** is the only control left. Your choice of showing reactions is never changed. Blur and shadows are turned off.
+
+**Display mode locks nothing.** Hiding direct messages only decides what this screen draws: the browser still receives them, and anyone who can sign in can read them elsewhere. What keeps direct messages off the screen is the `kiosk` account the image runs under, which the server refuses them to; the Feed under that account has no **Direct messages** chip, asks for channels only and never lands on an error (it still reads muted and pending channels, and control packets). See [A trusted network](/en/docs/trust/).
+
+Inside Home Assistant, the full screen button needs `allowfullscreen` on Home Assistant's own frame: see [Home Assistant](/en/docs/deep/home-assistant/).
 
 ## Update
 
@@ -69,3 +95,7 @@ If **Settings > Updates** says you must update Meshloom by hand, follow the step
 Home Assistant add-ons update inside Home Assistant, not with this button.
 
 Meshloom Community is off on a new database, like on every other install. You join it by entering an airport code in **Settings > Meshloom Community**; nothing is published before that.
+
+## Move to another card
+
+To move Meshloom to a new card or another machine, stop it (`sudo systemctl stop meshloom`), then copy the whole `/var/lib/meshloom` folder with `sudo` (only the `meshloom` account and root can read it), or at least `meshcore.db` **and** `secrets.key`: that file decrypts the secrets of your notification channels and integrations. Without it, those channels and integrations come back switched off until you type their secrets again (see [Other install paths](/en/docs/deep/install-paths/#database-and-updates)). The full backup in **Settings → Database** is the other way: see [Back up your radio](/en/docs/backup/).

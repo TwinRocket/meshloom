@@ -22,6 +22,7 @@ from app.repository import (
 from app.routers.channels import CreateChannelRequest, create_channel
 from app.routers.packets import get_undecrypted_group_text_samples
 from app.routers.tools import MESH_TEST_RADIO_SLOT, MeshTestRequest, send_mesh_test
+from app.services.channel_slots import channel_slot_frame
 from app.services.hashtag_catalogue import _apply_matched_name, _unknown_samples
 from app.services.meshloom_community import update_community
 from app.services.observer_reach import (
@@ -264,12 +265,13 @@ class TestMeshTestEndpoint:
         ):
             await send_mesh_test(MeshTestRequest(flood_scope=REGION))
 
-        loaded, cleared = mc.commands.set_channel.call_args_list
-        assert loaded.kwargs == {
-            "channel_idx": MESH_TEST_RADIO_SLOT,
-            "channel_name": TEST_CHANNEL_NAME,
-            "channel_secret": TEST_CHANNEL_KEY,
-        }
+        loaded = next(
+            c.args[0] for c in mc.commands.send.await_args_list if c.args[0][:1] == b"\x20"
+        )
+        assert loaded == channel_slot_frame(
+            MESH_TEST_RADIO_SLOT, TEST_CHANNEL_NAME, TEST_CHANNEL_KEY
+        )
+        cleared = mc.commands.set_channel.call_args
         assert cleared.kwargs == {
             "channel_idx": MESH_TEST_RADIO_SLOT,
             "channel_name": "",

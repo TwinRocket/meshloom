@@ -1,0 +1,11 @@
+{
+  "description": "Raise its own limits through resource.setrlimit, with the module rebuilt from its spec when it was purged.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

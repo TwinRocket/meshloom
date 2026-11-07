@@ -9,6 +9,7 @@ from meshcore.events import EventDispatcher, EventType
 from meshcore.packets import PacketType
 from meshcore.reader import MessageReader
 
+from app.radio_proxy import protocol
 from app.radio_proxy.protocol import (
     PROXY_MODEL_PREFIX,
     FrameAssembler,
@@ -217,3 +218,58 @@ def test_parse_send_commands():
 
 def test_packet_type_disabled_is_15():
     assert PacketType.DISABLED.value == 15
+
+
+def _client_frame(payload: bytes) -> bytes:
+    return bytes([0x3C]) + len(payload).to_bytes(2, "little") + payload
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        b"GET / HTTP/1.1\r\n",
+        b"POST /x HTTP/1.1\r\nHost: a\r\n\r\n",
+        b"\x16\x03\x01\x02\x00",  # TLS
+        b"\x00",
+        b"\r\n",
+    ],
+)
+def test_assembler_refuses_a_connection_that_does_not_start_with_a_frame(first):
+    assembler = FrameAssembler()
+    with pytest.raises(protocol.NotAFrameStart):
+        assembler.feed(first + _client_frame(encode_ok()))
+
+
+def test_assembler_refuses_an_oversized_first_frame():
+    assembler = FrameAssembler()
+    with pytest.raises(protocol.NotAFrameStart):
+        assembler.feed(bytes([0x3C]) + (protocol.MAX_FRAME_SIZE + 1).to_bytes(2, "little"))
+
+
+def test_assembler_refuses_an_oversized_first_frame_split_across_reads():
+    assembler = FrameAssembler()
+    assert assembler.feed(bytes([0x3C])) == []
+    assert assembler.feed(b"\xff") == []
+    with pytest.raises(protocol.NotAFrameStart):
+        assembler.feed(b"\xff")
+
+
+def test_assembler_accepts_a_first_frame_arriving_byte_by_byte():
+    assembler = FrameAssembler()
+    frame = _client_frame(b"\x01\x02\x03")
+    got: list[bytes] = []
+    for i in range(len(frame)):
+        got += assembler.feed(frame[i : i + 1])
+    assert got == [b"\x01\x02\x03"]
+
+
+def test_assembler_still_resyncs_after_a_valid_first_frame():
+    assembler = FrameAssembler()
+    assert assembler.feed(_client_frame(b"\x01")) == [b"\x01"]
+    # Stray bytes and a bad length between frames, as before.
+    junk = b"junk" + bytes([0x3C]) + (protocol.MAX_FRAME_SIZE + 1).to_bytes(2, "little")
+    assert assembler.feed(junk + _client_frame(b"\x02")) == [b"\x02"]
+    # A partial frame, then the rest.
+    frame = _client_frame(b"\x03\x04")
+    assert assembler.feed(frame[:4]) == []
+    assert assembler.feed(frame[4:] + _client_frame(b"\x05")) == [b"\x03\x04", b"\x05"]

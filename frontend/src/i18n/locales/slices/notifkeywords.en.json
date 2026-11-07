@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "notifications": {
+      "keywords": {
+        "title": "Keywords",
+        "help": "Notify a channel when a message contains a word or phrase.",
+        "forgery": "Anyone can write a keyword in a channel: do not rely on it for anything critical.",
+        "empty": "No keyword rule yet.",
+        "count": "{{count}} of {{max}} rules",
+        "full": "Limit reached ({{max}} rules).",
+        "add": "Add a keyword",
+        "addTitle": "Add a keyword",
+        "editTitle": "Edit the keyword",
+        "dialogHelp": "Text is compared without regard to case. No regular expressions.",
+        "edit": "Edit the keyword {{pattern}}",
+        "remove": "Remove the keyword {{pattern}}",
+        "pattern": "Word or phrase",
+        "patternHelp": "Up to {{max}} characters.",
+        "match": "Match",
+        "match_contains": "Contains the text",
+        "match_word": "Whole word",
+        "scope": "Where",
+        "scopeAll": "All conversations",
+        "scopeDms": "Direct messages only",
+        "scopeChosen": "Chosen conversations",
+        "scopeFilter": "Filter conversations",
+        "scopeNone": "Pick at least one conversation.",
+        "channels": "Notify these channels",
+        "channelsHelp": "Web Push reaches administrators’ devices only.",
+        "noChannel": "no channel",
+        "cooldown": "Cooldown (minutes)",
+        "cooldownHelp": "Quiet time after a match. 0 turns it off.",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
+      "log": {
+        "events": {
+          "message_keyword": "Keyword"
+        }
+      }
+    }
+  }
+}

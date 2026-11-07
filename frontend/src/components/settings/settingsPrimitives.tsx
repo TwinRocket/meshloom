@@ -5,18 +5,19 @@ import type { ReactNode } from 'react';
 /**
  * Shared chrome for settings groups.
  *
- * Settings in this app land in three different places — the radio's own flash,
- * Meshloom's database, and this browser — and used to look identical whichever it
+ * Settings in this app land in different places — the radio's own flash, Meshloom's
+ * database, this browser, and for the Remote alert e-mail the relay — and used to look identical whichever it
  * was. Two adjacent checkboxes could have opposite persistence with nothing on
  * screen to tell them apart. These pieces exist so every group says where its
  * values go and whether anything is waiting to be saved.
  */
 
 /** Where a group's values are written. Rendered next to the group title. */
-export type StorageTarget = 'radio' | 'server' | 'browser';
+export type StorageTarget = 'radio' | 'relay' | 'server' | 'browser';
 
 const TARGET_KEYS: Record<StorageTarget, string> = {
   radio: 'settings.common.storedOnRadio',
+  relay: 'settings.common.storedOnRelay',
   server: 'settings.common.storedInMeshloom',
   browser: 'settings.common.storedInBrowser',
 };

@@ -1,0 +1,24 @@
+{
+  "description": "Create a user namespace (os.unshare) or join a namespace (os.setns): neither raises an audit event, so the runner's seccomp filter answers EPERM (MSHL-212); no nested user namespace, no private network stack, less kernel attack surface. Python 3.11 has neither function.",
+  "platforms": [
+    "linux"
+  ],
+  "events": [
+    {
+      "params": {
+        "how": "unshare"
+      },
+      "expect": {
+        "check": "namespace_refused"
+      }
+    },
+    {
+      "params": {
+        "how": "setns"
+      },
+      "expect": {
+        "check": "namespace_refused"
+      }
+    }
+  ]
+}

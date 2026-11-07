@@ -4,9 +4,10 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.auth.permissions import require
 from app.models import (
     CONTACT_TYPE_REPEATER,
     AclEntry,
@@ -104,7 +105,11 @@ def _require_repeater(contact: Contact) -> None:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{public_key}/repeater/login", response_model=RepeaterLoginResponse)
+@router.post(
+    "/{public_key}/repeater/login",
+    response_model=RepeaterLoginResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_login(public_key: str, request: RepeaterLoginRequest) -> RepeaterLoginResponse:
     """Attempt repeater login and report whether auth was confirmed."""
     radio_manager.require_connected()
@@ -119,7 +124,7 @@ async def repeater_login(public_key: str, request: RepeaterLoginRequest) -> Repe
         return await prepare_repeater_connection(mc, contact, request.password)
 
 
-@router.get("/{public_key}/repeater/cache")
+@router.get("/{public_key}/repeater/cache", dependencies=[Depends(require("repeater_admin"))])
 async def repeater_pane_cache(public_key: str) -> dict[str, dict]:
     """Last known answer per pane, read from the database.
 
@@ -132,7 +137,11 @@ async def repeater_pane_cache(public_key: str) -> dict[str, dict]:
     return await RepeaterPaneCacheRepository.get_all(contact.public_key)
 
 
-@router.post("/{public_key}/repeater/status", response_model=RepeaterStatusResponse)
+@router.post(
+    "/{public_key}/repeater/status",
+    response_model=RepeaterStatusResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_status(public_key: str) -> RepeaterStatusResponse:
     """Fetch status telemetry from a repeater (single attempt, 10s timeout)."""
     radio_manager.require_connected()
@@ -219,6 +228,7 @@ async def repeater_status(public_key: str) -> RepeaterStatusResponse:
 @router.get(
     "/{public_key}/repeater/telemetry-history",
     response_model=list[TelemetryHistoryEntry],
+    dependencies=[Depends(require("repeater_admin"))],
 )
 async def repeater_telemetry_history(public_key: str) -> list[TelemetryHistoryEntry]:
     """Return stored telemetry history for a repeater (read-only, no radio access)."""
@@ -230,7 +240,11 @@ async def repeater_telemetry_history(public_key: str) -> list[TelemetryHistoryEn
     return [TelemetryHistoryEntry(**row) for row in rows]
 
 
-@router.post("/{public_key}/repeater/lpp-telemetry", response_model=RepeaterLppTelemetryResponse)
+@router.post(
+    "/{public_key}/repeater/lpp-telemetry",
+    response_model=RepeaterLppTelemetryResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryResponse:
     """Fetch CayenneLPP sensor telemetry from a repeater (single attempt, 10s timeout)."""
     radio_manager.require_connected()
@@ -274,7 +288,11 @@ async def repeater_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryRespons
     )  # type: ignore[return-value]
 
 
-@router.post("/{public_key}/repeater/neighbors", response_model=RepeaterNeighborsResponse)
+@router.post(
+    "/{public_key}/repeater/neighbors",
+    response_model=RepeaterNeighborsResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_neighbors(public_key: str) -> RepeaterNeighborsResponse:
     """Fetch neighbors from a repeater (single attempt, 10s timeout)."""
     radio_manager.require_connected()
@@ -313,7 +331,11 @@ async def repeater_neighbors(public_key: str) -> RepeaterNeighborsResponse:
     )  # type: ignore[return-value]
 
 
-@router.post("/{public_key}/repeater/acl", response_model=RepeaterAclResponse)
+@router.post(
+    "/{public_key}/repeater/acl",
+    response_model=RepeaterAclResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_acl(public_key: str) -> RepeaterAclResponse:
     """Fetch ACL from a repeater (single attempt, 10s timeout)."""
     radio_manager.require_connected()
@@ -354,7 +376,11 @@ async def _batch_cli_fetch(
     return await batch_cli_fetch(contact, operation_name, commands)
 
 
-@router.post("/{public_key}/repeater/node-info", response_model=RepeaterNodeInfoResponse)
+@router.post(
+    "/{public_key}/repeater/node-info",
+    response_model=RepeaterNodeInfoResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_node_info(public_key: str) -> RepeaterNodeInfoResponse:
     """Fetch repeater identity/location info via a small CLI batch."""
     radio_manager.require_connected()
@@ -374,7 +400,11 @@ async def repeater_node_info(public_key: str) -> RepeaterNodeInfoResponse:
     return await _cache_pane(public_key, "node_info", RepeaterNodeInfoResponse(**results))  # type: ignore[return-value]
 
 
-@router.post("/{public_key}/repeater/radio-settings", response_model=RepeaterRadioSettingsResponse)
+@router.post(
+    "/{public_key}/repeater/radio-settings",
+    response_model=RepeaterRadioSettingsResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_radio_settings(public_key: str) -> RepeaterRadioSettingsResponse:
     """Fetch radio settings from a repeater via radio/config CLI commands."""
     radio_manager.require_connected()
@@ -407,7 +437,9 @@ async def repeater_radio_settings(public_key: str) -> RepeaterRadioSettingsRespo
 
 
 @router.post(
-    "/{public_key}/repeater/advert-intervals", response_model=RepeaterAdvertIntervalsResponse
+    "/{public_key}/repeater/advert-intervals",
+    response_model=RepeaterAdvertIntervalsResponse,
+    dependencies=[Depends(require("repeater_admin"))],
 )
 async def repeater_advert_intervals(public_key: str) -> RepeaterAdvertIntervalsResponse:
     """Fetch advertisement intervals from a repeater via CLI commands."""
@@ -428,7 +460,11 @@ async def repeater_advert_intervals(public_key: str) -> RepeaterAdvertIntervalsR
     )  # type: ignore[return-value]
 
 
-@router.post("/{public_key}/repeater/owner-info", response_model=RepeaterOwnerInfoResponse)
+@router.post(
+    "/{public_key}/repeater/owner-info",
+    response_model=RepeaterOwnerInfoResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_owner_info(public_key: str) -> RepeaterOwnerInfoResponse:
     """Fetch owner info, firmware, and guest password from a repeater.
 
@@ -645,7 +681,11 @@ async def _fetch_anon_flood_allowed_regions(contact: Contact) -> list[RepeaterRe
     ]
 
 
-@router.post("/{public_key}/repeater/regions", response_model=RepeaterRegionsResponse)
+@router.post(
+    "/{public_key}/repeater/regions",
+    response_model=RepeaterRegionsResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def repeater_regions(public_key: str) -> RepeaterRegionsResponse:
     """Fetch the repeater's region hierarchy and flood permissions.
 
@@ -678,7 +718,11 @@ async def repeater_regions(public_key: str) -> RepeaterRegionsResponse:
     return RepeaterRegionsResponse(regions=[], raw=raw, truncated=False, source="cli")
 
 
-@router.post("/{public_key}/command", response_model=CommandResponse)
+@router.post(
+    "/{public_key}/command",
+    response_model=CommandResponse,
+    dependencies=[Depends(require("repeater_admin"))],
+)
 async def send_repeater_command(public_key: str, request: CommandRequest) -> CommandResponse:
     """Send a CLI command to a repeater or room server."""
     radio_manager.require_connected()

@@ -1,0 +1,25 @@
+{
+  "settings": {
+    "fullRestore": {
+      "warnings": {
+        "notification_secrets_missing": "{{value}} notification channel(s) restored disabled: enter their secrets again, then turn them on.",
+        "notification_channel_dropped": "A notification channel ({{value}}) of the backup could not be restored and was left out.",
+        "notification_user_rules_dropped": "A notification choice of the backup named an account that does not exist here and was left out.",
+        "notification_rules_dropped": "The notification rules of the backup are too large and were not restored.",
+        "notification_destination_secrets_missing": "Enter the e-mail, webhook or Apprise destination secrets again in Settings > Notifications.",
+        "notification_rules_sanitized": "Some notification rules of the backup were malformed and were left out.",
+        "notification_text_policy_forced": "Message text is turned off for the channel {{value}}: an SMS service cuts long texts."
+      }
+    },
+    "fanout": {
+      "list": {
+        "secretUnreadable": "A secret of this integration cannot be read (secrets.key file missing). Enter it again."
+      }
+    }
+  },
+  "errors": {
+    "secret_missing": "Secret missing after a restore: enter it again, then turn the channel on.",
+    "secret_unreadable": "A secret of this channel cannot be read (secrets.key file missing). Enter it again.",
+    "secret_store_unavailable": "Secrets cannot be saved: check that Meshloom can write to its data folder."
+  }
+}

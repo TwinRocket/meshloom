@@ -1,0 +1,272 @@
+{
+  "channels": [
+    {
+      "favorite": false,
+      "flood_scope_override": null,
+      "is_hashtag": true,
+      "key": "1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F",
+      "membership": "adopted",
+      "muted": false,
+      "muted_until": null,
+      "name": "#lyon",
+      "path_hash_mode_override": null,
+      "pinned": false
+    },
+    {
+      "favorite": false,
+      "flood_scope_override": null,
+      "is_hashtag": true,
+      "key": "D8F3E005453E56988DE0A853348640F7",
+      "membership": "adopted",
+      "muted": false,
+      "muted_until": null,
+      "name": "#meshloom",
+      "path_hash_mode_override": null,
+      "pinned": false
+    },
+    {
+      "favorite": false,
+      "flood_scope_override": null,
+      "is_hashtag": false,
+      "key": "C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0",
+      "membership": "adopted",
+      "muted": true,
+      "muted_until": null,
+      "name": "Family",
+      "path_hash_mode_override": null,
+      "pinned": false
+    }
+  ],
+  "contacts": [
+    {
+      "direct_path": "aabb",
+      "direct_path_hash_mode": 0,
+      "direct_path_len": 2,
+      "direct_path_updated_at": null,
+      "favorite": true,
+      "first_seen": 1759000000,
+      "flags": 0,
+      "last_advert": 1760000000,
+      "last_contacted": null,
+      "last_seen": 1760000100,
+      "lat": 45.75,
+      "lon": 4.85,
+      "name": "Alice",
+      "pinned": false,
+      "public_key": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "route_override_hash_mode": null,
+      "route_override_len": null,
+      "route_override_path": null,
+      "type": 1
+    },
+    {
+      "direct_path": null,
+      "direct_path_hash_mode": null,
+      "direct_path_len": null,
+      "direct_path_updated_at": null,
+      "favorite": false,
+      "first_seen": null,
+      "flags": 0,
+      "last_advert": null,
+      "last_contacted": null,
+      "last_seen": null,
+      "lat": null,
+      "lon": null,
+      "name": "Rpt Lyon",
+      "pinned": false,
+      "public_key": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "route_override_hash_mode": null,
+      "route_override_len": null,
+      "route_override_path": null,
+      "type": 2
+    }
+  ],
+  "exported_at": 1760600000,
+  "format": "meshloom-backup-v1",
+  "groups": [
+    {
+      "created_at": 1792269222,
+      "id": 1,
+      "name": "Friends",
+      "public_keys": [
+        "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+      ],
+      "sort_order": 0
+    }
+  ],
+  "push_conversation_overrides": {
+    "channel:public": {
+      "email": true
+    },
+    "pubkey:abababababababababababababababababababababababababababababababab": {
+      "push": false,
+      "webhook": true
+    }
+  },
+  "push_defaults": {
+    "advert_companion": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "advert_repeater": {
+      "email": false,
+      "push": false,
+      "webhook": true
+    },
+    "advert_sensor": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "channel_found": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "new_contact": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "new_dm": {
+      "email": true,
+      "push": true,
+      "webhook": false
+    },
+    "oss_update": {
+      "email": true,
+      "push": false,
+      "webhook": true
+    },
+    "telemetry_alert": {
+      "email": true,
+      "push": true,
+      "webhook": false
+    }
+  },
+  "settings": {
+    "advert_interval": 7200,
+    "auto_decrypt_dm_on_advert": true,
+    "auto_resend_channel": false,
+    "auto_update": false,
+    "auto_update_weekdays": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "auto_update_window_end": "00:00",
+    "auto_update_window_start": "00:00",
+    "blocked_keys": [],
+    "blocked_names": [
+      "spam"
+    ],
+    "directory_available": false,
+    "discovery_blocked_types": [],
+    "flood_scope": "",
+    "known_regions": [],
+    "last_advert_time": 0,
+    "last_message_times": {},
+    "max_radio_contacts": 200,
+    "notification_destinations": {
+      "email": {
+        "from_address": "mesh@example.org",
+        "host": "smtp.example.org",
+        "mode": "ssl",
+        "password": "smtp-pass-4182",
+        "port": 465,
+        "to": "ops@example.org",
+        "user": "mesh@example.org"
+      },
+      "webhook": {
+        "hmac_secret": "hmac-secret-4182",
+        "url": "https://hooks.example.org/in/abc123"
+      }
+    },
+    "raw_packet_retention_days": 0,
+    "rejected_channels": [],
+    "stale_contact_days": 30,
+    "telemetry_alert_rules": {
+      "battery_volts_min": 3.5,
+      "channels": {
+        "email": false,
+        "push": true,
+        "webhook": false
+      },
+      "misses_before_alert": 2,
+      "noise_floor_max_dbm": -90.0,
+      "overrides": {},
+      "rules": {
+        "battery": {
+          "enabled": true,
+          "hysteresis": 0.2,
+          "op": "lt",
+          "threshold": 3.5
+        },
+        "gps_lost": {
+          "enabled": true,
+          "hysteresis": null,
+          "op": null,
+          "threshold": null
+        },
+        "lpp:temperature": {
+          "enabled": false,
+          "hysteresis": 1.0,
+          "op": "gt",
+          "threshold": 50.0
+        },
+        "noise": {
+          "enabled": true,
+          "hysteresis": 3.0,
+          "op": "gt",
+          "threshold": -90.0
+        },
+        "rssi": {
+          "enabled": false,
+          "hysteresis": 5.0,
+          "op": "lt",
+          "threshold": -120.0
+        },
+        "silence": {
+          "enabled": true,
+          "hysteresis": null,
+          "op": null,
+          "threshold": 2.0
+        },
+        "snr": {
+          "enabled": false,
+          "hysteresis": 2.0,
+          "op": "lt",
+          "threshold": 0.0
+        },
+        "tx_queue": {
+          "enabled": false,
+          "hysteresis": 2.0,
+          "op": "gt",
+          "threshold": 10.0
+        }
+      }
+    },
+    "telemetry_interval_hours": 8,
+    "telemetry_routed_hourly": false,
+    "tracked_telemetry_contacts": [],
+    "tracked_telemetry_repeaters": [],
+    "ui_preferences": {
+      "nav_rail": [],
+      "server_label": {
+        "bold": false,
+        "color": "#062d60",
+        "font": "system",
+        "italic": false,
+        "size_px": 14,
+        "text": ""
+      },
+      "theme": ""
+    }
+  },
+  "vapid_subject": "mailto:ops@example.org"
+}

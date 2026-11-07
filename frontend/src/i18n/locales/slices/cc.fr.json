@@ -1,0 +1,311 @@
+{
+  "settingsNav": {
+    "extensions": "Extensions"
+  },
+  "settings": {
+    "extensions": {
+      "title": "Extensions",
+      "intro": "Les extensions ajoutent des fonctions à Meshloom et ne font que ce que vous leur autorisez.",
+      "loading": "Chargement des extensions…",
+      "empty": "Aucune extension installée. Ajoutez une extension fournie pour commencer.",
+      "cancel": "Annuler",
+      "enabled": "Activée",
+      "openDetails": "Ouvrir le détail de {{name}}",
+      "enableToggle": "Activer {{name}}",
+      "moveUp": "Monter {{name}}",
+      "moveDown": "Descendre {{name}}",
+      "bundled": "Fournie",
+      "tabs": {
+        "installed": "Installées",
+        "store": "Store",
+        "updates": "Mises à jour",
+        "storeSoon": "Le Store n'est pas encore disponible."
+      },
+      "kind": {
+        "bundled": "Fournie",
+        "store": "Store",
+        "custom": "Personnalisée",
+        "local": "Locale"
+      },
+      "status": {
+        "installed": "Installée",
+        "disabled": "Désactivée",
+        "starting": "Démarrage",
+        "running": "En marche",
+        "error": "Erreur",
+        "crash_loop": "Plante en boucle",
+        "needs_attention": "À examiner",
+        "incompatible": "Incompatible",
+        "revoked": "Révoquée",
+        "paused": "En pause"
+      },
+      "attention": {
+        "config_required": {
+          "badge": "Réglages requis",
+          "text": "Cette extension a besoin de réglages avant de démarrer. Elle reste arrêtée tant qu'ils ne sont pas remplis."
+        },
+        "review_permissions": {
+          "badge": "Permissions à revoir",
+          "text": "Cette extension demande d'autres permissions qu'avant. Relisez-les ci-dessous, puis acceptez pour la démarrer."
+        },
+        "privacy_widened": {
+          "badge": "Confidentialité modifiée",
+          "text": "Cette mise à jour utilise vos données plus largement. Relisez ci-dessous, puis acceptez pour la démarrer."
+        },
+        "review_permissions_privacy": {
+          "badge": "Permissions à revoir",
+          "text": "Cette mise à jour demande d’autres permissions et utilise vos données plus largement. Relisez, puis acceptez."
+        },
+        "consent_required": {
+          "badge": "Consentement requis",
+          "text": "Cette extension a besoin de votre accord pour les permissions ci-dessous avant de démarrer."
+        },
+        "migrated": {
+          "badge": "Migrée",
+          "text": "Extension issue d’un bot converti. Relisez ce qu’elle peut faire, puis acceptez pour la démarrer."
+        },
+        "restored": {
+          "badge": "Restaurée",
+          "text": "Extension restaurée, désactivée. Vérifiez-la ci-dessous, puis acceptez pour la démarrer.",
+          "versionChanged": "Version {{version}} installée ; la sauvegarde avait la {{previous}}."
+        },
+        "reinstall": {
+          "badge": "À réinstaller",
+          "text": "Restaurée sans son code : réinstallez-la ou désinstallez-la.",
+          "unavailable": "Restaurée sans son code, et elle ne peut pas être réinstallée ici. Vous pouvez la désinstaller."
+        },
+        "config_dropped": {
+          "badge": "Réglages réinitialisés",
+          "text": "Des réglages ont été réinitialisés : {{fields}}. Vérifiez-les et enregistrez."
+        },
+        "other": {
+          "badge": "À examiner",
+          "text": "Cette extension attend votre examen avant de pouvoir démarrer."
+        }
+      },
+      "blocked": {
+        "revoked": "Cette extension a été révoquée et ne peut pas démarrer. Désinstallez-la.",
+        "incompatible": "Incompatible avec cette version de Meshloom : désinstallez-la ou attendez une mise à jour."
+      },
+      "enableBlocked": {
+        "frozen": "Ne peut pas être activée",
+        "config_required": "Réglages requis d'abord",
+        "review": "Ouvrez-la pour l'examiner et l'accepter",
+        "reinstall": "À réinstaller d'abord",
+        "reinstall_unavailable": "Réinstallation impossible ici"
+      },
+      "isolation": {
+        "title": "Niveau d'isolation",
+        "level": {
+          "bwrap": "Bac à sable (bubblewrap)",
+          "setuid": "Compte séparé",
+          "none": "Crochets seulement",
+          "unknown": "Pas encore connu"
+        },
+        "explain": {
+          "bwrap": "Chaque extension tourne dans un bac à sable, sans accès aux autres fichiers.",
+          "setuid": "Chaque extension tourne sous un compte système dédié qui ne peut pas lire les fichiers de Meshloom.",
+          "none": "Pas de bac à sable ici : une extension pourrait lire vos données. N’installez que des extensions de confiance.",
+          "unknown": "Le niveau d'isolation est indiqué dès que le serveur a démarré le système d'extensions."
+        },
+        "purgeBlocked": {
+          "title": "Un dossier temporaire garde des comptes d'extension occupés",
+          "text": "Meshloom n’a pas pu nettoyer les dossiers temporaires d’extensions supprimées : ces comptes restent réservés :",
+          "fix": "Sur le serveur, supprimez ces dossiers ou rendez-les lisibles (chmod o+r), puis redémarrez Meshloom.",
+          "leaseFix": "Un autre Meshloom de cette machine réserve ce compte. S’il ne tourne plus, supprimez ce fichier de .meshloom-plugin-uids, puis redémarrez Meshloom."
+        }
+      },
+      "disabled": {
+        "env": "Extensions désactivées par l’hôte de ce serveur. Vous pouvez les consulter et les désinstaller seulement.",
+        "platform": "Extensions indisponibles sur cette plateforme. Vous pouvez les consulter et les désinstaller seulement.",
+        "isolation": "Extensions arrêtées : leur isolation n’a pas pu être mise en place. Vous pouvez les consulter et les désinstaller seulement.",
+        "drawer": "Les extensions sont désactivées sur ce serveur : rien ne peut être modifié ni démarré ici."
+      },
+      "add": {
+        "button": "Ajouter une extension fournie",
+        "title": "Ajouter une extension fournie",
+        "intro": "Ces extensions sont livrées avec Meshloom et s'installent sans accès à Internet.",
+        "none": "Aucune extension fournie dans cette version.",
+        "instances": "{{count}} déjà installée(s)",
+        "consentTitle": "Autoriser {{name}} ?",
+        "consentIntro": "Cette extension pourra faire ce qui suit. Vous pourrez réduire ces permissions plus tard.",
+        "accept": "Je comprends ce que cette extension peut faire et je l'autorise.",
+        "back": "Retour",
+        "install": "Installer",
+        "installed": "{{name}} est installée."
+      },
+      "privacy": {
+        "title": "Déclaration de confidentialité",
+        "sends": "Envoie des données à : {{hosts}}.",
+        "sendsNone": "N'envoie rien à des tiers.",
+        "stores": "Conserve le contenu des messages.",
+        "storesNone": "Ne conserve pas le contenu des messages."
+      },
+      "scope": {
+        "all": "Toutes les conversations",
+        "none": "Aucun message",
+        "only": "Seulement les conversations que je choisis",
+        "except": "Toutes les conversations sauf celles que je choisis",
+        "channels": "Canaux",
+        "contacts": "Contacts"
+      },
+      "drawer": {
+        "statusTitle": "État",
+        "summary": "Message d'état",
+        "lastError": "Dernière erreur",
+        "notice_permission_dropped_supervisor": "Permission coupée : elle vise le réseau interne de Home Assistant, interdit aux extensions. Retirez cette adresse pour la rétablir.",
+        "restarts": "Redémarrages",
+        "dropped": "Événements perdus",
+        "permissionsTitle": "Permissions",
+        "permissionsHint": "Décochez une permission pour la retirer. On ne peut pas donner plus que ce que l'extension déclare.",
+        "scopeTitle": "Messages qu'elle peut lire",
+        "quotasTitle": "Limites d'envoi",
+        "quotasHint": "Vous ne pouvez que baisser ces limites, jamais les relever au-dessus de ce que l'extension demande.",
+        "perHour": "Messages par heure",
+        "perDay": "Messages par jour",
+        "quotaInvalid": "Saisissez des nombres entiers de 1 à {{hour}} par heure et de 1 à {{day}} par jour.",
+        "save": "Enregistrer",
+        "saved": "Modifications enregistrées.",
+        "acceptAndEnable": "Accepter et activer",
+        "accepted": "Acceptée et activée.",
+        "restart": "Redémarrer",
+        "restarted": "Redémarrée.",
+        "reinstall": "Réinstaller",
+        "reinstallSource": "Source : {{repository}}",
+        "reinstalling": "Réinstallation...",
+        "reinstalled": "Réinstallée. Vérifiez-la, puis acceptez pour la démarrer.",
+        "copyDiagnostic": "Copier le diagnostic",
+        "diagnosticCopied": "Diagnostic copié.",
+        "uninstall": "Désinstaller",
+        "uninstalled": "Extension désinstallée."
+      },
+      "config": {
+        "title": "Réglages",
+        "none": "Cette extension n'a pas de réglages."
+      },
+      "logs": {
+        "title": "Journal",
+        "empty": "Rien dans le journal pour l'instant.",
+        "failed": "Le journal n'a pas pu être lu.",
+        "truncated": "Seules les lignes les plus récentes sont affichées."
+      },
+      "uninstall": {
+        "title": "Désinstaller {{name}} ?",
+        "text": "L'extension s'arrête et ses réglages et secrets sont supprimés.",
+        "keepData": "Garder ses données et secrets : récupérés si vous la réinstallez depuis la même source, supprimés après 90 jours.",
+        "confirm": "Désinstaller"
+      },
+      "migration": {
+        "title": "Vos bots ont été convertis en extensions",
+        "text": "Relisez chaque extension convertie : elle ne démarre qu’après votre accord.",
+        "counts_one": "{{count}} bot a été converti, {{attention}} demandent votre attention.",
+        "counts_other": "{{count}} bots ont été convertis, {{attention}} demandent votre attention.",
+        "acknowledge": "Compris",
+        "bannerText_one": "{{count}} bot converti en extension attend votre relecture.",
+        "bannerText_other": "{{count}} bots convertis en extensions attendent votre relecture.",
+        "bannerAction": "Relire les extensions"
+      },
+      "memberReadOnly": "Seul un administrateur peut gérer les extensions.",
+      "drawerMemberReadOnly": "Seul un administrateur peut modifier, redémarrer ou désinstaller cette extension, ou lire son journal.",
+      "pause": {
+        "button": "Mettre en pause toutes les extensions",
+        "hint": "Arrête toutes les extensions d’un coup, jusqu’à la reprise.",
+        "confirmTitle": "Mettre en pause toutes les extensions ?",
+        "confirmText": "Toutes les extensions s’arrêtent, même après un redémarrage, jusqu’à la reprise. Elles ne recevront pas les messages arrivés entre-temps.",
+        "confirm": "Tout mettre en pause",
+        "banner": "Toutes les extensions sont en pause depuis {{time}}, par {{user}}.",
+        "bannerNoUser": "Toutes les extensions sont en pause depuis {{time}}.",
+        "bannerNoTime": "Toutes les extensions sont en pause.",
+        "bannerUnreadable": "L’état de la pause est illisible : les extensions restent arrêtées jusqu’à ce qu’un administrateur les relance.",
+        "bannerExplain": "Aucune ne tourne ni ne reçoit de messages. Les modifications sont enregistrées et s'appliquent à la reprise.",
+        "resume": "Reprendre",
+        "paused": "Toutes les extensions sont en pause.",
+        "resumed": "Extensions relancées."
+      },
+      "store": {
+        "title": "Dépôts personnalisés",
+        "intro": "Ajoutez une extension publiée sur GitHub, sous la forme propriétaire/nom.",
+        "warning": "Les dépôts personnalisés ne sont ni relus ni signés par Meshloom : vous les installez à vos risques.",
+        "offline": "Le Store est désactivé : rien n'est téléchargé depuis GitHub tant que vous ne le réactivez pas ci-dessus.",
+        "repositoryLabel": "Dépôt GitHub (propriétaire/nom)",
+        "add": "Ajouter",
+        "added": "Dépôt {{repository}} ajouté.",
+        "removed": "Dépôt {{repository}} retiré.",
+        "none": "Aucun dépôt personnalisé pour l'instant.",
+        "unsigned": "non signé",
+        "install": "Installer",
+        "remove": "Retirer",
+        "removeTitle": "Retirer {{repository}} ?",
+        "removeIntro": "Les extensions déjà installées restent, mais leurs mises à jour ne seront plus vérifiées.",
+        "updateAvailable": "mise à jour disponible",
+        "checkFailed": "La dernière vérification a échoué.",
+        "accept": "Je comprends que cette extension n'est ni relue ni signée par Meshloom, et j'accepte ces permissions.",
+        "adminOnly": "Seul un administrateur peut voir et gérer les dépôts personnalisés."
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "plugins_restored": "{{value}} extension(s) restaurée(s) désactivée(s) : acceptez chacune dans Réglages > Extensions.",
+        "plugins_to_reinstall": "{{value}} extension(s) à réinstaller depuis Réglages > Extensions.",
+        "plugin_secrets_missing": "{{value}} extension(s) attendent leurs secrets : saisissez-les dans leurs réglages.",
+        "plugin_dropped": "Une extension de la sauvegarde ({{value}}) n'a pas pu être restaurée et a été laissée de côté.",
+        "plugin_dropped_supervisor": "Extension {{value}} non restaurée : elle vise le réseau interne de Home Assistant.",
+        "plugin_kept": "L'extension {{value}} est déjà installée ici : elle a été conservée telle quelle."
+      }
+    }
+  },
+  "errors": {
+    "plugins_disabled": "Les extensions sont désactivées sur ce serveur.",
+    "plugin_not_found": "Cette extension n'existe plus.",
+    "plugin_not_bundled": "Cette extension n'est pas fournie avec cette version de Meshloom.",
+    "plugin_disabled": "Cette extension est désactivée.",
+    "plugin_revoked": "Cette extension a été révoquée et ne peut pas démarrer.",
+    "plugin_incompatible": "Cette extension n'est pas compatible avec cette version de Meshloom et ne peut pas démarrer.",
+    "attention_required": "Cette extension doit être examinée et acceptée avant de démarrer.",
+    "config_required": "Cette extension a besoin de réglages avant de démarrer.",
+    "config_invalid": "Certains réglages de cette extension ne sont pas valides.",
+    "config_value_invalid": "Un réglage de cette extension a une valeur invalide.",
+    "consent_required": "Vous devez autoriser toutes les permissions demandées par cette extension.",
+    "permission_exceeds_manifest": "Cela accorde plus que ce que l'extension déclare.",
+    "package_invalid": "Le paquet de l'extension n'est pas valide.",
+    "manifest_invalid": "La description de l'extension n'est pas valide.",
+    "lan_host_supervisor": "Cette adresse est sur le réseau interne de Home Assistant, interdit aux extensions. Utilisez une adresse de votre réseau.",
+    "install_failed": "L'extension n'a pas pu être installée.",
+    "instance_cap_reached": "Trop d'extensions tournent. Désactivez-en une d'abord.",
+    "instance_not_running": "Cette extension ne tourne pas.",
+    "uid_exhausted": "Plus aucun compte système libre : désinstallez des extensions inutilisées, puis réessayez.",
+    "uid_leased": "Le compte système de cette extension est tenu par un autre Meshloom de cette machine. Voir Réglages → Extensions.",
+    "uid_lease_io_error": "Réservation impossible : le dossier temporaire est plein ou protégé en écriture. Libérez de la place, puis réessayez.",
+    "quota_invalid": "Une limite d'envoi est hors plage. Elle ne peut que baisser.",
+    "scope_invalid": "La sélection de conversations n'est pas valide.",
+    "secret_required": "Une valeur secrète est manquante.",
+    "plugin_not_reinstallable": "Cette extension n'a pas besoin d'être réinstallée.",
+    "plugin_kind_conflict": "Cette extension est déjà installée depuis une autre source.",
+    "plugin_code_missing": "Le code de cette extension est absent : désinstallez ses autres copies, puis réessayez.",
+    "incompatible": "Cette version de l'extension ne prend pas en charge cette version de Meshloom.",
+    "archive_too_large": "L'archive de l'extension est trop volumineuse.",
+    "plugin_reinstall_required": "Cette extension a été restaurée sans son code : réinstallez-la avant de la démarrer.",
+    "plugin_code_mismatch": "Une mise à jour de cette extension est inachevée : redémarrez Meshloom pour la terminer.",
+    "plugin_not_updatable": "Cette extension ne se met pas à jour depuis un dépôt.",
+    "plugin_up_to_date": "Cette extension est déjà à la dernière version.",
+    "update_failed": "L'extension n'a pas pu être mise à jour. Sa version précédente est conservée.",
+    "plugin_repository_conflict": "Déjà installé depuis {{repository}} : supprimez ses instances avant de l’installer d’ici.",
+    "repository_invalid": "Saisissez un dépôt GitHub sous la forme propriétaire/nom.",
+    "repository_exists": "Ce dépôt est déjà dans la liste.",
+    "repository_limit": "Au plus {{limit}} dépôts personnalisés.",
+    "repository_not_found": "Ce dépôt n'est pas dans la liste.",
+    "repository_no_release": "Ce dépôt n'a aucune release publiée.",
+    "repository_moved": "Ce dépôt a été renommé ou déplacé sur GitHub : ajoutez-le sous son nouveau nom.",
+    "repository_tag_invalid": "Le nom de tag de la dernière release est inutilisable.",
+    "repository_assets_missing": "Il manque à la dernière release : {{missing}}.",
+    "repository_asset_too_large": "Un fichier de la release dépasse la taille autorisée.",
+    "repository_manifest_invalid": "Le manifest.json de la release n'est pas un manifeste de plugin valide.",
+    "repository_archive_invalid": "Le plugin.zip de la release n'est pas une archive de plugin valide, ou ne correspond pas au manifest.json.",
+    "repository_sha256_invalid": "plugin.zip.sha256 est illisible ou ne correspond pas à plugin.zip.",
+    "archive_mismatch": "L'archive téléchargée ne correspond pas à l'empreinte attendue.",
+    "store_offline": "Le Store est hors ligne : mettez-le en ligne pour faire ceci.",
+    "download_blocked": "Le téléchargement a été refusé (hôte non autorisé ou redirection vers un autre hôte).",
+    "download_failed": "Le téléchargement a échoué. Réessayez plus tard.",
+    "plugin_source_unavailable": "La source de ce plugin n'est pas disponible."
+  }
+}

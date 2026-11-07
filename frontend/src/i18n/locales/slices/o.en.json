@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "notifications": {
+      "radioOffline": "Radio offline",
+      "radioOfflineHelp": "Notify when the radio stays unreachable longer than the delay below.",
+      "radioOnline": "Radio back online",
+      "radioOnlineHelp": "Notify when the radio is reachable again after a Radio offline notification, with the downtime.",
+      "appStarted": "Meshloom started",
+      "appStartedHelp": "Notify each time Meshloom starts, so an unexpected restart shows up.",
+      "radioOfflineGrace": "Radio offline delay",
+      "radioOfflineGraceUnit": "seconds",
+      "radioOfflineGraceHelp": "How long the radio may be unreachable before the alert. 0 notifies at once.",
+      "radioOfflineGraceSaveFailed": "Failed to save the delay"
+    }
+  }
+}

@@ -4,7 +4,9 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
+from app.data.meshcore_channels import channel_log_label
 from app.models import Message, MessagePath
 from app.repository import ContactRepository, MessageRepository, RawPacketRepository
 
@@ -14,20 +16,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BroadcastFn = Callable[..., Any]
-LOG_MESSAGE_PREVIEW_LEN = 32
-
-
-def truncate_for_log(text: str, max_chars: int = LOG_MESSAGE_PREVIEW_LEN) -> str:
-    """Return a compact single-line message preview for log output."""
-    normalized = " ".join(text.split())
-    if len(normalized) <= max_chars:
-        return normalized
-    return f"{normalized[:max_chars].rstrip()}..."
-
-
-def _format_channel_log_target(channel_name: str | None, channel_key: str) -> str:
-    """Return a human-friendly channel label for logs."""
-    return channel_name or channel_key
 
 
 def format_contact_log_target(contact_name: str | None, public_key: str) -> str:
@@ -109,12 +97,15 @@ def broadcast_message(
 ) -> None:
     """Broadcast a message payload, preserving the caller's broadcast signature."""
     payload = message.model_dump()
+    if realtime is False:
+        # Historical decryption: lets the client tell an old message stored late from a live one.
+        payload["historical"] = True
     if packet_hash is not None:
         payload["packet_hash"] = packet_hash
     if realtime is None:
-        broadcast_fn("message", payload)
+        broadcast_fn(WsEvent.MESSAGE, payload)
     else:
-        broadcast_fn("message", payload, realtime=realtime)
+        broadcast_fn(WsEvent.MESSAGE, payload, realtime=realtime)
 
 
 async def build_stored_outgoing_channel_message(
@@ -167,8 +158,13 @@ def broadcast_message_acked(
     broadcast_fn: BroadcastFn,
     packet_hash: str | None = None,
     observer_reach_eligible: bool | None = None,
+    conversation_type: str | None = None,
 ) -> None:
-    """Broadcast a message_acked payload."""
+    """Broadcast a message_acked payload.
+
+    Only a ``CHAN`` ack reaches clients without ``read_private``; any other
+    (or unknown) conversation type stays private (``app/websocket.py``).
+    """
     payload: dict[str, Any] = {
         "message_id": message_id,
         "ack_count": ack_count,
@@ -179,7 +175,10 @@ def broadcast_message_acked(
         payload["packet_hash"] = packet_hash
     if observer_reach_eligible is not None:
         payload["observer_reach_eligible"] = observer_reach_eligible
-    broadcast_fn("message_acked", payload)
+    if conversation_type == "CHAN":
+        broadcast_fn(WsEvent.MESSAGE_ACKED, payload, audience="read")
+    else:
+        broadcast_fn(WsEvent.MESSAGE_ACKED, payload)
 
 
 async def increment_ack_and_broadcast(
@@ -187,9 +186,10 @@ async def increment_ack_and_broadcast(
     message_id: int,
     broadcast_fn: BroadcastFn,
 ) -> int:
-    """Increment a message's ACK count and broadcast the update."""
+    """Increment a direct message's ACK count and broadcast the update
+    (``read_private``: the default audience of ``message_acked``)."""
     ack_count = await MessageRepository.increment_ack_count(message_id)
-    broadcast_fn("message_acked", {"message_id": message_id, "ack_count": ack_count})
+    broadcast_fn(WsEvent.MESSAGE_ACKED, {"message_id": message_id, "ack_count": ack_count})
     return ack_count
 
 
@@ -250,6 +250,7 @@ async def reconcile_duplicate_message(
             broadcast_fn=broadcast_fn,
             packet_hash=stored_hash,
             observer_reach_eligible=stored_eligible,
+            conversation_type=existing_msg.type,
         )
 
     if packet_id is not None:
@@ -376,11 +377,9 @@ async def create_message_from_decrypted(
         return None
 
     logger.info(
-        'Stored channel message "%s" for %r (msg ID %d in chan ID %s)',
-        truncate_for_log(text),
-        _format_channel_log_target(channel_name, channel_key_normalized),
+        "Stored channel message for %r (msg ID %d)",
+        channel_log_label(channel_name, channel_key_normalized),
         msg_id,
-        channel_key_normalized,
     )
     await RawPacketRepository.mark_decrypted(packet_id, msg_id)
 

@@ -82,7 +82,6 @@ function RegionScopeStatsPanel({ stats }: { stats: RegionScopeStats }) {
           {withinNoise
             ? t('settings.stats.floorNoise', { floor: floor.toFixed(0) })
             : t('settings.stats.floorIncludes', { floor: floor.toFixed(0) })}
-          {t('settings.stats.senderUnaffected')}
         </p>
       )}
       {stats.total_messages === 0 && (

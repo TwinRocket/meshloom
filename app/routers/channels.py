@@ -1,9 +1,12 @@
 import logging
+import re
 from hashlib import sha256
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import require
+from app.auth.ws_events import WsEvent
 from app.channel_constants import (
     PUBLIC_CHANNEL_KEY,
     PUBLIC_CHANNEL_NAME,
@@ -33,6 +36,8 @@ from app.services.test_channel import is_test_channel_key, is_test_channel_name
 from app.websocket import broadcast_event, broadcast_success
 
 logger = logging.getLogger(__name__)
+_CHANNEL_KEY_RE = re.compile(r"[0-9A-Fa-f]{32}")
+
 router = APIRouter(prefix="/channels", tags=["channels"])
 
 
@@ -42,7 +47,7 @@ def _is_test_channel(channel: Channel) -> bool:
 
 
 def _broadcast_channel_update(channel: Channel) -> None:
-    broadcast_event("channel", channel.model_dump())
+    broadcast_event(WsEvent.CHANNEL, channel.model_dump())
 
 
 class CreateChannelRequest(BaseModel):
@@ -155,7 +160,8 @@ def _normalize_bulk_hashtag_name(name: str) -> str | None:
     normalized = hashtag_room_name(name)
     if not normalized.strip():
         return None
-    # The on-radio name field holds 32 UTF-8 bytes including the leading '#'.
+    # Limit of the on-radio name field, leading '#' included. The firmware keeps 31 bytes of
+    # it; the key comes from the whole name, so a 32-byte channel still works.
     if len(f"#{normalized}".encode()) > 32:
         return None
     return f"#{normalized}"
@@ -224,22 +230,27 @@ async def _run_historical_channel_decryption_for_channels(
                 f"across {len(matched_channel_names)} room"
                 f"{'s' if len(matched_channel_names) != 1 else ''}"
             ),
+            code="historical_decrypt_complete_rooms",
+            params={"count": len(matched_channel_names)},
+            audience="read",
         )
 
 
-@router.get("", response_model=list[Channel])
+@router.get("", response_model=list[Channel], dependencies=[Depends(require("read"))])
 async def list_channels() -> list[Channel]:
     """List all channels from the database."""
     return await ChannelRepository.get_all()
 
 
-@router.get("/rejected", response_model=list[RejectedChannel])
+@router.get(
+    "/rejected", response_model=list[RejectedChannel], dependencies=[Depends(require("read"))]
+)
 async def list_rejected_channels() -> list[RejectedChannel]:
     """List refused catalogue channels that will not auto-reopen."""
     return await AppSettingsRepository.get_rejected_channels()
 
 
-@router.get("/{key}/detail", response_model=ChannelDetail)
+@router.get("/{key}/detail", response_model=ChannelDetail, dependencies=[Depends(require("read"))])
 async def get_channel_detail(key: str) -> ChannelDetail:
     """Get comprehensive channel profile data with message statistics."""
     channel = await ChannelRepository.get_by_key(key)
@@ -258,7 +269,7 @@ async def get_channel_detail(key: str) -> ChannelDetail:
     )
 
 
-@router.post("", response_model=Channel)
+@router.post("", response_model=Channel, dependencies=[Depends(require("send"))])
 async def create_channel(request: CreateChannelRequest) -> Channel:
     """Create a channel in the database.
 
@@ -268,7 +279,7 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
     requested_name = request.name
     key_hex, channel_name, is_hashtag = _derive_channel_identity(requested_name, request.key)
 
-    logger.info("Creating channel %s: %s (hashtag=%s)", key_hex, channel_name, is_hashtag)
+    logger.info("Creating channel %s (hashtag=%s)", channel_name, is_hashtag)
 
     # Store in database only - radio sync happens at send time.
     # Manual create always adopts (and un-rejects if the key was refused).
@@ -292,7 +303,11 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
     return stored
 
 
-@router.post("/bulk-hashtag", response_model=BulkCreateHashtagChannelsResponse)
+@router.post(
+    "/bulk-hashtag",
+    response_model=BulkCreateHashtagChannelsResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def bulk_create_hashtag_channels(
     request: BulkCreateHashtagChannelsRequest,
     background_tasks: BackgroundTasks,
@@ -371,7 +386,7 @@ async def bulk_create_hashtag_channels(
     )
 
 
-@router.post("/{key}/mark-read")
+@router.post("/{key}/mark-read", dependencies=[Depends(require("read_private"))])
 async def mark_channel_read(key: str) -> dict:
     """Mark a channel as read (update last_read_at timestamp)."""
     channel = await ChannelRepository.get_by_key(key)
@@ -385,7 +400,9 @@ async def mark_channel_read(key: str) -> dict:
     return {"status": "ok", "key": channel.key}
 
 
-@router.post("/{key}/flood-scope-override", response_model=Channel)
+@router.post(
+    "/{key}/flood-scope-override", response_model=Channel, dependencies=[Depends(require("send"))]
+)
 async def set_channel_flood_scope_override(
     key: str, request: ChannelFloodScopeOverrideRequest
 ) -> Channel:
@@ -415,11 +432,15 @@ async def set_channel_flood_scope_override(
     if refreshed is None:
         raise HTTPException(status_code=500, detail="Channel disappeared after update")
 
-    broadcast_event("channel", refreshed.model_dump())
+    broadcast_event(WsEvent.CHANNEL, refreshed.model_dump())
     return refreshed
 
 
-@router.post("/{key}/path-hash-mode-override", response_model=Channel)
+@router.post(
+    "/{key}/path-hash-mode-override",
+    response_model=Channel,
+    dependencies=[Depends(require("send"))],
+)
 async def set_channel_path_hash_mode_override(
     key: str, request: ChannelPathHashModeOverrideRequest
 ) -> Channel:
@@ -438,11 +459,11 @@ async def set_channel_path_hash_mode_override(
     if refreshed is None:
         raise HTTPException(status_code=500, detail="Channel disappeared after update")
 
-    broadcast_event("channel", refreshed.model_dump())
+    broadcast_event(WsEvent.CHANNEL, refreshed.model_dump())
     return refreshed
 
 
-@router.post("/{key}/adopt", response_model=Channel)
+@router.post("/{key}/adopt", response_model=Channel, dependencies=[Depends(require("send"))])
 async def adopt_channel(key: str) -> Channel:
     """Move a pending or previously refused channel into the classic chat."""
     existing = await ChannelRepository.get_by_key(key)
@@ -482,7 +503,7 @@ async def adopt_channel(key: str) -> Channel:
     return stored
 
 
-@router.post("/{key}/refuse")
+@router.post("/{key}/refuse", dependencies=[Depends(require("send"))])
 async def refuse_channel(key: str) -> dict:
     """Delete a pending channel and remember the key so the catalogue does not reopen it."""
     if is_public_channel_key(key):
@@ -501,25 +522,36 @@ async def refuse_channel(key: str) -> dict:
 
     await AppSettingsRepository.add_rejected_channel(channel.key, channel.name)
     await ChannelRepository.delete(channel.key)
-    broadcast_event("channel_deleted", {"key": channel.key})
+    broadcast_event(WsEvent.CHANNEL_DELETED, {"key": channel.key})
     return {"status": "ok", "key": channel.key}
 
 
-@router.delete("/{key}")
+@router.delete("/{key}", dependencies=[Depends(require("send"))])
 async def delete_channel(key: str) -> dict:
     """Delete a channel from the database by key.
 
-    Note: This does not clear the channel from the radio. The radio's channel
-    slots are managed separately (channels are loaded temporarily when sending).
+    The slots holding this channel are emptied too, or the next connect sync would
+    adopt it again: a send leaves it on a slot until then, and
+    ``keep_channels_on_radio`` keeps it there. The row goes in one transaction with
+    a pending clear, dropped once the slots are empty, so any interruption or a radio
+    out of reach is handled at the next connect sync.
     """
     if is_public_channel_key(key):
         raise HTTPException(
             status_code=400, detail="The canonical Public channel cannot be deleted"
         )
+    if not _CHANNEL_KEY_RE.fullmatch(key):
+        raise HTTPException(
+            status_code=400, detail="Channel key must be exactly 16 bytes (32 hex chars)"
+        )
 
-    logger.info("Deleting channel %s from database", key)
-    await ChannelRepository.delete(key)
+    logger.info("Deleting a channel from the database")
+    deleted = await ChannelRepository.delete_with_slot_clear_pending(key)
+    broadcast_event(WsEvent.CHANNEL_DELETED, {"key": key})
 
-    broadcast_event("channel_deleted", {"key": key})
+    if deleted:
+        from app.radio_sync import clear_channel_from_radio_slots
+
+        await clear_channel_from_radio_slots(key)
 
     return {"status": "ok"}

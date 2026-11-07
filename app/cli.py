@@ -1,0 +1,678 @@
+"""``meshloom-admin``: recover access on the host, without the UI.
+
+Run it on the machine (or in the container) that holds the database::
+
+    meshloom-admin reset-password alice
+    meshloom-admin create-admin alice
+    meshloom-admin list-users
+    meshloom-admin disable-user alice
+    meshloom-admin disable-2fa alice
+    meshloom-admin remove-passkeys alice
+    meshloom-admin revoke-sessions --all
+    meshloom-admin host-guard-observe
+    meshloom-admin rotate-device-key
+    meshloom-admin list-bans
+    meshloom-admin unban 203.0.113.7
+    meshloom-admin whitelist add 203.0.113.0/24 --note office
+
+It opens the SQLite file directly, through the same repositories as the server
+(``app/repository/auth.py``), so a change is visible to a running server on its
+next request: no restart (an ``unban`` or a ``whitelist add`` too: the server
+re-reads a ban before it applies it, ``app/auth/ip_ban.py``). The server leaves the file in WAL mode (the mode is
+stored in the file, this module does not set it), and the file is never created or migrated here: a missing or unreadable file, or one the
+server has not migrated yet, is a clear error and exit status 1. Per-install
+commands and the wrapper script: ``docs/user/en/deep/access.md``.
+
+The database path is ``MESHCORE_DATABASE_PATH`` (``--db`` overrides it). Run it
+as the user that owns the file, so SQLite does not leave a ``-wal`` or ``-shm``
+file the server then cannot write.
+
+Exit status: 0 done, 1 refused or failed (message on stderr), 2 bad usage.
+Passwords are read from the terminal (twice) or from stdin with ``--stdin``,
+never from an argument, and no command prints one.
+"""
+
+import argparse
+import asyncio
+import getpass
+import json
+import signal
+import sqlite3
+import sys
+import time
+from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+
+import aiosqlite
+
+from app.auth import audit
+from app.auth.models import User
+from app.auth.passwords import MAX_PASSWORD_LENGTH, hash_password
+from app.config import settings
+from app.database import db
+from app.repository.auth import (
+    AuthSessionRepository,
+    AuthSettingsMissingError,
+    AuthSettingsRepository,
+    InvalidUsernameError,
+    PasskeyRepository,
+    TotpRepository,
+    UsernameTakenError,
+    UserRepository,
+)
+from app.repository.ip_ban import (
+    MAX_WHITELIST,
+    IpBanRepository,
+    WhitelistFullError,
+    parse_ban_key,
+    parse_network,
+)
+
+# The audit trail names who acted: the CLI has no account, only the host
+# (``via = "cli"``). One action per command, shared with the API's events.
+_COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
+    "reset-password": "password.changed",
+    "create-admin": "user.created",
+    "list-users": "users.listed",
+    "disable-user": "user.disabled",
+    "enable-user": "user.enabled",
+    "revoke-sessions": "session.revoked",
+    "host-guard-observe": "settings.changed",
+    "disable-2fa": "totp.disabled",
+    "remove-passkeys": "passkey.removed",
+    "rotate-device-key": "settings.changed",
+    "unban": "ip.unbanned",
+    "whitelist add": "ip.whitelisted",
+    "whitelist remove": "ip.unwhitelisted",
+}
+
+# Same floor as the setup form (cadrage P1); the full policy (common-password
+# list, differs from the username) lands with the login routes.
+MIN_PASSWORD_LENGTH = 12
+
+_REQUIRED_TABLES = ("users", "sessions", "auth_audit", "auth_settings")
+
+
+class CliError(Exception):
+    """A refusal the operator can act on; printed without a traceback."""
+
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+
+async def _open_database(path: str) -> aiosqlite.Connection:
+    """Connect ``app.database.db`` to an existing, already migrated file.
+
+    Does not create the file, run the schema script or run migrations: the
+    server owns those, and doing them from a second process while it runs is
+    not safe.
+    """
+    file = Path(path)
+    if not file.is_file():
+        raise CliError(f"database not found: {path} (set MESHCORE_DATABASE_PATH or use --db)")
+    try:
+        with file.open("rb") as handle:
+            handle.read(1)
+    except OSError as exc:
+        raise CliError(f"cannot read database {path}: {exc.strerror or exc}") from None
+    try:
+        conn = await aiosqlite.connect(f"{file.resolve().as_uri()}?mode=rw", uri=True)
+    except (sqlite3.Error, OSError) as exc:
+        raise CliError(
+            f"cannot open database {path} for writing: {exc} (run as the user that owns the file)"
+        ) from None
+    conn.row_factory = aiosqlite.Row
+    try:
+        await conn.execute("PRAGMA busy_timeout = 5000")
+        await conn.execute("PRAGMA foreign_keys = ON")
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
+            tables = {row[0] for row in await cursor.fetchall()}
+    except sqlite3.DatabaseError as exc:
+        await conn.close()
+        raise CliError(f"{path} is not a usable SQLite database: {exc}") from None
+    missing = [name for name in _REQUIRED_TABLES if name not in tables]
+    if missing:
+        await conn.close()
+        raise CliError(
+            f"{path} has no account tables ({', '.join(missing)}): start Meshloom once "
+            "on this version so it migrates the database, then retry"
+        )
+    # The repositories read the module-level ``db``; attach it to this connection.
+    db._connection = conn
+    return conn
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _getpass(prompt: str) -> str:
+    """``getpass.getpass``, ending the prompt line on Ctrl-C or SIGTERM: getpass leaves
+    the cursor after the prompt (no echo, no newline), so "interrupted" would follow it
+    on the same line."""
+    try:
+        return getpass.getpass(prompt)
+    except KeyboardInterrupt:
+        print(file=sys.stderr, flush=True)
+        raise
+
+
+def _read_password(from_stdin: bool, username: str) -> str:
+    if from_stdin:
+        line = sys.stdin.readline()
+        password = line.rstrip("\r\n")
+    else:
+        if not sys.stdin.isatty():
+            raise CliError("no terminal to prompt on: pipe the password and pass --stdin")
+        password = _getpass(f"New password for {username}: ")
+        if _getpass("Repeat the password: ") != password:
+            raise CliError("the two passwords differ")
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise CliError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
+    if len(password) > MAX_PASSWORD_LENGTH:
+        raise CliError(f"password must be at most {MAX_PASSWORD_LENGTH} characters")
+    if password.casefold() == username.casefold():
+        raise CliError("password must differ from the username")
+    return password
+
+
+async def _find_user(username: str) -> User:
+    user = await UserRepository.get_by_username(username)
+    if user is None:
+        raise CliError(f"no such user: {username}")
+    return user
+
+
+def _action(args: argparse.Namespace) -> audit.AuditAction | None:
+    """The audit action of a command; None for a read that writes no row."""
+    name = args.command
+    if name == "whitelist":
+        name = f"whitelist {args.whitelist_command}"
+    return _COMMAND_ACTIONS.get(name)
+
+
+async def _audit(args: argparse.Namespace, target: str | None, **details: object) -> None:
+    action = _action(args)
+    if action is None:
+        return
+    await audit.record(
+        action,
+        "success",
+        actor=audit.CLI_ACTOR,
+        target=target,
+        details=details,
+    )
+
+
+async def _audit_refusal(args: argparse.Namespace, reason: str) -> None:
+    """Record a refused command; the audit trail must not hide the refusal itself."""
+    action = _action(args)
+    if action is None:
+        return
+    username = getattr(args, "username", None)
+    await audit.record(
+        action,
+        "refused",
+        actor=audit.CLI_ACTOR,
+        target=await audit.typed_username_target(username) if username else None,
+        details={"reason": reason},
+    )
+
+
+def _status(user: User) -> str:
+    return "disabled" if user.disabled else "active"
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+async def _reset_password(args: argparse.Namespace) -> int:
+    user = await _find_user(args.username)
+    if user.provider != "local":
+        raise CliError(f"{user.username} signs in through {user.provider}: it has no password")
+    if user.role == "kiosk":
+        raise CliError(f"{user.username} is a kiosk account: it has no password")
+    password = _read_password(args.stdin, user.username)
+    await UserRepository.set_password_hash(
+        user.id, hash_password(password), must_change_password=args.must_change
+    )
+    revoked = len(await AuthSessionRepository.revoke_all_for_user(user.id))
+    await _audit(args, audit.user_target(user.id), username=user.username, sessions_revoked=revoked)
+    print(f"Password of {user.username} reset; {revoked} session(s) signed out.")
+    if user.disabled:
+        print(f"Note: {user.username} is disabled. Enable it with: meshloom-admin enable-user")
+    return 0
+
+
+async def _create_admin(args: argparse.Namespace) -> int:
+    try:
+        existing = await UserRepository.get_by_username(args.username)
+    except InvalidUsernameError as exc:
+        raise CliError(str(exc)) from None
+    if existing is not None:
+        raise CliError(
+            f"{existing.username} already exists: use reset-password to set its password"
+        )
+    password = _read_password(args.stdin, args.username.strip())
+    try:
+        user = await UserRepository.create(
+            args.username,
+            "admin",
+            display_name=args.display_name or "",
+            password_hash=hash_password(password),
+            must_change_password=args.must_change,
+        )
+    except (InvalidUsernameError, UsernameTakenError) as exc:
+        raise CliError(str(exc)) from None
+    await _audit(args, audit.user_target(user.id), username=user.username, role=user.role)
+    print(f"Administrator {user.username} created (id {user.id}).")
+    return 0
+
+
+async def _list_users(args: argparse.Namespace) -> int:
+    users = await UserRepository.list_all()
+    await _audit(args, None, count=len(users))
+    if args.json:
+        print(json.dumps([user.model_dump() for user in users], indent=2))
+        return 0
+    if not users:
+        print("No users.")
+        return 0
+    rows = [
+        (
+            str(user.id),
+            user.username,
+            user.role,
+            user.provider,
+            _status(user),
+            "yes" if user.has_password else "no",
+            "yes" if user.totp_enabled_at else "no",
+        )
+        for user in users
+    ]
+    header = ("ID", "USERNAME", "ROLE", "PROVIDER", "STATUS", "PASSWORD", "2FA")
+    widths = [max(len(row[i]) for row in [header, *rows]) for i in range(len(header))]
+    for row in [header, *rows]:
+        print(
+            "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
+        )
+    return 0
+
+
+async def _disable_user(args: argparse.Namespace) -> int:
+    user = await _find_user(args.username)
+    if user.disabled:
+        print(f"{user.username} is already disabled.")
+        return 0
+    if user.role == "admin" and not args.force and await UserRepository.count_enabled_admins() <= 1:
+        raise CliError(
+            f"{user.username} is the last active administrator: disabling it locks everyone "
+            "out (use --force if you mean it, create-admin first otherwise)"
+        )
+    await UserRepository.update(user.id, disabled=True)
+    revoked = len(await AuthSessionRepository.revoke_all_for_user(user.id))
+    await _audit(args, audit.user_target(user.id), username=user.username, sessions_revoked=revoked)
+    print(f"{user.username} disabled; {revoked} session(s) signed out.")
+    return 0
+
+
+async def _disable_2fa(args: argparse.Namespace) -> int:
+    """The recovery path of a lost authenticator or mailbox: removes the TOTP factor
+    (or a pending enrolment) and the recovery codes, and turns the e-mail code off
+    (MSHL-426; the verified address and sign-in links stay). Sessions stay."""
+    if not await _has_table("recovery_codes"):
+        raise CliError(
+            "this database has no recovery_codes table: start Meshloom once on this version "
+            "so it migrates the database, then retry"
+        )
+    user = await _find_user(args.username)
+    totp_removed = await TotpRepository.disable(user.id)
+    email_off = False
+    if await _has_table("user_email_factor"):
+        from app.repository.email_factor import EmailFactorRepository
+
+        factor = await EmailFactorRepository.get(user.id)
+        if factor is not None and factor.otp_enabled:
+            email_off = (
+                await EmailFactorRepository.set_flags(user.id, otp_enabled=False) is not None
+            )
+    if not totp_removed and not email_off:
+        print(f"{user.username} has no second factor.")
+        return 0
+    details: dict[str, str] = {"email_factor": "off"} if email_off else {}
+    await _audit(args, audit.user_target(user.id), username=user.username, **details)
+    print(f"Second factor of {user.username} removed; it signs in with its password alone.")
+    return 0
+
+
+async def _remove_passkeys(args: argparse.Namespace) -> int:
+    """The recovery path of lost passkeys: removes every passkey of the account.
+    Its password keeps working; sessions stay."""
+    if not await _has_table("webauthn_credentials"):
+        raise CliError(
+            "this database has no webauthn_credentials table: start Meshloom once on this "
+            "version so it migrates the database, then retry"
+        )
+    user = await _find_user(args.username)
+    removed = await PasskeyRepository.delete_all_for_user(user.id)
+    if not removed:
+        print(f"{user.username} has no passkey.")
+        return 0
+    await _audit(args, audit.user_target(user.id), username=user.username, removed=removed)
+    print(f"{removed} passkey(s) of {user.username} removed.")
+    return 0
+
+
+async def _has_table(name: str) -> bool:
+    async with db.readonly() as conn:
+        async with conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+
+async def _host_guard_observe(args: argparse.Namespace) -> int:
+    """The recovery path of an enforced Host guard that rejects every name you can reach."""
+    settings_row = await AuthSettingsRepository.get()
+    if settings_row.host_guard_mode == "observe":
+        print("The Host guard is already in observation mode.")
+        return 0
+    await AuthSettingsRepository.update(host_guard_mode="observe")
+    await _audit(args, "auth_settings.host_guard_mode", host_guard_mode="observe")
+    print("Host guard set to observation mode: unknown names are listed and let through.")
+    return 0
+
+
+async def _rotate_device_key(args: argparse.Namespace) -> int:
+    """A new known-device cookie key (``app/auth/device_cookie.py``): every browser
+    is forgotten and meets the ordinary login delays until its next sign-in."""
+    async with db.readonly() as conn:
+        async with conn.execute("PRAGMA table_info(auth_settings)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+    if "device_cookie_key" not in columns:
+        raise CliError(
+            "this database has no auth_settings.device_cookie_key column: start Meshloom once "
+            "on this version so it migrates the database, then retry"
+        )
+    await AuthSettingsRepository.rotate_device_cookie_key()
+    await _audit(args, "auth_settings.device_cookie_key", rotated=True)
+    print("Known-device key rotated: every browser must sign in again to be recognised.")
+    return 0
+
+
+async def _enable_user(args: argparse.Namespace) -> int:
+    user = await _find_user(args.username)
+    if not user.disabled:
+        print(f"{user.username} is already active.")
+        return 0
+    await UserRepository.update(user.id, disabled=False)
+    await _audit(args, audit.user_target(user.id), username=user.username)
+    print(f"{user.username} enabled.")
+    return 0
+
+
+async def _revoke_sessions(args: argparse.Namespace) -> int:
+    if args.all:
+        targets = await UserRepository.list_all()
+    else:
+        targets = [await _find_user(args.username)]
+    revoked = 0
+    for user in targets:
+        revoked += len(await AuthSessionRepository.revoke_all_for_user(user.id))
+    scope = "every user" if args.all else targets[0].username
+    await _audit(
+        args,
+        None if args.all else audit.user_target(targets[0].id),
+        scope="all" if args.all else "user",
+        count=revoked,
+    )
+    print(f"{revoked} session(s) signed out ({scope}).")
+    return 0
+
+
+async def _require_ban_tables() -> None:
+    if not await _has_table("ip_bans") or not await _has_table("ip_ban_whitelist"):
+        raise CliError(
+            "this database has no ban tables: start Meshloom once on this version so it "
+            "migrates the database, then retry"
+        )
+
+
+def _when(epoch: int) -> str:
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%d %H:%M:%SZ")
+
+
+def _print_table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
+    widths = [max(len(row[i]) for row in [header, *rows]) for i in range(len(header))]
+    for row in [header, *rows]:
+        print(
+            "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
+        )
+
+
+async def _list_bans(args: argparse.Namespace) -> int:
+    await _require_ban_tables()
+    bans = await IpBanRepository.active(time.time())
+    if args.json:
+        print(json.dumps([ban.model_dump() for ban in bans], indent=2))
+        return 0
+    if not bans:
+        print("No address is banned.")
+        return 0
+    _print_table(
+        ("ADDRESS", "UNTIL", "FAILURES", "ROUTE"),
+        [(ban.address, _when(ban.expires_at), str(ban.failures), ban.route) for ban in bans],
+    )
+    return 0
+
+
+async def _unban(args: argparse.Namespace) -> int:
+    await _require_ban_tables()
+    if args.all:
+        count = await IpBanRepository.unban_all()
+        await _audit(args, None, scope="all", count=count)
+        print(f"{count} ban(s) lifted.")
+        return 0
+    key = parse_ban_key(args.address)
+    if key is None:
+        raise CliError(f"not an IP address: {args.address}")
+    if not await IpBanRepository.unban(key):
+        raise CliError(f"{key} is not banned")
+    await _audit(args, f"ip:{key}")
+    print(f"{key} unbanned: it may sign in again at once.")
+    return 0
+
+
+async def _whitelist(args: argparse.Namespace) -> int:
+    await _require_ban_tables()
+    if args.whitelist_command == "list":
+        entries = await IpBanRepository.whitelist()
+        if args.json:
+            print(json.dumps([entry.model_dump() for entry in entries], indent=2))
+        elif not entries:
+            print("The whitelist is empty.")
+        else:
+            _print_table(
+                ("NETWORK", "ADDED", "NOTE"),
+                [(e.network, _when(e.created_at), e.note) for e in entries],
+            )
+        return 0
+    network = parse_network(args.network)
+    if network is None:
+        raise CliError(f"not an IP address or network: {args.network}")
+    if args.whitelist_command == "add":
+        try:
+            added = await IpBanRepository.add_to_whitelist(network, args.note, time.time())
+        except WhitelistFullError:
+            raise CliError(f"the whitelist is full ({MAX_WHITELIST} entries)") from None
+        if not added:
+            print(f"{network} is already in the whitelist.")
+            return 0
+        await _audit(args, f"ip:{network}")
+        print(f"{network} added to the whitelist: never banned, any ban on it lifted.")
+        return 0
+    if not await IpBanRepository.remove_from_whitelist(network):
+        raise CliError(f"{network} is not in the whitelist")
+    await _audit(args, f"ip:{network}")
+    print(f"{network} removed from the whitelist.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+_COMMANDS: dict[str, Callable[[argparse.Namespace], Awaitable[int]]] = {
+    "reset-password": _reset_password,
+    "create-admin": _create_admin,
+    "list-users": _list_users,
+    "disable-user": _disable_user,
+    "enable-user": _enable_user,
+    "revoke-sessions": _revoke_sessions,
+    "host-guard-observe": _host_guard_observe,
+    "disable-2fa": _disable_2fa,
+    "remove-passkeys": _remove_passkeys,
+    "rotate-device-key": _rotate_device_key,
+    "list-bans": _list_bans,
+    "unban": _unban,
+    "whitelist": _whitelist,
+}
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="meshloom-admin",
+        description="Recover access to a Meshloom instance from the host, without the web UI.",
+    )
+    parser.add_argument(
+        "--db",
+        metavar="PATH",
+        help="SQLite file (default: MESHCORE_DATABASE_PATH, then data/meshcore.db)",
+    )
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+
+    def add(name: str, help_text: str) -> argparse.ArgumentParser:
+        return sub.add_parser(name, help=help_text, description=help_text)
+
+    def password_options(cmd: argparse.ArgumentParser) -> None:
+        cmd.add_argument(
+            "--stdin", action="store_true", help="read the password from one line of stdin"
+        )
+        cmd.add_argument(
+            "--must-change",
+            action="store_true",
+            help="ask for a new password at the next sign-in",
+        )
+
+    cmd = add("reset-password", "set a new password for a local user and sign it out everywhere")
+    cmd.add_argument("username")
+    password_options(cmd)
+
+    cmd = add("create-admin", "create an administrator account")
+    cmd.add_argument("username")
+    cmd.add_argument("--display-name", default="")
+    password_options(cmd)
+
+    cmd = add("list-users", "list the accounts")
+    cmd.add_argument("--json", action="store_true", help="machine-readable output")
+
+    cmd = add("disable-user", "block a user from signing in and sign it out")
+    cmd.add_argument("username")
+    cmd.add_argument(
+        "--force", action="store_true", help="allow disabling the last active administrator"
+    )
+
+    cmd = add("enable-user", "allow a disabled user to sign in again")
+    cmd.add_argument("username")
+
+    cmd = add(
+        "disable-2fa",
+        "remove a user's two-factor authentication, recovery codes and e-mail code"
+        " (lost authenticator or mailbox)",
+    )
+    cmd.add_argument("username")
+
+    cmd = add("remove-passkeys", "remove every passkey of a user (lost or stolen device)")
+    cmd.add_argument("username")
+
+    add(
+        "host-guard-observe",
+        "switch the Host guard back to observation mode (recover from a name that is refused)",
+    )
+
+    add(
+        "rotate-device-key",
+        "forget every known browser (new key for the known-device cookies of the login delays)",
+    )
+
+    cmd = add("revoke-sessions", "sign a user (or everyone) out")
+    target = cmd.add_mutually_exclusive_group(required=True)
+    target.add_argument("username", nargs="?")
+    target.add_argument("--all", action="store_true", help="every user")
+
+    cmd = add("list-bans", "list the addresses banned after failed sign-ins")
+    cmd.add_argument("--json", action="store_true", help="machine-readable output")
+
+    cmd = add("unban", "lift the ban of an address (or every ban)")
+    target = cmd.add_mutually_exclusive_group(required=True)
+    target.add_argument("address", nargs="?", help="an IP address, or a key as listed")
+    target.add_argument("--all", action="store_true", help="every ban")
+
+    cmd = add("whitelist", "addresses and networks that are never banned")
+    whitelist = cmd.add_subparsers(dest="whitelist_command", required=True, metavar="ACTION")
+    entry = whitelist.add_parser("list", help="list the whitelist")
+    entry.add_argument("--json", action="store_true", help="machine-readable output")
+    entry = whitelist.add_parser("add", help="never ban this address or network (CIDR)")
+    entry.add_argument("network")
+    entry.add_argument("--note", default="", help="why (shown in the list)")
+    entry = whitelist.add_parser("remove", help="remove a whitelist entry")
+    entry.add_argument("network")
+    return parser
+
+
+async def _run(args: argparse.Namespace) -> int:
+    conn = await _open_database(args.db or settings.database_path)
+    try:
+        try:
+            return await _COMMANDS[args.command](args)
+        except CliError as exc:
+            await _audit_refusal(args, str(exc))
+            raise
+    except AuthSettingsMissingError:
+        raise CliError("auth_settings row missing: start Meshloom once to repair it") from None
+    except sqlite3.OperationalError as exc:
+        raise CliError(f"database error: {exc} (is another process holding it?)") from None
+    finally:
+        db._connection = None
+        await conn.close()
+
+
+def _on_sigterm(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    # The package wrapper runs this in a session of its own (runuser -c): on Ctrl-C runuser
+    # prints "Session terminated, killing shell..." and sends SIGTERM, then SIGKILL after
+    # about 2 s, so SIGINT never reaches us. Treat SIGTERM like Ctrl-C: the database
+    # connection closes (an open transaction rolls back) and getpass restores the terminal.
+    signal.signal(signal.SIGTERM, _on_sigterm)
+    try:
+        return asyncio.run(_run(args))
+    except CliError as exc:
+        print(f"meshloom-admin: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("meshloom-admin: interrupted", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

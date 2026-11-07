@@ -1078,7 +1078,6 @@ describe('RawPacketFeedView', () => {
 
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByText(i18n.t('rawPacket.historyTitle'))).toBeInTheDocument();
-      expect(within(dialog).getByText(i18n.t('rawPacket.historyPruneNote'))).toBeInTheDocument();
       await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() }));
 
       fireEvent.click(
@@ -1206,10 +1205,10 @@ describe('RawPacketFeedView', () => {
       // Wait for the preview first — under a full suite the history fetch can
       // land after the first paint. Avoid exact toLocaleString() matching: fr-FR
       // uses a narrow no-break space that Testing Library does not always equate.
-      await within(dialog).findByText(/paquets dans cette fenêtre|packets in this time window/);
+      await within(dialog).findByText(/paquets sur cette période|packets in this period/);
 
       const warning = await within(dialog).findByText(
-        /correspondent à cette fenêtre|packets match this window/
+        /plus récents seront chargés|most recent will load/
       );
       // Strip grouping separators so en-US "1,200" and fr-FR narrow-NBSP forms match.
       expect(warning.textContent?.replace(/[\s\u00a0\u202f,.]/g, '')).toContain('1200');

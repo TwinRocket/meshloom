@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from meshcore import EventType
 
+from app.auth.ws_events import WsEvent
 from app.models import CONTACT_TYPE_ROOM, Contact, ContactUpsert
 from app.packet_processor import process_raw_packet
 from app.repository import (
@@ -43,13 +44,36 @@ def cleanup_expired_acks() -> None:
     dm_ack_tracker.cleanup_expired_acks()
 
 
+async def _observe_unstored_dm(contact: Contact | None, payload: dict, received_at: int) -> None:
+    """A DM that is decoded but never stored (a repeater's reply, a CLI response) is still a
+    sighting of a watched node, counted once per (sender, timestamp, text) across both ingest
+    paths (MSHL-408). A prefix-only sender has no full key and cannot be watched."""
+    if contact is None:
+        return
+    from app.notifications.watched_nodes import claim_unstored_dm, observe_sighting
+
+    ts = payload.get("sender_timestamp")
+    if not claim_unstored_dm(
+        contact.public_key, ts if ts is not None else received_at, payload.get("text", "")
+    ):
+        return
+    await observe_sighting(
+        contact.public_key,
+        name=contact.name or "",
+        contact_type=contact.type or 0,
+        previous_seen=contact.last_seen,
+        now=received_at,
+    )
+
+
 async def on_contact_message(event: "Event") -> None:
     """Handle incoming direct messages from MeshCore library.
 
     NOTE: DMs are primarily handled by the packet processor via RX_LOG_DATA,
     which decrypts using our exported private key. This handler exists as a
     fallback for cases where:
-    1. The private key couldn't be exported (firmware without ENABLE_PRIVATE_KEY_EXPORT)
+    1. The private key couldn't be exported (firmware without ENABLE_PRIVATE_KEY_EXPORT,
+       or a radio proxy)
     2. The packet processor couldn't match the sender to a known contact
 
     The packet processor handles: decryption, storage, broadcast, bot trigger.
@@ -65,6 +89,14 @@ async def on_contact_message(event: "Event") -> None:
     txt_type = payload.get("txt_type", 0)
     if txt_type == 1:
         logger.debug("Skipping CLI response from %s (txt_type=1)", payload.get("pubkey_prefix"))
+        # Not stored, but the node was heard (MSHL-408). Only a known contact can be watched.
+        prefix = payload.get("public_key") or payload.get("pubkey_prefix", "")
+        if prefix:
+            try:
+                known = await ContactRepository.get_by_key_or_prefix(prefix.lower())
+            except Exception:
+                known = None
+            await _observe_unstored_dm(known, payload, int(time.time()))
         return
 
     # Get full public key if available, otherwise use prefix
@@ -83,6 +115,7 @@ async def on_contact_message(event: "Event") -> None:
             "Skipping message from repeater %s (not stored in chat history)",
             context.conversation_key[:12],
         )
+        await _observe_unstored_dm(context.contact, payload, received_at)
         return
 
     # Try to create or reconcile the message via the shared DM ingest service.
@@ -134,6 +167,20 @@ async def on_contact_message(event: "Event") -> None:
     logger.debug(
         "DM from %s handled by event handler (fallback path)", context.conversation_key[:12]
     )
+
+    # Counted as a sighting like on the packet-processor path (MSHL-401). Only reached when this
+    # path stored the message, so one DM never counts twice. A prefix-only sender has no full
+    # key and cannot be watched.
+    if context.contact is not None:
+        from app.notifications.watched_nodes import observe_sighting
+
+        await observe_sighting(
+            context.contact.public_key,
+            name=context.contact.name or "",
+            contact_type=context.contact.type or 0,
+            previous_seen=context.contact.last_seen,
+            now=received_at,
+        )
 
 
 async def on_rx_log_data(event: "Event") -> None:
@@ -293,7 +340,7 @@ async def on_new_contact(event: "Event") -> None:
     # last_read_at, etc.) matching the REST Contact shape exactly.
     db_contact = await ContactRepository.get_by_key(public_key)
     broadcast_event(
-        "contact",
+        WsEvent.CONTACT,
         (
             db_contact.model_dump()
             if db_contact
@@ -303,7 +350,7 @@ async def on_new_contact(event: "Event") -> None:
     if db_contact:
         for old_key in promoted_keys:
             broadcast_event(
-                "contact_resolved",
+                WsEvent.CONTACT_RESOLVED,
                 {
                     "previous_public_key": old_key,
                     "contact": db_contact.model_dump(),

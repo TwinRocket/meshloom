@@ -1,3 +1,4 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dice5 } from 'lucide-react';
@@ -100,6 +101,7 @@ export function NewMessageModal({
   const [contactKey, setContactKey] = useState('');
   const [channelKey, setChannelKey] = useState('');
   const [bulkChannelText, setBulkChannelText] = useState('');
+  const capabilities = useCapabilities();
   const [tryHistorical, setTryHistorical] = useState(false);
   const [permitExtended, setPermitExtended] = useState(false);
   const [importUri, setImportUri] = useState('');
@@ -269,7 +271,8 @@ export function NewMessageModal({
     }
   };
 
-  const showHistoricalOption = undecryptedCount > 0;
+  // Decrypting stored packets is administrator-only on the server.
+  const showHistoricalOption = undecryptedCount > 0 && capabilities.isAdmin;
 
   return (
     <Dialog

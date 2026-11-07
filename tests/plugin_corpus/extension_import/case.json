@@ -1,0 +1,29 @@
+{
+  "description": "Import standard-library extension modules outside the allowlist (mmap, fcntl, sqlite3).",
+  "events": [
+    {
+      "params": {
+        "name": "mmap"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "name": "fcntl"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "name": "sqlite3"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

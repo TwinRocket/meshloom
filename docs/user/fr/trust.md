@@ -1,56 +1,54 @@
 ---
 title: Un réseau de confiance
-description: Pas de comptes, des bots en Python, et pourquoi Meshloom a sa place sur un réseau que vous connaissez.
+description: Comptes et rôles, des extensions qui exécutent du code, et pourquoi Meshloom a toujours sa place sur un réseau que vous connaissez.
 level: start
 order: 6
 ---
 
 Meshloom suppose qu’il tourne sur un réseau dont vous connaissez les utilisateurs. Ce n’est pas un oubli, c’est le modèle. Autant comprendre ce que cela implique.
 
-## Il n’y a pas de comptes
+## Comptes et rôles
 
-Il n’y a ni comptes utilisateurs, ni sessions, ni rôles, ni permissions par fonction. Quiconque atteint le serveur sur le port `8000` obtient l’interface complète sans rien saisir.
+À partir de Meshloom 5.0, rien ne s’affiche avant la connexion. La première fois, Meshloom vous demande de créer le compte administrateur ; ensuite chaque visiteur se connecte avec un compte, et le serveur vérifie le rôle du compte à chaque requête (voir [Comptes et accès](/docs/deep/access/#les-rôles)). L’administrateur peut tout faire. Un membre peut lire et envoyer des messages et modifier les contacts et les canaux. Un lecteur lit. Un kiosque est en lecture seule, pour un écran mural, et ne voit jamais les messages directs (voir [Écran kiosque](/docs/deep/access/#écran-kiosque)). Sous Home Assistant, c’est Home Assistant qui vous connecte.
 
-Cela veut dire lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer son nom et ses réglages radio, supprimer des contacts et vider la base de données. Il n’y a pas d’intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ». Cela comprend aussi changer le réseau Wi-Fi de la radio et la redémarrer ; comme le serveur accepte les requêtes de n’importe quelle page web (voir plus bas), une page web ouverte sur une machine qui peut joindre Meshloom peut le faire aussi.
+Les comptes ne font pas de Meshloom un service que l’on peut laisser ouvert à des inconnus. Un administrateur peut lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer les réglages et le réseau Wi-Fi de la radio, la redémarrer, vider la base de données et, plus bas, faire exécuter du code à la machine. Un membre peut écrire au nom de votre nœud. Traitez chaque compte comme une clé de l’installation, et ne donnez de compte qu’à des personnes de confiance.
 
-Le serveur accepte aussi les requêtes venant de n’importe quelle page web. C’est voulu : cela permet d’ouvrir l’interface depuis n’importe quel appareil du réseau sans configuration supplémentaire. Cela repose sur ce même réseau de confiance.
+Les autres sites ouverts dans le même navigateur ne peuvent pas lire les réponses de Meshloom : le serveur ne répond qu’à sa propre adresse, plus les sites que vous ajoutez dans **Réglages > Configuration locale > Origines autorisées** (vide par défaut). Ils ne peuvent pas non plus ouvrir le flux en direct, et Meshloom refuse les modifications qui viennent d’un autre site (voir [Sécurité](/docs/deep/security/#ce-que-les-comptes-protègent-et-ce-quils-ne-protègent-pas)).
 
-## Les bots exécutent du code
+## Les extensions exécutent du code
 
-Meshloom sait lancer des bots : de petits programmes qui réagissent aux messages reçus. Ils s’écrivent en Python, et Meshloom les exécute tels quels, sans bac à sable ni liste d’instructions autorisées.
+Meshloom sait lancer des extensions (plugins) : de petits programmes Python qui réagissent aux messages reçus et peuvent y répondre. Chacune tourne dans un processus à part, avec les seules permissions qu’un administrateur a acceptées en l’installant et, selon l’installation de Meshloom, des murs que le système d’exploitation dresse autour d’elle (voir [Isolation](/docs/deep/plugins/#isolation)). C’est bien plus strict que les bots Python de la 4.18 et avant, qui tournaient dans Meshloom sans aucune limite ; la 5.0.0 les a convertis en extensions qui restent éteintes tant qu’un administrateur ne les a pas relues (voir [Les bots de la 4.18](/docs/deep/plugins/#les-bots-de-la-418-et-avant)).
 
-La conséquence est directe : **quiconque atteint Meshloom peut faire exécuter n’importe quel code à la machine hôte.** Pas seulement dans l’application : sur la machine, avec les droits du serveur. C’est une fonction d’automatisation voulue, et c’est aussi la partie la plus sensible d’une installation.
-
-Tant que les bots sont activés et qu’aucun mot de passe n’est défini, Meshloom ouvre une fenêtre d’avertissement (« L’exécution non protégée de bots est activée »). Vous pouvez y désactiver les bots jusqu’au prochain redémarrage, ou cocher la reconnaissance et la fermer pour ce navigateur. Ce n’est pas décoratif.
+C’est quand même du code auquel vous choisissez de faire confiance. Là où le système n’offre aucun mur (isolation `none`, affichée dans **Réglages → Extensions**), une extension hostile pourrait lire les fichiers de Meshloom, et un administrateur peut en écrire une. **Tout administrateur peut donc faire exécuter du code à la machine hôte.** C’est une fonction d’automatisation voulue, et c’est aussi une partie sensible d’une installation.
 
 Deux protections existent :
 
-- Les bots sont **activés par défaut**, sauf dans le paquet Linux et l’image Raspberry Pi, qui les coupent (`MESHCORE_DISABLE_BOTS=true` dans `/etc/meshloom/meshloom.env`). L’installeur ne pose aucune question à ce sujet. Les installations Docker et l’add-on Home Assistant gardent les bots actifs (l’add-on a une option `disable_bots`).
-- Définir `MESHCORE_DISABLE_BOTS=true` coupe tout le système de bots au démarrage. Aucun bot ne tourne, les modifications de bots sont refusées, et l’interface présente la fonction comme désactivée.
+- Rien ne tourne par défaut : une extension doit être ajoutée par un administrateur, qui voit d’abord ce qu’elle peut faire. L’installeur ne pose aucune question à ce sujet.
+- Définir `MESHCORE_DISABLE_PLUGINS=true` verrouille tout le système d’extensions au démarrage. Aucune extension ne peut être installée, modifiée ni démarrée, et l’interface les montre comme coupées par le serveur (l’add-on a une option `disable_plugins`).
 
-Si des personnes que vous ne connaissez pas toutes peuvent atteindre l’instance, gardez les bots désactivés.
+Si des personnes que vous ne connaissez pas toutes peuvent atteindre l’instance, verrouillez les extensions.
 
-## Le mot de passe facultatif
+Qui peut en installer, en configurer ou en lancer une dépend du rôle du compte, pas du fait d’être sur votre réseau : seul un administrateur le peut, un membre voit la liste en lecture seule, et les comptes lecteur et kiosque ne voient rien. Chaque modification est inscrite au journal d’audit avec son auteur : vous savez après coup qui a installé quoi. Quand l’une d’elles se comporte mal, **Mettre en pause toutes les extensions** les arrête toutes d’un coup sans perdre leurs réglages (voir [Extensions](/docs/deep/plugins/#mettre-en-pause-toutes-les-extensions)).
 
-Meshloom peut demander un nom d’utilisateur et un mot de passe avant d’afficher quoi que ce soit. L’installeur ne le met pas en place. On le configure avec deux variables d’environnement, toujours ensemble :
+## Le mot de passe et HTTPS
 
-```
-MESHCORE_BASIC_AUTH_USERNAME
-MESHCORE_BASIC_AUTH_PASSWORD
-```
+Votre mot de passe ne protège l’interface que dans la mesure où le réseau entre vous et Meshloom le fait. En HTTP simple, le nom d’utilisateur et le mot de passe circulent en clair à chaque connexion. [HTTPS](/docs/deep/https/) explique comment mettre en place un certificat, même auto-signé.
 
-C’est un identifiant partagé unique, pas des comptes : un seul accès pour tout le monde, et celui qui l’a possède tout. C’est une barrière simple, utile pour empêcher un appareil quelconque du réseau d’ouvrir l’interface par accident. Ce n’est pas un système de permissions.
+L’identifiant HTTP Basic partagé de la 4.x (`MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD`) n’existe plus : Meshloom ignore ces variables et tout en-tête `Authorization: Basic`, et se contente d’écrire un avertissement tant que les variables sont définies (retirez-les). Les navigateurs se connectent avec un compte et les scripts utilisent un jeton d’API ([La connexion Basic de la 4.x](/docs/deep/access/#la-connexion-basic-de-la-4x)). Une instance qui n’avait encore aucun compte vous demande de créer l’administrateur, depuis le réseau local seulement : depuis ailleurs, c’est refusé. La première personne qui la joint sur ce réseau peut le créer. L’add-on Home Assistant ne demande rien par la barre latérale : Home Assistant vous connecte, et le premier utilisateur Home Assistant qui ouvre Meshloom en devient l’administrateur. Son port 8000 n’est pas publié par défaut ; pour joindre Meshloom hors de Home Assistant, et y créer un compte, donnez un port d’hôte à `8000/tcp` dans le panneau **Réseau** de l’add-on.
 
-Il **exige aussi HTTPS**. En HTTP simple, le nom d’utilisateur et le mot de passe circulent en clair à chaque requête. [HTTPS](/docs/deep/https/) explique comment mettre en place un certificat, même auto-signé.
+Sous l’ingress de Home Assistant, Meshloom fait confiance à l’identité que lui donne le Supervisor de Home Assistant, comme tout add-on : Home Assistant et ses add-ons se font confiance, donc un add-on à qui vous ne confieriez pas votre Home Assistant ne devrait pas tourner à côté de Meshloom non plus.
 
 ## En pratique
 
 Quelques règles évitent la plupart des ennuis :
 
 - **N’exposez pas le port `8000` à Internet.** Ne le redirigez pas depuis votre box. Pour un accès à distance, utilisez un VPN vers votre réseau domestique ou professionnel.
-- Sur un réseau partagé (colocation, bureau, réseau invité), définissez le mot de passe et gardez les bots désactivés.
-- Rappelez-vous que la clé privée de la radio est donnée au serveur pour qu’il déchiffre les messages directs. Elle reste en mémoire uniquement, mais quiconque atteint l’interface peut la relire, par l’API et dans la sauvegarde complète, tout comme une page web ouverte sur une machine qui l’atteint. Une machine compromise reste une machine compromise.
-- Si vous activez **Réglages > Proxy** pour partager votre radio avec d’autres applications, sachez qu’il n’a aucun identifiant, et que l’accès Basic ne le couvre pas.
+- Sur un réseau partagé (colocation, bureau, réseau invité), ne donnez de compte qu’à des personnes de confiance et verrouillez les extensions (`MESHCORE_DISABLE_PLUGINS=true`).
+- Laissez **Accès sans connexion sur le réseau local** désactivé (par défaut) tant que vous n’en avez pas besoin : c’est l’interrupteur qui permet aux règles de réseau de confiance de connecter des appareils sans mot de passe, et seul un administrateur peut l’activer. Si votre box Internet redirige un port vers la machine de Meshloom en réécrivant l’adresse source, les visiteurs d’Internet paraissent locaux et seraient connectés : ne l’activez pas dans ce cas (voir [Comptes et accès](/docs/deep/access/#les-réseaux-de-confiance)).
+- Rappelez-vous que la clé privée de la radio est donnée au serveur pour qu’il déchiffre les messages directs. Elle reste en mémoire uniquement, mais un administrateur peut la relire, par l’API et dans la sauvegarde complète. Une machine compromise reste une machine compromise.
+- Le service de partage optionnel (liens courts et photos, **Réglages > Partage : liens et fichiers**) est désactivé par défaut et jamais contacté tant qu’un administrateur n’a pas accepté ses conditions. Une fois activé, votre Meshloom envoie chaque adresse qu’il raccourcit (par défaut, toute adresse publique de plus de 26 caractères dans un message que vous envoyez, messages directs et canaux privés compris ; voir **Jamais** dans les réglages) ou la photo que vous partagez à un service exploité par le projet (comme Community, une fois rejoint), avec l’adresse IP de ce Meshloom et une clé pseudonyme qui lui est propre, jamais celle de la radio. Le service conserve les liens courts 365 jours et les fichiers 30 jours. Une photo **publique** peut être vue par quiconque a son lien, et une photo envoyée sur le canal Public ou dans un canal hashtag ne peut jamais être privée. Une photo **chiffrée** (canaux privés et messages directs seulement) cache son contenu au service et aux personnes qui n’ont que le lien, mais elle n’a pas de confidentialité persistante (forward secrecy) et quiconque détient la clé de la conversation peut la lire. Les sauvegardes ne contiennent ni la clé ni le consentement : une restauration n’active jamais le partage et donne toujours une clé neuve (voir [Liens courts et photos](/docs/deep/share/)).
+- Le Store en ligne, qui trouve et met à jour des extensions publiées sur GitHub, a son propre interrupteur, activé par défaut et distinct de Community. Sans extension venant d'un dépôt, Meshloom ne contacte personne pour lui. Il ne contacte que `github.com` et les serveurs de téléchargement de GitHub (et plus tard `store.meshloom.app`) : quand vous appuyez sur Actualiser, toutes les 6 heures tant qu'une extension venant d'un dépôt est installée, et quand vous en ajoutez, installez ou mettez à jour une (une mise à jour automatique télécharge dans la plage de mises à jour). Ils voient votre adresse IP et `Meshloom/<version>`, jamais votre radio, vos contacts, vos messages ni la liste de vos extensions. Ouvrir l'onglet Store n'envoie rien. Les extensions d'un dépôt personnalisé ne sont ni relues, ni signées, ni révoquées en ligne. Un administrateur peut le désactiver dans l'onglet Store, et restaurer une sauvegarde ne le rallume jamais (voir [Ce qui quitte votre instance](/docs/deep/plugins/#ce-qui-quitte-votre-instance)).
+- Si vous activez **Réglages > Proxy** pour partager votre radio avec d’autres applications, sachez qu’il n’a aucune connexion : les comptes ne le couvrent pas, et quiconque atteint son port (5001 par défaut) peut utiliser votre radio et envoyer au nom de votre nœud. C’est une décision, car les applications qui parlent ce protocole ne savent pas se connecter. Gardez ce port à l’intérieur de votre réseau.
 - Traitez les canaux pour ce qu’ils sont. La clé est le seul accès : la donner à quelqu’un lui permet d’y lire et d’y écrire.
 
 Les détails des réglages de sécurité, des certificats auto-signés et des variables associées sont dans [Sécurité](/docs/deep/security/).

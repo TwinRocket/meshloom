@@ -1,0 +1,45 @@
+{
+  "settings": {
+    "access": {
+      "trustedNetworks": {
+        "title": "Réseaux de confiance",
+        "switch": "Accès sans connexion sur le réseau local",
+        "switchWarning": "Désactivé par défaut. N'ajoutez que des réseaux que vous maîtrisez, comme l'adresse d'un kiosque.",
+        "switchOn": "Accès sans connexion sur le réseau local activé",
+        "switchOff": "Accès sans connexion sur le réseau local désactivé",
+        "switchOffNotice": "L'accès sans connexion sur le réseau local est désactivé : ces règles ne connectent personne tant que vous ne l'activez pas.",
+        "help": "Un appareil sur l'un de ces réseaux est connecté avec le compte choisi, sans mot de passe.",
+        "proxyClosed": "Ne s'applique jamais aux connexions venues d'Internet, d'un proxy ou de Meshloom Remote.",
+        "none": "Aucun réseau de confiance : chaque appareil s'identifie.",
+        "cidr": "Réseau (CIDR)",
+        "user": "Connecté en tant que",
+        "pickUser": "Choisir un compte",
+        "add": "Ajouter un réseau",
+        "remove": "Retirer",
+        "save": "Enregistrer les réseaux",
+        "saving": "Enregistrement…",
+        "saved": "Réseaux de confiance enregistrés",
+        "adminWarning": "{{networks}} : un réseau de confiance ne peut pas connecter un administrateur. Choisissez un compte membre, lecteur ou kiosque.",
+        "publicOrWideWarning": "{{cidr}} est trop large ou public : indiquez seulement votre réseau local ou l'adresse d'un appareil.",
+        "userDisabledNotice": "Le compte de {{cidr}} est désactivé : cette règle ne s'applique jamais. Choisissez un autre compte ou supprimez la règle.",
+        "userMustChangeNotice": "Le compte de {{cidr}} doit d'abord changer son mot de passe : connectez-vous une fois avec lui, ou choisissez un autre compte."
+      },
+      "securityNotice": {
+        "title": "Avertissement de sécurité de l'accès",
+        "trusted_admin_reduced_plugin_isolation": "Un réseau de confiance connecte un administrateur alors que les extensions sont peu isolées : quiconque sur ce réseau peut exécuter du code sur cette machine.",
+        "trusted_loopback_or_gateway_public": "Un réseau de confiance couvre le loopback ou la passerelle Docker : des visiteurs d'Internet pourraient être connectés. Retirez cette règle.",
+        "trusted_network_public_or_wide": "Un réseau de confiance est trop large ou public : n'indiquez que votre réseau local ou l'adresse d'un appareil."
+      }
+    }
+  },
+  "errors": {
+    "auth_trusted_networks_invalid": "Ce n'est pas un réseau, c'est un réseau plus large que /8 (IPv4) ou /16 (IPv6), le même réseau deux fois, ou plus de 32 réseaux de confiance : {{cidr}}",
+    "auth_trusted_network_user_invalid": "Le réseau {{cidr}} désigne un compte qui n'existe pas ou qui est désactivé.",
+    "auth_trusted_network_user_must_change": "Le réseau {{cidr}} désigne un compte qui doit d'abord changer son mot de passe. Choisissez un autre compte, ou connectez-vous une fois avec lui.",
+    "auth_trusted_network_overlaps_proxy": "Le réseau {{cidr}} recoupe le proxy de confiance {{proxy}} : les requêtes d'un proxy ne sont jamais connectées automatiquement.",
+    "auth_trusted_network_loopback": "Le réseau {{cidr}} couvre le loopback : un proxy ou un tunnel local y ferait arriver chaque visiteur.",
+    "auth_trusted_network_overlaps_gateway": "Le réseau {{cidr}} couvre la passerelle Docker {{gateway}} : Internet pourrait passer par elle.",
+    "auth_trusted_network_user_admin": "Le réseau {{cidr}} ne peut pas connecter un administrateur. Choisissez un compte membre, lecteur ou kiosque.",
+    "auth_lan_login_free_admin_rules": "Impossible tant qu'un réseau de confiance désigne un administrateur ({{cidrs}}) : modifiez ou supprimez ces règles."
+  }
+}

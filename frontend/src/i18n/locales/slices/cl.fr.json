@@ -1,0 +1,232 @@
+{
+  "notifications": {
+    "presets": {
+      "telegram": {
+        "about": "Les messages viennent de votre propre bot Telegram, créé avec @BotFather.",
+        "fields": {
+          "bot_token": "Jeton du bot",
+          "chat_id": "Identifiant de conversation",
+          "topic_id": "Identifiant de sujet (facultatif)"
+        },
+        "help": {
+          "bot_token": "Donné par @BotFather, de la forme 123456789:AAH… En écriture seule : il n'est jamais réaffiché.",
+          "chat_id": "Un identifiant d’utilisateur ou de groupe, ou @canal. Ajoutez d’abord le bot au groupe.",
+          "topic_id": "Seulement pour un groupe à sujets : le numéro du sujet qui reçoit les messages."
+        }
+      },
+      "gotify": {
+        "about": "Votre serveur Gotify : créez-y une application et copiez son jeton.",
+        "fields": {
+          "server": "Serveur Gotify",
+          "token": "Jeton de l'application",
+          "priority": "Priorité"
+        },
+        "help": {
+          "server": "Par exemple https://gotify.exemple.org. Sur le réseau local, cochez « Autoriser une destination sur réseau privé ».",
+          "token": "Le jeton de l'application (pas celui d'un client). En écriture seule : il n'est jamais réaffiché."
+        }
+      },
+      "home_assistant": {
+        "about": "Envoie vers un service notify de Home Assistant, avec un jeton d’accès longue durée.",
+        "fields": {
+          "url": "Adresse de Home Assistant",
+          "token": "Jeton d'accès longue durée",
+          "service": "Service notify"
+        },
+        "help": {
+          "url": "Par exemple http://homeassistant.local:8123, sans chemin comme /ha. Sur le réseau local, cochez « Autoriser une destination sur réseau privé ».",
+          "token": "Profil, Sécurité, Jetons d'accès longue durée. En écriture seule : il n'est jamais réaffiché.",
+          "service": "Le nom du service, par exemple mobile_app_votre_telephone."
+        }
+      },
+      "pushover": {
+        "about": "Créez une application sur pushover.net, puis copiez son jeton et votre clé utilisateur.",
+        "fields": {
+          "user_key": "Clé utilisateur",
+          "app_token": "Jeton d'API de l'application",
+          "devices": "Appareils (facultatif)",
+          "priority": "Priorité",
+          "sound": "Son"
+        },
+        "help": {
+          "user_key": "Affichée sur votre tableau de bord Pushover (30 caractères). En écriture seule : elle n'est jamais réaffichée.",
+          "app_token": "Le jeton d'API de l'application créée (30 caractères). En écriture seule : il n'est jamais réaffiché.",
+          "devices": "Noms d'appareils séparés par des virgules (10 au plus). Vide : tous les appareils de votre compte."
+        }
+      },
+      "matrix": {
+        "about": "Publie dans un salon Matrix avec un compte dédié qui l’a rejoint.",
+        "fields": {
+          "server": "Serveur d'accueil",
+          "username": "Nom d'utilisateur (facultatif)",
+          "credential": "Jeton d'accès ou mot de passe",
+          "room": "Salon"
+        },
+        "help": {
+          "server": "Par exemple https://matrix.example.org, sans chemin. Sur le réseau local, cochez « Autoriser une destination sur réseau privé ».",
+          "username": "Laissez vide avec un jeton d’accès.",
+          "credential": "Un jeton d’accès ou le mot de passe du compte. Jamais réaffiché.",
+          "room": "L’identifiant (!abc:example.org) ou l’alias (#salon:example.org) du salon."
+        }
+      },
+      "signal": {
+        "about": "Envoie par un serveur signal-cli REST API que vous hébergez.",
+        "fields": {
+          "server": "Serveur REST API",
+          "from_number": "Numéro émetteur",
+          "to": "Destinataires",
+          "username": "Nom d'utilisateur du proxy (facultatif)",
+          "password": "Mot de passe du proxy (facultatif)"
+        },
+        "help": {
+          "server": "Par exemple http://signal-api.lan:8080, sans chemin. Sur le réseau local, cochez « Autoriser une destination sur réseau privé ».",
+          "from_number": "Le numéro enregistré dans signal-cli, avec son indicatif pays : +33600000000.",
+          "to": "Numéros au format international, séparés par des virgules (10 au plus).",
+          "password": "Seulement si un proxy protège le serveur. Jamais réaffiché."
+        }
+      },
+      "slack": {
+        "about": "Publie dans le canal d’un webhook entrant Slack.",
+        "fields": {
+          "webhook": "Adresse du webhook"
+        },
+        "help": {
+          "webhook": "L’adresse https://hooks.slack.com/services/… donnée par Slack. Jamais réaffichée."
+        }
+      },
+      "mattermost": {
+        "about": "Publie dans le canal d’un webhook entrant Mattermost. Les messages sont en Markdown.",
+        "fields": {
+          "server": "Serveur Mattermost",
+          "token": "Clé du webhook"
+        },
+        "help": {
+          "server": "Par exemple https://mattermost.example.org. Sur le réseau local, cochez « Autoriser une destination sur réseau privé ».",
+          "token": "La dernière partie de l'adresse du webhook (…/hooks/<clé>). En écriture seule : elle n'est jamais réaffichée."
+        }
+      },
+      "rocketchat": {
+        "about": "Publie dans un salon Rocket.Chat avec un compte dédié qui l'a rejoint.",
+        "fields": {
+          "server": "Serveur Rocket.Chat",
+          "username": "Identifiant utilisateur (ou nom d'utilisateur)",
+          "password": "Mot de passe ou jeton d'accès",
+          "room": "Salon",
+          "auth": "Type d'identifiant"
+        },
+        "help": {
+          "server": "Par exemple https://chat.example.org, sans chemin. Sur le réseau local, cochez « Autoriser une destination sur réseau privé ».",
+          "password": "Le mot de passe ou un jeton d’accès personnel. Jamais réaffiché.",
+          "room": "Un canal (#general), un utilisateur (@nom) ou un identifiant de salon.",
+          "username": "Le nom d’utilisateur, ou l’identifiant utilisateur (user ID) avec un jeton."
+        }
+      },
+      "sms_free": {
+        "about": "Envoie un SMS à votre propre ligne Free Mobile. Seul un titre court est envoyé.",
+        "fields": {
+          "user": "Identifiant Free Mobile",
+          "api_key": "Clé d'API SMS"
+        },
+        "help": {
+          "user": "Votre identifiant d'abonné Free Mobile à 8 chiffres.",
+          "api_key": "La clé affichée à l'activation de l'option. En écriture seule : elle n'est jamais réaffichée."
+        }
+      },
+      "sms_sfr": {
+        "about": "Envoie des SMS par l’API SMS de SFR. Seul un titre court est envoyé.",
+        "fields": {
+          "username": "Nom du compte",
+          "password": "Mot de passe",
+          "space_id": "Identifiant d'espace",
+          "to": "Destinataires"
+        },
+        "help": {
+          "username": "L'identifiant de votre compte de messagerie SFR.",
+          "space_id": "L'identifiant d'espace (service) donné par SFR pour votre compte.",
+          "to": "Un ou plusieurs numéros avec leur indicatif pays, séparés par des virgules (10 au plus) : +33600000000."
+        }
+      }
+    }
+  },
+  "settings": {
+    "notifications": {
+      "types": {
+        "telegram": {
+          "name": "Telegram",
+          "description": "Un message de votre bot Telegram vers une conversation, un groupe ou un canal."
+        },
+        "gotify": {
+          "name": "Gotify",
+          "description": "Notifier votre propre serveur Gotify.",
+          "priority": {
+            "options": {
+              "low": "Basse",
+              "moderate": "Modérée",
+              "normal": "Normale",
+              "high": "Haute",
+              "emergency": "Urgence"
+            }
+          }
+        },
+        "home_assistant": {
+          "name": "Home Assistant",
+          "description": "Un service notify de Home Assistant, comme l'application Companion d'un téléphone."
+        },
+        "pushover": {
+          "name": "Pushover",
+          "description": "Une notification sur l'application Pushover de votre téléphone.",
+          "priority": {
+            "options": {
+              "low": "Basse",
+              "moderate": "Modérée",
+              "normal": "Normale",
+              "high": "Haute",
+              "emergency": "Urgence"
+            }
+          }
+        },
+        "matrix": {
+          "name": "Matrix",
+          "description": "Un message dans un salon Matrix, comme bot ou compte."
+        },
+        "signal": {
+          "name": "Signal",
+          "description": "Des messages Signal via votre propre serveur signal-cli REST API."
+        },
+        "slack": {
+          "name": "Slack",
+          "description": "Un message dans un canal Slack via un webhook entrant."
+        },
+        "mattermost": {
+          "name": "Mattermost",
+          "description": "Un message dans un canal Mattermost via un webhook entrant."
+        },
+        "rocketchat": {
+          "name": "Rocket.Chat",
+          "description": "Un message dans un salon Rocket.Chat, avec un compte.",
+          "auth": {
+            "options": {
+              "basic": "Mot de passe",
+              "token": "Jeton d'accès personnel"
+            }
+          }
+        },
+        "sms_free": {
+          "name": "SMS Free Mobile",
+          "description": "Un SMS sur votre propre ligne Free Mobile."
+        },
+        "sms_sfr": {
+          "name": "SMS SFR",
+          "description": "Des SMS vers des numéros via le service de messagerie SFR."
+        }
+      },
+      "channels": {
+        "presetDocs": "Documentation du service",
+        "includeTextLocked": "Fixé pour ce service : un SMS tient environ 160 caractères, seul un titre court est envoyé."
+      }
+    }
+  },
+  "errors": {
+    "text_policy_locked": "Ce service coupe les textes longs (un SMS) : sa politique de texte est fixée sur « jamais »."
+  }
+}

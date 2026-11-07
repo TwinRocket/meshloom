@@ -33,14 +33,22 @@ def test_a_nonsense_port_is_ignored_rather_than_passed_on() -> None:
 
 def test_blank_options_are_left_unset_rather_than_set_to_nothing() -> None:
     """An empty string would override Meshloom's own default with nothing."""
-    env = addon.build_environment({"basic_auth_username": "   ", "vapid_subject": ""})
-    assert "MESHCORE_BASIC_AUTH_USERNAME" not in env
+    env = addon.build_environment({"log_level": "   ", "vapid_subject": ""})
+    assert "MESHCORE_LOG_LEVEL" not in env
     assert "MESHCORE_VAPID_SUBJECT" not in env
 
 
 def test_values_are_trimmed_before_they_are_passed_on() -> None:
-    env = addon.build_environment({"basic_auth_username": "  mesh  "})
-    assert env["MESHCORE_BASIC_AUTH_USERNAME"] == "mesh"
+    env = addon.build_environment({"log_level": "  DEBUG  "})
+    assert env["MESHCORE_LOG_LEVEL"] == "DEBUG"
+
+
+def test_the_removed_basic_auth_options_are_not_passed_on() -> None:
+    """MSHL-100: HTTP Basic auth is gone; a stale options.json value reaches nothing."""
+    env = addon.build_environment({"basic_auth_username": "mesh", "basic_auth_password": "x"})
+    assert not any(name.startswith("MESHCORE_BASIC_AUTH") for name in env)
+    assert "basic_auth_username" not in addon.RETIRED_PASS_THROUGH
+    assert "basic_auth_password" not in addon.RETIRED_PASS_THROUGH
 
 
 def test_the_deprecated_vapid_subject_is_handed_on_for_the_one_shot_import() -> None:
@@ -70,9 +78,34 @@ def test_the_database_lives_where_the_addon_keeps_its_data() -> None:
     assert addon.build_environment({})["MESHCORE_DATABASE_PATH"] == "/config/meshcore.db"
 
 
-def test_bots_are_only_disabled_when_actually_asked() -> None:
-    assert "MESHCORE_DISABLE_BOTS" not in addon.build_environment({"disable_bots": False})
-    assert addon.build_environment({"disable_bots": True})["MESHCORE_DISABLE_BOTS"] == "true"
+def test_a_leftover_disable_bots_true_is_handed_to_the_migration_and_warns(capsys) -> None:
+    """Bots became extensions in 5.0.0. The old lock is read once by migration 122 (the
+    converted bots arrive switched off, as with the package); it locks nothing else."""
+    env = addon.build_environment({"disable_bots": True})
+    assert env["MESHCORE_DISABLE_BOTS"] == "true"
+    assert "MESHCORE_DISABLE_PLUGINS" not in env
+    assert "MESHCORE_DISABLE_PLUGINS" in capsys.readouterr().err
+
+
+def test_a_leftover_disable_bots_false_maps_to_nothing_and_warns(capsys) -> None:
+    for value in (False, "true", None):
+        env = addon.build_environment({"disable_bots": value})
+        assert "MESHCORE_DISABLE_BOTS" not in env
+        assert "MESHCORE_DISABLE_PLUGINS" not in env
+        assert "MESHCORE_DISABLE_PLUGINS" in capsys.readouterr().err
+
+
+def test_no_warning_without_the_retired_option(capsys) -> None:
+    addon.build_environment({"disable_plugins": True})
+    assert capsys.readouterr().err == ""
+
+
+def test_plugins_are_only_locked_when_actually_asked() -> None:
+    assert "MESHCORE_DISABLE_PLUGINS" not in addon.build_environment({})
+    assert "MESHCORE_DISABLE_PLUGINS" not in addon.build_environment({"disable_plugins": False})
+    env = addon.build_environment({"disable_plugins": True})
+    assert env["MESHCORE_DISABLE_PLUGINS"] == "true"
+    assert "MESHCORE_DISABLE_BOTS" not in env
 
 
 def test_a_missing_options_file_does_not_stop_the_addon(tmp_path: Path) -> None:
@@ -99,7 +132,9 @@ def test_every_option_in_the_manifest_is_understood_here() -> None:
 
     config = yaml.safe_load((ENTRYPOINT.parent / "config.yaml").read_text(encoding="utf-8"))
     handled = (
-        set(addon.PASS_THROUGH) | set(addon.RETIRED_PASS_THROUGH) | {"proxy_port", "disable_bots"}
+        set(addon.PASS_THROUGH)
+        | set(addon.RETIRED_PASS_THROUGH)
+        | {"proxy_port", "disable_plugins"}
     )
     assert set(config["options"]) <= handled
 
@@ -117,3 +152,10 @@ def test_the_addon_allows_home_assistant_to_frame_it() -> None:
     """
     env = addon.build_environment({})
     assert env["MESHCORE_EMBEDDABLE_SAME_ORIGIN"] == "true"
+
+
+def test_uvicorn_never_reads_proxy_headers() -> None:
+    """A loopback caller's X-Forwarded-For must not make it the Supervisor (ingress)."""
+    assert addon.UVICORN_ARGV[:4] == ["uv", "run", "uvicorn", "app.main:app"]
+    assert "--no-proxy-headers" in addon.UVICORN_ARGV
+    assert "--proxy-headers" not in addon.UVICORN_ARGV

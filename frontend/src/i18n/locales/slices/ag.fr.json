@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "notifications": {
+      "pushReview": "Une mise à jour a désactivé l'option réseau privé de vos appareils push. Si l'un d'eux est un distributeur UnifiedPush sur votre réseau, cochez la case ci-dessous.",
+      "pushReviewEnable": "Autoriser les réseaux privés",
+      "pushReviewDismiss": "Fermer"
+    }
+  }
+}

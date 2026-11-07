@@ -10,10 +10,12 @@ import { noteWifiRebootStarted, setRadioWifiState } from '../../stores/radioWifi
 import {
   BACKUP_FORMATS,
   type BackupInspectResult,
+  type BackupPushSummary,
   type BackupRestoreItem,
   type BackupRestoreJob,
   type BackupRestoreStep,
   type BackupRestoreSteps,
+  type BackupSectionSummary,
 } from '../../types';
 
 const ENCRYPTED_FORMAT = 'meshloom-backup-v2-encrypted';
@@ -52,11 +54,71 @@ function restoreItemName(raw: string, t: TFunction): string {
   return translated(t, `settings.fullRestore.items.${name}`, { value }) ?? raw;
 }
 
-/** Export warnings carried by the file, in the restore summary's words. */
-function fileWarningTexts(warnings: string[], t: TFunction): string[] {
-  const texts = warnings.map(
-    (raw) => translated(t, `settings.fullRestore.fileWarnings.${splitCode(raw)[0]}`) ?? raw
+/** A section's description in the interface language (English otherwise). */
+function sectionLabel(section: BackupSectionSummary, language: string): string {
+  const description = section.description;
+  if (!description) return section.name;
+  return description[language.split('-')[0]] ?? description.en ?? section.name;
+}
+
+/** The file's named sections: what is restored, what is not, which hold secrets. */
+function SectionsSummary({ sections }: { sections: BackupSectionSummary[] }) {
+  const { t, i18n } = useTranslation();
+  const restored = sections.filter((section) => section.known && !section.too_new);
+  const tooNew = sections.filter((section) => section.known && section.too_new);
+  const unknown = sections.filter((section) => !section.known);
+  return (
+    <>
+      {restored.length > 0 && (
+        <p className={restored.some((section) => section.sensitive) ? 'text-warning' : undefined}>
+          {t('settings.fullRestore.sections', {
+            list: restored
+              .map((section) =>
+                section.sensitive
+                  ? t('settings.fullRestore.sectionSensitive', {
+                      name: sectionLabel(section, i18n.language),
+                    })
+                  : sectionLabel(section, i18n.language)
+              )
+              .join(', '),
+          })}
+        </p>
+      )}
+      {tooNew.length > 0 && (
+        <p>
+          {t('settings.fullRestore.sectionsTooNew', {
+            list: tooNew.map((section) => sectionLabel(section, i18n.language)).join(', '),
+          })}
+        </p>
+      )}
+      {unknown.length > 0 && (
+        <p>
+          {t('settings.fullRestore.sectionsUnknown', {
+            list: unknown.map((section) => section.name).join(', '),
+          })}
+        </p>
+      )}
+    </>
   );
+}
+
+/** Export warnings carried by the file, in the restore summary's words. */
+/** One push subscription of the preview: where it sends, and to whose account (MSHL-328). */
+export function pushTargetText(target: BackupPushSummary, t: TFunction): string {
+  const where = target.label
+    ? t('settings.fullRestore.pushTarget', { label: target.label, host: target.host })
+    : target.host;
+  if (target.owner === undefined) return where;
+  return target.owner
+    ? t('settings.fullRestore.pushTargetOwner', { target: where, owner: target.owner })
+    : t('settings.fullRestore.pushTargetFirstAdmin', { target: where });
+}
+
+function fileWarningTexts(warnings: string[], t: TFunction): string[] {
+  const texts = warnings.map((raw) => {
+    const [code, value] = splitCode(raw);
+    return translated(t, `settings.fullRestore.fileWarnings.${code}`, { value }) ?? raw;
+  });
   return [...new Set(texts)];
 }
 
@@ -696,12 +758,7 @@ function RestoreSummary({
         )}
         {inspect.bot_names.length > 0 && (
           <p className="text-warning">
-            {t(
-              inspect.bots_will_be_skipped
-                ? 'settings.fullRestore.botsWillBeSkipped'
-                : 'settings.fullRestore.botsRestoredDisabled',
-              { names: inspect.bot_names.join(', ') }
-            )}
+            {t('settings.fullRestore.botsConverted', { names: inspect.bot_names.join(', ') })}
           </p>
         )}
         {(inspect.integrations?.length ?? 0) > 0 && (
@@ -723,21 +780,22 @@ function RestoreSummary({
         {inspect.radio_proxy_enabled && (
           <p className="text-warning">{t('settings.fullRestore.proxyEnabled')}</p>
         )}
+        {inspect.secret_store_unavailable && steps.meshloom && (
+          <p className="text-destructive" role="alert" data-testid="secret-store-unavailable">
+            {t('settings.fullRestore.secretStoreUnavailable')}
+          </p>
+        )}
         {(inspect.push_targets?.length ?? 0) > 0 && (
           <p className="text-warning">
             {t('settings.fullRestore.pushTargets', {
               list: (inspect.push_targets ?? [])
-                .map((target) =>
-                  target.label
-                    ? t('settings.fullRestore.pushTarget', {
-                        label: target.label,
-                        host: target.host,
-                      })
-                    : target.host
-                )
-                .join(', '),
+                .map((target) => pushTargetText(target, t))
+                .join('; '),
             })}
           </p>
+        )}
+        {(inspect.sections?.length ?? 0) > 0 && (
+          <SectionsSummary sections={inspect.sections ?? []} />
         )}
         {inspect.warnings.length > 0 && (
           <div className="pt-1">
@@ -802,6 +860,13 @@ function RestoreSummary({
             >
               {t('settings.fullRestore.steps.channels')}
             </Check>
+            {steps.meshloom && steps.channels && (
+              <p className="text-xs text-muted-foreground">
+                {inspect.channels_kept_on_radio
+                  ? t('settings.fullRestore.channelsKept')
+                  : t('settings.fullRestore.channelsOffloaded')}
+              </p>
+            )}
             <Check
               checked={steps.contacts}
               disabled={!steps.meshloom}

@@ -1,0 +1,9 @@
+{
+  "settingsNavigation": {
+    "startPageTitle": "Page de démarrage",
+    "startPageHelp": "La page qui s'ouvre quand l'adresse n'en précise aucune. Posée par un administrateur, elle vaut pour toutes les sessions.",
+    "startPage": "Ouvrir sur",
+    "startPageConversations": "Conversations (par défaut)",
+    "startPageAdminOnly": "Seul un administrateur peut changer la page de démarrage."
+  }
+}

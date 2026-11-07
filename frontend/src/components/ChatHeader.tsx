@@ -1,3 +1,4 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -23,16 +24,10 @@ import { isPrefixOnlyContact } from '../utils/pubkey';
 import { cn } from '../lib/utils';
 import { ContactAvatar } from './ContactAvatar';
 import { ContactStatusInfo } from './ContactStatusInfo';
-import type {
-  Channel,
-  Contact,
-  Conversation,
-  NotificationMediaChannel,
-  NotificationMediaFlags,
-  PathDiscoveryResponse,
-  RadioConfig,
-} from '../types';
+import type { Channel, Contact, Conversation, PathDiscoveryResponse, RadioConfig } from '../types';
 import { CONTACT_TYPE_ROOM } from '../types';
+import { isolateBidi } from '../utils/messageText';
+import { notifyTargetOf } from '../utils/notifyTarget';
 
 interface ChatHeaderProps {
   conversation: Conversation;
@@ -41,10 +36,6 @@ interface ChatHeaderProps {
   config: RadioConfig | null;
   onTrace: () => void;
   onPathDiscovery: (publicKey: string) => Promise<PathDiscoveryResponse>;
-  notifyMediaEnabled?: NotificationMediaFlags;
-  emailReady?: boolean;
-  webhookReady?: boolean;
-  onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   onToggleFavorite: (type: 'channel' | 'contact', id: string) => void;
   onTogglePin?: (type: 'channel' | 'contact', id: string) => void;
@@ -69,10 +60,6 @@ export function ChatHeader({
   config,
   onTrace,
   onPathDiscovery,
-  notifyMediaEnabled,
-  emailReady = false,
-  webhookReady = false,
-  onSetConversationMedia,
   onOpenNotifySettings,
   onToggleFavorite,
   onTogglePin,
@@ -86,6 +73,7 @@ export function ChatHeader({
   pending = false,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
+  const { canSend, isAdmin } = useCapabilities();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [pathDiscoveryOpen, setPathDiscoveryOpen] = useState(false);
   const [channelOverrideOpen, setChannelOverrideOpen] = useState(false);
@@ -205,7 +193,7 @@ export function ChatHeader({
             className="avatar-action-button shrink-0 cursor-pointer rounded-full border-none bg-transparent p-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onOpenContactInfo(conversation.id)}
             title={t('chatHeader.viewContactInfo')}
-            aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
+            aria-label={t('chatHeader.viewInfoFor', { name: isolateBidi(conversation.name) })}
           >
             <span className="md:hidden">
               <ContactAvatar
@@ -232,14 +220,14 @@ export function ChatHeader({
             <button
               type="button"
               className="flex w-full max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
+              aria-label={t('chatHeader.viewInfoFor', { name: isolateBidi(conversation.name) })}
               onClick={handleOpenConversationInfo}
             >
-              <span className="truncate">{titleLabel}</span>
+              <bdi className="bidi-isolate truncate">{titleLabel}</bdi>
               <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" aria-hidden="true" />
             </button>
           ) : (
-            <span className="truncate">{titleLabel}</span>
+            <bdi className="bidi-isolate truncate">{titleLabel}</bdi>
           )}
         </h2>
       </span>
@@ -256,7 +244,7 @@ export function ChatHeader({
               <MoreVertical className="h-4 w-4" aria-hidden="true" />
             </button>
             <div className={cn('conversation-header-actions', actionsOpen && 'is-open')}>
-              {conversation.type === 'contact' && !activeContactIsRoomServer && (
+              {canSend && conversation.type === 'contact' && !activeContactIsRoomServer && (
                 <button
                   className={headerActionDisabledClass}
                   onClick={() => setPathDiscoveryOpen(true)}
@@ -271,7 +259,7 @@ export function ChatHeader({
                   <Route className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 </button>
               )}
-              {conversation.type === 'contact' && !activeContactIsRoomServer && (
+              {canSend && conversation.type === 'contact' && !activeContactIsRoomServer && (
                 <button
                   className={headerActionDisabledClass}
                   onClick={onTrace}
@@ -286,41 +274,41 @@ export function ChatHeader({
                   <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
                 </button>
               )}
-              {!pending && onSetConversationMedia && notifyMediaEnabled && (
+              {!pending && isAdmin && (
                 <ConversationNotifyMenu
-                  mediaEnabled={notifyMediaEnabled}
-                  emailReady={emailReady}
-                  webhookReady={webhookReady}
-                  onSetMedia={onSetConversationMedia}
+                  target={notifyTargetOf(conversation, activeChannel)}
                   onOpenSettings={onOpenNotifySettings}
                 />
               )}
-              {!pending && conversation.type === 'channel' && onMuteChannel && (
+              {!pending && canSend && conversation.type === 'channel' && onMuteChannel && (
                 <ChannelMuteMenu
                   muted={!!activeChannel?.muted}
                   mutedUntil={activeChannel?.muted_until}
                   onMute={(durationSeconds) => onMuteChannel(conversation.id, durationSeconds)}
                 />
               )}
-              {!pending && conversation.type === 'channel' && onSetChannelFloodScopeOverride && (
-                <button
-                  className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={handleEditFloodScopeOverride}
-                  title={t('chatHeader.regionalOverride')}
-                  aria-label={t('chatHeader.regionalOverride')}
-                >
-                  <Globe2
-                    className={`h-4 w-4 ${activeFloodScopeLabel ? 'text-[hsl(var(--region-override))]' : 'text-muted-foreground'}`}
-                    aria-hidden="true"
-                  />
-                  {activeFloodScopeBadge && (
-                    <span className="hidden text-[0.6875rem] font-medium text-[hsl(var(--region-override))] sm:inline">
-                      {activeFloodScopeBadge}
-                    </span>
-                  )}
-                </button>
-              )}
-              {!pending && showPathHashModeOverride && (
+              {!pending &&
+                canSend &&
+                conversation.type === 'channel' &&
+                onSetChannelFloodScopeOverride && (
+                  <button
+                    className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={handleEditFloodScopeOverride}
+                    title={t('chatHeader.regionalOverride')}
+                    aria-label={t('chatHeader.regionalOverride')}
+                  >
+                    <Globe2
+                      className={`h-4 w-4 ${activeFloodScopeLabel ? 'text-[hsl(var(--region-override))]' : 'text-muted-foreground'}`}
+                      aria-hidden="true"
+                    />
+                    {activeFloodScopeBadge && (
+                      <span className="hidden text-[0.6875rem] font-medium text-[hsl(var(--region-override))] sm:inline">
+                        {activeFloodScopeBadge}
+                      </span>
+                    )}
+                  </button>
+                )}
+              {!pending && canSend && showPathHashModeOverride && (
                 <button
                   className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={handleEditPathHashModeOverride}
@@ -334,6 +322,7 @@ export function ChatHeader({
                 </button>
               )}
               {!pending &&
+                canSend &&
                 onTogglePin &&
                 (conversation.type === 'channel' || conversation.type === 'contact') && (
                   <button
@@ -354,23 +343,28 @@ export function ChatHeader({
                     />
                   </button>
                 )}
-              {!pending && (conversation.type === 'channel' || conversation.type === 'contact') && (
-                <button
-                  className={headerActionClass}
-                  onClick={() =>
-                    onToggleFavorite(conversation.type as 'channel' | 'contact', conversation.id)
-                  }
-                  title={favoriteTitle}
-                  aria-label={isFav ? t('chatHeader.removeFavorite') : t('chatHeader.addFavorite')}
-                >
-                  {isFav ? (
-                    <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
-                  ) : (
-                    <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                  )}
-                </button>
-              )}
               {!pending &&
+                canSend &&
+                (conversation.type === 'channel' || conversation.type === 'contact') && (
+                  <button
+                    className={headerActionClass}
+                    onClick={() =>
+                      onToggleFavorite(conversation.type as 'channel' | 'contact', conversation.id)
+                    }
+                    title={favoriteTitle}
+                    aria-label={
+                      isFav ? t('chatHeader.removeFavorite') : t('chatHeader.addFavorite')
+                    }
+                  >
+                    {isFav ? (
+                      <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
+                    ) : (
+                      <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                    )}
+                  </button>
+                )}
+              {!pending &&
+                canSend &&
                 !(conversation.type === 'channel' && isPublicChannelKey(conversation.id)) && (
                   <button
                     className={cn(
@@ -394,7 +388,7 @@ export function ChatHeader({
           </>
         )}
       </div>
-      {!pending && conversation.type === 'channel' && activeFloodScopeBadge && (
+      {!pending && canSend && conversation.type === 'channel' && activeFloodScopeBadge && (
         <button
           className="col-span-2 mt-0.5 flex items-center gap-1 text-left sm:hidden"
           onClick={handleEditFloodScopeOverride}

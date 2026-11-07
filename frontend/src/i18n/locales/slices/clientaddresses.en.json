@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "access": {
+      "clientAddresses": {
+        "title": "Client addresses",
+        "toggle": "Client addresses identify clients",
+        "help": "Turn this on if the address below is really the visitor's: failed sign-ins are then also limited per address.",
+        "seen": "Address Meshloom sees for you: {{kind}}.",
+        "seenPublic": "a public address",
+        "seenLocal": "a local network address",
+        "suggest": "Your connection comes from a public address: turn this on to slow down attacks per address.",
+        "on": "Client addresses now identify clients.",
+        "off": "Client addresses no longer identify clients."
+      }
+    }
+  }
+}

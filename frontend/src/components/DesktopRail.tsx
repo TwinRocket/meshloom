@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import {
   ANCHORED_RAIL_ITEMS,
   DIRECTORY_ONLY_RAIL_IDS,
+  toolAllowed,
   type BottomNavTarget,
   type RailItemId,
   resolveRail,
@@ -10,6 +11,8 @@ import {
 import { RadioBatteryChip, RadioStatusChip } from './RadioStatusChip';
 import type { HealthStatus } from '../types';
 import { cn } from '../lib/utils';
+import { UserMenu } from '../auth/UserMenu';
+import { useCapabilities } from '../auth/SessionProvider';
 
 /**
  * Primary navigation for wide screens.
@@ -67,8 +70,10 @@ export function DesktopRail({
   directoryEnabled = false,
 }: Props) {
   const { t } = useTranslation();
+  const capabilities = useCapabilities();
   const railItems = resolveRail(order).filter(
-    ({ id }) => directoryEnabled || !DIRECTORY_ONLY_RAIL_IDS.includes(id)
+    ({ id }) =>
+      (directoryEnabled || !DIRECTORY_ONLY_RAIL_IDS.includes(id)) && toolAllowed(id, capabilities)
   );
 
   return (
@@ -155,7 +160,9 @@ export function DesktopRail({
         />
         <RadioBatteryChip health={health} onOpenStatus={onOpenRadioStatus} />
 
-        {ANCHORED_RAIL_ITEMS.map(({ target, labelKey, Icon }) => (
+        {ANCHORED_RAIL_ITEMS.filter(
+          ({ target }) => target !== 'settings' || capabilities.canOpenSettings
+        ).map(({ target, labelKey, Icon }) => (
           <div key={target} className="relative">
             <button
               type="button"
@@ -170,7 +177,7 @@ export function DesktopRail({
             >
               <Icon className="h-5 w-5" aria-hidden="true" />
             </button>
-            {target === 'settings' && updateAvailable && (
+            {target === 'settings' && updateAvailable && capabilities.isAdmin && (
               <button
                 type="button"
                 onClick={() => onOpenUpdate?.()}
@@ -182,6 +189,7 @@ export function DesktopRail({
             )}
           </div>
         ))}
+        <UserMenu className={DOOR_CLASS} />
       </div>
     </nav>
   );

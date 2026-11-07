@@ -1,12 +1,12 @@
 """F2 telemetry alerts: thresholds, misses, busy lock, untracked."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.models import (
     CONTACT_TYPE_REPEATER,
-    TelemetryAlertChannels,
     TelemetryAlertRuleOverride,
     TelemetryAlertRules,
     TelemetryRuleSpec,
@@ -402,12 +402,27 @@ class TestTelemetryAlerts:
 
     @pytest.mark.asyncio
     async def test_email_and_webhook_dispatch(self, test_db, captured_alerts):
+        from app.models import NotificationDestinations
+
         await _track_repeater()
         await AppSettingsRepository.update(
-            telemetry_alert_rules=TelemetryAlertRules(
-                channels=TelemetryAlertChannels(push=True, email=True, webhook=True)
-            )
+            # A medium with no destination has no channel, so no rule can reach it.
+            notification_destinations=NotificationDestinations.model_validate(
+                {
+                    "email": {"host": "smtp.example.org", "to": "ops@example.org"},
+                    "webhook": {"url": "https://hooks.example.org/x"},
+                }
+            ),
         )
+        await AppSettingsRepository.set_push_defaults(
+            {"telemetry_alert": {"push": True, "email": True, "webhook": True}}
+        )
+        # The "destination changed" push notice is a spawned task: wait for it.
+        from app.background_tasks import _tasks
+
+        pending = [t for t in _tasks if t.get_name() == "notify-destination-changed"]
+        await asyncio.gather(*pending)
+        captured_alerts.clear()
         with (
             patch("app.notify.send_email_alert", new_callable=AsyncMock) as email,
             patch("app.notify.send_webhook_alert", new_callable=AsyncMock) as webhook,

@@ -219,7 +219,7 @@ install -D -m 0644 "$RPI_DIR/meshloom-console.service" \
 # Apt source for later UI upgrades. Do not probe Pages here.
 write_meshloom_apt_source "$ROOTMNT"
 
-# Bots stay off via the packaged meshloom.env.
+# Extensions are managed in the UI; the packaged meshloom.env keeps MESHCORE_DISABLE_PLUGINS commented out.
 
 for fs in proc sys dev dev/pts; do
     mkdir -p "$ROOTMNT/$fs"
@@ -232,7 +232,9 @@ export DEBIAN_FRONTEND=noninteractive
 echo "[rpi] Disk inside chroot before packages:"
 df -h /
 apt-get update -y
-apt-get install -y --no-install-recommends avahi-daemon ca-certificates
+# bubblewrap: the package only Recommends it and dpkg -i skips Recommends
+# (plugin isolation, app/plugins/isolation/bwrap.py).
+apt-get install -y --no-install-recommends avahi-daemon ca-certificates bubblewrap
 dpkg -i /tmp/meshloom.deb || apt-get install -y -f
 dpkg-query -W -f='${Status}\n' meshloom | grep -q 'ok installed'
 rm -f /tmp/meshloom.deb

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isDispatchableWsEvent, parseWsEvent } from '../wsEvents';
+import { WS_EVENT_PERMISSIONS } from '../wsEventTypes';
 import fixtures from './fixtures/websocket_events.json';
 
 describe('wsEvents', () => {
@@ -154,6 +155,45 @@ describe('wsEvents', () => {
     });
   });
 
+  it('parses every server event type as a known event', () => {
+    for (const type of Object.keys(WS_EVENT_PERMISSIONS)) {
+      expect(parseWsEvent(JSON.stringify({ type, data: {} })).type).toBe(type);
+    }
+  });
+
+  it('parses plugin_status events', () => {
+    const data = {
+      instance_id: 'i1',
+      plugin_id: 'acme.weather',
+      label: 'Weather',
+      status: 'running',
+      last_error: null,
+      dropped_events: 0,
+      restarts: 0,
+    };
+    expect(parseWsEvent(JSON.stringify({ type: 'plugin_status', data }))).toEqual({
+      type: 'plugin_status',
+      data,
+    });
+  });
+
+  it('keeps the attention of a plugin_status event', () => {
+    const data = {
+      instance_id: 'i1',
+      plugin_id: 'meshloom.greeter',
+      label: 'Greeter',
+      status: 'needs_attention',
+      last_error: null,
+      dropped_events: 0,
+      restarts: 0,
+      attention: { type: 'config_required', fields: ['greeting'] },
+    };
+    expect(parseWsEvent(JSON.stringify({ type: 'plugin_status', data }))).toEqual({
+      type: 'plugin_status',
+      data,
+    });
+  });
+
   it('returns unknown events with rawType preserved', () => {
     const event = parseWsEvent(JSON.stringify({ type: 'mystery', data: { ok: true } }));
 
@@ -216,5 +256,26 @@ describe('wsEvents', () => {
     expect(
       isDispatchableWsEvent(parseWsEvent(JSON.stringify({ type: 'radio_wifi', data: {} })))
     ).toBe(false);
+  });
+
+  it('parses the notification_event frame and refuses a malformed one', () => {
+    const sample = fixtures.notification_event_mention.expected_ws_event;
+    const event = parseWsEvent(JSON.stringify(sample));
+    expect(event).toEqual(sample);
+    expect(isDispatchableWsEvent(event)).toBe(true);
+    expect(WS_EVENT_PERMISSIONS.notification_event).toBe('read');
+    // Typed data only: no rendered title or body.
+    expect(Object.keys(sample.data)).not.toContain('title');
+    expect(Object.keys(sample.data)).not.toContain('body');
+    for (const data of [
+      {},
+      { ...sample.data, event: 3 },
+      { ...sample.data, event_id: null },
+      { ...sample.data, data: 'text' },
+    ]) {
+      expect(
+        isDispatchableWsEvent(parseWsEvent(JSON.stringify({ type: 'notification_event', data })))
+      ).toBe(false);
+    }
   });
 });

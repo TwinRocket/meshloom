@@ -42,6 +42,7 @@ vi.mock('../components/ui/sonner', () => ({ toast: mocks.toast }));
 import { ApiError } from '../api';
 import {
   BackupRestoreFlow,
+  pushTargetText,
   restoreCodeText,
   restoreWarningText,
 } from '../components/settings/BackupRestoreFlow';
@@ -64,7 +65,7 @@ function inspectResult(overrides: Partial<BackupInspectResult> = {}): BackupInsp
     has_wifi: true,
     counts: { contacts: 3, channels: 2, groups: 1, fanout_configs: 0, push_subscriptions: 0 },
     bot_names: [],
-    bots_will_be_skipped: false,
+
     integrations: [],
     radio_proxy_enabled: null,
     identity_relation: 'same',
@@ -149,6 +150,24 @@ describe('BackupRestoreFlow', () => {
     expect(restore).toBeDisabled();
     fireEvent.click(checkbox('settings.fullRestore.confirm'));
     expect(restore).toBeEnabled();
+  });
+
+  it('says whether the restored channels stay on the radio (MSHL-41)', async () => {
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.channelsOffloaded'))
+    ).toBeInTheDocument();
+    fireEvent.click(checkbox('settings.fullRestore.steps.channels'));
+    expect(screen.queryByText(i18n.t('settings.fullRestore.channelsOffloaded'))).toBeNull();
+    cleanup();
+
+    mocks.inspectBackup.mockResolvedValue(inspectResult({ channels_kept_on_radio: true }));
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.channelsKept'))
+    ).toBeInTheDocument();
   });
 
   it('treats a file without format as a v1 backup', async () => {
@@ -382,13 +401,35 @@ describe('BackupRestoreFlow', () => {
     expect(screen.getByText(i18n.t('settings.fullRestore.meshloomStepRequired'))).toBeVisible();
   });
 
-  it('lists the bots that come back disabled', async () => {
+  it('warns before restoring when secrets.key is unusable, until the Meshloom step is off', async () => {
+    mocks.inspectBackup.mockResolvedValue(inspectResult({ secret_store_unavailable: true }));
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    const warning = await screen.findByTestId('secret-store-unavailable');
+    expect(warning).toHaveTextContent(i18n.t('settings.fullRestore.secretStoreUnavailable'));
+    for (const language of ['en', 'fr']) {
+      const text = i18n.getFixedT(language)('settings.fullRestore.secretStoreUnavailable');
+      expect(text).toContain('secrets.key');
+      expect(text).not.toContain('fullRestore');
+    }
+    fireEvent.click(screen.getByLabelText(i18n.t('settings.fullRestore.steps.meshloom')));
+    expect(screen.queryByTestId('secret-store-unavailable')).toBeNull();
+  });
+
+  it('shows no secrets.key warning when the inspection reports none', async () => {
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    await screen.findByLabelText(i18n.t('settings.fullRestore.steps.meshloom'));
+    expect(screen.queryByTestId('secret-store-unavailable')).toBeNull();
+  });
+
+  it('lists the bots that come back as disabled extensions', async () => {
     mocks.inspectBackup.mockResolvedValue(inspectResult({ bot_names: ['Greeter', 'Echo'] }));
     render(<BackupRestoreFlow />);
     pickFile(V2);
     expect(
       await screen.findByText(
-        i18n.t('settings.fullRestore.botsRestoredDisabled', { names: 'Greeter, Echo' })
+        i18n.t('settings.fullRestore.botsConverted', { names: 'Greeter, Echo' })
       )
     ).toBeVisible();
   });
@@ -603,10 +644,10 @@ describe('BackupRestoreFlow', () => {
 
   it('shows the finished job warnings, translated, and unknown ones as is', async () => {
     const finished = job();
-    finished.result!.warnings = ['bots_disabled:Greeter', 'push_kept_existing', 'brand_new:x'];
+    finished.result!.warnings = ['bots_converted:Greeter', 'push_kept_existing', 'brand_new:x'];
     await runJob(finished);
     expect(
-      screen.getByText(i18n.t('settings.fullRestore.warnings.bots_disabled', { value: 'Greeter' }))
+      screen.getByText(i18n.t('settings.fullRestore.warnings.bots_converted', { value: 'Greeter' }))
     ).toBeVisible();
     expect(
       screen.getByText(i18n.t('settings.fullRestore.warnings.push_kept_existing'))
@@ -728,9 +769,11 @@ describe('BackupRestoreFlow', () => {
     ];
     const warnings = [
       'fanout_reserved:system:x',
-      'bots_disabled:B',
       'fanout_invalid:id:webhook',
-      'bots_restored_disabled:B',
+      'bots_converted:B',
+      'apprise_restored_disabled:A',
+      'private_network_restored_disabled:L',
+      'secret_dropped_destination_changed:L',
       'push_kept_existing',
       'proxy_port_managed',
       'proxy_targets_transport',
@@ -743,6 +786,26 @@ describe('BackupRestoreFlow', () => {
       'channels_over_radio_limit',
       'radio_contacts_unreadable',
       'contact_load_failed',
+      'channels_offloaded_next_connect',
+      'section_failed:plugins',
+      'section_skipped:api_tokens',
+      'section_too_new:plugins',
+      'accounts_restored',
+      'accounts_no_admin',
+      'trusted_network_dropped:192.168.1.0/24',
+      'api_token_dropped:0123456789abcdef0123456789abcdef',
+      'notification_secrets_missing:2',
+      'notification_channel_dropped:webhook-1a2b3c4d',
+      'notification_rules_dropped',
+      'notification_rules_sanitized',
+      'notification_heartbeat_dropped:webhook-1a2b3c4d',
+      'notification_destination_secrets_missing',
+      'plugins_restored:2',
+      'plugins_to_reinstall:1',
+      'plugin_secrets_missing:1',
+      'plugin_dropped:local.greeter-1a2b3c',
+      'plugin_dropped_supervisor:local.greeter-1a2b3c',
+      'plugin_kept:meshloom.echo',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);
@@ -769,28 +832,16 @@ describe('BackupRestoreFlow', () => {
     expect(screen.getByLabelText(i18n.t('settings.fullRestore.choose'))).toBeInTheDocument();
   });
 
-  it('says bots are skipped when they are turned off on this server', async () => {
-    mocks.inspectBackup.mockResolvedValue(
-      inspectResult({ bot_names: ['Greeter'], bots_will_be_skipped: true })
-    );
-    render(<BackupRestoreFlow />);
-    pickFile(V2);
-    expect(
-      await screen.findByText(
-        i18n.t('settings.fullRestore.botsWillBeSkipped', { names: 'Greeter' })
-      )
-    ).toBeVisible();
-    expect(
-      screen.queryByText(i18n.t('settings.fullRestore.botsRestoredDisabled', { names: 'Greeter' }))
-    ).toBeNull();
-  });
-
   it('names the integrations, the proxy and the file warnings before restoring', async () => {
     mocks.inspectBackup.mockResolvedValue(
       inspectResult({
         integrations: [{ name: 'Hook', type: 'webhook', enabled: true }],
         radio_proxy_enabled: true,
-        warnings: ['radio_read_failed:tuning', 'radio_read_failed:autoadd'],
+        warnings: [
+          'radio_read_failed:tuning',
+          'radio_read_failed:autoadd',
+          'section_export_failed:plugins',
+        ],
       })
     );
     render(<BackupRestoreFlow />);
@@ -803,14 +854,57 @@ describe('BackupRestoreFlow', () => {
     expect(
       screen.getAllByText(i18n.t('settings.fullRestore.fileWarnings.radio_read_failed'))
     ).toHaveLength(1);
+    expect(
+      screen.getByText(
+        i18n.t('settings.fullRestore.fileWarnings.section_export_failed', { value: 'plugins' })
+      )
+    ).toBeVisible();
+  });
+
+  it('describes the file sections and flags the ones holding secrets', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({
+        sections: [
+          {
+            name: 'accounts',
+            known: true,
+            too_new: false,
+            sensitive: true,
+            description: { en: 'User accounts', fr: 'Comptes utilisateurs' },
+          },
+          {
+            name: 'plugins',
+            known: true,
+            too_new: true,
+            sensitive: false,
+            description: { en: 'Plugins', fr: 'Extensions' },
+          },
+          { name: 'future', known: false, too_new: false, sensitive: false, description: null },
+        ],
+      })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    const accounts = i18n.t('settings.fullRestore.sectionSensitive', {
+      name: 'Comptes utilisateurs',
+    });
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.sections', { list: accounts }))
+    ).toBeVisible();
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.sectionsTooNew', { list: 'Extensions' }))
+    ).toBeVisible();
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.sectionsUnknown', { list: 'future' }))
+    ).toBeVisible();
   });
 
   it('names the hosts restored push notifications go to', async () => {
     mocks.inspectBackup.mockResolvedValue(
       inspectResult({
         push_targets: [
-          { label: 'Phone', host: 'push.example.net' },
-          { label: '', host: 'fcm.googleapis.com' },
+          { label: 'Phone', host: 'push.example.net', owner: 'alice' },
+          { label: '', host: 'fcm.googleapis.com', owner: null },
         ],
       })
     );
@@ -820,11 +914,27 @@ describe('BackupRestoreFlow', () => {
       label: 'Phone',
       host: 'push.example.net',
     });
+    const list = [
+      i18n.t('settings.fullRestore.pushTargetOwner', { target: phone, owner: 'alice' }),
+      i18n.t('settings.fullRestore.pushTargetFirstAdmin', { target: 'fcm.googleapis.com' }),
+    ].join('; ');
     expect(
-      await screen.findByText(
-        i18n.t('settings.fullRestore.pushTargets', { list: `${phone}, fcm.googleapis.com` })
-      )
+      await screen.findByText(i18n.t('settings.fullRestore.pushTargets', { list }))
     ).toBeVisible();
+  });
+
+  it('names the account each push subscription goes to, in French and English', () => {
+    for (const language of ['en', 'fr']) {
+      const t = i18n.getFixedT(language);
+      const owned = pushTargetText({ label: 'Phone', host: 'h.example', owner: 'alice' }, t);
+      expect(owned).toContain('alice');
+      expect(owned).toContain('h.example');
+      const fallback = pushTargetText({ label: '', host: 'h.example', owner: null }, t);
+      expect(fallback).toBe(
+        t('settings.fullRestore.pushTargetFirstAdmin', { target: 'h.example' })
+      );
+      expect(fallback).not.toContain('pushTarget');
+    }
   });
 
   it('neither shows nor reports again a finished job already handled', async () => {

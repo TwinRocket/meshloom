@@ -42,7 +42,20 @@ import httpx
 
 from app.decoder import parse_advertisement, parse_packet
 from app.fanout.base import FanoutModule
-from app.keystore import ed25519_sign_expanded, get_private_key, get_public_key
+from app.keystore import (
+    RADIO_KEY_ERRORS,
+    ed25519_sign_expanded,
+    first_missing_key_notice,
+    get_private_key,
+    get_public_key,
+    radio_key_unavailable_code,
+)
+from app.net.egress_guard import (
+    EgressBlocked,
+    error_code,
+    pinned_async_client,
+    validate_destination,
+)
 from app.services.radio_runtime import radio_runtime
 
 logger = logging.getLogger(__name__)
@@ -106,22 +119,17 @@ class MapUploadModule(FanoutModule):
 
     def __init__(self, config_id: str, config: dict, *, name: str = "") -> None:
         super().__init__(config_id, config, name=name)
-        self._client: httpx.AsyncClient | None = None
+        self._running = False
         # Per-pubkey rate limiting: pubkey_hex -> last_uploaded_advert_timestamp
         self._seen: dict[str, int] = {}
 
     async def start(self) -> None:
-        self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(15.0),
-            follow_redirects=False,
-        )
+        self._running = True
         self._last_error = None
         self._seen.clear()
 
     async def stop(self) -> None:
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        self._running = False
         self._last_error = None
 
     async def on_raw(self, data: dict) -> None:
@@ -233,11 +241,14 @@ class MapUploadModule(FanoutModule):
         public_key = get_public_key()
 
         if private_key is None or public_key is None:
-            logger.warning(
-                "MapUpload: private key not available — cannot sign upload for %s. "
-                "Ensure radio firmware has ENABLE_PRIVATE_KEY_EXPORT=1.",
-                pubkey[:12],
-            )
+            # Runs for every advert to upload: one warning per connection.
+            if first_missing_key_notice("map_upload"):
+                logger.warning(
+                    "MapUpload: cannot sign uploads: %s",
+                    RADIO_KEY_ERRORS[radio_key_unavailable_code()],
+                )
+            else:
+                logger.debug("MapUpload: no radio key, skipping %s", pubkey[:12])
             return
 
         api_url = str(self.config.get("api_url", "") or _DEFAULT_API_URL).strip()
@@ -281,11 +292,11 @@ class MapUploadModule(FanoutModule):
             self._seen[pubkey] = advert_timestamp
             return
 
-        if not self._client:
+        if not self._running:
             return
 
         try:
-            resp = await self._client.post(
+            resp = await self._post(
                 api_url,
                 content=json.dumps(request_payload, separators=(",", ":")),
                 headers={"Content-Type": "application/json"},
@@ -307,13 +318,30 @@ class MapUploadModule(FanoutModule):
                 pubkey[:12],
                 exc.response.text[:200],
             )
+        except EgressBlocked as exc:
+            self._set_last_error(exc.code)
+            logger.warning("MapUpload: destination refused for %s (%s)", pubkey[:12], exc.code)
         except httpx.RequestError as exc:
-            self._set_last_error(str(exc))
-            logger.warning("MapUpload: request error for %s: %s", pubkey[:12], exc)
+            self._set_last_error(error_code(exc))
+            logger.warning(
+                "MapUpload: request error for %s (%s): %s",
+                pubkey[:12],
+                error_code(exc),
+                type(exc).__name__,
+            )
+
+    async def _post(self, api_url: str, *, content: str, headers: dict[str, str]) -> httpx.Response:
+        """POST checked by the egress guard before every upload, pinned to a
+        validated IP (``app/net/AGENTS.md``); never follows a redirect."""
+        dest = await validate_destination(
+            api_url, allow_private_network=bool(self.config.get("allow_private_network", False))
+        )
+        async with pinned_async_client(dest, timeout=httpx.Timeout(15.0)) as client:
+            return await client.post(content=content.encode(), headers=headers)
 
     @property
     def status(self) -> str:
-        if self._client is None:
+        if not self._running:
             return "disconnected"
         if self.last_error:
             return "error"

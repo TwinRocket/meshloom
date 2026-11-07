@@ -1,0 +1,6 @@
+{
+  "errors": {
+    "verify_tls_requires_private_destination": "La vérification du certificat ne peut être désactivée que sur votre réseau local. Réactivez-la pour cette adresse.",
+    "smtp_plaintext_auth_refused": "Hors de votre réseau, un identifiant n'est jamais envoyé sans chiffrement. Choisissez STARTTLS ou SSL, ou retirez l'identifiant."
+  }
+}

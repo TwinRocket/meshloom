@@ -26,12 +26,25 @@ hypothesis: check it against the code. Constants are named so you can grep them.
 
 ## HTTP (`stats_request`)
 
+- No radio key: a call that needs a token (`mint_stats_jwt`) or the key to opt out answers 503
+  with a local code, `keystore.RADIO_KEY_ERRORS`, chosen by `radio_key_unavailable_code()`:
+  `radio_key_behind_proxy` (the export was refused and the peer's `DEVICE_INFO` model is
+  `MeshloomProxy/<id>`, what `app/radio_proxy` always answers; `export_and_store_private_key`
+  asks it right after a refusal), `radio_key_export_disabled` (refused, any other model: firmware
+  without `ENABLE_PRIVATE_KEY_EXPORT`, or a third-party proxy, which reports the model behind it,
+  so the copy names both) or `radio_key_unavailable` (no refusal known, or the model could not be
+  read). No host name is ever read. The proxy's refusal is by design
+  (`app/radio_proxy/policy.py`). FR and EN copy: slice `radiokey`, `errors.<code>`. Outside
+  Community: the historical DM toast carries the code in `params.radio_key_code`, which
+  `useRealtimeAppState` shows as its details; what runs on every advert (that toast when
+  automatic, the map upload warning) reports once per connection and cause
+  (`first_missing_key_notice`).
 - Upstream mapping: transport error, timeout or 5xx gives 503; 429 gives 429; 400
   gives 400; 401 gives 502 (with a clock hint when `classify_auth_rejection` reports
   `clock_skew`); 403 `code: banned` gives 403 `community_banned` (see Banned key);
   any other non-200 gives 502 (`CommunityUpstreamError.upstream_status`); an
   unexpected body gives 502.
-- `CommunityBreaker`: 3 consecutive failures (`BREAKER_FAILURE_THRESHOLD`) open it
+- `CommunityBreaker` (the shared `CircuitBreaker` of `app/net/breaker.py`): 3 consecutive failures (`BREAKER_FAILURE_THRESHOLD`) open it
   for 30 s (`BREAKER_OPEN_SECONDS`, 503 without network), then one trial call
   decides. The IATA suggestion and the release check never touch it.
 - The hashtag catalogue is global (`GET /community/hashtags` proxies
@@ -202,14 +215,15 @@ mirrors this (`placedObserverCoordinates`, `byName`, in `utils/meshTest.ts`).
 ## Banned key (`community_ban.py`)
 
 Community answers 403 `code: banned` (`errors.md`) on the key's write routes
-(`BANNED_REFUSED_ROUTES`: six routes, `PUT /v1/me/iata`,
+(`BANNED_REFUSED_ROUTES`: seven routes, `PUT /v1/me/iata`,
 `POST /v1/me/iata/override`, `PUT /v1/me/hashtags`, `POST /v1/hashtags/resolve`,
-`POST /v1/hashtags/samples`, `POST /v1/directory/packets/observations`), on the Live
+`POST /v1/hashtags/samples`, `POST /v1/directory/packets/observations`, and
+`POST /v1/me/attestations` from `attestation.md`), on the Live
 handshake, and refuses the key at MQTT auth. A retry cannot lift it, so the first
 such answer (`note_banned()`, from `stats_request` or Live) starts an in-memory
 state for `BANNED_HOLD_S` (12 h):
 
-- `stats_request` refuses those six routes locally with 403 `community_banned`, after
+- `stats_request` refuses those seven routes locally with 403 `community_banned`, after
   the egress guard.
 - Live stops with state `banned` (`stop_for_ban()`, spawned by `_apply_ban()`) and
   opens nothing.
@@ -228,6 +242,58 @@ The state ends on restart, on a user action (`PATCH /community`, a join or IATA 
 the next refused reconnect probes again and restarts it if the ban holds. The
 re-bind worker treats the 403 like an opt-out (no retry). Tested by
 `tests/test_community_ban.py`.
+
+## Attestations (`community_attestation.py`)
+
+Links (`meshl.ink`) and the Remote relay accept a creation or a registration only from an
+instance key Community attested (MSHL-445, contract `attestation.md`). Meshloom asks for
+one per service key, from the backend only:
+
+- **Request.** `POST /v1/me/attestations` through `stats_request` (the egress guard: never
+  while Community is off, waiting for a position or leaving), authenticated with the radio's
+  API JWT, no `iata` claim (`_path_requires_iata`), body `{"instance_key": <64 hex
+  uppercase>, "audience": "links" | "remote"}`. `_request_attestation` is the module's only
+  network call. A `201` is kept only when it follows the contract: a token of at most 2048
+  characters in the `header.payload.signature_hex` shape, the asked audience, integer
+  `issued_at` < `expires_at`, more than 5 min left, and a payload `sub` equal to the asked
+  key and `aud` equal to the asked audience (the signature is the services' job).
+- **Cache.** `community_attestations` (migration 142, `docs/dev/database.md`) keeps the last
+  token of each audience with its key and `expires_at`. `attestation_for(audience)` returns it
+  while more than 24 h are left (`RENEW_BEFORE_S`), asks for a new one under that, and still
+  returns the old one while more than 5 min are left (`MIN_REMAINING_S`) if the renewal fails.
+  A row of another key (rotation, restore) is never sent.
+- **Rejection.** `renew_after_rejection(audience, rejected)` after a service's 403
+  `attestation_missing`, `attestation_invalid` or `attestation_expired`: drops the row and asks
+  once; a token another request already renewed is returned as is; a token fetched less than
+  10 min ago and refused anyway is not replaced (a hold of 10 min). Callers retry once:
+  `share.share_request` and `remote._register_locked` (`docs/dev/remote.md`, "Attestation").
+- **Rate limits.** Community allows 12 per radio key and per rolling hour (all audiences), 60
+  per address. Here: one request at a time per audience (a lock), at most 6 per audience per
+  rolling hour (`FETCH_BUDGET`), and holds that answer at once without a request:
+  `radio_not_heard` 15 min, `opted_out` and `banned` 1 h, a 429 its `Retry-After` (Community
+  sends none today) or 15 min, `503 attestation_unconfigured` 15 min, anything else (network,
+  5xx, breaker open, 401, 400/422, an answer outside the contract) a backoff of 1, 2, 4, 8 then
+  15 min. Holds and the budget are in memory: a restart starts them again, the cached token
+  stays.
+- **Reasons** (`AttestationUnavailable.reason`): `radio_not_heard`, `opted_out`, `banned`,
+  `unavailable`. Links maps them to `share_radio_not_heard`, `share_community_opted_out`,
+  `share_community_banned`, `share_attestation_unavailable`; Remote to the `remote_` codes of
+  the same names. FR and EN copy: the `ah` and `remote` i18n slices, `errors.<code>`.
+  With no radio key the reason is `unavailable` and `radio_key_code` holds the local code: no
+  hold and no budget spent, since no request left. Links reports that code (503); Remote keeps
+  `remote_attestation_unavailable`, whose copy mentions a proxy.
+- **Community off, restore.** The `add_enabled_change_listener` hook forgets every token and
+  hold when Community is turned off; the `community_attestation` on_restore hook does the same
+  after any restore, and a database copy empties the table (`SNAPSHOT_EMPTIED_TABLES`).
+  `forget_attestations` takes both audience locks (links, then remote): a request in flight
+  when Community is turned off finishes first, and its token is deleted with the rest instead
+  of being stored after the forget.
+
+Tests: `tests/test_community_attestation.py` (cache, renewal, holds, budget, Community answers,
+the restore hook registry, the forget/fetch race, Links and Remote retries, against a mocked
+Community, Links and relay). Every other test gets
+`tests/attestation_fakes.FAKE_ATTESTATION` from the autouse `_fake_community_attestation`
+fixture (`tests/conftest.py`).
 
 ## Live relay (`community_live.py`)
 

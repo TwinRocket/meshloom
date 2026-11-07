@@ -1,0 +1,44 @@
+{
+  "auth": {
+    "passkey": {
+      "or": "or",
+      "signIn": "Sign in with a passkey",
+      "useAsSecondFactor": "Use a passkey",
+      "unavailableHint": "Passkeys are not available at this address. Open Meshloom over https on a declared address.",
+      "insecureHint": "Passkeys are not available here: they need https on a declared address or localhost.",
+      "errors": {
+        "cancelled": "The passkey request was cancelled. Try again.",
+        "notAllowed": "The passkey request was cancelled, refused or timed out. Try again.",
+        "alreadyRegistered": "This device already has a passkey for this account.",
+        "failed": "The browser could not use a passkey here. Try again or use another method."
+      }
+    }
+  },
+  "settings": {
+    "access": {
+      "passkeys": {
+        "title": "Passkeys",
+        "help": "Sign in with your fingerprint, face or device PIN. Your password keeps working.",
+        "ingress": "Passkeys do not apply under Home Assistant: Home Assistant already signed you in.",
+        "noPassword": "This account has no Meshloom password (it signs in another way), so it has no passkeys.",
+        "none": "No passkey yet.",
+        "unavailable": "Passkeys need https on a declared address, Meshloom Remote or localhost.",
+        "synced": "Synced",
+        "created": "Added {{date}}",
+        "lastUsed": "last used {{date}}",
+        "neverUsed": "never used",
+        "add": "Add a passkey",
+        "name": "Name",
+        "namePlaceholder": "For example: Laptop, Phone",
+        "codeHelp": "Enter a code from your authenticator app, or a recovery code.",
+        "addSubmit": "Create the passkey",
+        "added": "Passkey added.",
+        "remove": "Remove the passkey {{name}}",
+        "removeButton": "Remove",
+        "removePassword": "Password to remove “{{name}}”",
+        "removeSubmit": "Remove the passkey",
+        "removed": "Passkey removed."
+      }
+    }
+  }
+}

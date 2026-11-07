@@ -232,6 +232,13 @@ class FakeNode(FakeCompanionFirmware):
         self.log.append(("set_pin", self.ble_pin))
         return [OK]
 
+    def _cmd_1f(self, body: bytes) -> list[bytes]:  # GET_CHANNEL
+        idx = body[0]
+        if idx >= self.max_channels:
+            return [error(2)]
+        name, secret = self.channels.get(idx, ("", bytes(16)))
+        return [b"\x12" + bytes([idx]) + name.encode()[:32].ljust(32, b"\x00") + secret]
+
     def _cmd_20(self, body: bytes) -> list[bytes]:  # SET_CHANNEL
         idx = body[0]
         self.channels[idx] = (_cstr(body[1:33]), body[33:49])

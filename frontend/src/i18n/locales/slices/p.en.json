@@ -1,0 +1,39 @@
+{
+  "errors": {
+    "egress_scheme_apprise": "Apprise URL {{line}}: Meshloom does not send to {{scheme}}://. The docs list the supported services.",
+    "egress_private_address_apprise": "Apprise URL {{line}}: this address is on a private network. If it is yours, allow private networks for this integration.",
+    "egress_unresolvable_apprise": "Apprise URL {{line}}: the host name was not found. Check it, or type the IP address instead.",
+    "apprise_url_invalid": "Apprise URL {{line}}: Apprise does not understand this URL. Check it against the Apprise wiki.",
+    "apprise_chat_id_required": "Apprise URL {{line}}: a Telegram URL needs a chat id (tgram://bot_token/chat_id).",
+    "secret_required": "The destination changed, so the stored secret is not reused ({{fields}}). Type it again, or clear it."
+  },
+  "settings": {
+    "fanout": {
+      "privateNetwork": {
+        "label": "Allow a destination on a private network (LAN, localhost)",
+        "help": "For a destination on your local network (Home Assistant, Gotify, ntfy, Node-RED…).",
+        "grandfathered": "These integrations keep private network access because they predate destination checks: {{names}}.",
+        "grandfatheredDismiss": "Got it"
+      },
+      "secret": {
+        "kept": "Unchanged",
+        "clear": "Clear",
+        "keep": "Keep",
+        "cleared": "Removed on save",
+        "clearedHelp": "The stored secret is removed when you save. Type a new one, or click Keep.",
+        "required": "Required: the destination changed",
+        "requiredAfterDestination": "Destination changed: type the secret again, or click Clear."
+      },
+      "apprise": {
+        "urlsKept": "Unchanged ({{targets}}). Type new URLs to replace all of them."
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "apprise_restored_disabled": "The Apprise integration {{value}} came back disabled: one of its URLs is no longer supported. Fix it before enabling it.",
+        "private_network_restored_disabled": "The integration {{value}} came back disabled because it targeted a private network. Check its destination, then enable it.",
+        "secret_dropped_destination_changed": "The secret of {{value}} was not restored. Type it again in its settings."
+      }
+    }
+  }
+}

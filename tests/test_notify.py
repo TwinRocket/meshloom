@@ -1,7 +1,10 @@
 import json
+import logging
 import re
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from app.email_template import (
@@ -13,9 +16,19 @@ from app.email_template import (
     render_plain_email,
     resolve_instance_language,
 )
-from app.models import NotificationDestinations, NotificationWebhookDest
-from app.notify import TEST_ALERT_PAYLOAD, send_webhook_alert
-from app.repository.settings import coerce_notification_media, or_notification_media
+from app.models import AppSettings, NotificationDestinations, NotificationWebhookDest
+from app.net.egress_guard import EgressBlocked
+from app.notifications.dispatcher import emit, notification_dispatcher
+from app.notify import (
+    TEST_ALERT_PAYLOAD,
+    send_webhook_alert,
+    webhook_last_error,
+)
+from app.repository.settings import (
+    AppSettingsRepository,
+    coerce_notification_media,
+    or_notification_media,
+)
 
 
 def test_test_alert_payload_identifies_node_and_metric():
@@ -49,7 +62,7 @@ def test_enrich_maps_lpp_rule_to_metric():
 
 def test_coerce_bool_sets_push_only():
     flags = coerce_notification_media(False)
-    assert flags == {"push": False, "email": False, "webhook": False}
+    assert flags == {"push": False, "email": False, "webhook": False, "apprise": False}
     flags = coerce_notification_media(True, {"push": False, "email": True, "webhook": True})
     assert flags["push"] is True
     assert flags["email"] is True
@@ -61,69 +74,44 @@ def test_or_notification_media_unions_flags():
         {"push": True, "email": False, "webhook": False},
         {"push": False, "email": True, "webhook": False},
     )
-    assert combined == {"push": True, "email": True, "webhook": False}
+    assert combined == {"push": True, "email": True, "webhook": False, "apprise": False}
+
+
+@pytest.fixture
+def webhook_requests(monkeypatch) -> list[httpx.Request]:
+    """Requests the pinned webhook client sends, answered 204 without a socket."""
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204)
+
+    real = httpx.AsyncClient
+
+    class Recording(real):
+        def __init__(self, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", Recording)
+    return captured
 
 
 @pytest.mark.asyncio
-async def test_webhook_event_header_follows_payload(monkeypatch):
-    captured: dict[str, object] = {}
-
-    class _FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, content=None, headers=None):
-            captured["url"] = url
-            captured["headers"] = headers
-            captured["content"] = content
-            return _FakeResponse()
-
-    monkeypatch.setattr("app.notify.httpx.AsyncClient", _FakeClient)
-
+async def test_webhook_event_header_follows_payload(webhook_requests):
     dest = NotificationDestinations(
-        webhook=NotificationWebhookDest(url="https://example.test/hook")
+        webhook=NotificationWebhookDest(url="https://93.184.215.14/hook")
     )
     await send_webhook_alert(dest, {"event": "new_dm", "text": "hi"})
-    assert captured["headers"]["X-Webhook-Event"] == "new_dm"
-    assert captured["url"] == "https://example.test/hook"
+    (request,) = webhook_requests
+    assert request.headers["X-Webhook-Event"] == "new_dm"
+    assert str(request.url) == "https://93.184.215.14/hook"
 
 
 @pytest.mark.asyncio
-async def test_webhook_telemetry_includes_node_and_metric(monkeypatch):
-    captured: dict[str, object] = {}
-
-    class _FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, content=None, headers=None):
-            captured["headers"] = headers
-            captured["body"] = json.loads(content)
-            return _FakeResponse()
-
-    monkeypatch.setattr("app.notify.httpx.AsyncClient", _FakeClient)
+async def test_webhook_telemetry_includes_node_and_metric(webhook_requests):
     dest = NotificationDestinations(
-        webhook=NotificationWebhookDest(url="https://example.test/hook")
+        webhook=NotificationWebhookDest(url="https://93.184.215.14/hook")
     )
     await send_webhook_alert(
         dest,
@@ -137,7 +125,7 @@ async def test_webhook_telemetry_includes_node_and_metric(monkeypatch):
             "op": "lt",
         },
     )
-    body = captured["body"]
+    body = json.loads(webhook_requests[0].content)
     assert isinstance(body, dict)
     assert body["public_key"] == "bb" * 32
     assert body["name"] == "HillRepeater"
@@ -147,26 +135,193 @@ async def test_webhook_telemetry_includes_node_and_metric(monkeypatch):
     assert body["rule_id"] == "battery"
 
 
+# ── Egress guard on the system webhook ───────────────────────────────────
+
+LAN_HOOK = "http://192.168.1.10/"
+
+
+@pytest.mark.asyncio
+async def test_lan_webhook_refused_at_send_without_the_flag(webhook_requests):
+    dest = NotificationDestinations(webhook=NotificationWebhookDest(url=LAN_HOOK))
+    with pytest.raises(EgressBlocked) as caught:
+        await send_webhook_alert(dest, {"event": "new_dm"})
+    assert caught.value.code == "egress_private_address"
+    assert webhook_requests == []
+    assert webhook_last_error() is not None
+    assert webhook_last_error()["code"] == "egress_private_address"
+
+
+@pytest.mark.asyncio
+async def test_lan_webhook_sent_with_the_flag_and_last_error_cleared(webhook_requests):
+    dest = NotificationDestinations(
+        webhook=NotificationWebhookDest(url=LAN_HOOK, allow_private_network=True)
+    )
+    await send_webhook_alert(dest, {"event": "new_dm"})
+    assert webhook_requests[0].url.host == "192.168.1.10"
+    assert webhook_last_error() is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_logs_a_refused_webhook_as_a_warning(webhook_requests, monkeypatch, caplog):
+    monkeypatch.setattr(
+        "app.repository.settings.AppSettingsRepository.get",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                notification_destinations=NotificationDestinations(
+                    webhook=NotificationWebhookDest(url=LAN_HOOK + "tok3n")
+                )
+            )
+        ),
+    )
+    with caplog.at_level(logging.WARNING, logger="app.notifications.transports.legacy"):
+        await emit(None, payload={"event": "oss_update"}, targets=["legacy:webhook"])
+        await notification_dispatcher().wait_idle()
+    assert "webhook dispatch failed: egress_private_address" in caplog.text
+    assert "tok3n" not in caplog.text
+    assert webhook_requests == []
+
+
+@pytest.mark.asyncio
+async def test_lan_webhook_refused_at_save_without_the_flag(test_db, client):
+    response = await client.patch(
+        "/api/settings", json={"notification_destinations": {"webhook": {"url": LAN_HOOK}}}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "egress_private_address"
+    assert "192.168" not in response.text
+    stored = await AppSettingsRepository.get()
+    assert stored.notification_destinations.webhook.url == ""
+
+
+@pytest.mark.asyncio
+async def test_lan_webhook_saved_with_the_flag(test_db, client):
+    response = await client.patch(
+        "/api/settings",
+        json={
+            "notification_destinations": {
+                "webhook": {"url": LAN_HOOK, "allow_private_network": True}
+            }
+        },
+    )
+    assert response.status_code == 200
+    webhook = response.json()["notification_destinations"]["webhook"]
+    assert webhook["allow_private_network"] is True
+    assert webhook["private_network_grandfathered"] is False
+    # Turning the flag off again is refused while the URL stays on the LAN.
+    response = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"webhook": {"allow_private_network": False}}},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_unchanged_webhook_is_not_revalidated_on_save(test_db, client, monkeypatch):
+    await _store_raw_destinations(test_db, {"webhook": {"url": "https://hook.lan.invalid/x"}})
+    guard = AsyncMock(side_effect=AssertionError("revalidated"))
+    monkeypatch.setattr("app.routers.settings.validate_destination", guard)
+    response = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"email": {"host": "smtp.example.test"}}},
+    )
+    assert response.status_code == 200
+    guard.assert_not_called()
+
+
+async def _store_raw_destinations(db, raw: dict) -> None:
+    """Write notification_destinations as a release before the guard stored it."""
+    async with db.tx() as conn:
+        await conn.execute(
+            "UPDATE app_settings SET notification_destinations = ? WHERE id = 1",
+            (json.dumps(raw),),
+        )
+
+
+@pytest.mark.asyncio
+async def test_existing_lan_webhook_keeps_working_after_the_upgrade(test_db, webhook_requests):
+    await _store_raw_destinations(test_db, {"webhook": {"url": LAN_HOOK, "hmac_secret": ""}})
+    dest = (await AppSettingsRepository.get()).notification_destinations
+    assert dest.webhook.allow_private_network is True
+    assert dest.webhook.private_network_grandfathered is True
+    await send_webhook_alert(dest, {"event": "new_dm"})
+    assert webhook_requests[0].url.host == "192.168.1.10"
+
+
+@pytest.mark.asyncio
+async def test_grandfathering_banner_dismissed_and_new_url_drops_it(test_db, client):
+    await _store_raw_destinations(test_db, {"webhook": {"url": LAN_HOOK}})
+    settings = (await client.get("/api/settings")).json()
+    assert settings["notification_destinations"]["webhook"]["private_network_grandfathered"]
+    response = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"webhook": {"private_network_grandfathered": False}}},
+    )
+    webhook = response.json()["notification_destinations"]["webhook"]
+    assert webhook["private_network_grandfathered"] is False
+    assert webhook["allow_private_network"] is True
+    # Stored explicitly now: the lazy default never applies again.
+    stored = (await AppSettingsRepository.get()).notification_destinations.webhook
+    assert stored.private_network_grandfathered is False
+
+    await _store_raw_destinations(test_db, {"webhook": {"url": LAN_HOOK}})
+    response = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"webhook": {"url": "https://93.184.215.14/x"}}},
+    )
+    assert (
+        response.json()["notification_destinations"]["webhook"]["private_network_grandfathered"]
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_new_webhook_and_empty_url_are_not_grandfathered(test_db):
+    await _store_raw_destinations(test_db, {"webhook": {"url": ""}})
+    assert not (
+        await AppSettingsRepository.get()
+    ).notification_destinations.webhook.allow_private_network
+    await _store_raw_destinations(
+        test_db, {"webhook": {"url": LAN_HOOK, "allow_private_network": False}}
+    )
+    webhook = (await AppSettingsRepository.get()).notification_destinations.webhook
+    assert webhook.allow_private_network is False
+    assert webhook.private_network_grandfathered is False
+
+
+def test_backup_from_before_the_guard_restores_the_lan_opt_in():
+    settings = AppSettings.model_validate(
+        {"notification_destinations": {"webhook": {"url": LAN_HOOK}}}
+    )
+    assert settings.notification_destinations.webhook.allow_private_network is True
+    fresh = NotificationWebhookDest(url=LAN_HOOK)
+    assert fresh.allow_private_network is False
+
+
 @pytest.mark.asyncio
 async def test_dispatch_uses_explicit_channels(monkeypatch):
-    from app.notify import dispatch_system_event
-
     push = AsyncMock()
     email = AsyncMock()
     webhook = AsyncMock()
     monkeypatch.setattr("app.push.manager.push_manager.dispatch_event", push)
     monkeypatch.setattr("app.notify.send_email_alert", email)
     monkeypatch.setattr("app.notify.send_webhook_alert", webhook)
+    destinations = NotificationDestinations.model_validate(
+        {
+            "email": {"host": "smtp.example.org", "to": "a@example.org"},
+            "webhook": {"url": "https://hooks.example.org/x"},
+        }
+    )
     monkeypatch.setattr(
         "app.repository.settings.AppSettingsRepository.get",
-        AsyncMock(
-            return_value=type("S", (), {"notification_destinations": NotificationDestinations()})()
-        ),
+        AsyncMock(return_value=type("S", (), {"notification_destinations": destinations})()),
     )
 
-    await dispatch_system_event(
-        {"event": "oss_update"}, {"push": False, "email": True, "webhook": True}
+    await emit(
+        None,
+        payload={"event": "oss_update"},
+        targets=["legacy:email", "legacy:webhook"],
     )
+    await notification_dispatcher().wait_idle()
     push.assert_not_called()
     email.assert_awaited_once()
     webhook.assert_awaited_once()

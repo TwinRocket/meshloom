@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Recovery tool: push the X.Y.Z tag when scripts/build/publish.sh pushed the
-# release commit to main but not the tag (a failed tag push, an interrupted run).
-# A normal release does not need it: publish.sh pushes main, then the tag.
+# Recovery tool: push the X.Y.Z or X.Y.Z-rc.N tag when scripts/build/publish.sh
+# pushed the release commit but not the tag (a failed tag push, an interrupted run).
+# A normal release does not need it: publish.sh pushes the branch, then the tag.
 #
-# Run on a clean main equal to origin/main. Refuses unless HEAD carries version
-# X.Y.Z in every version source, has a CHANGELOG section for it, has the
+# Run on a clean main equal to origin/main (an rc: main or preversion-5). Refuses
+# unless HEAD carries the version in every version source, has a CHANGELOG section for it, has the
 # `all-quality` check green, and the tag exists neither locally nor on origin. Then creates an
 # annotated (unsigned) X.Y.Z tag and, after confirmation, pushes it. The tag
 # starts release.yml and docker.yml; nothing is built here.
@@ -32,10 +32,10 @@ ASSUME_YES=0
 
 usage() {
     cat <<'EOF'
-Usage: scripts/build/tag_release.sh X.Y.Z [options]
+Usage: scripts/build/tag_release.sh X.Y.Z|X.Y.Z-rc.N [options]
 
-Recovery only: creates and pushes the annotated X.Y.Z tag on main's HEAD when
-scripts/build/publish.sh pushed the release commit but not the tag.
+Recovery only: creates and pushes the annotated tag on the release branch's HEAD
+when scripts/build/publish.sh pushed the release commit but not the tag.
 
 Options:
   --dry-run                 Run every check, create and push nothing
@@ -76,20 +76,20 @@ release_validate_version "$VERSION"
 
 echo -e "${YELLOW}=== Meshloom release: tag $VERSION (recovery) ===${NC}"
 
-# 1. A clean main, equal to origin/main: the tag must point at what was pushed.
+# 1. A clean branch, equal to its origin: the tag must point at what was pushed.
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-[ "$BRANCH" = "main" ] || release_die "Tags are cut from main; you are on '$BRANCH'."
+release_check_branch "$VERSION" "$BRANCH"
 [ -z "$(git status --porcelain)" ] || release_die "The working tree is not clean; commit or stash first."
-git fetch --quiet origin main
+git fetch --quiet origin "$BRANCH"
 HEAD_SHA="$(git rev-parse HEAD)"
-[ "$HEAD_SHA" = "$(git rev-parse origin/main)" ] \
-    || release_die "main is not at origin/main; run 'git pull --ff-only' (or push the release commit first)."
-echo "ok    main is clean and at origin/main ($HEAD_SHA)"
+[ "$HEAD_SHA" = "$(git rev-parse "origin/$BRANCH")" ] \
+    || release_die "$BRANCH is not at origin/$BRANCH; run 'git pull --ff-only' (or push the release commit first)."
+echo "ok    $BRANCH is clean and at origin/$BRANCH ($HEAD_SHA)"
 
 # 2. HEAD is the release: every version source says X.Y.Z, and the changelog has it.
 scripts/build/check_version_consistency.sh "$VERSION" >/dev/null \
     || { scripts/build/check_version_consistency.sh "$VERSION" >&2 || true
-         release_die "HEAD does not carry version $VERSION; did scripts/build/publish.sh $VERSION push it to main?"; }
+         release_die "HEAD does not carry version $VERSION; did scripts/build/publish.sh $VERSION push it to $BRANCH?"; }
 echo "ok    version sources = $VERSION"
 TAG_NOTES_FILE="$(mktemp)"
 trap 'rm -f "$TAG_NOTES_FILE"' EXIT
@@ -111,14 +111,14 @@ case "$LS_REMOTE_STATUS" in
 esac
 echo "ok    tag $VERSION exists neither locally nor on origin"
 
-# 4. All Quality is green on this exact commit (the push run on main).
+# 4. All Quality is green on this exact commit (the push run on the branch).
 command -v gh >/dev/null 2>&1 || release_die "The GitHub CLI (gh) is required to read the checks."
 CHECK_STATE="$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs?check_name=$QUALITY_CHECK&per_page=100" \
     --jq '[.check_runs[]] | sort_by(.started_at) | last | if . == null then "missing" else "\(.status)/\(.conclusion)" end')" \
     || release_die "Could not read the checks of $HEAD_SHA on $GH_REPO."
 case "$CHECK_STATE" in
     completed/success) ;;
-    missing) release_die "No '$QUALITY_CHECK' check on $HEAD_SHA yet; wait for All Quality on main." ;;
+    missing) release_die "No '$QUALITY_CHECK' check on $HEAD_SHA yet; wait for All Quality on $BRANCH." ;;
     queued/* | in_progress/* | waiting/* | pending/* | requested/*)
         release_die "'$QUALITY_CHECK' is still running on $HEAD_SHA ($CHECK_STATE); try again when it is green." ;;
     *) release_die "'$QUALITY_CHECK' is not green on $HEAD_SHA ($CHECK_STATE)." ;;

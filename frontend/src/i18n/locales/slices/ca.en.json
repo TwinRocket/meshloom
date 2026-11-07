@@ -1,0 +1,10 @@
+{
+  "feed": {
+    "display": {
+      "enter": "Display mode",
+      "enterHint": "Large text, no menus, for a wall screen. Direct messages and images are hidden; to really block them, use the kiosk role.",
+      "exit": "Exit",
+      "clock": "Current time"
+    }
+  }
+}

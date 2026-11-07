@@ -1,0 +1,76 @@
+{
+  "settings": {
+    "connection": {
+      "tabs": {
+        "email": "Connexion par e-mail"
+      }
+    },
+    "access": {
+      "emailSignIn": {
+        "title": "Connexion par e-mail",
+        "help": "Les e-mails de connexion passent par l'un de vos canaux de notification e-mail.",
+        "channel": "Envoyer par",
+        "none": "Aucun canal (connexion par e-mail désactivée)",
+        "channelOff": "{{name}} (désactivé ou incomplet)",
+        "noChannel": "Aucun canal e-mail pour l'instant : ajoutez-en un dans Notifications.",
+        "save": "Enregistrer",
+        "saved": "Canal de connexion par e-mail enregistré",
+        "ready": "Les e-mails de connexion peuvent partir.",
+        "notReady": "Les e-mails de connexion ne peuvent pas partir : choisissez un canal e-mail activé."
+      },
+      "emailFactor": {
+        "title": "Connexion par e-mail",
+        "help": "Facultatif. Recevez un code ou un lien de connexion à une adresse vérifiée.",
+        "unavailable": "Un administrateur doit d'abord choisir un canal e-mail (Réglages → Connexion → Connexion par e-mail).",
+        "address": "Adresse :",
+        "newAddress": "Adresse e-mail",
+        "sendCode": "Envoyer un code",
+        "codeSent": "Un code a été envoyé à {{address}}. Il ne sert qu'une fois, pendant 10 minutes.",
+        "code": "Code reçu par e-mail",
+        "confirm": "Confirmer l'adresse",
+        "verified": "Adresse vérifiée",
+        "otp": "Demander un code par e-mail après mon mot de passe",
+        "otpHelp": "Vous déconnecte partout ailleurs quand vous l'activez.",
+        "link": "Autoriser les liens de connexion",
+        "linkHelp": "La page de connexion peut envoyer un lien à cette adresse ; il ne sert qu'une fois, pendant 15 minutes.",
+        "totpCode": "Code de l'application ou de secours (nécessaire pour activer une option)",
+        "save": "Enregistrer",
+        "saved": "Options de connexion par e-mail enregistrées",
+        "change": "Changer d'adresse",
+        "remove": "Supprimer",
+        "removed": "Adresse supprimée"
+      }
+    }
+  },
+  "auth": {
+    "emailCode": {
+      "help": "Nous pouvons envoyer un code à {{address}}.",
+      "yourAddress": "votre adresse e-mail",
+      "sentTo": "Un code a été envoyé à {{address}}. Il ne sert qu'une fois, pendant 10 minutes.",
+      "codeLabel": "Code reçu par e-mail",
+      "send": "M'envoyer un code",
+      "resend": "Envoyer un autre code",
+      "resendIn": "Autre code dans {{seconds}} s",
+      "useEmail": "Recevoir plutôt un code par e-mail"
+    },
+    "magicLink": {
+      "button": "M'envoyer un lien de connexion",
+      "help": "Saisissez votre nom d'utilisateur : si votre compte autorise les liens de connexion, nous en envoyons un à son adresse.",
+      "send": "Envoyer le lien",
+      "sendAgain": "Renvoyer",
+      "sent": "Si ce compte autorise les liens de connexion, un lien est en route. Il ne sert qu'une fois, pendant 15 minutes.",
+      "back": "Revenir au mot de passe"
+    }
+  },
+  "errors": {
+    "auth_email_unavailable": "La connexion par e-mail n'est pas configurée : un administrateur choisit un canal e-mail dans Réglages → Connexion → Connexion par e-mail.",
+    "auth_email_send_failed": "L'e-mail n'a pas pu partir. Réessayez, ou demandez à un administrateur de vérifier le canal e-mail.",
+    "auth_email_send_limit": "Trop de codes pour cette connexion : saisissez à nouveau votre mot de passe.",
+    "auth_email_address_invalid": "Saisissez une seule adresse e-mail.",
+    "auth_email_not_verified": "Vérifiez d'abord une adresse e-mail.",
+    "auth_email_not_pending": "Demandez un nouveau code pour vérifier cette adresse.",
+    "auth_email_channel_invalid": "Choisissez un canal de notification e-mail.",
+    "auth_magic_link_invalid": "Ce lien de connexion a expiré ou a déjà servi : demandez-en un nouveau.",
+    "auth_magic_link_origin_untrusted": "Impossible d'envoyer un lien depuis cette adresse. Un administrateur doit déclarer l'adresse publique de Meshloom."
+  }
+}

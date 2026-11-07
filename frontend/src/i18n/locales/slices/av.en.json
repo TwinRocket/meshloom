@@ -1,0 +1,7 @@
+{
+  "chat": {
+    "shortenFailed": "Could not shorten the link",
+    "shortenUndo": "Undo",
+    "linkShortened": "Link shortened: {{before}} → {{after}} bytes"
+  }
+}

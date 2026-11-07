@@ -8,18 +8,18 @@
 - No pull request should introduce new failing lint, typecheck, test, or build results.
 - Every pull request from a contributor should have an associated issue or discussion thread; a brand new feature appearing first in a PR is an antipattern. The repository owners may open a PR directly.
 - Security vulnerabilities are the exception: never open a public issue or PR for one. Report it privately as described in [SECURITY.md](SECURITY.md).
-- No truly automated radio traffic. Bot replies are already the practical edge of what this project wants to automate; any kind of traffic that would be intervalized or automated is not what this project is about.
+- No truly automated radio traffic. Extension replies are already the practical edge of what this project wants to automate; any kind of traffic that would be intervalized or automated is not what this project is about.
 - No ingestion from the internet onto the mesh. This project is a radio client, not a bridge for outside traffic to enter the network. The mesh is strong because it is a radio mesh, not the internet with some weird wireless links.
 
 ## Local Development
 
-You need [uv](https://docs.astral.sh/uv/) with Python 3.11 or later (CI tests 3.11, 3.12 and 3.14) and Node.js 26 (`.nvmrc`; CI reads the same file).
+You need [uv](https://docs.astral.sh/uv/) with Python 3.13 or later (CI tests 3.13 and 3.14) and Node.js 26 (`.nvmrc`; CI reads the same file).
 
 ### Backend
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --no-proxy-headers
 ```
 
 Radio transport is configured in the web UI after startup (`app_settings.radio_transport`). An empty serial port means auto-detect. Do not set `MESHCORE_SERIAL_PORT` / `MESHCORE_TCP_HOST` / `MESHCORE_BLE_ADDRESS` to choose a transport: an existing database with no stored transport imports them once (upgrade path); a new database ignores them (`app/services/radio_transport.py`).
@@ -48,9 +48,9 @@ If you need targeted commands while iterating:
 
 ```bash
 # backend
-uv run ruff check app/ tests/ --fix
-uv run ruff format app/ tests/
-uv run pyright app/
+uv run ruff check --fix
+uv run ruff format
+uv run pyright app/ meshloom_plugin/
 PYTHONPATH=. uv run pytest tests/ -v
 
 # frontend
@@ -62,6 +62,57 @@ npm run typecheck
 npm run build
 ```
 
+## Checking a plugin locally
+
+```bash
+uv run python -m meshloom_plugin.dev check path/to/plugin          # add --json for CI
+uv run python -m meshloom_plugin.dev run path/to/plugin --replay fixture.json
+uv run python -m meshloom_plugin.dev pack path/to/plugin --out dist  # plugin.zip + .sha256
+```
+
+`check` applies the server's manifest and package rules, a static review and a sandbox
+dry run. `run --replay` plays a JSON fixture of events against the plugin with no radio,
+and `pack` builds the reproducible release files after a check. Details:
+`docs/dev/plugins.md`, "Checking a plugin" and "Harness".
+
+## Adding a hostile plugin corpus case
+
+A change to the plugin sandbox (runner, isolation, supervisor, capabilities or
+archive validation) comes with a case in `tests/plugin_corpus/`: one directory,
+a `case.json` saying what the plugin tries and what must happen, plus a minimal
+`manifest.json` and `plugin.py` (format: `tests/plugin_corpus/README.md`). List it
+in the case table of `docs/dev/plugins-security.md`, "Tests" (a test fails
+otherwise), run `uv run pytest tests/test_plugin_corpus.py -k <name>`, then remove
+the guard it pins and check the case fails. Linux with bubblewrap covers `bwrap`;
+the `setuid` level needs root and the `meshloom-plugin` account (CI's
+`plugin-isolation-root` job runs it).
+
+## Load testing the plugin runtime
+
+`scripts/dev/plugin_load.py` (MSHL-212) drives the real plugin supervisor on a
+throwaway database: ten instances at 20 messages per second for ten minutes by
+default, then a short overload of one slow instance. It is not a test and not in
+the gate; run it by hand on Linux, from the repository root, after `uv sync`:
+
+```bash
+uv run python scripts/dev/plugin_load.py --levels bwrap               # as a non-root user
+sudo -E uv run python scripts/dev/plugin_load.py --levels setuid      # as root
+uv run python scripts/dev/plugin_load.py --instances 3 --duration 30 --overload-seconds 10  # quick check
+```
+
+`bwrap` needs bubblewrap and user namespaces, and should run as a non-root user,
+like the deb/rpm service. `setuid` needs root and the `meshloom-plugin` account
+(uid and gid 10002, `useradd --system --no-create-home --shell /usr/sbin/nologin`).
+In a Docker container, start it with `--security-opt seccomp=unconfined
+--security-opt apparmor=unconfined --security-opt systempaths=unconfined` for
+bubblewrap (Docker masks parts of `/proc`, so bwrap cannot mount its own without
+the last one), and `--cap-add SYS_PTRACE` for the PSS of other uids' children
+under `setuid`. Progress goes to stderr, one JSON report to stdout (`--keep-samples`
+adds every sample); the exit status is 1 when a level is unavailable or a check
+fails (unbalanced accounting, an inbox past its bound, a restart, no drop under
+overload). The figures and how to read them: `docs/dev/plugins-security.md`,
+"Load test".
+
 ## Quality + Publishing Scripts
 
 <details>
@@ -72,7 +123,8 @@ npm run build
 | `all_quality.sh` | Repo-standard gate: autofix (ruff, eslint, prettier), then pyright, pytest, vitest, and frontend build. Run before finishing any code change. |
 | `extended_quality.sh` | `all_quality.sh`, then `e2e.sh` (needs a radio), then `docker_ci.sh`. Manual; no workflow calls it. |
 | `e2e.sh` | Thin wrapper that runs Playwright e2e tests from `tests/e2e/`. |
-| `docker_ci.sh` | Builds the frontend (`npm ci && npm run build`) in `node:*-slim` containers across a Node/npm version matrix. It does not build the Meshloom image. |
+| `docker_ci.sh` | Builds the frontend (`npm ci && npm run build`) in `node:*-slim` containers across a Node/npm version matrix. It does not build the Meshloom image. `docker_ci.sh --ntfy` runs `ntfy_integration.sh` instead. |
+| `ntfy_integration.sh` | Starts a pinned `binwiederhier/ntfy` container and runs `tests/integration/test_ntfy_e2e.py` against it (needs Docker). CI runs it as the `ntfy-integration` job, part of `all-quality`. |
 
 </details>
 
@@ -81,15 +133,23 @@ npm run build
 
 | Script | Purpose |
 |--------|---------|
-| `publish.sh` | Cuts a release in one command (`scripts/build/publish.sh X.Y.Z`), run by an admin on `main` equal to `origin/main`. The only local change allowed is an uncommitted `CHANGELOG.md` edit (the `[X.Y.Z]` section written by hand), which is committed with the release. Refuses a tag that already exists locally or on origin. Runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), checks it with `check_version_consistency.sh`, commits exactly those files and `LICENSES.md` (unless `--skip-licenses`), pushes `main`, then pushes the annotated (unsigned) `X.Y.Z` tag. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
-| `tag_release.sh` | Recovery only, when `publish.sh` pushed `main` but not the tag: on a clean `main` equal to `origin/main`, checks the version sources, the CHANGELOG section, the `all-quality` check on HEAD and that the tag is new, then pushes the annotated `X.Y.Z` tag after confirmation (`--dry-run` checks only). |
+| `publish.sh` | Cuts a release in one command (`scripts/build/publish.sh X.Y.Z`), run by an admin on `main` equal to `origin/main`. The only local change allowed is an uncommitted `CHANGELOG.md` edit (the `[X.Y.Z]` section written by hand), which is committed with the release. Refuses a tag that already exists locally or on origin. Runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), checks it with `check_version_consistency.sh`, commits exactly those files and `LICENSES.md` (unless `--skip-licenses`), pushes `main`, then pushes the annotated (unsigned) `X.Y.Z` tag. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. `X.Y.Z-rc.N` works the same from `main` or `preversion-5`, without touching the add-on files (`docs/dev/releasing.md`). |
+| `tag_release.sh` | Recovery only, when `publish.sh` pushed `main` but not the tag: on a clean `main` equal to `origin/main`, checks the version sources, the CHANGELOG section, the `all-quality` check on HEAD and that the tag is new, then pushes the annotated `X.Y.Z` tag after confirmation (`--dry-run` checks only). Also takes `X.Y.Z-rc.N`, on `main` or `preversion-5`. |
 | `release_common.sh` | Shared shell helpers (version validation, formatting) sourced by other build scripts. |
-| `check_version_consistency.sh` | Fails unless the four version sources (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag of `meshloom/Dockerfile`) equal the tag (Release `preflight`, `publish.sh`, `tag_release.sh`). `uv.lock` is updated by `publish.sh` but not checked. |
+| `check_version_consistency.sh` | Fails unless the four version sources (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag of `meshloom/Dockerfile`) equal the tag (Release `preflight`, `publish.sh`, `tag_release.sh`). For `X.Y.Z-rc.N`, the add-on's two must instead stay on one stable version. `uv.lock` is updated by `publish.sh` but not checked. |
+| `install_nfpm.sh` | Installs the pinned nFPM after checking its sha256. Release jobs run it next to the signing key. |
+| `resolve_linux_repo_channels.py` | Decides which release the apt/dnf `stable` and `testing` suites serve, from the published releases. Fails closed. |
+| `fetch_linux_repo_packages.sh` | Downloads and checks what each suite serves. Stable fails closed; an rc that cannot be served only stops its own publication. |
+| `check_linux_repo_packages.sh` | Fails unless a directory holds the signed packages of exactly one release. |
+| `build_linux_repo.sh` | Builds both suites' apt and dnf trees, unsigned, from downloaded packages. Refuses a package of another version in a suite. |
+| `list_release_assets.sh` | Lists a GitHub release's assets, and fails if a directory holds anything else. |
+| `check_signing_environment.py` | Fails unless the `release-signing` environment exists and is limited to selected refs. |
 | `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |
 | `package_release_artifact.sh` | Builds the prebuilt-frontend release zip (called by `release.yml`). |
 | `create_github_release.sh` | Creates the GitHub release with changelog notes (called by `release.yml`). Never creates a tag: fails unless `X.Y.Z` exists on origin and points at the built commit. |
 | `build_nfpm_packages.sh` | Builds Meshloom `.deb` and `.rpm` packages with nFPM. |
 | `check_rpm_signed.py` | Fails unless each `.rpm` carries a signature header. |
+| `check_deb_signed.py` | Fails unless each `.deb`'s origin signature verifies against a keyring. |
 | `neutralize_project_version.py` | Pins the project's own version in the dependency manifests so the Docker dependency layer stays cached across releases. |
 | `build_rpi_image.sh` / `build_rpi_kiosk_image.sh` | Raspberry Pi Lite image (built by `release.yml`) / Desktop kiosk image (manual). |
 | `collect_licenses.sh` | Gathers third-party license attributions into `LICENSES.md`. |
@@ -130,26 +190,28 @@ The test harness starts its own uvicorn instance on port 8001 with a fresh tempo
 
 **The partner-radio DM ACK test (tagged `@partner-radio`)** validates direct-route learning by sending a DM and waiting for an ACK. It requires a second radio in range that has your test radio in its contacts. Configure the partner node's public key and name via `E2E_PARTNER_RADIO_PUBKEY` and `E2E_PARTNER_RADIO_NAME`.
 
-### Making mesh-traffic tests reliable: the echo bot
+### Making mesh-traffic tests reliable: the echo extension
 
-The most practical way to guarantee incoming traffic is to run an **echo bot on a second radio** monitoring a known channel. When the test suite starts a `@mesh-traffic` test, it sends a trigger message to that channel. If a bot on another radio is listening, it replies — generating the incoming RF packet the test needs within seconds instead of waiting for organic mesh traffic.
+The most practical way to guarantee incoming traffic is to run an **echo extension on a second radio** monitoring a known channel. When the test suite starts a `@mesh-traffic` test, it sends a trigger message to that channel. If an extension on another radio is listening, it replies — generating the incoming RF packet the test needs within seconds instead of waiting for organic mesh traffic.
 
 The test suite sends `!echo please give incoming message` to the echo channel (default `#flightless`) at the start of each `@mesh-traffic` test. The trigger message is configurable via `E2E_ECHO_TRIGGER_MESSAGE`.
 
 Setup:
 1. Set up a second MeshCore radio within RF range of your test radio
 2. Run a Meshloom instance on the second radio
-3. Configure a bot on the second radio that monitors the echo channel and replies when it sees the trigger. Example bot code:
+3. On the second radio's Meshloom, open **Settings → Extensions → New local extension**, paste this code, accept its permissions (read public channels, reply in the conversation) and turn it on. Meshloom 5 has no Python bots any more; a local extension is the replacement:
    ```python
-   def bot(sender_name, sender_key, message_text, is_dm,
-           channel_key, channel_name, sender_timestamp, path):
-       if "!echo" in message_text.lower():
-           return f"[ECHO] {message_text}"
-       return None
+   from meshloom_plugin import Message, Plugin
+
+
+   class EchoTrigger(Plugin):
+       async def on_message(self, msg: Message) -> None:
+           if "!echo" in msg.text.lower():
+               await self.reply(msg, f"[ECHO] {msg.text}")
    ```
 4. The test suite calls `nudgeEchoBot()` automatically — no manual intervention needed
 
-Without the echo bot, `@mesh-traffic` tests rely on organic traffic from other nodes. In a quiet RF environment they will time out.
+Without the echo extension, `@mesh-traffic` tests rely on organic traffic from other nodes. In a quiet RF environment they will time out.
 
 ### Environment variables
 
@@ -158,8 +220,8 @@ All E2E environment configuration is centralized in `tests/e2e/helpers/env.ts` w
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MESHCORE_SERIAL_PORT` | *(optional leftover)* | Copied into `radio_serial_port` by the e2e seed before the server starts; not read by the server as transport config |
-| `E2E_ECHO_CHANNEL` | `#flightless` | Channel the echo bot monitors for traffic generation |
-| `E2E_ECHO_TRIGGER_MESSAGE` | `!echo please give incoming message` | Message sent to nudge the echo bot |
+| `E2E_ECHO_CHANNEL` | `#flightless` | Channel the echo extension monitors for traffic generation |
+| `E2E_ECHO_TRIGGER_MESSAGE` | `!echo please give incoming message` | Message sent to nudge the echo extension |
 | `E2E_PARTNER_RADIO_PUBKEY` | *(maintainer's test node)* | 64-char hex public key of a node that will ACK DMs from your radio |
 | `E2E_PARTNER_RADIO_NAME` | *(maintainer's test node)* | Display name of that node (used in UI assertions) |
 
@@ -171,6 +233,26 @@ E2E_PARTNER_RADIO_PUBKEY="abcd1234...full64charhexkey..." \
 E2E_PARTNER_RADIO_NAME="MyTestNode" \
 npx playwright test
 ```
+
+## Radio Bench
+
+`tests/radio_bench/` is an opt-in pytest suite (marker `radio`) that drives a
+running Meshloom instance and its radio over the API, the WebSocket and the
+radio proxy: channel round trips, a radio settings round trip and reconnection.
+It is skipped unless `MESHLOOM_RADIO_BENCH_URL` is set, so the gate never runs
+it, and it must run with `-n 0`:
+
+```bash
+MESHLOOM_RADIO_BENCH_URL=http://host:8010 \
+MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
+uv run pytest tests/radio_bench -m radio -n 0 -v
+```
+
+It never factory-resets the radio or touches its identity, restores every
+setting it changes and fails the run if any differs afterwards. What it
+touches and how to add a test (it runs from your own machine on the LAN,
+there is no CI workflow for it):
+[`docs/dev/radio-bench.md`](docs/dev/radio-bench.md).
 
 ## Pull Request Expectations
 

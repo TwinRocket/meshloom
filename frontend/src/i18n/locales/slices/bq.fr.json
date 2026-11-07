@@ -1,0 +1,44 @@
+{
+  "auth": {
+    "passkey": {
+      "or": "ou",
+      "signIn": "Se connecter avec une passkey",
+      "useAsSecondFactor": "Utiliser une passkey",
+      "unavailableHint": "Les passkeys ne sont pas disponibles à cette adresse. Ouvrez Meshloom en https sur une adresse déclarée.",
+      "insecureHint": "Les passkeys ne sont pas disponibles ici : elles demandent https sur une adresse déclarée ou localhost.",
+      "errors": {
+        "cancelled": "La demande de passkey a été annulée. Réessayez.",
+        "notAllowed": "La demande de passkey a été annulée, refusée ou a expiré. Réessayez.",
+        "alreadyRegistered": "Cet appareil a déjà une passkey pour ce compte.",
+        "failed": "Le navigateur n'a pas pu utiliser de passkey ici. Réessayez ou utilisez une autre méthode."
+      }
+    }
+  },
+  "settings": {
+    "access": {
+      "passkeys": {
+        "title": "Passkeys",
+        "help": "Connectez-vous avec votre empreinte, votre visage ou le code de l'appareil. Votre mot de passe continue de fonctionner.",
+        "ingress": "Les passkeys ne s'appliquent pas sous Home Assistant : Home Assistant vous a déjà connecté.",
+        "noPassword": "Ce compte n'a pas de mot de passe Meshloom (il se connecte autrement), donc pas de passkey.",
+        "none": "Aucune passkey pour l'instant.",
+        "unavailable": "Les passkeys demandent https sur une adresse déclarée, Meshloom Remote ou localhost.",
+        "synced": "Synchronisée",
+        "created": "Ajoutée le {{date}}",
+        "lastUsed": "dernière utilisation le {{date}}",
+        "neverUsed": "jamais utilisée",
+        "add": "Ajouter une passkey",
+        "name": "Nom",
+        "namePlaceholder": "Par exemple : Portable, Téléphone",
+        "codeHelp": "Saisissez un code de votre application d'authentification, ou un code de secours.",
+        "addSubmit": "Créer la passkey",
+        "added": "Passkey ajoutée.",
+        "remove": "Supprimer la passkey {{name}}",
+        "removeButton": "Supprimer",
+        "removePassword": "Mot de passe pour supprimer « {{name}} »",
+        "removeSubmit": "Supprimer la passkey",
+        "removed": "Passkey supprimée."
+      }
+    }
+  }
+}

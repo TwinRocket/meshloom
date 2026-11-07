@@ -131,6 +131,16 @@ def test_warn_lists_only_the_variables_that_are_set(monkeypatch):
     assert warn_about_retired_env() == ["MESHCORE_VAPID_SUBJECT"]
 
 
+def test_the_bot_lock_is_retired_for_the_plugin_lock(monkeypatch, caplog):
+    """5.0.0 retires the bots (MSHL-192): migration 122 honours the old lock once, then
+    the variable is only a leftover pointing at the plugin lock."""
+    monkeypatch.setenv("MESHCORE_DISABLE_BOTS", "true")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert warn_about_retired_env() == ["MESHCORE_DISABLE_BOTS"]
+    assert "MESHCORE_DISABLE_BOTS is set but no longer read" in caplog.text
+    assert "MESHCORE_DISABLE_PLUGINS" in caplog.text
+
+
 def test_private_key_export_switch_is_retired(monkeypatch, caplog):
     from app.config import Settings
 
@@ -263,3 +273,16 @@ def test_clock_wraparound_variable_set_on_gets_no_off_warning(monkeypatch, caplo
     with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
         warn_about_retired_env()
     assert "used to keep the radio clock wraparound off" not in caplog.text
+
+
+def test_basic_auth_variables_are_retired_with_the_users_and_access_hint(monkeypatch, caplog):
+    monkeypatch.setenv("MESHCORE_BASIC_AUTH_USERNAME", "mesh")
+    monkeypatch.setenv("MESHCORE_BASIC_AUTH_PASSWORD", "s3cret-value")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert set(warn_about_retired_env()) == {
+            "MESHCORE_BASIC_AUTH_USERNAME",
+            "MESHCORE_BASIC_AUTH_PASSWORD",
+        }
+    assert "Settings → Users & Access" in caplog.text
+    assert "Only one of" not in caplog.text
+    assert "s3cret-value" not in caplog.text

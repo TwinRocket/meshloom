@@ -1,0 +1,11 @@
+{
+  "settings": {
+    "notifications": {
+      "feedFrame": {
+        "title": "Feed events",
+        "label": "Send matched events to the open Meshloom pages",
+        "help": "Shows the events sent to your channels in the Feed at once (radio offline, new contact…)."
+      }
+    }
+  }
+}

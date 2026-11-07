@@ -60,7 +60,7 @@ def extract_prebuilt(zip_path: Path, dest: Path) -> int:
         dest.mkdir(parents=True)
 
         for member in members:
-            rel = member[len(PREBUILT_PREFIX):]
+            rel = member[len(PREBUILT_PREFIX) :]
             if not rel:
                 continue
             target = dest / rel
@@ -96,7 +96,7 @@ def main() -> None:
     print()
     print(f"Done! Prebuilt frontend ({tag}) installed to frontend/prebuilt/")
     print("Start the server with:")
-    print("  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000")
+    print("  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
@@ -28,6 +29,7 @@ export function ChannelInfoPane({
   onToggleFavorite,
 }: ChannelInfoPaneProps) {
   const { t } = useTranslation();
+  const { canSend } = useCapabilities();
   const [detail, setDetail] = useState<ChannelDetail | null>(null);
   // The channel whose detail request last settled; loading until it matches channelKey.
   const [settledKey, setSettledKey] = useState<string | null>(null);
@@ -144,7 +146,8 @@ export function ChannelInfoPane({
             <div className="px-5 py-3 border-b border-border">
               <button
                 type="button"
-                className="text-sm flex items-center gap-2 hover:text-primary transition-colors"
+                className="text-sm flex items-center gap-2 hover:text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-inherit"
+                disabled={!canSend}
                 onClick={() => onToggleFavorite('channel', channel.key)}
               >
                 {channel.favorite ? (

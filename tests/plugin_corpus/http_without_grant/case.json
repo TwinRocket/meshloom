@@ -1,0 +1,15 @@
+{
+  "description": "No network outside http.fetch, and http.fetch only with its permission: an instance without it is refused before any connection.",
+  "stage": "host",
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "result": {
+          "refused": "permission_denied"
+        }
+      }
+    }
+  ]
+}

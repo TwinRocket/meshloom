@@ -62,12 +62,15 @@ describe('Community exit dialog and unconfirmed opt-out', () => {
     void i18n.changeLanguage(DEFAULT_LOCALE);
   });
 
-  it('says what Community keeps and deletes, and where to ask for a full deletion', async () => {
+  it('says what leaving does, and where to ask for a full deletion', async () => {
     render(<SettingsCommunitySection />);
     const dialog = await openExitDialog();
-    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.kept'));
-    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.position'));
-    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.advert'));
+    // Remote and sharing need Community (MSHL-445): the short intro says they pause too.
+    const intro = i18n.t('settings.community.optOut.intro');
+    expect(dialog).toHaveTextContent(intro);
+    expect(intro).toMatch(/Remote/);
+    // Copy diet: no bullet list, one intro plus the full-deletion line.
+    expect(within(dialog).queryAllByRole('listitem')).toHaveLength(0);
     const mail = within(dialog).getByRole('link', { name: 'privacy@meshloom.app' });
     expect(mail).toHaveAttribute('href', 'mailto:privacy@meshloom.app');
     expect(dialog.textContent ?? '').not.toMatch(/sealed|scell/i);

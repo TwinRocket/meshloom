@@ -1,0 +1,9 @@
+{
+  "clock": 1700000000,
+  "events": [
+    {
+      "hook": "message",
+      "params": {"sender_name": "Alice", "message_text": "hello", "channel_name": "#test"}
+    }
+  ]
+}

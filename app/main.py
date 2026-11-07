@@ -39,25 +39,37 @@ if sys.platform == "win32":
     del _loop, _is_proactor
 
 import asyncio
+import os
+import threading
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api_docs import API_DESCRIPTION, API_TAGS_METADATA, register_api_docs_routes
+from app.auth.middleware import AuthMiddleware
+from app.auth.permissions import enforce_declaration
 from app.config import settings as server_settings
 from app.config import setup_logging
+from app.cors import AllowedOriginsCORSMiddleware
 from app.database import db
+from app.database_copy import StartupRefused
 from app.frontend_static import (
     register_first_available_frontend_static_routes,
     register_frontend_missing_fallback,
 )
+from app.middleware import proxy_headers
+from app.middleware.body_limit import BodyLimitMiddleware
+from app.middleware.host_guard import HostGuardMiddleware
+from app.middleware.https_required import HttpsRequiredMiddleware
+from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.radio import RadioDisconnectedError
 from app.radio_sync import (
     stop_background_contact_reconciliation,
@@ -67,6 +79,10 @@ from app.radio_sync import (
     stop_telemetry_collect,
 )
 from app.routers import (
+    auth,
+    auth_email,
+    auth_totp,
+    auth_webauthn,
     channels,
     community,
     contact_groups,
@@ -77,20 +93,27 @@ from app.routers import (
     health,
     locate,
     messages,
+    notifications,
     packets,
+    plugins,
     push,
     radio,
     radio_wifi,
     read_state,
+    remote,
     repeaters,
     rooms,
     settings,
+    share,
     statistics,
+    store,
     tools,
     updates,
     ws,
 )
-from app.security import add_optional_basic_auth_middleware
+from app.secret_store import SecretStoreUnavailable
+from app.services.data_permissions import tighten_database_files
+from app.services.hardening import set_not_dumpable
 from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
     stop_hashtag_catalogue_polling,
@@ -108,38 +131,92 @@ logger = logging.getLogger(__name__)
 
 async def _startup_radio_connect_and_setup() -> None:
     """Connect/setup the radio in the background so HTTP serving can start immediately."""
+    started = time.monotonic()
+    connected = False
+    try:
+        connected = await _connect_radio_on_startup()
+    except asyncio.CancelledError:
+        # Shutting down: the start never completed, nothing to announce.
+        raise
+    except Exception:
+        logger.exception("Failed to connect to radio on startup")
+    # Startup is complete (radio connected or not): tell the user once.
+    from app.notifications.radio_watch import radio_watch
+
+    radio_watch.note_startup_complete(
+        version=get_app_build_info().version,
+        radio_connected=connected,
+        connect_s=time.monotonic() - started if connected else None,
+    )
+
+
+async def _connect_radio_on_startup() -> bool:
     if not radio_manager.connection_desired:
         logger.info("Radio connection not desired; skipping startup connect")
-        return
+        return False
     from app.services.radio_transport import get_transport
 
     snapshot = await get_transport()
     if not snapshot.configured:
         logger.info("Radio transport is not configured; skipping startup connect")
-        return
+        return False
+    connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
+    if connected:
+        logger.info("Connected to radio")
+    elif (reason := expected_reboot_reason(radio_manager)) is not None:
+        logger.info(
+            "Radio is rebooting %s; the connection monitor will reconnect it and finish setup",
+            reboot_purpose(reason),
+        )
+    else:
+        logger.warning("Failed to connect to radio on startup")
+    return bool(connected)
+
+
+async def _backfill_raw_packet_types() -> None:
+    from app.repository.raw_packets import backfill_payload_types
+
+    started = time.monotonic()
     try:
-        connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
-        if connected:
-            logger.info("Connected to radio")
-        elif (reason := expected_reboot_reason(radio_manager)) is not None:
-            logger.info(
-                "Radio is rebooting %s; the connection monitor will reconnect it and finish setup",
-                reboot_purpose(reason),
-            )
-        else:
-            logger.warning("Failed to connect to radio on startup")
+        done = await backfill_payload_types()
+    except asyncio.CancelledError:
+        raise
     except Exception:
-        logger.exception("Failed to connect to radio on startup")
+        logger.exception("Backfill of raw_packets.payload_type failed; it resumes at next start")
+        return
+    if done:
+        logger.info(
+            "Classified %d stored packets by payload type in %.1fs",
+            done,
+            time.monotonic() - started,
+        )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage database and radio connection lifecycle."""
+    set_not_dumpable()
     db_path = Path(server_settings.database_path)
     file_existed = db_path.is_file() and db_path.stat().st_size > 0
 
+    # Before the first connection: SQLite gives -wal and -shm the database's mode.
+    tighten_database_files(db_path)
     await db.connect()
     logger.info("Database connected")
+
+    # Migration 133 leaves raw_packets.payload_type NULL: classify the stored packets in the
+    # background, in short batches (a no-op once every row has it).
+    from app.background_tasks import spawn
+
+    spawn(_backfill_raw_packet_types(), name="raw-packet-payload-type-backfill")
+
+    # A SQLite snapshot put back in place: the restore hooks run once.
+    from app.services.backup_sections import run_sqlite_restore_hooks
+
+    try:
+        await run_sqlite_restore_hooks(db)
+    except Exception:
+        logger.exception("Failed to run the restore hooks of a restored database snapshot")
 
     from app.services.radio_transport import (
         database_has_mesh_history,
@@ -176,7 +253,7 @@ async def lifespan(app: FastAPI):
     # Retired MESHCORE_* settings (VAPID contact, radio workarounds): copied into
     # app_settings once, then only a warning while they (or a retired
     # MESHLOOM_COMMUNITY* variable) are still set.
-    from app import radio_workarounds
+    from app import origin_policy, radio_workarounds
     from app.services.legacy_env_settings import import_legacy_env_settings
 
     try:
@@ -188,6 +265,55 @@ async def lifespan(app: FastAPI):
     except Exception:
         # The workarounds stay off (their defaults) rather than block startup.
         logger.exception("Failed to load the radio workarounds from app_settings")
+    try:
+        await origin_policy.load()
+    except Exception:
+        # Same-origin only (the default) rather than block startup.
+        logger.exception("Failed to load the allowed origins from app_settings")
+    try:
+        await proxy_headers.load()
+    except Exception:
+        # No trusted proxy (the default): forwarded headers stay ignored.
+        logger.exception("Failed to load the trusted proxies from auth_settings")
+    from app.auth import ip_ban
+
+    try:
+        await ip_ban.load()
+    except Exception:
+        # The defaults apply and the stored bans wait for the next start.
+        logger.exception("Failed to load the address bans")
+    # Meshloom Remote: the host guard accepts the Remote hostname while Remote is on.
+    from app.services import remote as remote_service
+
+    try:
+        await remote_service.load()
+    except Exception:
+        logger.exception("Failed to load the Meshloom Remote state")
+    # The relay client connects only while Remote is on and registered (docs/dev/remote.md).
+    from app.services import remote_relay
+
+    try:
+        await remote_relay.start(app)
+    except Exception:
+        logger.exception("Failed to start the Meshloom Remote relay client")
+
+    # Accounts: the kiosk account, and what lets setup open (app/auth/first_run.py).
+    from app.auth.first_run import prepare_first_run
+
+    try:
+        await prepare_first_run()
+    except Exception:
+        # Fail closed: setup answers 503 until a retry from the setup route succeeds
+        # (app/auth/first_run.py), and every other route still needs an account.
+        logger.exception("Failed to prepare the first-run account setup")
+
+    # Share uploads left half-staged by a crash or a kill (app/services/share_upload.py).
+    from app.services.share_upload import clean_tmp_directory
+
+    try:
+        clean_tmp_directory()
+    except Exception:
+        logger.exception("Failed to clean the share upload folder")
 
     # Initialize VAPID keys for Web Push (generates on first run)
     from app.push.vapid import ensure_vapid_keys
@@ -207,7 +333,16 @@ async def lifespan(app: FastAPI):
     await start_oss_update_polling()
     start_hashtag_catalogue_polling()
     start_stale_contact_purge()
+    # The Store refresh loop runs unless store_online is off (MSHL-194), and plugin
+    # archives are downloaded only then (MSHL-366: the installer's gate is the switch).
+    from app.plugins.installer import set_download_gate
+    from app.plugins.store_egress import start_store_refresh, store_egress_allowed
 
+    set_download_gate(store_egress_allowed)
+    # Custom GitHub repositories (MSHL-196): the `custom` resolver and the refresher.
+    from app.plugins import custom_repos
+
+    custom_repos.register()
     # Always start connection monitor (even if initial connection failed)
     await radio_manager.start_connection_monitor()
 
@@ -223,6 +358,16 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to resume the pending Community status clear")
 
+    # The global plugin pause (MSHL-216) holds plugins and bots: read it first.
+    from app.plugins import pause as plugin_pause
+
+    await plugin_pause.load()
+
+    # The quiet-hours digest loop runs from startup, not from the first event.
+    from app.notifications.dispatcher import start_notifications
+
+    start_notifications()
+
     # Start fanout modules (MQTT, etc.) from database configs
     from app.fanout.manager import fanout_manager
 
@@ -230,6 +375,18 @@ async def lifespan(app: FastAPI):
         await fanout_manager.load_from_db()
     except Exception:
         logger.exception("Failed to start fanout modules")
+
+    # One supervised child per enabled plugin instance (staggered, in the background).
+    from app.plugins import lifecycle as plugin_lifecycle
+
+    await plugin_lifecycle.start()
+
+    # After the plugin start, which may turn the plugin system off (failed isolation):
+    # the first tick runs at once and must see that.
+    try:
+        await start_store_refresh()
+    except Exception:
+        logger.exception("Failed to start the Store refresh loop")
 
     from app.radio_proxy.manager import radio_proxy_manager
 
@@ -247,6 +404,9 @@ async def lifespan(app: FastAPI):
     try:
         await _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager)
     finally:
+        # Process-wide registrations made above: undo them so a second lifespan in the
+        # same process (tests) starts clean.
+        custom_repos.unregister()
         # Always close the DB, even if an earlier step raised or was cancelled,
         # so the WAL is checkpointed and the file is left consistent.
         try:
@@ -293,15 +453,20 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
 
 async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> None:
     from app.background_tasks import drain_background_tasks
+    from app.plugins import lifecycle as plugin_lifecycle
+    from app.plugins.store_egress import stop_store_refresh
     from app.services.community_live import shutdown_community_live
     from app.services.community_status_clear import stop_status_clear_worker
+    from app.services.remote_relay import shutdown as shutdown_remote_relay
 
     # Callables, not coroutine objects: a step is only created when it runs,
     # inside the guard (so a synchronous raise is caught too).
     steps = [
         ("startup radio task", lambda: _cancel_task(startup_radio_task)),
         ("community live", shutdown_community_live),
+        ("remote relay", shutdown_remote_relay),
         ("community status clear", stop_status_clear_worker),
+        ("plugins", plugin_lifecycle.stop),  # bounded: never over 10 s
         ("fanout modules", fanout_manager.stop_all),
         ("radio proxy", radio_proxy_manager.stop),
         ("connection monitor", radio_manager.stop_connection_monitor),
@@ -309,6 +474,7 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
         ("message polling", stop_message_polling),
         ("radio stats sampling", stop_radio_stats_sampling),
         ("OSS update polling", stop_oss_update_polling),
+        ("Store refresh", stop_store_refresh),
         ("hashtag catalogue polling", stop_hashtag_catalogue_polling),
         ("periodic advert", stop_periodic_advert),
         ("periodic sync", stop_periodic_sync),
@@ -331,25 +497,100 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
     await _shutdown_step("background tasks", drain_background_tasks)
 
 
+UVICORN_STARTUP_FAILURE = 3
+_FAILED_START_EXIT_SECONDS = 15.0
+_FAILED_START_CLOSE_SECONDS = 5.0
+
+
+def _not_a_startup_traceback(record: logging.LogRecord) -> bool:
+    return "Traceback (most recent call last)" not in record.getMessage()[:64]
+
+
+def _log_startup_failure(exc: BaseException) -> None:
+    """Say why the start failed, in full.
+
+    Starlette hands uvicorn the whole traceback as one message, and logging gives
+    a message one line, capped at ``MAX_LINE_BYTES`` (``app/log_redaction.py``): the
+    cause, at its end, is cut. So it is logged here, and uvicorn's line, which then
+    only repeats it, is dropped.
+    """
+    if isinstance(exc, StartupRefused):
+        logger.critical("%s", exc)
+    else:
+        logger.critical("Meshloom could not start", exc_info=exc)
+    logging.getLogger("uvicorn.error").addFilter(_not_a_startup_traceback)
+
+
+def _exit_after_failed_start() -> None:
+    logger.critical("The process did not end after the failed start: forcing it")
+    os._exit(UVICORN_STARTUP_FAILURE)
+
+
+def _arm_failed_start_exit() -> None:
+    """A process stuck after a failed start is never restarted by a service manager.
+
+    A blocked ``to_thread``, or a connection busy on a query, holds the interpreter at
+    exit whatever is closed below.
+    """
+    timer = threading.Timer(_FAILED_START_EXIT_SECONDS, _exit_after_failed_start)
+    timer.daemon = True
+    timer.start()
+
+
+async def _close_after_failed_start() -> None:
+    """The aiosqlite worker is not a daemon thread: left open, it holds the interpreter."""
+    try:
+        await asyncio.wait_for(db.disconnect(), _FAILED_START_CLOSE_SECONDS)
+    except BaseException as exc:
+        logger.warning("The database could not be closed after a failed start: %r", exc)
+
+
+@asynccontextmanager
+async def _lifespan_logging_startup_failure(app: FastAPI):
+    """``lifespan``, with a readable log when the start fails."""
+    started = False
+    try:
+        async with lifespan(app):
+            started = True
+            yield
+    except BaseException as exc:
+        if not started:
+            _arm_failed_start_exit()
+            _log_startup_failure(exc)
+            await _close_after_failed_start()
+        raise
+
+
 app = FastAPI(
     title="Meshloom API",
     description=API_DESCRIPTION,
     version=get_app_build_info().version,
     openapi_tags=API_TAGS_METADATA,
     docs_url=None,
-    lifespan=lifespan,
+    lifespan=_lifespan_logging_startup_failure,
+    # Default deny: an /api route that declares no permission is admin-only
+    # (app/auth/permissions.py).
+    dependencies=[Depends(enforce_declaration)],
 )
 
 register_api_docs_routes(app)
-add_optional_basic_auth_middleware(app, server_settings)
+# Innermost: every route needs a principal except the public ones (app/auth/middleware.py).
+app.add_middleware(AuthMiddleware)
+# Outside the gate: a public route (login, setup) would read its body too.
+app.add_middleware(BodyLimitMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Same-origin by default; Settings lists the other sites allowed (app/cors.py).
+app.add_middleware(AllowedOriginsCORSMiddleware)
+# HSTS (https only, never ingress), no-store on auth routes, Permissions-Policy.
+app.add_middleware(SecurityHeadersMiddleware)
+# DNS-rebinding guard (observation mode by default): inside the proxy-headers
+# middleware, which records the TCP peer the ingress exemption reads.
+app.add_middleware(HostGuardMiddleware)
+# Plain http from a public client is refused once a public address is declared.
+app.add_middleware(HttpsRequiredMiddleware)
+# Outside the gate and CORS: the one interpreter of X-Forwarded-For/-Proto, from
+# the trusted proxies setting (app/middleware/proxy_headers.py).
+app.add_middleware(TrustedProxyHeadersMiddleware)
 
 
 @app.exception_handler(RadioDisconnectedError)
@@ -358,6 +599,24 @@ async def radio_disconnected_handler(request: Request, exc: RadioDisconnectedErr
     return JSONResponse(
         status_code=423,
         content={"detail": {"code": "radio_not_connected", "message": "Radio not connected"}},
+    )
+
+
+@app.exception_handler(SecretStoreUnavailable)
+async def secret_store_unavailable_handler(request: Request, exc: SecretStoreUnavailable):
+    """503 when a secret would be saved without a usable ``secrets.key`` (MSHL-133).
+
+    Fails closed: the write is refused and rolled back, a secret is never stored plain.
+    """
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "code": "secret_store_unavailable",
+                "params": {},
+                "message": "The secrets key file cannot be read or created: secrets cannot be saved",
+            }
+        },
     )
 
 
@@ -417,6 +676,10 @@ async def log_server_errors(request: Request, call_next):
 
 # API routes - all prefixed with /api for production compatibility
 app.include_router(health.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
+app.include_router(auth_totp.router, prefix="/api")
+app.include_router(auth_email.router, prefix="/api")
+app.include_router(auth_webauthn.router, prefix="/api")
 app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")
@@ -430,10 +693,15 @@ app.include_router(repeaters.router, prefix="/api")
 app.include_router(rooms.router, prefix="/api")
 app.include_router(channels.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 app.include_router(packets.router, prefix="/api")
+app.include_router(plugins.router, prefix="/api")
 app.include_router(read_state.router, prefix="/api")
+app.include_router(remote.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(share.router, prefix="/api")
 app.include_router(statistics.router, prefix="/api")
+app.include_router(store.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
 app.include_router(updates.router, prefix="/api")
 app.include_router(push.router, prefix="/api")

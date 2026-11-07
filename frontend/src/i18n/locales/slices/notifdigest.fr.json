@@ -1,0 +1,20 @@
+{
+  "settings": {
+    "notifications": {
+      "digest": {
+        "title": "Mode résumé",
+        "off": "Désactivé (une notification par message)",
+        "everyMinutes_one": "Chaque minute",
+        "everyMinutes_other": "Toutes les {{count}} minutes",
+        "everyHours_one": "Toutes les heures",
+        "everyHours_other": "Toutes les {{count}} heures",
+        "help": "Un résumé par intervalle au lieu d’une notification par message. Les mentions, mots-clés et alertes urgentes arrivent toujours aussitôt."
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "notification_digest_dropped": "L’intervalle de résumé d’un canal de notification ({{value}}) était hors limites, et a été restauré désactivé."
+      }
+    }
+  }
+}

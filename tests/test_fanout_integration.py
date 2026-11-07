@@ -115,6 +115,7 @@ async def integration_db():
     Settings must be patched too: FanoutManager.load_from_db() now reads
     Meshloom Stats community state via AppSettingsRepository.
     """
+    import app.repository.channels as channels_mod
     import app.repository.settings as settings_mod
 
     test_db = Database(":memory:")
@@ -122,13 +123,17 @@ async def integration_db():
 
     original_fanout_db = fanout_mod.db
     original_settings_db = settings_mod.db
+    original_channels_db = channels_mod.db
     fanout_mod.db = test_db
     settings_mod.db = test_db
+    # The Apprise module reads the block lists and the channel mute.
+    channels_mod.db = test_db
     try:
         yield test_db
     finally:
         fanout_mod.db = original_fanout_db
         settings_mod.db = original_settings_db
+        channels_mod.db = original_channels_db
         await test_db.disconnect()
 
 
@@ -557,6 +562,7 @@ async def webhook_server():
 def _webhook_config(port: int, extra_headers: dict | None = None) -> dict:
     return {
         "url": f"http://127.0.0.1:{port}/hook",
+        "allow_private_network": True,
         "method": "POST",
         "headers": extra_headers or {},
     }
@@ -1183,6 +1189,7 @@ class TestFanoutAppriseIntegration:
             name="Test Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "preserve_identity": True,
                 "body_format_dm": "**DM:** {sender_name}: {text}",
                 "body_format_channel": "**{channel_name}:** {sender_name}: {text}",
@@ -1226,6 +1233,7 @@ class TestFanoutAppriseIntegration:
             name="Channel Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "body_format_dm": "**DM:** {sender_name}: {text}",
                 "body_format_channel": "**{channel_name}:** {sender_name}: {text}",
             },
@@ -1267,6 +1275,7 @@ class TestFanoutAppriseIntegration:
             name="No Outgoing",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
             },
             scope={"messages": "all", "raw_packets": "none"},
             enabled=True,
@@ -1303,6 +1312,7 @@ class TestFanoutAppriseIntegration:
             name="Include Outgoing",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "include_outgoing": True,
             },
             scope={"messages": "all", "raw_packets": "none"},
@@ -1340,6 +1350,7 @@ class TestFanoutAppriseIntegration:
             name="Disabled Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
             },
             scope={"messages": "all", "raw_packets": "none"},
             enabled=False,
@@ -1367,6 +1378,7 @@ class TestFanoutAppriseIntegration:
             name="Selective Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "include_path": False,
             },
             scope={
@@ -1435,6 +1447,7 @@ class TestFanoutAppriseIntegration:
                 name="Apprise A",
                 config={
                     "urls": f"json://127.0.0.1:{server_a.port}",
+                    "allow_private_network": True,
                     "include_path": False,
                 },
                 scope={
@@ -1448,6 +1461,7 @@ class TestFanoutAppriseIntegration:
                 name="Apprise B",
                 config={
                     "urls": f"json://127.0.0.1:{server_b.port}",
+                    "allow_private_network": True,
                     "include_path": False,
                 },
                 scope={
@@ -1532,6 +1546,7 @@ class TestFanoutAppriseIntegration:
                 name="Room B Apprise",
                 config={
                     "urls": f"json://127.0.0.1:{apprise.port}",
+                    "allow_private_network": True,
                     "include_path": False,
                 },
                 scope={
@@ -1601,6 +1616,7 @@ class TestFanoutAppriseIntegration:
             name="Path Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "body_format_dm": "**DM:** {sender_name}: {text} **via:** [{hops_backticked}]",
                 "body_format_channel": "**{channel_name}:** {sender_name}: {text} **via:** [{hops_backticked}]",
             },
@@ -1642,6 +1658,7 @@ class TestFanoutAppriseIntegration:
             name="Plain Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "markdown_format": False,
             },
             scope={"messages": "all", "raw_packets": "none"},
@@ -1671,135 +1688,6 @@ class TestFanoutAppriseIntegration:
         assert "S_Borkin" in body_text
         assert "hello" in body_text
         assert "**" not in body_text
-
-
-# ---------------------------------------------------------------------------
-# Bot lifecycle tests
-# ---------------------------------------------------------------------------
-
-
-class TestBotModuleLifecycle:
-    """BotModule.stop() must cancel in-flight tasks and prevent response delivery."""
-
-    @pytest.mark.asyncio
-    async def test_stop_cancels_pending_tasks(self):
-        """Stopping a bot module cancels tasks still in the settle delay."""
-        from app.fanout.bot import BotModule
-
-        mod = BotModule("bot1", {"code": "def bot(**k): return 'hi'"}, name="Test Bot")
-        mod._active = True
-
-        # Fire off a message — it will enter the 2s settle sleep
-        await mod.on_message(
-            {"type": "PRIV", "conversation_key": "abc123", "text": "hello", "outgoing": False}
-        )
-        assert len(mod._tasks) == 1
-
-        # Stop immediately — should cancel the pending task
-        await mod.stop()
-
-        assert mod._active is False
-        assert len(mod._tasks) == 0
-
-    @pytest.mark.asyncio
-    async def test_stop_prevents_response_delivery(self):
-        """Even if bot code returns a response, stop() prevents it from being sent."""
-        from unittest.mock import AsyncMock, patch
-
-        from app.fanout.bot import BotModule
-
-        mod = BotModule("bot1", {"code": "def bot(**k): return 'reply'"}, name="Test Bot")
-
-        mock_process = AsyncMock()
-        with patch("app.fanout.bot.asyncio.sleep", new_callable=AsyncMock):
-            # Manually run the handler with _active=True, then set _active=False
-            # before process_bot_response would be called
-            original_run = mod._run_for_message
-
-            async def run_then_deactivate(data):
-                # Deactivate mid-flight by stopping
-                mod._active = False
-                await original_run(data)
-
-            with patch.object(mod, "_run_for_message", run_then_deactivate):
-                await mod.on_message(
-                    {
-                        "type": "PRIV",
-                        "conversation_key": "abc123",
-                        "text": "hello",
-                        "outgoing": False,
-                    }
-                )
-                # Wait for the task to finish
-                if mod._tasks:
-                    await asyncio.gather(*mod._tasks, return_exceptions=True)
-
-        # process_bot_response should never have been called
-        mock_process.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_multiple_tasks_all_cancelled(self):
-        """Multiple in-flight tasks are all cancelled on stop."""
-        from app.fanout.bot import BotModule
-
-        mod = BotModule("bot1", {"code": "def bot(**k): return 'hi'"}, name="Test Bot")
-        mod._active = True
-
-        # Fire off several messages
-        for i in range(5):
-            await mod.on_message(
-                {
-                    "type": "PRIV",
-                    "conversation_key": f"key{i}",
-                    "text": f"msg{i}",
-                    "outgoing": False,
-                }
-            )
-        assert len(mod._tasks) == 5
-
-        await mod.stop()
-
-        assert mod._active is False
-        assert len(mod._tasks) == 0
-
-    @pytest.mark.asyncio
-    async def test_channel_message_region_reaches_bot_kwargs(self):
-        """A scoped channel message's resolved region flows to bot **kwargs (#300)."""
-        from unittest.mock import AsyncMock, patch
-
-        from app.fanout.bot import BotModule
-
-        mod = BotModule(
-            "bot1",
-            {"code": "def bot(**k): return f\"region={k.get('region')}\""},
-            name="Test Bot",
-        )
-        mod._active = True
-
-        captured: dict = {}
-
-        async def capture(response, is_dm, sender_key, channel_key):
-            captured["response"] = response
-
-        with (
-            patch("app.fanout.bot.asyncio.sleep", new_callable=AsyncMock),
-            patch("app.fanout.bot_exec.process_bot_response", side_effect=capture),
-        ):
-            await mod.on_message(
-                {
-                    "type": "CHAN",
-                    "conversation_key": "AABBCCDD",
-                    "text": "Alice: hi",
-                    "sender_name": "Alice",
-                    "channel_name": "#general",
-                    "outgoing": False,
-                    "region": "EU",
-                }
-            )
-            if mod._tasks:
-                await asyncio.gather(*mod._tasks, return_exceptions=True)
-
-        assert captured.get("response") == "region=EU"
 
 
 # ---------------------------------------------------------------------------

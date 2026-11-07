@@ -7,7 +7,7 @@ order: 14
 
 Meshloom se configure à deux endroits, et ils ne se recouvrent pas.
 
-L’**environnement** contient ce qui doit être connu avant que quoi que ce soit démarre : où écrire la base de données, si les bots sont autorisés, si un mot de passe protège la page, et quels interrupteurs de diagnostic sont actifs. Le modifier impose un redémarrage.
+L’**environnement** contient ce qui doit être connu avant que quoi que ce soit démarre : où écrire la base de données, si les extensions sont autorisées, si un mot de passe protège la page, et quels interrupteurs de diagnostic sont actifs. Le modifier impose un redémarrage.
 
 Les **réglages** vivent dans la base de données. On les change dans l’interface web et ils s’appliquent tout de suite. La connexion à la radio en fait partie : c’est un réglage, pas une variable d’environnement. Voir [Transports radio](/docs/deep/transports/).
 
@@ -19,7 +19,7 @@ Les **réglages** vivent dans la base de données. On les change dans l’interf
 | Service installé depuis un dépôt cloné | Pas de fichier. Ajoutez des lignes `Environment=NOM=valeur` sous `[Service]` avec `sudo systemctl edit meshloom` | `sudo systemctl restart meshloom` |
 | Docker | bloc `environment:` du fichier Compose, ou un `.env` à côté | `docker compose up -d` |
 | Dépôt cloné lancé à la main | L’environnement du shell qui lance `uv run uvicorn` | Relancer la commande |
-| Add-on Home Assistant | Aucune variable à modifier : les options de l’add-on (niveau de journal, mot de passe, bots) deviennent des variables, et l’add-on définit lui-même les autres. Voir [Sur Home Assistant](/docs/install/#sur-home-assistant) | Redémarrer l’add-on |
+| Add-on Home Assistant | Aucune variable à modifier : les options de l’add-on (niveau de journal, verrou des extensions) deviennent des variables, et l’add-on définit lui-même les autres. Voir [Sur Home Assistant](/docs/install/#sur-home-assistant) | Redémarrer l’add-on |
 
 Rejouer `install_service.sh` réécrit l’unité systemd principale d’une installation depuis les sources. Un fichier complémentaire créé avec `systemctl edit` est conservé, et `meshloom.env` n’est pas concerné.
 
@@ -63,11 +63,9 @@ Voir [Meshloom Community](/docs/deep/community/).
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application, connexion en direct (WebSocket) comprise. À utiliser avec [HTTPS](/docs/deep/https/) |
-| `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne peut être installée, modifiée ni démarrée, quels que soient les réglages ; consulter, supprimer et tout mettre en pause restent possibles, et les extensions restaurées depuis une sauvegarde reviennent coupées et le restent. Le paquet Linux la livre commentée dans `meshloom.env`. La variable de verrou des bots de la 4.18 et avant ne fait plus rien : Meshloom journalise un avertissement qui nomme cette variable si elle est encore posée (voir [Extensions](/docs/deep/plugins/#les-bots-de-la-418-et-avant)). Dans l'add-on Home Assistant, c'est l'option `disable_plugins` |
 
-Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
+`MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` sont retirées (voir aussi **Variables retirées**) : Meshloom ne les importe plus comme compte et n’accepte plus `Authorization: Basic` ; il se contente d’écrire un avertissement à chaque démarrage tant qu’elles sont définies (retirez-les ; les comptes se gèrent dans **Réglages → Utilisateurs et accès**, les scripts utilisent un jeton d’API). Une installation qui ne reposait que sur la connexion Basic passe par la configuration du premier lancement, depuis le réseau local. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
 ## Installation et mises à jour
 
@@ -80,6 +78,17 @@ L’installateur les définit pour vous. On les modifie rarement à la main.
 | `MESHLOOM_RUN_AS_USER` | Docker uniquement. Un nombre comme `10001` fait tourner Meshloom sous cet utilisateur plutôt que root. Voir [Autres chemins d’installation](/docs/deep/install-paths/) |
 | `MESHLOOM_IMAGE` | Docker uniquement. L’image que Compose démarre, idéalement figée par son empreinte |
 
+## Notifications
+
+Les notifications se règlent dans **Réglages → Notifications** et se stockent dans la base de données, pas dans des variables (voir [Notifications](/docs/deep/notifications/)). Les canaux (leurs réglages, secrets et limites) ont leurs propres tables ; les réglages ci-dessous sont dans la table des réglages :
+
+| Réglage | Défaut | Description |
+|---------|--------|-------------|
+| `notification_language` | `auto` | `auto`, `fr` ou `en`. La langue de l’instance pour les notifications (un canal peut avoir la sienne) ; `auto` suit les navigateurs abonnés au push (anglais seulement si une majorité stricte des navigateurs est en anglais, français en cas d’égalité) |
+| `notification_rules` | `{}` | Les règles de notification (quel canal reçoit quel événement, exceptions par conversation). Écrites par l’import 4.18 vers 5.0, le tableau des règles, la cloche, **Ne pas déranger** et la suppression d’un canal ; `paused_until` (la pause) et les options du tableau (`mention_whole_word`, `emit_ws_events` : envoyer les événements retenus aux pages web ouvertes, activé par défaut) y sont |
+| `radio_offline_grace_s` | `60` | Secondes pendant lesquelles la radio peut rester injoignable avant l’envoi de **Radio hors ligne** (0 à 3600 ; 0 notifie tout de suite). Se règle sous la ligne **Radio hors ligne** du tableau des règles |
+| `push_allow_private_endpoints` | `false` | Accepte les points d’accès Web Push sur un réseau privé, pour un distributeur UnifiedPush auto-hébergé. Voir [Push](/docs/deep/push/#services-push-sur-un-réseau-privé) |
+
 ## Variables retirées
 
 Ces variables ne changent plus rien. Leurs réglages sont dans l’interface :
@@ -88,7 +97,7 @@ Ces variables ne changent plus rien. Leurs réglages sont dans l’interface :
 |----------|----------------|
 | `MESHCORE_VAPID_SUBJECT` | **Réglages → Notifications**, champ **Sujet VAPID** |
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | **Réglages → Radio → Avancé**, « Vérifier les messages toutes les 10 secondes » |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Réglages → Radio → Avancé**, « Réécrire le salon avant chaque envoi » |
+| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Réglages → Radio → Avancé**, « Réécrire le canal avant chaque envoi » |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | **Réglages → Radio → Avancé**, « Laisser la radio supprimer ses plus anciens contacts » |
 
 Si l’une d’elles est encore définie au moment de la mise à jour, Meshloom la recopie une seule fois dans sa base, au premier démarrage : le sujet VAPID seulement si le champ des Réglages est vide, un contournement seulement si la variable vaut `true`. Votre installation continue donc de fonctionner comme avant. Ensuite Meshloom ne les lit plus jamais et écrit un avertissement dans son journal à chaque démarrage tant que l’une d’elles reste définie : retirez-la de votre environnement, et changez désormais le réglage dans l’interface.
@@ -106,6 +115,8 @@ Meshloom écrit le même avertissement à chaque démarrage tant que l’une d�
 
 | Variable retirée | Ce qu’elle devient |
 |----------|--------|
+| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Ignorées : pas importées comme compte, et `Authorization: Basic` n’est plus accepté (utilisez un jeton d’API). Meshloom écrit un avertissement à chaque démarrage tant que l’une est définie. Les comptes se gèrent dans **Réglages → Utilisateurs et accès** |
+| `MESHCORE_DISABLE_BOTS` | Les bots Python sont des extensions depuis la 5.0.0. Lue une dernière fois par la migration des bots (`true` enregistre toutes les extensions converties éteintes), puis ignorée, avec un avertissement au démarrage qui nomme `MESHCORE_DISABLE_PLUGINS`. Pour verrouiller toutes les extensions, posez cette variable (voir [Extensions](/docs/deep/plugins/#les-bots-de-la-418-et-avant)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignorée, avec le même avertissement. La clé privée de la radio peut toujours être relue : par `GET /api/radio/private-key` et dans la sauvegarde complète (**Réglages → Base de données**, voir [Sauvegarder la radio](/docs/backup/)). Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud) |
 
 ## Réglages stockés dans la base
@@ -114,16 +125,17 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 
 | Où | Ce que cela commande |
 |----|----------------------|
-| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure). Onglet **Avancé** : `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict`, `auto_clock_wraparound` |
+| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`, `keep_channels_on_radio`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure). Onglet **Avancé** : `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict`, `auto_clock_wraparound` |
 | **Base de données** | `auto_decrypt_dm_on_advert` |
 | **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alertes** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail et webhook) |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail, webhook et Apprise, les destinations 4.18.x), `notification_language`, `notification_rules`, `radio_offline_grace_s`, `push_allow_private_endpoints` ; les nouvelles tables `notification_channels`, `notification_deliveries`, `notification_counters` et `notification_state` |
 | **Mises à jour** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
-| **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche |
+| **Utilisateurs et accès** | `public_urls` (**Adresses publiques** : les noms auxquels Meshloom répond depuis l’extérieur, déclarés par un administrateur ; aucune variable d’environnement n’existe pour cela), `host_guard_mode` (observation ou strict ; passe en strict quand la première adresse publique est déclarée) |
+| **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche ; `auth_allowed_origins` : les autres sites autorisés à appeler l’API (**Origines autorisées**) |
 | Canaux découverts | `rejected_channels` : les canaux que vous avez refusés |
 | Hors interface | `raw_packet_retention_days` : supprime automatiquement les paquets illisibles plus vieux que ce nombre de jours (`0` garde tout). À régler par `PATCH /api/settings` |
 
 La paire de clés VAPID (`vapid_private_key` et `vapid_public_key`) est créée au premier démarrage. L’interface est la façon prévue de modifier les réglages ; certains peuvent aussi être lus et modifiés avec `GET` et `PATCH /api/settings`.
 
-Les intégrations (MQTT, bots, webhooks, Apprise, SQS) sont stockées à part, dans `fanout_configs`. Meshloom Community a son propre point d’accès, `/api/community`. Voir [Fanout](/docs/deep/fanout/), [Meshloom Community](/docs/deep/community/) et [Radio, contacts et salons](/docs/deep/radio/).
+Les intégrations (MQTT, webhooks, Apprise, SQS) sont stockées à part, dans `fanout_configs`. Meshloom Community a son propre point d’accès, `/api/community`. Voir [Fanout](/docs/deep/fanout/), [Meshloom Community](/docs/deep/community/) et [Radio, contacts et salons](/docs/deep/radio/).

@@ -690,14 +690,23 @@ class TestCommunityModuleKeyUnavailable:
                 SimpleNamespace(is_connected=True, is_setup_complete=True),
             ),
         ):
-            reason = module.last_error
-            assert reason is not None
-            assert "key export" in reason
-            assert "ENABLE_PRIVATE_KEY_EXPORT" in reason
-            assert "proxy" in reason
+            # A code the settings translate (MSHL-471), not an English sentence.
+            assert module.last_error == "radio_key_unavailable"
             # A populated last_error promotes the status to "error" so the
             # fanout card shows the actionable detail instead of "Disconnected".
             assert module.status == "error"
+
+    def test_reason_names_the_proxy_when_the_export_said_so(self):
+        module = self._make_module()
+        with (
+            patch("app.keystore.get_public_key", return_value=None),
+            patch("app.keystore.radio_key_unavailable_code", return_value="radio_key_behind_proxy"),
+            patch(
+                "app.services.radio_runtime.radio_runtime",
+                SimpleNamespace(is_connected=True, is_setup_complete=True),
+            ),
+        ):
+            assert module.last_error == "radio_key_behind_proxy"
 
     def test_no_reason_when_key_available(self):
         module = self._make_module()

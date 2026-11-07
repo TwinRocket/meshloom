@@ -21,7 +21,7 @@ Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatis
 
 Rejoindre est le seul moyen d’activer Community depuis les réglages : il n’y a pas d’interrupteur, et **Quitter Meshloom Community** (affiché une fois rejoint) ne fait que le désactiver. Meshloom enregistre d’abord le code auprès de Community, et alors seulement active Community et commence à publier. Si Community refuse le code (par exemple parce que cette radio a déjà changé de code trop souvent ces 7 derniers jours), Community reste désactivé, votre code enregistré ne change pas, et les réglages disent pourquoi.
 
-Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié. Community efface cette confirmation quand la position de votre radio s’éloigne de plus de 100 km (par défaut : réglage `IATA_GPS_HYSTERESIS_KM` côté Community) de celle qu’il a enregistrée : comme Meshloom renvoie désormais la position de lui-même (voir plus bas), cela peut arriver sans aucune action dans les réglages, et **Je suis sûr de moi** réapparaît si le code et la position ne concordent toujours pas.
+Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme ; cette confirmation ne compte pas comme un changement. Community limite la fréquence à laquelle le code peut être modifié. Community efface cette confirmation quand la position de votre radio s’éloigne de plus de 100 km (par défaut : réglage `IATA_GPS_HYSTERESIS_KM` côté Community) de celle qu’il a enregistrée : comme Meshloom renvoie désormais la position de lui-même (voir plus bas), cela peut arriver sans aucune action dans les réglages, et **Je suis sûr de moi** réapparaît si le code et la position ne concordent toujours pas.
 
 Ce code est aussi la région que la page Live affiche par défaut ; on peut y ajouter d’autres régions.
 
@@ -70,13 +70,40 @@ Avec Community activé et un code enregistré, votre serveur envoie :
 
 Meshloom n’envoie jamais la clé privée de votre radio à Community. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. Quiconque atteint votre Meshloom peut toutefois relire la clé, par l’API et dans la sauvegarde complète (voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud)). La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
 
+Le Store d'extensions est indépendant de Community : il a son propre interrupteur, activé par défaut, et parle à d'autres serveurs (GitHub, voir [Ce qui quitte votre instance](/docs/deep/plugins/#ce-qui-quitte-votre-instance)). Activer ou désactiver Community ne change rien pour le Store, et inversement.
+
+## Fonctions qui ont besoin de Community
+
+Ces fonctions passent par les serveurs de TwinRocket : elles ne marchent que tant que Community est activé :
+
+- **Meshloom Remote** (**Réglages → Accès à distance**), le relais sur `meshloom.link` ;
+- le **partage de liens et de fichiers** (**Réglages → Partage : liens et fichiers**), le service sur `meshl.ink` ;
+- la carte et le flux **Live**, et tout ce que votre radio remonte comme observateur (ci-dessus).
+
+Tant que Community est désactivé, Meshloom Remote et le partage ne peuvent pas être activés : leurs réglages l’indiquent et proposent un bouton vers les réglages Community. Si vous désactivez Community alors qu’ils sont activés, ils se **mettent en pause** : Meshloom cesse aussitôt de contacter le relais et le service de partage, vos appareils ne peuvent plus ouvrir l’instance de l’extérieur, aucun nouveau lien ni fichier ne peut être partagé, et les liens et photos partagés ne s’affichent plus. Rien n’est supprimé : l’adresse Remote, les appareils autorisés, le choix de partage et les conditions acceptées sont conservés, et les deux reprennent dès que vous réactivez Community. La fenêtre qui confirme le départ de Community le rappelle.
+
+Community a lui-même besoin que ce Meshloom **détienne la clé privée de la radio**, pour signer ce qu’il envoie. Sans elle, rejoindre et tout ce qui précède s’arrêtent avec **la clé de cette radio n’est pas disponible ici** : la radio est atteinte par un [proxy radio](/docs/deep/radio/#proxy-radio), ou son firmware ou un proxy intermédiaire ne donne pas la clé. Branchez la radio directement, ou utilisez le Meshloom qui détient la clé.
+
+## Preuve pour Remote et le partage
+
+Le relais et le service de partage n’acceptent une nouvelle inscription, ou un nouveau lien ou fichier, que d’une instance dont Community connaît la radio et qu’**une autre station a entendue récemment**. Votre serveur demande à Community une courte preuve (une *attestation*) pour la clé de Remote et une autre pour la clé de partage, et la présente à ce service. Le navigateur ne le fait jamais.
+
+- Community n’en donne une que si, dans les **14 derniers jours**, une autre station a entendu une annonce de votre radio. Sinon, Meshloom affiche **Aucune autre station n’a entendu cette radio récemment** : envoyez une annonce flood (ou laissez la radio allumée pour qu’elle s’annonce d’elle-même), puis réessayez.
+- Une preuve dure 3 jours. Meshloom la garde, même après un redémarrage, la renouvelle la veille de sa fin et en redemande une aussitôt si le service la refuse. Il n’en demande jamais plus de quelques-unes par heure et attend après un refus (15 minutes si la radio n’a pas été entendue, une heure si cette radio a quitté Community ou a été bannie) : réessayer plus tôt n’y change rien.
+- La preuve ne nomme que la clé du service : le relais et le service de partage ne savent pas de quelle radio il s’agit. **Community garde un registre confidentiel** de la radio qui a obtenu une preuve pour chaque clé de service, avec ses dates, pendant un an après la fin de la preuve, même si vous partez. Il n’est jamais public et ne sert qu’à répondre à une demande d’une autorité compétente (voir la politique de confidentialité de [meshloom.app](https://meshloom.app)).
+- Une instance inscrite à Remote avant le 10 novembre 2026 peut continuer à s’inscrire sans preuve jusqu’au 31 janvier 2027 : si Community ne peut pas en donner une, Remote continue de marcher.
+
+Désactiver Community fait oublier à Meshloom les preuves qu’il détient.
+
 ## Quitter Community
 
-**Quitter Meshloom Community** (dans les réglages, ou **Quitter Community** dans l’explication de la bannière d’attente) affiche d’abord ce que le départ implique :
+**Quitter Meshloom Community** (dans les réglages, ou **Quitter Community** dans l’explication de la bannière d’attente) demande d’abord confirmation, dans une courte fenêtre qui donne l’adresse de confidentialité ci-dessous. Ce que le départ implique :
 
 - les paquets déjà remontés par votre radio restent dans les statistiques de Community, sous le nom de votre radio ;
 - la position de votre radio est supprimée de Community ;
 - si les annonces de votre radio diffusent sa position, elle reste visible sur la carte comme celle de tout autre nœud entendu sur le mesh ;
+- Meshloom Remote et le partage de liens et de fichiers se mettent aussi en pause (voir [Fonctions qui ont besoin de Community](#fonctions-qui-ont-besoin-de-community)) ;
+- le registre confidentiel des preuves données pour Remote et le partage est gardé un an après la fin de chaque preuve (voir [Preuve pour Remote et le partage](#preuve-pour-remote-et-le-partage)) ;
 - pour tout faire supprimer, écrivez à [privacy@meshloom.app](mailto:privacy@meshloom.app).
 
 Vous pouvez aussi indiquer pourquoi vous partez (vie privée, pas utile, problème technique, autre) ; c’est facultatif. Une fois le départ confirmé, Meshloom envoie une dernière requête à Community pour enregistrer la désinscription, avec la raison si vous en avez donné une : Community supprime la position de votre radio, efface son état sur le broker (aussitôt, ou peu après) et refuse cette radio jusqu’à ce qu’elle rejoigne de nouveau. Meshloom coupe ensuite tout, comme décrit ci-dessous.

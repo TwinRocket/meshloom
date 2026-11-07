@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.auth.ws_events import WsEvent
 from app.loop_lock import LoopBoundLock
 from app.models import CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, Contact, ContactUpsert, Message
 from app.repository import (
@@ -20,7 +21,6 @@ from app.services.messages import (
     format_contact_log_target,
     handle_duplicate_message,
     reconcile_duplicate_message,
-    truncate_for_log,
 )
 
 if TYPE_CHECKING:
@@ -95,7 +95,7 @@ async def resolve_fallback_direct_message_context(
         await contact_repository.upsert(placeholder_upsert)
         contact = await contact_repository.get_by_key(normalized_sender)
         if contact is not None:
-            broadcast_fn("contact", contact.model_dump())
+            broadcast_fn(WsEvent.CONTACT, contact.model_dump())
 
     return FallbackDirectMessageContext(
         conversation_key=normalized_sender,
@@ -378,8 +378,7 @@ async def ingest_decrypted_direct_message(
         return None
 
     logger.info(
-        'Stored direct message "%s" for %r (msg ID %d in contact ID %s, outgoing=%s)',
-        truncate_for_log(decrypted.message),
+        "Stored direct message for %r (msg ID %d in contact ID %s, outgoing=%s)",
         format_contact_log_target(contact.name if contact else None, conversation_key),
         message.id,
         conversation_key,

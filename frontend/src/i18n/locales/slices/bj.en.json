@@ -1,0 +1,36 @@
+{
+  "errors": {
+    "auth_public_urls_invalid": "Not a valid public address. Use https://name[:port][/prefix].",
+    "auth_host_guard_would_lock_out": "Enforcing would reject the address you are using now ({{host}}). Add it as a public address first."
+  },
+  "settings": {
+    "access": {
+      "public": {
+        "title": "Public addresses",
+        "help": "The addresses that reach Meshloom from outside, such as your reverse proxy or Tailscale name. They must use https.",
+        "none": "No public address declared.",
+        "address": "Public address",
+        "add": "Add",
+        "remove": "Remove",
+        "removeFor": "Remove {{url}}",
+        "saved": "Public addresses saved.",
+        "rejectedTitle": "Recently seen unknown names",
+        "rejectedHelp": "Names used to reach Meshloom that are not declared. Since the last restart, most recent first.",
+        "rejectedNone": "No unknown name seen.",
+        "seen": "{{count}} request(s), last {{last}}",
+        "allow": "Allow",
+        "allowFor": "Allow {{host}}",
+        "allowed": "{{host}} declared as a public address.",
+        "enforce": "Refuse unknown names (enforce)",
+        "enforceHelpOff": "Observation mode: unknown names are listed above and still work. Declaring the first public address turns enforcement on.",
+        "enforceHelpOn": "Enforced: only declared names are accepted. If a name stops working, open Meshloom by its IP address and turn this off.",
+        "enforceOn": "Unknown names are now refused.",
+        "enforceOff": "Observation mode restored.",
+        "rejectedRisk": "Allow only a name you set up yourself: an unknown name may come from an attacker.",
+        "confirmTitle": "Declare this name as a public address?",
+        "confirmRisk": "Meshloom will answer to this name from now on. Continue only if it is yours.",
+        "confirmAllow": "Allow {{host}}"
+      }
+    }
+  }
+}

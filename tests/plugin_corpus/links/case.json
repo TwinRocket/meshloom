@@ -1,0 +1,21 @@
+{
+  "description": "Create a symbolic or a hard link to a file outside the work dir.",
+  "events": [
+    {
+      "params": {
+        "how": "symlink"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "hardlink"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

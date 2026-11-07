@@ -115,7 +115,7 @@ def build(snapshot_text: str, metro_text: str, commit: str) -> str:
         f'"source":{json.dumps(f"meshloom-community {SNAPSHOT_PATH} + {METRO_PATH}")},',
         f'"community_commit":{json.dumps(commit)},',
         '"license":"OurAirports (public domain) and OpenTravelData (CC BY 4.0, '
-        'https://github.com/opentraveldata/opentraveldata), modified: merged and recomputed; '
+        "https://github.com/opentraveldata/opentraveldata), modified: merged and recomputed; "
         'see app/data/NOTICE-iata-airports.md",',
         f'"kinds":{json.dumps(kinds)},',
         '"airports":{',

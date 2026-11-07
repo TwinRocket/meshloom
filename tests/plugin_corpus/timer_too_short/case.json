@@ -1,0 +1,18 @@
+{
+  "description": "timer.set(1): below the 10 s minimum, refused by the host with invalid_params.",
+  "stage": "host",
+  "permissions": {
+    "timer": {}
+  },
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "result": {
+          "refused": "invalid_params"
+        }
+      }
+    }
+  ]
+}

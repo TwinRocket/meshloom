@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "allowedOrigins": {
+      "title": "Allowed origins",
+      "label": "Other sites allowed to call this instance",
+      "help": "One origin per line (https://dashboard.example.org). Each listed site can do anything on your behalf: only list sites you control.",
+      "sameOriginOnly": "Empty: same-origin only. No other site can call this instance from a browser.",
+      "invalid": "Not an origin (scheme://host[:port], no path, no *): {{origins}}",
+      "save": "Save origins",
+      "saving": "Saving…",
+      "saved": "Allowed origins saved",
+      "saveFailed": "Could not save the allowed origins"
+    }
+  }
+}

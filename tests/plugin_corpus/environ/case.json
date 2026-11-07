@@ -1,0 +1,4 @@
+{
+  "description": "The child keeps only the whitelisted environment variables, whatever the parent passed.",
+  "events": [{"params": {}, "expect": {"check": "environ"}}]
+}

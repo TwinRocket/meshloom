@@ -1,3 +1,296 @@
+## [Unreleased]
+
+### Changed
+
+- **First account.** There is no installation code any more. From the local network, you create the administrator account directly, also after an upgrade and on the kiosk image. From anywhere else the page asks you to open Meshloom from the local network. On a machine you publish through a tunnel Meshloom cannot detect, create the account with `meshloom-admin create-admin` first ([details](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/en/deep/access.md#the-first-administrator)).
+
+### Français
+
+#### Changements
+
+- **Premier compte.** Il n'y a plus de code d'installation. Depuis le réseau local, vous créez directement le compte administrateur, y compris après une mise à jour et sur l'image kiosque. Depuis ailleurs, la page vous demande d'ouvrir Meshloom depuis le réseau local. Sur une machine publiée par un tunnel que Meshloom ne peut pas détecter, créez d'abord le compte avec `meshloom-admin create-admin` ([détails](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/fr/deep/access.md#le-premier-administrateur)).
+
+---
+
+## [5.0.0-rc.3] - 2026-11-07
+
+Third release candidate of Meshloom 5.0. It improves photo sharing. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new.
+
+### Changed
+
+- **Share a photo.** The File tab now shows the image as it will be sent, instead of a line about its size.
+
+### Fixed
+
+- **Share a photo.** A small image no longer comes out much larger than your file: it is saved again at a lower quality, or as an optimised PNG. A big PNG of over about one megapixel can still end up larger.
+
+### Français
+
+Troisième version candidate de Meshloom 5.0. Elle améliore le partage de photos. [Les notes de la rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) restent valables : avant d'essayer, limites connues et nouveautés.
+
+#### Changements
+
+- **Partage de photo.** L'onglet Fichier montre maintenant l'image telle qu'elle partira, au lieu d'une ligne sur sa taille.
+
+#### Corrections
+
+- **Partage de photo.** Une petite image ne devient plus bien plus lourde que votre fichier : elle est réenregistrée en qualité plus basse, ou en PNG optimisé. Un grand PNG de plus d'un mégapixel environ peut encore finir plus lourd.
+
+---
+
+## [5.0.0-rc.2] - 2026-11-07
+
+Second release candidate of Meshloom 5.0. It fixes the installer. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new. The copy made before an upgrade is now named `meshcore.db.schema87.before-5.0.0-rc.2.db`.
+
+### Fixed
+
+- **Installer.** Run by a sudo user, the installer no longer replaces `/etc/meshloom/meshloom.env`, and no longer stops without a word on a package question while moving from 4.18: your file is kept. It can also pick up an install that was stopped midway.
+- **If rc.1's installer looks frozen** on "Installing from the Meshloom package repository": press Enter once and it finishes.
+
+### Français
+
+Deuxième version candidate de Meshloom 5.0. Elle corrige l'installeur. [Les notes de la rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) restent valables : avant d'essayer, limites connues et nouveautés. La copie faite avant une mise à niveau s'appelle désormais `meshcore.db.schema87.before-5.0.0-rc.2.db`.
+
+#### Corrections
+
+- **Installeur.** Lancé par un utilisateur sudo, l'installeur ne remplace plus `/etc/meshloom/meshloom.env` et ne s'arrête plus sans rien dire sur une question du paquet lors du passage depuis la 4.18 : votre fichier est conservé. Il sait aussi reprendre une installation interrompue.
+- **Si l'installeur de la rc.1 semble figé** sur « Installation depuis le dépôt de paquets Meshloom. » : appuyez une fois sur Entrée et il se termine.
+
+---
+
+## [5.0.0-rc.1] - 2026-11-06
+
+First release candidate of Meshloom 5.0, for people who accept to test. Meshloom now has accounts and everyone signs in; Python bots become sandboxed extensions; notifications go through channels you choose; the Feed puts everything in one timeline; Meshloom Remote and link and photo sharing arrive, both optional. It changes your database and there is no way back in place, so read *Before you try it* first.
+
+### Before you try it
+
+- **Copy your data first, or use a new instance.** On 4.18, download a copy with **Settings → Database → Download meshcore.db** and keep it on another machine; a copy downloaded on 5.0 cannot take you back. Read [Upgrading from 4.18](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/upgrade-4-18.md).
+- **Install.** `/bin/bash -c "$(curl -fsSL https://get.meshloom.app/next)"` installs or moves to the latest release candidate, with the normal installer's questions: see [Try the pre-release](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/prerelease.md). A machine that does not run this command never receives a pre-release.
+- **Meshloom also copies the database before changing it** (`meshcore.db.schema87.before-5.0.0-rc.1.db` on this version, next to the database). It needs the size of the database plus a quarter (64 MB at least) free on disk: without that, it stops with a clear log and leaves the database untouched. [Where the copy is](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/install-paths.md#the-copy-made-before-an-upgrade).
+- **Going back.** Use a new instance, or put your copy on a fresh 4.18 install: the steps are in [Going back to 4.18](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/upgrade-4-18.md#going-back-to-418). Never run the 4.18 install script on a machine running a pre-release: it does not know them, and can start 4.18 on a database it cannot read.
+- **Two defaults to check.** **Include accounts** is ticked in the full backup, so the file holds password hashes and two-factor secrets: untick it before giving a backup to anyone. Once sharing is on, its mode is **Automatic**: Send shortens long addresses through the service without asking.
+- **After the upgrade.** The first start asks you to create the administrator account and, when the installation already held data, to type the installation code from the log. Trusted network rules and converted bots stay off until an administrator turns them on.
+
+### Known limits of this pre-release
+
+- **Remote and sharing need Community, and Community needs the radio's key.** Meshloom Remote and link and file sharing cannot be turned on while Community is off. Community needs an instance that holds the radio's private key, so none of them works behind a radio proxy, which never gives that key: connect the radio directly, or use the Meshloom that holds it ([Features that need Community](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/community.md#features-that-need-community)). A new registration, link or file also needs another station to have heard your radio in the last 14 days.
+- **No 32-bit package.** Pre-releases have no armhf package, so the installer changes nothing on a 32-bit machine unless you pick Docker. Docker covers ARMv7 only (a Pi 2, 3 or 4 on a 32-bit system), and this pre-release's armv7 image has never been run yet. ARMv6 and 32-bit x86 have no image. The Home Assistant add-on stays on 4.18: it is not offered this pre-release.
+- **Updates reach only stable releases.** **Settings → Updates** does not announce a newer pre-release: run the `/next` command again to get one. When the final 5.0.0 is out, it is offered there and the same database carries on, but only Docker, once you accept it, then follows stable releases by itself. A machine on the `apt` or `dnf` package stays on the pre-release source until you run the usual install command, and with `dnf` then `sudo dnf upgrade meshloom`. [What to do at the final release](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/prerelease.md#when-the-final-release-is-out).
+- **No update takes you back.** Neither the updater nor this version's installer goes below an installed pre-release (the 4.18 installer does not know them, see above), and a version of Meshloom from 5.0 on refuses to start on a database from a newer one. Keep your copy of the data until you are sure.
+- **A bot that imports a third-party library does not work.** A converted bot with `import requests`, for example, shows as running but fails on each message, with the error in its log: extensions only reach the allowed standard library and their own `vendor/` folder.
+- **Meshloom Remote has a monthly quota per instance** ([Limits](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/remote.md#limits)).
+- **Documentation.** The links here go to this version's documentation on GitHub. Many links from one of those pages to another answer 404 there. Those of *Try the pre-release* and *Upgrading from 4.18* open; for the others, use the [folder listing](https://github.com/TwinRocket/meshloom/tree/5.0.0-rc.1/docs/user/en). As long as meshloom.app does not carry the 5.0 documentation, it describes 4.18, and the help links for Remote and sharing in Settings answer 404.
+
+### What to try and how to report
+
+- **Try:** creating the administrator account, signing in with a passkey or a second factor, turning on [Meshloom Remote](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/remote.md) and allowing a phone, sharing a link or a photo ([Sharing](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/share.md)), reviewing a converted bot or adding an extension ([Extensions](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/plugins.md)), setting up a notification channel and Web Push, restoring a full backup.
+- **Report** on [GitHub](https://github.com/TwinRocket/meshloom/issues) with the bug report form: the version in **Settings → About**, how you installed it, what you did and what happened. Never paste a password, token or installation code. A security problem goes through [SECURITY.md](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/SECURITY.md), not a public issue.
+
+### Breaking
+
+- **Signing in is mandatory.** Every API route and the live connection need an account; only a minimal health check, the login and the first-run setup stay open. HTTP Basic is gone: scripts and Home Assistant sensors use an API token. The Home Assistant add-on signs you in with your Home Assistant user.
+- **Python bots are converted into local extensions**, with their code, conversations and on/off setting kept. No user code runs inside the server process any more. Each converted bot stays off until an administrator reviews its permissions in **Settings → Extensions** ([Bots from 4.18](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/plugins.md#bots-from-418-and-earlier)). Extensions need Linux or macOS; on Windows they are off.
+- **Trusted network rules are kept but off** until an administrator turns on **Login-free on the local network**. A rule never signs in an administrator.
+- **Community is opt-in on a new installation.** An existing installation keeps its setting. Its `MESHLOOM_COMMUNITY*` variables are no longer read, except a leftover `MESHLOOM_COMMUNITY_IATA`, copied once into an existing database.
+- **The full backup has a new format.** 4.18 reads it in part and drops the rest without saying so: restore it on 5.0 or later. **Settings → Database → Download meshcore.db** is scrubbed: no passwords, second factors, extension secrets or sessions, and consents are reset. After restoring it, nobody signs in with a password until you run `meshloom-admin`. For a complete restore, keep a full backup too.
+- **`secrets.key` now travels with the database.** Notification and integration secrets are encrypted with this file, kept next to `meshcore.db`: copy both when you move an installation. Without it Meshloom starts, and the affected channels stay off until you type the secrets again.
+- **The server enforces the radio's message size limit** on every way of sending. An oversized message from a bot or a script is refused and nothing is sent or stored.
+- **Behind a reverse proxy, list it in Settings → Local Configuration → Trusted proxies.** Otherwise every visitor has the proxy's address, and the session cookie is not the secure one over HTTPS. A proxy that replaces `Host` must send the original in `X-Forwarded-Host`, or the live connection is refused and live data stays empty. If you start Meshloom with your own command, add `--no-proxy-headers`.
+- **Destinations on your network.** Webhooks and integrations you already had toward your LAN keep working: the upgrade ticks **Allow a destination on a private network** for them, and changing an integration's address unticks it while the one-time notice is open; after **Got it**, the box stays ticked. An Apprise output to a service no longer accepted (SNS, SES, syslog...) is refused whatever the settings. Proxy variables such as `HTTPS_PROXY` no longer apply to webhooks and Web Push.
+- **Python 3.13 is the minimum**, which only affects a source install.
+- **With the Linux package, other local accounts can no longer read `/var/lib/meshloom`.** Use `sudo` to copy the database.
+
+### Accounts and sign-in
+
+- **Accounts and roles.** Administrator, member, viewer and kiosk (a wall screen: channels only, never a direct message), enforced by the server on every route, in **Settings → Users & Access**. An audit log records sensitive actions and `meshloom-admin` recovers access from the machine. [Accounts and access](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/access.md).
+- **Stronger sign-in.** Two-factor codes with recovery codes, passkeys (over https or `localhost` only), an e-mail code or sign-in link if an administrator picks a mail channel, and your own OpenID Connect provider (**Settings → Connection**). **Keep me signed in on this device** is off by default.
+- **Tokens and pairing.** API and device tokens with scopes replace passwords in scripts, and **Pair a device** enrols a phone with a single-use QR code.
+- **Sign-in rules** are in **Settings → Connection**: session lifetime, client addresses, trusted networks, address bans. **Public addresses** are in **Settings → Users & Access**; declaring one turns on the check of the address used and refuses plain HTTP from the internet.
+- **Kiosk image.** A Raspberry Pi kiosk gets a read-only account, shows the installation code on its own screen and signs itself in.
+
+### Meshloom Remote and sharing
+
+- **Meshloom Remote** opens your instance from anywhere through a relay, with no open port and no TwinRocket account. It is off by default, in **Settings → Remote access**: devices are allowed one by one, by QR code or access request, and can be revoked. [Your own domain](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/remote-domain.md) can redirect to it, and Web Push on iPhone works without typing a contact. Prefer your own tunnel? See [Remote access on your own](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/remote-self-hosted.md).
+- **Short links and photos** through `meshl.ink`, off until an administrator accepts the terms; until then Meshloom makes no connection to it. In **Automatic** mode Send shortens long addresses by itself. **Send a photo** in the composer strips position and camera data in your browser, and photos can be encrypted in private channels and direct messages, with limits the guide spells out. Photos load by themselves by default: **Settings → Share: links and files** changes that. [Short links and photos](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/share.md).
+- **What the services keep.** Sharing signs with a key of its own, never the radio's. Each new link or file carries a pseudonymous code for the local account; Community keeps a confidential record of which radio obtained a proof for which service key, for one year. [Proof for Remote and sharing](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/community.md#proof-for-remote-and-sharing).
+
+### Notifications
+
+- **Channels.** **Settings → Notifications** replaces the fixed forms with as many channels as you want: e-mail, webhook, Web Push, ntfy, Discord, Apprise, and forms for Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat and SMS. Your existing destinations come along. [Notifications](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/notifications.md).
+- **Choosing what you receive.** An events-by-channels table, exceptions per conversation, the bell in each conversation, **Do not disturb**, **Quiet hours**, **Digest mode**, **Message templates**, and **My notifications** for your own devices.
+- **New events.** Mentions, **Keywords**, **Watched nodes**, radio offline and back online, Meshloom started, and a **Heartbeat** to learn when Meshloom itself is down.
+- **Limits and failures.** Each channel has limits, floods become one summary, and a channel that keeps failing tells you through the others, then pauses and retries. A shared image or link reads `[image]` or `[link]` in a notification, never its address.
+- **Apprise fanout is deprecated.** **Convert to a notification channel** moves an integration over in one click. The output goes away in 5.2.0.
+
+### Feed
+
+- **A single timeline.** The new **Feed** lists channels, direct messages, control traffic and events, live, with filters that a bookmark or a kiosk address can pin. **Control** is now a preset of the Feed, and old links to it keep working.
+- **Display mode** turns it into a screen for a wall: larger text, no controls but **Exit**, no direct messages, images not loaded.
+- **Start page.** **Settings → Navigation** chooses where Meshloom opens.
+
+### Extensions
+
+- **Settings → Extensions** lists them, shows what each may do before you accept, and offers a log, settings, **Pause all extensions** and a code editor for local ones. Only administrators change them, and each change is audited. Echo and Auto-responder ship with Meshloom and work offline.
+- **Custom repositories.** The **Store** tab adds an extension from a GitHub repository, with updates that hold back any new permission until you accept it. These extensions are neither reviewed nor signed by Meshloom. **Store online** is on by default, but nothing is sent until you add a repository. [Plugins](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/plugins.md).
+- **For authors.** `python -m meshloom_plugin.dev` checks, replays and packs a plugin without a radio. Plugins can send notifications through your channels, within limits.
+
+### Radio and backup
+
+- **Keep channels on the radio** (**Settings → Radio**, off by default) stops Meshloom from emptying the radio's channel slots at each connection.
+- **The full backup carries more:** accounts (**Include accounts**, ticked by default), notification channels and rules, extensions. Secrets of channels and extensions stay out, so those come back off and ask for them. An extension restored without its code offers **Reinstall**. Restore files are limited to 64 MiB.
+
+### Security
+
+What 5.0 closes or hardens compared with 4.18. This file is public: it says what changed, not how to abuse it.
+
+- **Other sites.** A page from another site can no longer use Meshloom through your browser, on the API or the live connection. **Allowed origins** is empty by default. Cookies stay on their own address.
+- **Who is who.** Forwarded headers are believed only from **Trusted proxies**. A new instance opened under a domain name asks for the installation code, even from the local network.
+- **Your network.** Webhooks, Web Push and fanout outputs refuse private and metadata addresses unless you allow a private network, and check again at each send. Test buttons no longer reveal network details. Apprise accepts only reviewed services.
+- **Secrets.** Notification and integration secrets are encrypted in the database and write-only in the API, and changing where one is sent requires typing it again. On Linux, programs that do not run as root can no longer read Meshloom's memory.
+- **Guessing and abuse.** Wrong passwords slow sign-in down without ever locking an account, and an address that keeps failing is banned for a while (**Address bans**). The Linux packages carry an optional [fail2ban](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/fail2ban.md) jail, off by default. Request sizes and read times are limited, and the radio proxy closes a connection that does not speak MeshCore.
+- **Sessions and live events.** Signing out, or any revocation, cuts the live connection, and each live event goes only to the roles allowed to see it. Security headers are sent, and answers that carry secrets are not cached.
+- **Extensions.** Each runs in its own supervised process, behind operating-system walls and kernel filters where the machine allows them. Quotas and loop guards hold plugins back from flooding the mesh. Where isolation is weaker, Meshloom says so at every start.
+- **Logs.** No message text or private channel name at the default level, no token in an address, and text from outside cannot forge a log line.
+- **Text and devices.** Names that reverse text direction can no longer reorder the text around them. Push devices belong to their account.
+
+### Fixed
+
+- **A channel named with a `#`** keeps its own key when you send.
+- **A deleted channel stays deleted**, and its radio slot is emptied.
+- **The composer accepts a message of exactly the limit**, and a channel whose timed mute has ended counts its unread messages again.
+- **The Docker image starts without internet access**, and with `--user`.
+- **A failed start logs its cause and ends the process**, so systemd or Docker can restart it.
+- **Bulk room decryption** shows a translated message, and Apprise links open the current documentation.
+
+### For scripts and integrations
+
+- **Credentials.** `Authorization: Basic` gets a plain 401; use `Authorization: Bearer` with a token from `POST /api/auth/tokens`, or a pairing code ([contract](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/dev/device-pairing.md)).
+- **`/api/health`** answers `{"ok": true}` when not signed in. `basic_auth_enabled` is gone, `bots_disabled` and `bots_disabled_source` are deprecated, and `notification_statuses` is now keyed by channel id.
+- **Retired, warned about at start:** `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD`, `MESHCORE_DISABLE_BOTS` and `MESHLOOM_COMMUNITY*`, and the add-on's `basic_auth_*` and `disable_bots`. To lock every extension, use `MESHCORE_DISABLE_PLUGINS` or the add-on's `disable_plugins`.
+- **Changed routes.** The `bot` fanout type answers `410 bot_type_retired`, `POST /api/fanout/bots/disable-until-restart` is gone, and `PATCH /api/community` with `enabled: true` while Community is off answers `409 join_requires_bind`: join with `PUT /api/community/me/iata` and `enable: true`.
+- **Removed in 5.2.0:** `/api/push/preferences`, `notification_destinations` in `PATCH /api/settings`, `POST /api/settings/notification-destinations/test`, the Apprise fanout type, `bots_disabled*`, and the bot conversion with its archive table.
+- **New.** `/api/notifications`, `/api/plugins`, `/api/share`, `/api/remote`, the `/api/auth` routes, webhook body v2 ([schema](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/en/deep/notifications-webhook.md)), and new filters on `GET /api/messages` (`outgoing`, `since_id`, `muted`, `membership`, `conversation_keys`).
+- **More detail.** Schema and migrations are in [docs/dev/database.md](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/dev/database.md). The feature-by-feature development log of this cycle stays in the git history of this file. It was written as work landed and not revised, so some entries were later superseded.
+
+---
+
+### Français
+
+Première version candidate de Meshloom 5.0, pour celles et ceux qui acceptent de tester. Meshloom a désormais des comptes et tout le monde se connecte ; les bots Python deviennent des extensions isolées ; les notifications passent par les canaux que vous choisissez ; le Fil réunit tout sur une seule chronologie ; Meshloom Remote et le partage de liens et de photos arrivent, tous deux facultatifs. Elle modifie votre base de données et il n'y a pas de retour en place : lisez d'abord *Avant d'essayer*.
+
+#### Avant d'essayer
+
+- **Copiez d'abord vos données, ou utilisez une nouvelle instance.** Sur la 4.18, téléchargez une copie avec **Réglages → Base de données → Télécharger meshcore.db** et gardez-la sur une autre machine ; une copie téléchargée en 5.0 ne permet pas de revenir en arrière. Lisez [Passer de la 4.18 à la 5.0](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/upgrade-4-18.md).
+- **Installer.** `/bin/bash -c "$(curl -fsSL https://get.meshloom.app/next)"` installe la dernière version candidate ou y passe, avec les questions de l'installeur habituel : voir [Essayer la pré-version](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/prerelease.md). Une machine qui ne lance pas cette commande ne reçoit jamais de pré-version.
+- **Meshloom copie aussi la base avant de la modifier** (`meshcore.db.schema87.before-5.0.0-rc.1.db` sur cette version, à côté de la base). Il lui faut la taille de la base plus un quart (64 Mo au moins) de libre sur le disque : sinon il s'arrête avec un message clair et ne touche pas à la base. [Où est la copie](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/install-paths.md#la-copie-faite-avant-une-mise-à-niveau).
+- **Revenir en arrière.** Utilisez une nouvelle instance, ou remettez votre copie sur une installation neuve de la 4.18 : les étapes sont dans [Revenir à la 4.18](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/upgrade-4-18.md#revenir-à-la-418). Ne lancez jamais le script d'installation de la 4.18 sur une machine en pré-version : il ne connaît pas les pré-versions et peut démarrer la 4.18 sur une base qu'elle ne sait pas lire.
+- **Deux réglages par défaut à vérifier.** **Inclure les comptes** est coché dans la sauvegarde complète : le fichier contient alors les empreintes de mots de passe et les secrets à deux facteurs. Décochez-le avant de confier une sauvegarde à quelqu'un. Une fois le partage activé, son mode est **Automatique** : Envoyer raccourcit les longues adresses par le service sans demander.
+- **Après la mise à jour.** Le premier démarrage demande de créer le compte administrateur et, si l'installation contenait déjà des données, de saisir le code d'installation du journal. Les règles de réseau de confiance et les bots convertis restent éteints jusqu'à ce qu'un administrateur les active.
+
+#### Limites connues de cette pré-version
+
+- **Remote et le partage ont besoin de Community, et Community de la clé de la radio.** Meshloom Remote et le partage de liens et de fichiers ne s'activent pas tant que Community est désactivé. Community a besoin d'une instance qui détient la clé privée de la radio : aucun d'eux ne fonctionne donc derrière un proxy radio, qui ne donne jamais cette clé. Connectez la radio directement, ou utilisez le Meshloom qui la détient ([Fonctions qui ont besoin de Community](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/community.md#fonctions-qui-ont-besoin-de-community)). Un nouvel enregistrement, lien ou fichier demande aussi qu'une autre station ait entendu votre radio dans les 14 derniers jours.
+- **Pas de paquet 32 bits.** Les pré-versions n'ont pas de paquet armhf : sur une machine 32 bits, l'installeur ne change rien sauf si vous choisissez Docker. Docker ne couvre que l'ARMv7 (un Pi 2, 3 ou 4 sous un système 32 bits), et l'image armv7 de cette pré-version n'a encore jamais été lancée. L'ARMv6 et le x86 32 bits n'ont pas d'image. L'add-on Home Assistant reste en 4.18 : cette pré-version ne lui est pas proposée.
+- **Les mises à jour ne visent que les versions stables.** **Réglages → Mises à jour** n'annonce pas de pré-version plus récente : relancez la commande `/next` pour l'obtenir. Quand la 5.0.0 finale sera sortie, elle y sera proposée et la même base continuera de servir, mais seul Docker, une fois que vous aurez accepté, suivra ensuite les versions stables de lui-même. Une machine avec le paquet `apt` ou `dnf` reste sur la source des pré-versions jusqu'à ce que vous lanciez la commande d'installation habituelle, puis, avec `dnf`, `sudo dnf upgrade meshloom`. [Que faire à la version finale](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/prerelease.md#quand-la-version-finale-sort).
+- **Aucune mise à jour ne vous ramène en arrière.** Ni le système de mise à jour ni l'installeur de cette version ne descendent sous une pré-version installée (celui de la 4.18 ne les connaît pas, voir plus haut), et une version de Meshloom à partir de la 5.0 refuse de démarrer sur une base d'une version plus récente. Gardez votre copie des données tant que vous n'êtes pas sûr.
+- **Un bot qui importe une bibliothèque tierce ne fonctionne pas.** Un bot converti avec `import requests`, par exemple, s'affiche en marche mais échoue à chaque message, avec l'erreur dans son journal : les extensions n'atteignent que la partie autorisée de la bibliothèque standard et leur propre dossier `vendor/`.
+- **Meshloom Remote a un quota mensuel par instance** ([Limites](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/remote.md#limites)).
+- **Documentation.** Les liens d'ici mènent à la documentation de cette version sur GitHub. Beaucoup de liens d'une de ces pages vers une autre y répondent 404. Ceux de *Essayer la pré-version* et *Passer de la 4.18 à la 5.0* s'ouvrent ; pour les autres, passez par la [liste du dossier](https://github.com/TwinRocket/meshloom/tree/5.0.0-rc.1/docs/user/fr). Tant que meshloom.app ne contient pas la documentation de la 5.0, il décrit la 4.18, et les liens d'aide de Remote et du partage dans les Réglages répondent 404.
+
+#### À essayer et comment signaler
+
+- **À essayer :** créer le compte administrateur, se connecter avec une passkey ou un second facteur, activer [Meshloom Remote](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/remote.md) et autoriser un téléphone, partager un lien ou une photo ([Partage](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/share.md)), examiner un bot converti ou ajouter une extension ([Extensions](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/plugins.md)), configurer un canal de notification et le Web Push, restaurer une sauvegarde complète.
+- **Signalez** sur [GitHub](https://github.com/TwinRocket/meshloom/issues) avec le formulaire de bug : la version dans **Réglages → À propos**, comment vous l'avez installée, ce que vous avez fait et ce qui s'est passé. Ne collez jamais de mot de passe, de jeton ni de code d'installation. Un problème de sécurité passe par [SECURITY.md](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/SECURITY.md), pas par un ticket public.
+
+#### Ruptures
+
+- **Se connecter est obligatoire.** Toutes les routes de l'API et la connexion en direct demandent un compte ; seuls un contrôle de santé minimal, la connexion et la première installation restent ouverts. HTTP Basic disparaît : les scripts et les capteurs Home Assistant utilisent un jeton d'API. L'add-on Home Assistant vous connecte avec votre utilisateur Home Assistant.
+- **Les bots Python sont convertis en extensions locales**, avec leur code, leurs conversations et leur état conservés. Aucun code utilisateur ne tourne plus dans le processus du serveur. Chaque bot converti reste éteint jusqu'à ce qu'un administrateur examine ses permissions dans **Réglages → Extensions** ([Bots de la 4.18](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/plugins.md#les-bots-de-la-418-et-avant)). Les extensions demandent Linux ou macOS ; sous Windows elles sont désactivées.
+- **Les règles de réseau de confiance sont conservées mais éteintes** jusqu'à ce qu'un administrateur active **Accès sans connexion sur le réseau local**. Une règle ne connecte jamais un administrateur.
+- **Community est à activer soi-même sur une nouvelle installation.** Une installation existante garde son réglage. Ses variables `MESHLOOM_COMMUNITY*` ne sont plus lues, sauf un `MESHLOOM_COMMUNITY_IATA` restant, copié une fois dans une base existante.
+- **La sauvegarde complète change de format.** La 4.18 n'en lit qu'une partie et perd le reste sans le dire : restaurez-la en 5.0 ou plus. **Réglages → Base de données → Télécharger meshcore.db** est épuré : ni mots de passe, ni seconds facteurs, ni secrets d'extension, ni sessions, et les consentements sont réinitialisés. Après sa restauration, personne ne se connecte avec un mot de passe tant que vous n'avez pas lancé `meshloom-admin`. Pour une restauration complète, gardez aussi une sauvegarde complète.
+- **`secrets.key` accompagne désormais la base.** Les secrets des notifications et des intégrations sont chiffrés avec ce fichier, placé à côté de `meshcore.db` : copiez les deux quand vous déplacez une installation. Sans lui Meshloom démarre, et les canaux concernés restent éteints jusqu'à ce que vous saisissiez à nouveau les secrets.
+- **Le serveur applique la limite de taille des messages de la radio** quel que soit le mode d'envoi. Un message trop long venant d'un bot ou d'un script est refusé, et rien n'est envoyé ni enregistré.
+- **Derrière un proxy inverse, déclarez-le dans Réglages → Configuration locale → Proxies de confiance.** Sinon tous les visiteurs ont l'adresse du proxy et, en HTTPS, le cookie de session n'est pas le cookie sécurisé. Un proxy qui remplace `Host` doit envoyer l'original dans `X-Forwarded-Host`, sinon la connexion en direct est refusée et les données en direct restent vides. Si vous lancez Meshloom avec votre propre commande, ajoutez `--no-proxy-headers`.
+- **Destinations sur votre réseau.** Les webhooks et intégrations que vous aviez déjà vers votre réseau local continuent de fonctionner : la mise à jour coche pour eux **Autoriser une destination sur un réseau privé**, et changer l'adresse d'une intégration la décoche tant que l'avis unique est ouvert ; après **Compris**, la case reste cochée. Une sortie Apprise vers un service qui n'est plus accepté (SNS, SES, syslog...) est refusée quels que soient les réglages. Les variables de proxy comme `HTTPS_PROXY` ne s'appliquent plus aux webhooks ni au Web Push.
+- **Python 3.13 est le minimum**, ce qui ne concerne qu'une installation depuis les sources.
+- **Avec le paquet Linux, les autres comptes locaux ne peuvent plus lire `/var/lib/meshloom`.** Utilisez `sudo` pour copier la base.
+
+#### Comptes et connexion
+
+- **Comptes et rôles.** Administrateur, membre, lecteur et kiosque (un écran mural : canaux seulement, jamais de message direct), appliqués par le serveur sur chaque route, dans **Réglages → Utilisateurs et accès**. Un journal d'audit enregistre les actions sensibles et `meshloom-admin` rétablit l'accès depuis la machine. [Comptes et accès](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/access.md).
+- **Une connexion plus solide.** Codes à deux facteurs avec codes de secours, passkeys (en https ou sur `localhost` seulement), code ou lien de connexion par e-mail si un administrateur choisit un canal de messagerie, et votre propre fournisseur OpenID Connect (**Réglages → Connexion**). **Rester connecté sur cet appareil** est décoché par défaut.
+- **Jetons et appairage.** Les jetons d'API et d'appareil, avec leurs droits, remplacent les mots de passe dans les scripts, et **Appairer un appareil** enrôle un téléphone avec un QR code à usage unique.
+- **Les règles de connexion** sont dans **Réglages → Connexion** : durée de session, adresses des clients, réseaux de confiance, bannissements d'adresses. Les **Adresses publiques** sont dans **Réglages → Utilisateurs et accès** ; en déclarer une active le contrôle de l'adresse utilisée et refuse le HTTP simple depuis Internet.
+- **Image kiosque.** Un kiosque Raspberry Pi reçoit un compte en lecture seule, affiche le code d'installation sur son écran et se connecte tout seul.
+
+#### Meshloom Remote et partage
+
+- **Meshloom Remote** ouvre votre instance de partout via un relais, sans port ouvert et sans compte TwinRocket. Il est désactivé par défaut, dans **Réglages → Accès à distance** : les appareils sont autorisés un par un, par QR code ou demande d'accès, et révocables. [Votre propre domaine](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/remote-domain.md) peut y rediriger, et le Web Push sur iPhone fonctionne sans saisir de contact. Vous préférez votre propre tunnel ? Voir [L'accès à distance par vos propres moyens](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/remote-self-hosted.md).
+- **Liens courts et photos** via `meshl.ink`, désactivés tant qu'un administrateur n'a pas accepté les conditions ; d'ici là Meshloom ne s'y connecte pas. En mode **Automatique**, Envoyer raccourcit de lui-même les longues adresses. **Envoyer une photo**, dans la zone de saisie, retire la position et les données de l'appareil dans votre navigateur, et les photos peuvent être chiffrées dans les canaux privés et les messages directs, avec des limites que le guide détaille. Les photos se chargent d'elles-mêmes par défaut : **Réglages → Partage : liens et fichiers** le change. [Liens courts et photos](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/share.md).
+- **Ce que gardent les services.** Le partage signe avec une clé à lui, jamais celle de la radio. Chaque nouveau lien ou fichier porte un code pseudonyme du compte local ; Community garde un registre confidentiel de quelle radio a obtenu une preuve pour quelle clé de service, pendant un an. [La preuve pour Remote et le partage](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/community.md#preuve-pour-remote-et-le-partage).
+
+#### Notifications
+
+- **Canaux.** **Réglages → Notifications** remplace les formulaires fixes par autant de canaux que vous voulez : e-mail, webhook, Web Push, ntfy, Discord, Apprise, et des formulaires pour Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat et SMS. Vos destinations existantes suivent. [Notifications](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/notifications.md).
+- **Choisir ce que vous recevez.** Un tableau événements et canaux, des exceptions par conversation, la cloche de chaque conversation, **Ne pas déranger**, **Heures calmes**, **Mode résumé**, **Modèles de message**, et **Mes notifications** pour vos propres appareils.
+- **Nouveaux événements.** Mentions, **Mots-clés**, **Nœuds surveillés**, radio hors ligne et de retour, démarrage de Meshloom, et un **Battement de cœur** pour savoir quand Meshloom lui-même est arrêté.
+- **Limites et pannes.** Chaque canal a ses limites, un afflux devient un seul résumé, et un canal qui échoue sans cesse vous prévient par les autres, puis se met en pause et réessaie. Une image ou un lien partagé se lit `[image]` ou `[lien]` dans une notification, jamais son adresse.
+- **La sortie fanout Apprise est dépréciée.** **Convertir en canal de notification** y fait passer une intégration en un clic. Cette sortie disparaît en 5.2.0.
+
+#### Fil
+
+- **Une seule chronologie.** Le nouveau **Fil** réunit canaux, messages directs, trafic de contrôle et événements, en direct, avec des filtres qu'un marque-page ou une adresse de kiosque peut fixer. **Contrôle** est désormais un préréglage du Fil, et les anciens liens continuent de fonctionner.
+- **Le mode affichage** en fait un écran mural : texte plus grand, aucune commande sauf **Quitter**, aucun message direct, images non chargées.
+- **Page de démarrage.** **Réglages → Navigation** choisit où Meshloom s'ouvre.
+
+#### Extensions
+
+- **Réglages → Extensions** les liste, montre ce que chacune peut faire avant que vous acceptiez, et propose un journal, des réglages, **Mettre en pause toutes les extensions** et un éditeur de code pour les extensions locales. Seuls les administrateurs les modifient, et chaque modification est tracée. Echo et Auto-responder sont fournies avec Meshloom et fonctionnent hors ligne.
+- **Dépôts personnalisés.** L'onglet **Store** ajoute une extension depuis un dépôt GitHub, avec des mises à jour qui retiennent toute nouvelle permission jusqu'à votre accord. Ces extensions ne sont ni examinées ni signées par Meshloom. **Store en ligne** est activé par défaut, mais rien n'est envoyé tant que vous n'avez pas ajouté de dépôt. [Extensions](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/plugins.md).
+- **Pour les auteurs.** `python -m meshloom_plugin.dev` vérifie, rejoue et empaquette un plugin sans radio. Les plugins peuvent envoyer des notifications par vos canaux, dans certaines limites.
+
+#### Radio et sauvegarde
+
+- **Garder les canaux sur la radio** (**Réglages → Radio**, désactivé par défaut) empêche Meshloom de vider les emplacements de canaux de la radio à chaque connexion.
+- **La sauvegarde complète contient davantage :** les comptes (**Inclure les comptes**, coché par défaut), les canaux et règles de notification, les extensions. Les secrets des canaux et des extensions restent dehors : ceux-ci reviennent éteints et les redemandent. Une extension restaurée sans son code propose **Réinstaller**. Les fichiers à restaurer sont limités à 64 Mio.
+
+#### Sécurité
+
+Ce que la 5.0 ferme ou renforce par rapport à la 4.18. Ce fichier est public : il dit ce qui a changé, pas comment en abuser.
+
+- **Autres sites.** Une page d'un autre site ne peut plus utiliser Meshloom à travers votre navigateur, ni par l'API ni par la connexion en direct. **Origines autorisées** est vide par défaut. Les cookies restent sur leur propre adresse.
+- **Qui est qui.** Les en-têtes transmis ne sont crus que depuis les **Proxies de confiance**. Une nouvelle instance ouverte sous un nom de domaine demande le code d'installation, même depuis le réseau local.
+- **Votre réseau.** Les webhooks, le Web Push et les sorties fanout refusent les adresses privées et de métadonnées, sauf si vous autorisez un réseau privé, et vérifient à nouveau à chaque envoi. Les boutons de test ne révèlent plus de détails sur le réseau. Apprise n'accepte que des services examinés.
+- **Secrets.** Les secrets des notifications et des intégrations sont chiffrés dans la base et en écriture seule dans l'API, et changer leur destination oblige à les saisir à nouveau. Sous Linux, les programmes qui ne tournent pas en root ne peuvent plus lire la mémoire de Meshloom.
+- **Tentatives et abus.** Les mauvais mots de passe ralentissent la connexion sans jamais verrouiller un compte, et une adresse qui échoue sans cesse est bannie un moment (**Bannissement d'adresses**). Les paquets Linux contiennent une prison [fail2ban](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/fail2ban.md) facultative, désactivée par défaut. La taille et le temps de lecture des requêtes sont limités, et le proxy radio ferme une connexion qui ne parle pas MeshCore.
+- **Sessions et événements en direct.** Se déconnecter, ou toute révocation, coupe la connexion en direct, et chaque événement en direct ne va qu'aux rôles autorisés à le voir. Les en-têtes de sécurité sont envoyés, et les réponses qui contiennent des secrets ne sont pas mises en cache.
+- **Extensions.** Chacune tourne dans son propre processus supervisé, derrière les protections du système d'exploitation et des filtres du noyau quand la machine les permet. Des quotas et des gardes contre les boucles empêchent les plugins d'inonder le mesh. Quand l'isolation est plus faible, Meshloom le dit à chaque démarrage.
+- **Journaux.** Ni texte de message ni nom de canal privé au niveau par défaut, aucun jeton dans une adresse, et un texte venu de l'extérieur ne peut pas forger une ligne de journal.
+- **Texte et appareils.** Les noms qui inversent le sens du texte ne peuvent plus réordonner le texte autour d'eux. Les appareils Web Push appartiennent à leur compte.
+
+#### Corrections
+
+- **Un canal dont le nom commence par `#`** garde sa propre clé à l'envoi.
+- **Un canal supprimé reste supprimé**, et son emplacement sur la radio est vidé.
+- **La zone de saisie accepte un message d'exactement la limite**, et un canal dont la sourdine temporaire est terminée compte à nouveau ses messages non lus.
+- **L'image Docker démarre sans accès à Internet**, et avec `--user`.
+- **Un démarrage raté journalise sa cause et termine le processus**, pour que systemd ou Docker puisse le relancer.
+- **Le déchiffrement groupé des salons** affiche un message traduit, et les liens Apprise ouvrent la documentation à jour.
+
+#### Pour les scripts et les intégrations
+
+- **Identifiants.** `Authorization: Basic` reçoit un simple 401 ; utilisez `Authorization: Bearer` avec un jeton de `POST /api/auth/tokens`, ou un code d'appairage ([contrat, en anglais](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/dev/device-pairing.md)).
+- **`/api/health`** répond `{"ok": true}` sans connexion. `basic_auth_enabled` disparaît, `bots_disabled` et `bots_disabled_source` sont dépréciés, et `notification_statuses` est désormais indexé par identifiant de canal.
+- **Retirées, signalées au démarrage :** `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD`, `MESHCORE_DISABLE_BOTS` et `MESHLOOM_COMMUNITY*`, ainsi que les options `basic_auth_*` et `disable_bots` de l'add-on. Pour verrouiller toutes les extensions, utilisez `MESHCORE_DISABLE_PLUGINS` ou l'option `disable_plugins` de l'add-on.
+- **Routes modifiées.** Le type de fanout `bot` répond `410 bot_type_retired`, `POST /api/fanout/bots/disable-until-restart` disparaît, et `PATCH /api/community` avec `enabled: true` alors que Community est désactivé répond `409 join_requires_bind` : rejoignez avec `PUT /api/community/me/iata` et `enable: true`.
+- **Retirés en 5.2.0 :** `/api/push/preferences`, `notification_destinations` dans `PATCH /api/settings`, `POST /api/settings/notification-destinations/test`, le type de fanout Apprise, `bots_disabled*`, et la conversion des bots avec sa table d'archive.
+- **Nouveau.** `/api/notifications`, `/api/plugins`, `/api/share`, `/api/remote`, les routes `/api/auth`, le corps de webhook v2 ([schéma](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/user/fr/deep/notifications-webhook.md)), et de nouveaux filtres sur `GET /api/messages` (`outgoing`, `since_id`, `muted`, `membership`, `conversation_keys`).
+- **Plus de détails.** Le schéma et les migrations sont dans [docs/dev/database.md](https://github.com/TwinRocket/meshloom/blob/5.0.0-rc.1/docs/dev/database.md) (en anglais). Le journal de développement fonction par fonction de ce cycle reste dans l'historique git de ce fichier. Écrit au fil de l'eau et non révisé, il contient des entrées remplacées depuis.
+
+---
+
+
 ## [4.18.3] - 2026-11-07
 
 Meshloom now learns about new versions from Community, and some versions are no longer installed automatically.

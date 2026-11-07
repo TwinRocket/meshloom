@@ -1,0 +1,23 @@
+{
+  "feed": {
+    "sent": "sent",
+    "emptyFiltered": "No message matches the filters. Change the chips above to see more.",
+    "hiddenMuted_one": "{{formatted}} hidden",
+    "hiddenMuted_other": "{{formatted}} hidden",
+    "hiddenPending_one": "{{formatted}} hidden",
+    "hiddenPending_other": "{{formatted}} hidden",
+    "filters": {
+      "sources": "Sources",
+      "show": "Show",
+      "messages": "Messages",
+      "control": "Control",
+      "events": "Events",
+      "channels": "Channels",
+      "direct": "Direct messages",
+      "received": "Received",
+      "sent": "Sent",
+      "muted": "Muted channels",
+      "pending": "Pending channels"
+    }
+  }
+}

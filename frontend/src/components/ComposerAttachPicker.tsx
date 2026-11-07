@@ -1,12 +1,15 @@
 import type { ReactNode } from 'react';
-import { MapPin, Smile, Sticker, X } from 'lucide-react';
+import { MapPin, Paperclip, Smile, Sticker, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { ComposerEmojiPicker } from './ComposerEmojiPicker';
+import { ComposerFileTab, type IncomingFile } from './ComposerFileTab';
+import type { ShareTarget } from '../utils/channelClass';
 import { GifPicker } from './GifPicker';
+import { getSavedGiphyApiKey } from '../utils/giphyPreference';
 import { cn } from '@/lib/utils';
 
-export type ComposerAttachTab = 'emoji' | 'gif' | 'location';
+export type ComposerAttachTab = 'emoji' | 'gif' | 'location' | 'file';
 
 interface ComposerAttachPickerProps {
   tab: ComposerAttachTab;
@@ -15,29 +18,48 @@ interface ComposerAttachPickerProps {
   onSelectGif: (gifId: string) => void;
   onSendLocation: () => void;
   onClose: () => void;
+  /** Sends a file message through the composer's normal path; true when it went out. */
+  onSendFile: (text: string) => Promise<boolean>;
+  /** Largest file message in bytes (exclusive), reply prefix counted; null: no limit. */
+  fileByteLimit: number | null;
+  incomingFile: IncomingFile | null;
+  onIncomingFileConsumed: () => void;
+  /** The conversation's share class: decides the File tab's Public / Encrypted offer. */
+  fileTarget?: ShareTarget | null;
   disabled?: boolean;
   hasShareableLocation: boolean;
   locationLabel?: string | null;
 }
 
 export function ComposerAttachPicker({
-  tab,
+  tab: requestedTab,
   onTabChange,
   onSelectEmoji,
   onSelectGif,
   onSendLocation,
   onClose,
+  onSendFile,
+  fileByteLimit,
+  incomingFile,
+  onIncomingFileConsumed,
+  fileTarget = null,
   disabled = false,
   hasShareableLocation,
   locationLabel,
 }: ComposerAttachPickerProps) {
   const { t } = useTranslation();
+  // GIFs are offered only with a Giphy key. It is read on each render: it can be removed
+  // in the settings while the composer stays mounted.
+  const gifAvailable = getSavedGiphyApiKey() !== '';
+  const tab = requestedTab === 'gif' && !gifAvailable ? 'emoji' : requestedTab;
   const title =
     tab === 'gif'
       ? t('chat.gifPicker')
       : tab === 'location'
         ? t('chat.locationPicker')
-        : t('chat.emojiPicker');
+        : tab === 'file'
+          ? t('chat.filePicker')
+          : t('chat.emojiPicker');
 
   return (
     <div
@@ -81,6 +103,16 @@ export function ComposerAttachPicker({
           </Button>
         </div>
       )}
+      {tab === 'file' && (
+        <ComposerFileTab
+          onSend={onSendFile}
+          byteLimit={fileByteLimit}
+          incoming={incomingFile}
+          onIncomingConsumed={onIncomingFileConsumed}
+          disabled={disabled}
+          target={fileTarget}
+        />
+      )}
       <div className="flex items-center justify-around border-t border-border px-2 py-1">
         <AttachTab
           active={tab === 'emoji'}
@@ -90,17 +122,19 @@ export function ComposerAttachPicker({
         >
           <Smile className="h-5 w-5" />
         </AttachTab>
-        <AttachTab
-          active={tab === 'gif'}
-          label={t('chat.gif')}
-          testId="composer-attach-tab-gif"
-          onSelect={() => onTabChange('gif')}
-        >
-          <Sticker className="h-5 w-5" />
-          <span className="text-[0.625rem] font-semibold uppercase tracking-wider">
-            {t('chat.gif')}
-          </span>
-        </AttachTab>
+        {gifAvailable && (
+          <AttachTab
+            active={tab === 'gif'}
+            label={t('chat.gif')}
+            testId="composer-attach-tab-gif"
+            onSelect={() => onTabChange('gif')}
+          >
+            <Sticker className="h-5 w-5" />
+            <span className="text-[0.625rem] font-semibold uppercase tracking-wider">
+              {t('chat.gif')}
+            </span>
+          </AttachTab>
+        )}
         <AttachTab
           active={tab === 'location'}
           label={t('share.shareLocation')}
@@ -108,6 +142,14 @@ export function ComposerAttachPicker({
           onSelect={() => onTabChange('location')}
         >
           <MapPin className="h-5 w-5" />
+        </AttachTab>
+        <AttachTab
+          active={tab === 'file'}
+          label={t('chat.file')}
+          testId="composer-attach-tab-file"
+          onSelect={() => onTabChange('file')}
+        >
+          <Paperclip className="h-5 w-5" />
         </AttachTab>
       </div>
     </div>

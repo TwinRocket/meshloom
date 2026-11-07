@@ -1,0 +1,32 @@
+{
+  "errors": {
+    "egress_scheme": "The address must start with http:// or https://.",
+    "egress_private_address": "This address is on a private network. If it is yours, allow private networks for this destination.",
+    "egress_unresolvable": "The host name was not found. Check it, or type the IP address instead.",
+    "egress_host_not_allowed": "This host is not in the list of hosts allowed here.",
+    "egress_too_many_redirects": "The destination redirected too many times.",
+    "egress_request_too_large": "The request is larger than allowed.",
+    "egress_response_too_large": "The answer is larger than allowed.",
+    "egress_response_encoding": "The answer is compressed, which is not allowed here.",
+    "egress_lan_address": "This local-network device did not resolve to an address of your local network.",
+    "egress_self_address": "This local-network device is the machine Meshloom runs on, which a plugin may not reach.",
+    "egress_supervisor_address": "This address is on Home Assistant’s internal network, which a plugin may not reach.",
+    "egress_userinfo": "The address must not contain a user name or password.",
+    "timeout": "The destination did not answer in time.",
+    "tls_error": "The secure (TLS) connection failed: check the certificate, or use http:// if the destination has no TLS.",
+    "no_push_device": "Nothing was sent: no device is registered. Turn on notifications in this browser or app first.",
+    "service_error": "The destination answered with HTTP error {{status}}."
+  },
+  "settings": {
+    "notifications": {
+      "webhookAllowPrivate": "Allow a destination on a private network (LAN, localhost)",
+      "webhookAllowPrivateHelp": "For a webhook on your local network (Home Assistant, Node-RED…).",
+      "webhookGrandfathered": "This webhook predates destination checks, so it keeps private network access. Untick the box below if it points to a public service.",
+      "webhookGrandfatheredDismiss": "Got it",
+      "pushAllowPrivate": "Accept push endpoints on a private network",
+      "pushAllowPrivateHelp": "Only for a UnifiedPush distributor on your local network.",
+      "pushGrandfathered": "Some push devices predate destination checks, so private networks stay allowed for them. Untick the box below if none is on your network.",
+      "pushAllowPrivateSaveFailed": "Failed to save the push setting"
+    }
+  }
+}

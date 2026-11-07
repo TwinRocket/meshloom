@@ -1,0 +1,184 @@
+"""Typed contracts of the local accounts tables (``app/repository/auth.py``).
+
+Secrets never sit on the general models: ``User`` has no password hash or TOTP
+secret, ``AuthSession`` no token hash, ``AuthSettings`` no cookie key. The
+one model that carries a hash, ``UserCredentials``, wraps it in ``SecretStr``
+and hides inputs from validation errors (``app/AGENTS.md``, "Secrets").
+"""
+
+import ipaddress
+from typing import Any, Literal, get_args
+
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+
+from app.middleware.proxy_headers import normalize_proxies
+
+Role = Literal["admin", "member", "viewer", "kiosk"]
+Provider = Literal["local", "ingress", "system"]
+HostGuardMode = Literal["observe", "enforce"]
+
+ROLES: tuple[str, ...] = get_args(Role)
+PROVIDERS: tuple[str, ...] = get_args(Provider)
+
+USERNAME_MAX_LENGTH = 64
+
+# ``auth_settings.audit_retention_days`` bounds (366 by default, Q-A14).
+MIN_AUDIT_RETENTION_DAYS = 1
+MAX_AUDIT_RETENTION_DAYS = 36500
+
+# ``auth_settings.session_lifetime_days`` bounds (30 by default), editable by an admin
+# through ``PATCH /api/auth/settings`` (MSHL-318).
+MIN_SESSION_LIFETIME_DAYS = 1
+MAX_SESSION_LIFETIME_DAYS = 365
+
+# The built-in ban bounds (``app/auth/ip_ban.py``): 10 failures in 10 minutes ban
+# for 60 minutes by default, a repeated ban for twice as long each time, up to
+# 1440 minutes.
+MIN_IP_BAN_MAX_FAILURES = 3
+MAX_IP_BAN_MAX_FAILURES = 1000
+MIN_IP_BAN_MINUTES = 1
+MAX_IP_BAN_WINDOW_MINUTES = 1440
+MAX_IP_BAN_DURATION_MINUTES = 43200
+
+
+class User(BaseModel):
+    id: int
+    username: str
+    display_name: str = ""
+    role: Role
+    provider: Provider = "local"
+    external_id: str | None = None
+    disabled: bool = False
+    must_change_password: bool = False
+    has_password: bool = False
+    totp_enabled_at: int | None = None
+    created_at: int
+    updated_at: int
+
+
+class UserCredentials(BaseModel):
+    """A user with the stored argon2id hash, for the login check only."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    user: User
+    password_hash: SecretStr | None = None
+
+
+class AuthSession(BaseModel):
+    id: str
+    user_id: int
+    created_at: int
+    last_seen_at: int
+    expires_at: int
+    ip: str | None = None
+    user_agent: str | None = None
+    via: str | None = None
+    revoked_at: int | None = None
+    # False: a browser-session login (no "remember me"), short sliding lifetime.
+    remember: bool = True
+
+
+TokenOrigin = Literal["ui", "pairing"]
+
+
+class ApiToken(BaseModel):
+    """An API or device token, without its hash (``app/auth/providers/token.py``)."""
+
+    id: str
+    user_id: int
+    name: str
+    scopes: list[str]
+    created_at: int
+    last_used_at: int | None = None
+    expires_at: int | None = None
+    revoked_at: int | None = None
+    origin: TokenOrigin = "ui"
+
+
+class PairingCode(BaseModel):
+    """A device pairing code, without its hash (``app/auth/pairing.py``)."""
+
+    id: str
+    created_by: int
+    label: str
+    scopes: list[str]
+    # The addresses the QR payload carries, fixed at creation.
+    urls: list[str]
+    created_at: int
+    expires_at: int
+    used_at: int | None = None
+    revoked_at: int | None = None
+    # Set by a successful redemption: the device token, its name, and the
+    # ``extensions`` object the device sent (opaque, for meshenger E2).
+    token_id: str | None = None
+    device_name: str | None = None
+    extensions: dict[str, Any] | None = None
+
+
+class AuthAuditEntry(BaseModel):
+    id: int
+    ts: int
+    actor_user_id: int | None = None
+    actor_token_id: str | None = None
+    action: str
+    target: str | None = None
+    ip: str | None = None
+    via: str | None = None
+    outcome: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrustedNetworkRule(BaseModel):
+    """``cidr`` -> ``user_id``: requests from that network act as that user."""
+
+    cidr: str
+    user_id: int
+
+    @field_validator("cidr")
+    @classmethod
+    def _canonical_cidr(cls, value: str) -> str:
+        return str(ipaddress.ip_network(value.strip(), strict=False))
+
+
+class AuthSettings(BaseModel):
+    trusted_networks: list[TrustedNetworkRule] = Field(default_factory=list)
+    trusted_proxies: list[str] = Field(default_factory=list)
+    public_urls: list[str] = Field(default_factory=list)
+    host_guard_mode: HostGuardMode = "observe"
+    ingress_default_role: Role = "member"
+    # Wider than the PATCH bounds on purpose: a row written before they existed still loads.
+    session_lifetime_days: int = Field(default=30, ge=MIN_SESSION_LIFETIME_DAYS, le=3650)
+    audit_retention_days: int = Field(
+        default=366, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
+    )
+    # Admins with a password and no second factor reach only the enrolment
+    # routes until they enrol (``app/auth/totp.py``). Off by default (Q16).
+    require_2fa_for_admins: bool = False
+    # Login-free on the local network (MSHL-100): the master switch of the
+    # trusted network rules (``app/auth/providers/trusted_network.py``). Off by default.
+    lan_login_free: bool = False
+    # The TCP peer is the client on a Docker install without a trusted proxy: the
+    # per-address login rules apply there too (``app/auth/ratelimit.py``). Off by default.
+    addresses_identify_clients: bool = False
+    # The built-in per-address ban (``app/auth/ip_ban.py``, MSHL-422).
+    ip_ban_enabled: bool = True
+    ip_ban_max_failures: int = Field(
+        default=10, ge=MIN_IP_BAN_MAX_FAILURES, le=MAX_IP_BAN_MAX_FAILURES
+    )
+    ip_ban_window_minutes: int = Field(
+        default=10, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_WINDOW_MINUTES
+    )
+    ip_ban_duration_minutes: int = Field(
+        default=60, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
+    )
+    # A repeated ban doubles, up to this (MSHL-434). At or below the duration:
+    # no escalation.
+    ip_ban_max_duration_minutes: int = Field(
+        default=1440, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
+    )
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _canonical_proxies(cls, value: list[str]) -> list[str]:
+        return normalize_proxies(value)

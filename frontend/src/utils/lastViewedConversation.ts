@@ -1,14 +1,20 @@
 import i18n from '../i18n';
 import type { Conversation } from '../types';
+import { makeFeedConversation } from '../components/feed/feedConversation';
+import { canonicalFeedQuery } from './feedFilters';
 import { parseHashConversation } from './urlHash';
 
 export const REOPEN_LAST_CONVERSATION_KEY = 'meshloom-reopen-last-conversation';
 export const LAST_VIEWED_CONVERSATION_KEY = 'meshloom-last-viewed-conversation';
 
-const SUPPORTED_TYPES: Conversation['type'][] = [
+// 'control' is the 4.18.x Control page, now a preset of the feed: stored values still read.
+type StoredType = Conversation['type'] | 'control';
+
+const SUPPORTED_TYPES: StoredType[] = [
   'contact',
   'channel',
   'raw',
+  'feed',
   'control',
   'map',
   'live',
@@ -18,8 +24,8 @@ const SUPPORTED_TYPES: Conversation['type'][] = [
   'discovered',
 ];
 
-function isSupportedType(value: unknown): value is Conversation['type'] {
-  return typeof value === 'string' && SUPPORTED_TYPES.includes(value as Conversation['type']);
+function isSupportedType(value: unknown): value is StoredType {
+  return typeof value === 'string' && SUPPORTED_TYPES.includes(value as StoredType);
 }
 
 export function getReopenLastConversationEnabled(): boolean {
@@ -57,13 +63,27 @@ export function getLastViewedConversation(): Conversation | null {
     const raw = localStorage.getItem(LAST_VIEWED_CONVERSATION_KEY);
     if (!raw) return null;
 
-    const parsed = JSON.parse(raw) as Partial<Conversation>;
+    const parsed = JSON.parse(raw) as { type?: unknown; id?: unknown; name?: unknown } & Partial<
+      Omit<Conversation, 'type' | 'id' | 'name'>
+    > & { feedPreset?: unknown; feedQuery?: unknown };
     if (
       !isSupportedType(parsed.type) ||
       typeof parsed.id !== 'string' ||
       typeof parsed.name !== 'string'
     ) {
       return null;
+    }
+
+    if (parsed.type === 'control') {
+      return makeFeedConversation(i18n.t('sidebar.feed'), 'control');
+    }
+
+    if (parsed.type === 'feed') {
+      return makeFeedConversation(
+        parsed.name,
+        parsed.feedPreset === 'control' ? 'control' : undefined,
+        typeof parsed.feedQuery === 'string' ? canonicalFeedQuery(parsed.feedQuery) : undefined
+      );
     }
 
     if (parsed.type === 'map') {
@@ -102,12 +122,14 @@ export function captureLastViewedConversationFromHash(): void {
     saveLastViewedConversation({ type: 'raw', id: 'raw', name: 'Raw Packet Feed' });
     return;
   }
-  if (hashConversation.type === 'control') {
-    saveLastViewedConversation({
-      type: 'control',
-      id: 'control',
-      name: i18n.t('sidebar.controlJournal'),
-    });
+  if (hashConversation.type === 'feed') {
+    saveLastViewedConversation(
+      makeFeedConversation(
+        i18n.t('sidebar.feed'),
+        hashConversation.feedPreset,
+        hashConversation.feedQuery
+      )
+    );
     return;
   }
   if (hashConversation.type === 'map') {

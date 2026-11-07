@@ -2,6 +2,8 @@ import asyncio
 import logging
 from typing import Literal
 
+from app.notifications.radio_watch import radio_watch
+
 logger = logging.getLogger(__name__)
 
 POST_CONNECT_SETUP_TIMEOUT_SECONDS = 300
@@ -466,6 +468,9 @@ async def connection_monitor_loop(radio_manager) -> None:
     while True:
         try:
             await asyncio.sleep(check_interval_seconds)
+
+            # Radio offline / online notifications (never raises).
+            await radio_watch.observe(radio_manager)
 
             # A radio that reconnected and is still in setup (a long offload) is
             # back: only a radio still unreachable past the bound is reported.

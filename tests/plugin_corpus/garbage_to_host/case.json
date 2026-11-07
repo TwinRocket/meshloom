@@ -1,0 +1,14 @@
+{
+  "description": "Write lines that are not JSON-RPC, a forged answer and a huge id straight to the RPC descriptor: the host drops them and the child keeps its process.",
+  "stage": "host",
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "result": "sent",
+        "same_process": true
+      }
+    }
+  ]
+}

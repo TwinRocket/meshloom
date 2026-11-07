@@ -13,7 +13,6 @@ function health(overrides: Partial<HealthStatus> = {}): HealthStatus {
     database_size_mb: 0,
     oldest_undecrypted_timestamp: null,
     fanout_statuses: {},
-    bots_disabled: false,
     ...overrides,
   };
 }

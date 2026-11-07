@@ -21,45 +21,95 @@ from app.database import Database  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _no_forced_exit_after_a_failed_start():
+    """A lifespan failing in-process must not end the test run 15 s later."""
+    import app.main
+
+    app.main._arm_failed_start_exit = lambda: None
+
+
+@pytest.fixture(scope="session", autouse=True)
 def cleanup_test_db_dir():
     """Clean up temporary pytest DB directory after the test session."""
     yield
     shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
 
 
+# Fully migrated schema, built once per process (so once per xdist worker) by a real
+# ``Database(":memory:").connect()`` and then only read: ``bytes`` is immutable and
+# ``deserialize`` copies it into each test's own connection. Replaying the 140+
+# migrations per test was ~70% of the suite's time. File paths still run the real
+# migrations (``tests/test_migrations``, ``tests/test_ip_ban.py``, backup tests).
+_TEMPLATE: bytes | None = None
+
+
+async def _template_snapshot() -> bytes:
+    global _TEMPLATE
+    if _TEMPLATE is None:
+        seed = Database(":memory:")
+        await seed.connect()
+        try:
+            _TEMPLATE = await seed.export_snapshot()
+        finally:
+            await seed.disconnect()
+    return _TEMPLATE
+
+
 @asynccontextmanager
 async def patched_database(path: str = ":memory:"):
     """A connected Database with schema + migrations, wired into every repository."""
     from app.repository import (
+        auth,
         channels,
+        community_attestations,
         contact_groups,
         contact_telemetry,
         contacts,
         directory,
+        email_factor,
+        ip_ban,
         messages,
+        notification_channels,
+        oidc,
+        plugins,
         push_subscriptions,
         radio_proxy,
         radio_transport,
         raw_packets,
+        remote,
         repeater_pane_cache,
         repeater_telemetry,
         settings,
+        store_repositories,
         telemetry_alert_state,
+        user_notification_rules,
     )
     from app.repository import fanout as fanout_repo
 
+    notification_channels.invalidate_cache()
     db = Database(path)
-    await db.connect()
+    if path == ":memory:":
+        await db.connect_from_snapshot(await _template_snapshot())
+    else:
+        await db.connect()
 
     submodules = [
+        auth,
         contacts,
         channels,
+        community_attestations,
         contact_groups,
         directory,
+        email_factor,
+        ip_ban,
         messages,
+        notification_channels,
+        oidc,
+        plugins,
         radio_proxy,
         radio_transport,
         raw_packets,
+        remote,
         settings,
         fanout_repo,
         repeater_telemetry,
@@ -67,6 +117,8 @@ async def patched_database(path: str = ":memory:"):
         contact_telemetry,
         push_subscriptions,
         telemetry_alert_state,
+        user_notification_rules,
+        store_repositories,
     ]
     originals = [(mod, mod.db) for mod in submodules]
 
@@ -82,6 +134,7 @@ async def patched_database(path: str = ":memory:"):
     try:
         yield db
     finally:
+        notification_channels.invalidate_cache()
         for mod, original in originals:
             mod.db = original
         packets_module.db = original_packets_db
@@ -95,6 +148,47 @@ async def test_db():
         yield db
 
 
+@pytest.fixture
+async def community_on(test_db):
+    """Community turned on in the database (no join, no connection).
+
+    Meshloom Remote and Links & Files need Community on (MSHL-445): tests that
+    exercise them with egress allowed use this. It writes the stored opt-in only;
+    the Community publisher and Live are not started.
+    """
+    from app.repository.settings import AppSettingsRepository
+
+    await AppSettingsRepository.update_community(enabled=True)
+    return test_db
+
+
+@pytest.fixture
+async def push_owner(test_db):
+    """The account row of the default test admin (id 1), which owns push subscriptions.
+
+    A subscription belongs to an account (migration 118) and a push reaches it only while
+    that account exists; ``PushSubscriptionRepository.create`` without ``user_id`` gives it
+    to the first administrator, this one.
+    """
+    from app.auth.models import User
+    from app.repository.auth import UserRepository
+
+    user = await UserRepository.create("test-admin", "admin")
+    assert user.id == 1
+    return User(id=1, username="test-admin", role="admin", created_at=0, updated_at=0)
+
+
+@pytest.fixture(autouse=True)
+def _keep_the_plugin_pause_state(monkeypatch):
+    """A test running the app's lifespan loads the pause: without a database it fails
+    closed, and that must not stay on this worker for the next test."""
+    from app.plugins import host
+    from app.plugins import pause as pause_module
+
+    monkeypatch.setattr(pause_module, "_state", pause_module.PauseState())
+    monkeypatch.setattr(host.plugin_manager, "paused", False)
+
+
 @pytest.fixture(autouse=True)
 async def _reset_hashtag_catalogue():
     """Cancel ingest-triggered catalogue work so tasks do not leak between tests."""
@@ -102,6 +196,73 @@ async def _reset_hashtag_catalogue():
 
     yield
     await reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _settle_notifications(request, monkeypatch):
+    """Each emit waits until the dispatcher's queues are empty, so a test can assert
+    on a send right after the producer returns, as before the dispatcher (the jobs
+    still go through the real queues and workers). Tests of the dispatcher itself
+    opt out with ``@pytest.mark.async_notifications``."""
+    if request.node.get_closest_marker("async_notifications"):
+        yield
+        return
+    from app.notifications.dispatcher import Dispatcher
+
+    emit = Dispatcher.emit
+
+    async def emit_and_settle(self, *args, **kwargs):
+        queued = await emit(self, *args, **kwargs)
+        await self.wait_idle()
+        return queued
+
+    monkeypatch.setattr(Dispatcher, "emit", emit_and_settle)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_notification_test_limiters():
+    """The notification test routes allow one test per channel every few seconds."""
+    from app.notifications.api_support import reset_test_limiters
+
+    reset_test_limiters()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_remote_domain_test_limiter():
+    """The Remote custom domain test allows one test every few seconds, instance-wide."""
+    from app.services.remote import reset_domain_test_limiter
+
+    reset_domain_test_limiter()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _fake_community_attestation(monkeypatch):
+    """Links creations and Remote registrations carry a Community attestation
+    (MSHL-445). Tests never ask Community for one: ``attestation_for`` and
+    ``renew_after_rejection`` answer ``FAKE_ATTESTATION`` here
+    (``tests/attestation_fakes.py``). The tests of the attestation client put the real
+    functions back (``tests/test_community_attestation.py``)."""
+    from app.services import community_attestation
+    from tests.attestation_fakes import fake_attestation_for, fake_renew_after_rejection
+
+    community_attestation.reset_attestations_for_tests()
+    monkeypatch.setattr(community_attestation, "attestation_for", fake_attestation_for)
+    monkeypatch.setattr(community_attestation, "renew_after_rejection", fake_renew_after_rejection)
+    yield
+    community_attestation.reset_attestations_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _reset_host_guard():
+    """The Host guard keeps its mode and the names it observed in memory."""
+    from app.middleware import host_guard
+
+    host_guard.reset()
+    yield
+    host_guard.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -129,6 +290,26 @@ def _reset_community_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _reset_instance_identity_locks():
+    """A contended asyncio.Lock binds to its event loop, and each test has its own."""
+    from app.services import instance_identity
+
+    instance_identity._locks.clear()
+    yield
+    instance_identity._locks.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_share_client():
+    """Every test starts with a closed share breaker, full read buckets, no ban."""
+    from app.services.share import reset_share_client_for_tests
+
+    reset_share_client_for_tests()
+    yield
+    reset_share_client_for_tests()
+
+
+@pytest.fixture(autouse=True)
 async def _stop_community_status_clear():
     """The retained-status clear worker must not outlive the test that started it."""
     from app.services.community_status_clear import stop_status_clear_worker
@@ -141,10 +322,57 @@ async def _stop_community_status_clear():
 def _reset_radio_workarounds():
     """A workaround switched on by one test must not leak into the next one."""
     from app import radio_workarounds
+    from app.services.message_filters import invalidate_block_lists
 
     radio_workarounds.reset()
+    invalidate_block_lists()
     yield
     radio_workarounds.reset()
+    invalidate_block_lists()
+
+
+@pytest.fixture(autouse=True)
+def _reset_cors_allowed_origins():
+    """An origin allowed by one test must not leak into the next one."""
+    from app import origin_policy
+
+    origin_policy.reset()
+    yield
+    origin_policy.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_trusted_proxies():
+    """A trusted proxy saved by one test must not leak into the next one."""
+    from app.middleware import proxy_headers
+
+    proxy_headers.reset()
+    yield
+    proxy_headers.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_ip_bans(monkeypatch):
+    """Failures counted and bans known by one test must not leak into the next one.
+    The host's own IPv6 prefixes are not read: a test that wants them sets
+    ``IF_INET6_PATH`` (and ``IPV6_ROUTE_PATH``) to a file of its own."""
+    from app.auth import ip_ban
+
+    monkeypatch.setattr(ip_ban, "IF_INET6_PATH", "/nonexistent/if_inet6")
+    monkeypatch.setattr(ip_ban, "IPV6_ROUTE_PATH", "/nonexistent/ipv6_route")
+    ip_ban.reset()
+    yield
+    ip_ban.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_trusted_networks():
+    """Trusted network rules (and their audit memory) must not leak between tests."""
+    from app.auth.providers import trusted_network
+
+    trusted_network.reset()
+    yield
+    trusted_network.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -257,6 +485,98 @@ async def _reset_radio_proxy_runtime():
     radio_proxy_manager._sessions.clear()
     radio_proxy_manager._pending_acks.clear()
     radio_proxy_manager._last_error = None
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_state():
+    """No first-run preparation and no login delays at the start of each test."""
+    from app.auth import first_run, webauthn
+    from app.auth.ratelimit import reset_login_limiter
+    from app.auth.totp import reset_pending_logins
+
+    first_run.reset_first_run_state()
+    reset_login_limiter()
+    reset_pending_logins()
+    webauthn.reset_state()
+    yield
+    first_run.reset_first_run_state()
+    reset_login_limiter()
+    reset_pending_logins()
+    webauthn.reset_state()
+
+
+@pytest.fixture(autouse=True)
+def _reset_remote_state():
+    """No relay link, access request, listener or Remote VAPID subject left over."""
+    from app.push.vapid import set_cached_remote_vapid_subject
+    from app.services.remote import reset_remote_for_tests
+
+    reset_remote_for_tests()
+    set_cached_remote_vapid_subject("")
+    yield
+    reset_remote_for_tests()
+    set_cached_remote_vapid_subject("")
+
+
+@pytest.fixture(autouse=True)
+def _auth_as_admin(request, monkeypatch):
+    """Sign every app request in as an admin, so route tests need no login.
+
+    The auth gate itself is tested with ``@pytest.mark.real_auth``
+    (``tests/test_auth_*.py``), which keeps the real resolution.
+    """
+    if request.node.get_closest_marker("real_auth"):
+        yield
+        return
+    from app.auth import middleware
+    from app.auth.models import User
+    from app.auth.principal import Principal
+
+    user = User(id=1, username="test-admin", role="admin", created_at=0, updated_at=0)
+
+    async def _resolve(scope, headers, via, secure):
+        result = middleware._Resolution()
+        result.principal = Principal(user=user, via=via, credential="session")
+        return result
+
+    monkeypatch.setattr(middleware, "resolve", _resolve)
+    yield
+
+
+@pytest.fixture
+def sign_in_as(monkeypatch):
+    """Sign app requests in with another role than the default admin.
+
+    ``sign_in_as("kiosk")``; ``scopes`` narrows the role like a token scope.
+    """
+    from app.auth import middleware
+    from app.auth.models import User
+    from app.auth.principal import Principal
+
+    def _sign_in(role: str, *, scopes: frozenset[str] = frozenset(), credential="session"):
+        user = User(id=2, username=f"test-{role}", role=role, created_at=0, updated_at=0)  # type: ignore[arg-type]
+
+        async def _resolve(scope, headers, via, secure):
+            result = middleware._Resolution()
+            result.principal = Principal(user=user, via=via, credential=credential, scopes=scopes)
+            return result
+
+        monkeypatch.setattr(middleware, "resolve", _resolve)
+
+    return _sign_in
+
+
+@pytest.fixture
+def fast_argon2(monkeypatch):
+    """argon2id at libsodium's minimum cost: same code paths, milliseconds per hash."""
+    import nacl.pwhash.argon2id as argon2id
+
+    real_str = argon2id.str
+
+    def fast_str(password, opslimit=None, memlimit=None):
+        return real_str(password, opslimit=argon2id.OPSLIMIT_MIN, memlimit=argon2id.MEMLIMIT_MIN)
+
+    monkeypatch.setattr(argon2id, "str", fast_str)
 
 
 @pytest.fixture

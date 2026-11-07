@@ -1,0 +1,106 @@
+{
+  "settingsNav": {
+    "connection": "Connexion"
+  },
+  "settings": {
+    "connection": {
+      "tabs": {
+        "local": "Connexion locale",
+        "lan": "Réseau local",
+        "bans": "Bannissements",
+        "oidc": "OpenID Connect"
+      }
+    },
+    "access": {
+      "oidc": {
+        "title": "OpenID Connect",
+        "help": "Connexion avec un compte Google, Discord, Keycloak… Chaque identité connecte un compte Meshloom existant. Enregistrez d'abord Meshloom chez le fournisseur.",
+        "enabled": "Proposer la connexion avec ce fournisseur",
+        "preset": "Fournisseur",
+        "presets": {
+          "generic": "Autre (tout fournisseur OpenID Connect)",
+          "google": "Google",
+          "discord": "Discord",
+          "keycloak": "Keycloak"
+        },
+        "presetHelp": {
+          "generic": "Indiquez l'émetteur de votre fournisseur : son adresse sans /.well-known/openid-configuration.",
+          "google": "Créez un client OAuth de type « Application Web » dans la console Google Cloud et ajoutez l'adresse de redirection ci-dessous.",
+          "discord": "Créez une application dans le portail développeur de Discord et ajoutez l'adresse de redirection ci-dessous. Liez les comptes par sujet.",
+          "keycloak": "L'émetteur est l'adresse de votre realm (https://keycloak.example/realms/maison). Créez un client confidentiel avec l'adresse de redirection ci-dessous."
+        },
+        "label": "Libellé du bouton",
+        "issuer": "Émetteur (issuer)",
+        "client_id": "Identifiant client",
+        "clientSecret": "Secret client",
+        "secretKept": "Enregistré : laissez vide pour le garder",
+        "clearSecret": "Supprimer le secret",
+        "secretCleared": "Secret client supprimé.",
+        "scopes": "Portées (scopes)",
+        "authMethod": "Envoi du secret",
+        "authMethods": {
+          "client_secret_basic": "HTTP Basic (client_secret_basic)",
+          "client_secret_post": "Dans le formulaire (client_secret_post)"
+        },
+        "privateNetwork": "Le fournisseur est sur mon réseau local",
+        "privateNetworkHelp": "Pour un fournisseur sur votre réseau local, comme Keycloak.",
+        "autoCreate": "Créer un compte pour une identité inconnue",
+        "autoCreateHelp": "Activé, toute personne connectée par le fournisseur reçoit un compte Lecteur. Seulement pour un fournisseur dont vous connaissez les utilisateurs.",
+        "redirectUris": "Adresses de redirection à enregistrer chez le fournisseur",
+        "redirectUrisHelp": "Enregistrez chez le fournisseur chaque adresse depuis laquelle on se connecte.",
+        "save": "Enregistrer",
+        "saved": "Réglages OpenID Connect enregistrés.",
+        "test": "Tester le fournisseur enregistré",
+        "testOk": "Le fournisseur a répondu : émetteur {{issuer}}, {{keys}} clé(s) de signature.",
+        "links": {
+          "title": "Identités liées",
+          "help": "Chaque ligne relie une identité du fournisseur à un compte existant, par e-mail vérifié ou par sujet.",
+          "empty": "Aucune identité liée pour l'instant.",
+          "account": "Compte",
+          "kind": "Correspondance",
+          "byEmail": "E-mail vérifié",
+          "bySubject": "Sujet (sub)",
+          "email": "Adresse e-mail",
+          "subject": "Sujet",
+          "add": "Lier",
+          "added": "Identité liée.",
+          "remove": "Retirer",
+          "lastLogin": "dernière connexion {{when}}",
+          "neverUsed": "jamais utilisée",
+          "waitingFirst": "en attente de la première connexion",
+          "otherIssuer": "(autre fournisseur : ne correspond plus)"
+        },
+        "announcedIssuer": "Émetteur annoncé : {{issuer}}"
+      }
+    }
+  },
+  "auth": {
+    "oidc": {
+      "signIn": "Se connecter avec {{name}}",
+      "defaultLabel": "OpenID Connect"
+    }
+  },
+  "errors": {
+    "auth_oidc_disabled": "La connexion OpenID Connect est désactivée.",
+    "auth_oidc_incomplete": "Indiquez d'abord l'émetteur et l'identifiant client.",
+    "auth_oidc_issuer_invalid": "L'émetteur doit être une adresse https (http seulement pour un fournisseur de votre réseau local).",
+    "auth_oidc_issuer_mismatch": "Le fournisseur annonce un autre émetteur : saisissez l'émetteur exactement comme il l'annonce.",
+    "auth_oidc_metadata_invalid": "La configuration du fournisseur est inutilisable.",
+    "auth_oidc_unavailable": "Le fournisseur est injoignable.",
+    "auth_oidc_http_public": "Le http simple n'est accepté que pour un fournisseur de votre réseau local.",
+    "auth_oidc_scopes_invalid": "Portées invalides : des mots séparés par des espaces.",
+    "auth_oidc_secret_store_unavailable": "La clé des secrets de cette instance est indisponible : le secret client ne peut pas être enregistré.",
+    "auth_oidc_secret_unreadable": "Le secret client est illisible sur cette instance : un administrateur doit le saisir à nouveau.",
+    "auth_oidc_state_invalid": "Cette connexion a expiré ou a été commencée dans un autre navigateur : réessayez.",
+    "auth_oidc_denied": "Le fournisseur ne vous a pas connecté.",
+    "auth_oidc_exchange_failed": "Le fournisseur a refusé la connexion : vérifiez l'identifiant et le secret client.",
+    "auth_oidc_token_invalid": "La réponse du fournisseur n'a pas pu être vérifiée : connexion refusée.",
+    "auth_oidc_no_account": "Aucun compte Meshloom n'est lié à cette identité. Demandez à un administrateur.",
+    "auth_oidc_failed": "La connexion avec le fournisseur a échoué.",
+    "auth_oidc_link_invalid": "Indiquez soit un sujet, soit une adresse e-mail.",
+    "auth_oidc_link_user_invalid": "Seul un compte local activé (pas un kiosque) peut être lié.",
+    "auth_oidc_link_exists": "Cette identité est déjà liée.",
+    "auth_oidc_link_limit": "Trop d'identités liées ({{max}} au plus).",
+    "auth_oidc_link_not_found": "Ce lien n'existe plus."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "access": {
+      "clientAddresses": {
+        "title": "Adresses des clients",
+        "toggle": "Les adresses identifient les clients",
+        "help": "Activez cette option si l'adresse ci-dessous est bien celle du visiteur : les échecs de connexion seront aussi limités par adresse.",
+        "seen": "Adresse que Meshloom voit pour vous : {{kind}}.",
+        "seenPublic": "une adresse publique",
+        "seenLocal": "une adresse du réseau local",
+        "suggest": "Votre connexion vient d'une adresse publique : activez cette option pour freiner les attaques par adresse.",
+        "on": "Les adresses identifient désormais les clients.",
+        "off": "Les adresses n'identifient plus les clients."
+      }
+    }
+  }
+}

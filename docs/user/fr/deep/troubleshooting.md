@@ -16,12 +16,12 @@ Définissez `MESHCORE_LOG_LEVEL=DEBUG`, puis redémarrez Meshloom.
 - **Depuis un dépôt cloné :**
 
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 ## Instantané de support
 
-Ouvrez **Réglages > À propos > Ouvrir l’instantané de support de débogage** (les mêmes données sont sur `/api/debug`). Il liste la version, le système, l’état de la radio, l’écart entre la radio et la base de données (contacts et canaux), l’état de la CLI compagnon (`companion_cli` : pourquoi la radio ne peut pas l’utiliser, par exemple un firmware antérieur à v1.18 ou une liaison par le proxy radio d’un autre Meshloom, ou le résultat de sa dernière vérification ; vide tant qu’aucune fonction ne l’a vérifiée) et les logs récents. Hors des logs, il ne contient jamais la clé privée, et les autres clés n’y figurent que sous forme d’empreintes. Les logs ne contiennent jamais la clé privée ni un mot de passe Wi-Fi, même en `DEBUG`. Les logs peuvent contenir des noms et des clés de canal à tous les niveaux ; en `DEBUG`, ils peuvent aussi contenir les mots de passe de connexion aux répéteurs et aux salons, et le code PIN Bluetooth. Arrêtez la copie à la ligne `STOP COPYING HERE` si vous ne voulez pas les partager.
+Ouvrez **Réglages > À propos > Ouvrir l’instantané de support de débogage** (les mêmes données sont sur `/api/debug`). Il liste la version, le système, l’état de la radio, l’écart entre la radio et la base de données (contacts et canaux), l’état de la CLI compagnon (`companion_cli` : pourquoi la radio ne peut pas l’utiliser, par exemple un firmware antérieur à v1.18 ou une liaison par le proxy radio d’un autre Meshloom, ou le résultat de sa dernière vérification ; vide tant qu’aucune fonction ne l’a vérifiée) et les logs récents. Hors des logs, il ne contient jamais la clé privée, et les autres clés n’y figurent que sous forme d’empreintes. Les logs ne contiennent jamais la clé privée ni un mot de passe Wi-Fi, même en `DEBUG`. Les logs peuvent contenir des noms de canal et les premiers chiffres d’une clé de canal à tous les niveaux, mais jamais la clé entière d’un canal privé ni, sous `DEBUG`, le texte d’un message ; en `DEBUG`, ils peuvent aussi contenir le début des messages, les mots de passe de connexion aux répéteurs et aux salons, et le code PIN Bluetooth. Arrêtez la copie à la ligne `STOP COPYING HERE` si vous ne voulez pas les partager.
 
 ## `ModuleNotFoundError: No module named 'meshcore'`
 
@@ -77,11 +77,15 @@ Meshloom reçoit normalement les messages dès que la radio les annonce, et vér
 
 ## Un message part sur le mauvais canal
 
-Une autre application modifie probablement les emplacements de canal de la radio sous les pieds de Meshloom. Activez **Réécrire le salon avant chaque envoi** dans **Réglages → Radio → Avancé** : Meshloom réécrit alors le canal dans la radio avant chaque envoi. C’est fiable, mais cela ajoute un court délai à chaque message.
+Une autre application modifie probablement les emplacements de canal de la radio sous les pieds de Meshloom. Activez **Réécrire le canal avant chaque envoi** dans **Réglages → Radio → Avancé** : Meshloom réécrit alors le canal dans la radio avant chaque envoi. C’est fiable, mais cela ajoute un court délai à chaque message.
 
 ## Contention du port série
 
 Un port série ne peut servir qu’un programme. Si une autre application MeshCore, une console série ou un second Meshloom le tient, les tentatives de connexion échouent en boucle. Après trois lignes « Serial Connection started » identiques, Meshloom écrit un seul `WARNING` sur une possible contention et cesse de répéter la ligne. Fermez l’autre programme.
+
+## Meshloom refuse de démarrer après une mise à niveau
+
+Le journal dit lequel de ces cas vous concerne. **Not enough free disk space to copy the database** : libérez la place indiquée, puis redémarrez. Votre base n’a pas changé. **This database is at schema N, newer than this version** : vous lancez une version plus ancienne que celle qui a utilisé la base en dernier. Relancez cette version, ou [remettez la copie faite avant la mise à niveau](/docs/deep/install-paths/#revenir-à-une-version-plus-ancienne). **Meshloom could not start**, suivi d’une trace d’erreur : une étape du démarrage a échoué, par exemple la mise à niveau de la base. Le processus s’arrête, sans recopier la base à chaque essai. Un paquet Linux réessaie toutes les quelques secondes, 20 fois par heure, puis s’arrête : `sudo systemctl reset-failed meshloom` autorise de nouveaux essais une fois la cause réglée, et une mise à jour du paquet le fait pour vous. Docker continue d’essayer, plus rapproché au début, puis une fois par minute. L’add-on Home Assistant ne redémarre pas seul, sauf si vous avez activé **Watchdog** sur sa page, et même alors il abandonne après quelques essais. Signalez le journal dans un ticket, ou revenez en arrière avec la même copie.
 
 ## Le travail de démarrage boucle
 
@@ -101,7 +105,7 @@ Meshloom ne fait aucune des deux étapes tant que l’horloge du serveur lui-mê
 
 ## `/docs` n’est pas cette documentation
 
-`http://localhost:8000/docs` est la documentation technique de l’API, générée par le serveur. La documentation utilisateur est ce site.
+`http://localhost:8000/docs` est la documentation technique de l’API, générée par le serveur. La documentation utilisateur est ce site. À partir de Meshloom 5.0, cette page demande d’être connecté.
 
 ## La page ne se charge pas mais l’API répond
 

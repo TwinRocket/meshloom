@@ -37,7 +37,7 @@ Sur un système qui n’est pas Linux (macOS, par exemple), le choix du service 
 
 Pour un service, le script installe un paquet depuis le dépôt Meshloom signé (`apt` sur Debian et Ubuntu, `dnf` sur Fedora). Si le dépôt n’a rien pour votre machine, il se rabat sur le paquet joint à la version GitHub, puis, en dernier recours, sur une installation depuis le code source. Sur une carte ARMv6 (Raspberry Pi 1, Zero et Zero W d’origine), il s’arrête aussitôt : Meshloom n’y fonctionne pas. Voir [Image Raspberry Pi](/docs/rpi/).
 
-**La sécurité.** Le script ne pose aucune question de sécurité, et le choix compte. Les bots exécutent du code sur la machine et sont **activés par défaut**, sauf dans le paquet Linux (donc l’image Raspberry Pi), qui les coupe dans `/etc/meshloom/meshloom.env`. Avec Docker ou depuis les sources, ajoutez `MESHCORE_DISABLE_BOTS=true` pour les désactiver (dans l’add-on Home Assistant, activez son option `disable_bots`), et `MESHCORE_BASIC_AUTH_USERNAME` avec `MESHCORE_BASIC_AUTH_PASSWORD` pour imposer un identifiant partagé. Voir [Un réseau de confiance](/docs/trust/).
+**La sécurité.** Le script ne pose aucune question de sécurité, et le choix compte. Les extensions exécutent du code sur la machine, mais aucune ne tourne tant qu’un administrateur n’en ajoute pas une et n’accepte ses permissions. Pour verrouiller toutes les extensions, définissez `MESHCORE_DISABLE_PLUGINS=true` (décommentez-la dans `/etc/meshloom/meshloom.env` pour le paquet Linux et l’image Raspberry Pi, ajoutez-la avec Docker ou depuis les sources, ou activez l’option `disable_plugins` de l’add-on Home Assistant). La connexion est toujours obligatoire : la première fois que vous ouvrez Meshloom, il vous demande de créer le compte administrateur (voir [Premier lancement](/docs/first-run/) et [Comptes et accès](/docs/deep/access/)). Voir [Un réseau de confiance](/docs/trust/).
 
 ## Ouvrir l’interface
 
@@ -61,13 +61,17 @@ Pour vérifier un service :
 sudo systemctl status meshloom
 ```
 
+## Pré-version
+
+Pour essayer la prochaine version avant qu’elle soit finale, voir [Essayer la pré-version](/docs/prerelease/). Une machine qui n’en demande pas n’en reçoit jamais.
+
 ## Mettre à jour
 
 Ouvrez **Réglages > Mises à jour**. La page indique votre type d’installation (paquet Linux, Docker Compose, add-on Home Assistant…) et propose **Vérifier maintenant**. Quand une nouvelle version existe et que votre installation sait se mettre à jour seule, **Installer maintenant** l’installe. Les **mises à jour automatiques** restent éteintes tant que vous ne les activez pas, et vous pouvez les limiter à certains jours et certaines heures (elles suivent l’horloge du serveur, pas celle de votre navigateur). Certaines versions, comme une nouvelle version majeure, ne s’installent pas automatiquement : un bandeau l’indique, et vous les lancez avec **Installer maintenant**. Cette limite demande Meshloom 4.18.3 ou plus récent : une version plus ancienne continue de lire GitHub et les installe, et les outils extérieurs à Meshloom, comme Watchtower qui suit `:latest`, ne sont pas concernés. Cela ne met à jour que Meshloom et ne lance jamais un `apt upgrade` complet du système.
 
 Les mises à jour sont signées. L’installeur embarque la clé de publication Meshloom et vérifie son empreinte ; il ne la télécharge jamais et n’ajoute jamais de source de paquets non signée. Le paquet Linux vérifie la signature du dépôt, et l’assistant de mise à jour refuse de tourner si la source Meshloom n’est pas vérifiée. Avec Docker, l’image est épinglée par empreinte dans le fichier `.env` voisin de `docker-compose.yml` (`MESHLOOM_IMAGE=…@sha256:…`). L’assistant ne déplace cet épinglage que vers une version plus récente dont l’empreinte est signée, et ne revient jamais en arrière.
 
-Si **Réglages > Mises à jour** indique qu’il faut mettre à jour à la main ou relancer l’installeur, relancez-le. Il garde vos données, remplace un ancien assistant de mise à jour et, pour Docker, conserve l’ancien fichier Compose sous le nom `docker-compose.yml.bak-<date>`. Si vous avez modifié votre `docker-compose.yml` (pour ajouter un port, par exemple), l’installeur affiche vos modifications et propose de les garder, ce qui est le choix par défaut : il ne met alors à jour que ses propres lignes (l’image et l’assistant de mise à jour) et laisse les vôtres. S’il ne sait pas adapter votre fichier, il n’y touche pas et demande s’il faut en générer un nouveau. Lancez l’installeur avec le même compte que celui qui a créé la pile : `root` si elle se trouve dans `/root/meshloom`.
+Si **Réglages > Mises à jour** indique qu’il faut mettre à jour à la main ou relancer l’installeur, relancez-le. Il garde vos données, remplace un ancien assistant de mise à jour (le précédent, que signale **Réglages > Mises à jour**, se fiait à des fichiers que le conteneur peut modifier ; le nouveau est signé) et, pour Docker, conserve l’ancien fichier Compose sous le nom `docker-compose.yml.bak-<date>`. Si vous avez modifié votre `docker-compose.yml` (pour ajouter un port, par exemple), l’installeur affiche vos modifications et propose de les garder, ce qui est le choix par défaut : il ne met alors à jour que ses propres lignes (l’image et l’assistant de mise à jour) et laisse les vôtres. S’il ne sait pas adapter votre fichier, il n’y touche pas et demande s’il faut en générer un nouveau. Lancez l’installeur avec le même compte que celui qui a créé la pile : `root` si elle se trouve dans `/root/meshloom`.
 
 Deux cas se mettent à jour à la main :
 
@@ -80,7 +84,7 @@ sudo dnf upgrade --refresh meshloom            # Fedora
 sudo docker compose pull && sudo docker compose up -d   # Docker sans l’assistant
 ```
 
-Vos données restent où elles étaient : `/var/lib/meshloom` pour le paquet, le dossier `data` à côté de `docker-compose.yml` pour Docker. Les changements de base de données s’appliquent automatiquement au démarrage.
+Vos données restent où elles étaient : `/var/lib/meshloom` pour le paquet, le dossier `data` à côté de `docker-compose.yml` pour Docker. Les changements de base de données s’appliquent automatiquement au démarrage. **Vous venez de la 4.18 ?** La mise à jour vers la 5.0 ne s’annule pas en place : lisez d’abord [Passer de la 4.18 à la 5.0](/docs/upgrade-4-18/).
 
 ## Sur Home Assistant
 
@@ -90,11 +94,13 @@ Si Home Assistant tourne déjà sur la machine qui hébergera Meshloom, installe
 
 Le bouton ouvre la bonne fenêtre sur votre propre Home Assistant, avec l’adresse déjà remplie. C’est une simple redirection, qui n’apprend rien sur vous. À la main, allez dans **Paramètres > Modules complémentaires > Boutique > ⋮ > Dépôts**, ajoutez l’adresse du dépôt, puis installez **Meshloom** depuis la boutique.
 
-Deux choses fonctionnent différemment :
+Quelques choses fonctionnent différemment :
+
+**Home Assistant vous connecte.** Ouvert depuis la barre latérale, Meshloom ne demande aucun mot de passe et n’affiche pas de page de création de compte : le premier utilisateur Home Assistant qui l’ouvre en devient l’administrateur, les suivants reçoivent le rôle **Membre**. C’est aussi le cas d’un add-on mis à jour depuis la 4.18. Les options `basic_auth_username` et `basic_auth_password` sont retirées : Meshloom ne les lit plus, videz-les si vous les aviez remplies. Là où vous publiez le port (plus bas), vous passez désormais par la configuration normale du premier lancement, depuis le réseau local.
 
 **Le port de partage de la radio se règle dans Home Assistant, pas dans Meshloom.** L’interface s’atteint par la barre latérale et ne publie rien : le proxy radio (voir [Transports radio](/docs/deep/transports/)) est donc la seule chose visible sur le réseau. Changez son port dans le panneau **Réseau** de l’add-on. Le champ dans Meshloom ne fait que l’afficher, car une valeur saisie là ferait écouter Meshloom à un endroit où rien n’est redirigé.
 
-**Les notifications demandent une adresse à elles.** La barre latérale n’a pas d’adresse publique stable, donc Web Push ne peut pas fonctionner à travers elle seule. Donnez à Meshloom un vrai nom d’hôte (l’add-on Cloudflared peut le faire sans ouvrir de port sur votre box) et ouvrez Meshloom à cette adresse.
+**Les notifications demandent une adresse à elles.** La barre latérale n’a pas d’adresse publique stable, donc Web Push ne peut pas fonctionner à travers elle seule. Donnez à Meshloom un vrai nom d’hôte (l’add-on Cloudflared peut le faire sans ouvrir de port sur votre box) et ouvrez Meshloom à cette adresse ([Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/#add-on-home-assistant)).
 
 Ce n’est pas la même chose que [publier le mesh vers Home Assistant par MQTT](/docs/deep/home-assistant/), qui marche depuis n’importe quelle installation et ne demande aucun add-on.
 

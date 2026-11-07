@@ -1,0 +1,13 @@
+{
+  "description": "A synchronous infinite loop in a handler blocks the child's event loop: event.cancel cannot reach it, so the host kills the child after the cancel grace and starts a new one.",
+  "stage": "host",
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "killed": "event_cancel_ignored"
+      }
+    }
+  ]
+}

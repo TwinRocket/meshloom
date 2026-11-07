@@ -1,0 +1,39 @@
+{
+  "errors": {
+    "egress_scheme_apprise": "URL Apprise {{line}} : Meshloom n’envoie pas vers {{scheme}}://. Les services pris en charge sont dans la documentation.",
+    "egress_private_address_apprise": "URL Apprise {{line}} : cette adresse est sur un réseau privé. Si elle vous appartient, autorisez les réseaux privés pour cette intégration.",
+    "egress_unresolvable_apprise": "URL Apprise {{line}} : nom d'hôte introuvable. Vérifiez-le, ou saisissez plutôt l'adresse IP.",
+    "apprise_url_invalid": "URL Apprise {{line}} : Apprise ne comprend pas cette URL. Vérifiez-la dans le wiki Apprise.",
+    "apprise_chat_id_required": "URL Apprise {{line}} : une URL Telegram doit indiquer un identifiant de discussion (tgram://bot_token/chat_id).",
+    "secret_required": "La destination a changé, le secret enregistré n’est donc pas réutilisé ({{fields}}). Saisissez-le à nouveau, ou effacez-le."
+  },
+  "settings": {
+    "fanout": {
+      "privateNetwork": {
+        "label": "Autoriser une destination sur un réseau privé (réseau local, localhost)",
+        "help": "Pour une destination sur votre réseau local (Home Assistant, Gotify, ntfy, Node-RED…).",
+        "grandfathered": "Ces intégrations gardent l’accès au réseau privé, car elles datent d’avant la vérification des destinations : {{names}}.",
+        "grandfatheredDismiss": "Compris"
+      },
+      "secret": {
+        "kept": "Inchangé",
+        "clear": "Effacer",
+        "keep": "Conserver",
+        "cleared": "Supprimé à l’enregistrement",
+        "clearedHelp": "Le secret enregistré sera supprimé à l’enregistrement. Saisissez-en un nouveau, ou cliquez sur Conserver.",
+        "required": "Requis : la destination a changé",
+        "requiredAfterDestination": "Destination changée : saisissez le secret à nouveau, ou cliquez sur Effacer."
+      },
+      "apprise": {
+        "urlsKept": "Inchangées ({{targets}}). Saisissez de nouvelles URL pour toutes les remplacer."
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "apprise_restored_disabled": "L’intégration Apprise {{value}} revient désactivée : une de ses URL n’est plus prise en charge. Corrigez-la avant de l’activer.",
+        "private_network_restored_disabled": "L’intégration {{value}} revient désactivée car elle visait un réseau privé. Vérifiez sa destination, puis activez-la.",
+        "secret_dropped_destination_changed": "Le secret de {{value}} n’a pas été restauré. Saisissez-le à nouveau dans ses réglages."
+      }
+    }
+  }
+}

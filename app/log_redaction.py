@@ -5,8 +5,9 @@ command bytes (``Sending raw data``, ``sending pkt``), the incoming ones
 (``Received data``), the dispatched event payloads and, on a parse failure, the
 raw frame at ERROR. A companion CLI frame can carry a Wi-Fi password (``set
 wifi.pwd`` out, the ``get wifi.pwd`` reply in) and the private key travels in
-the export (on every connect) and import frames, so those records are redacted
-here before any handler sees them.
+the export (on every connect) and import frames, and a channel secret travels in
+SET_CHANNEL and CHANNEL_INFO, so those records are redacted here before any handler
+sees them. They exist only when someone sets the log level to DEBUG.
 
 Three layers, all always on:
 
@@ -19,11 +20,35 @@ Three layers, all always on:
   same rules on the fully formatted output, traceback included, and writes the
   redacted traceback back to ``record.exc_text`` so a handler that is not wrapped
   reuses the redacted text.
+- ``RedactingFormatter`` also keeps untrusted text from forging a log line
+  (MSHL-432): CR, LF and every other control character in the message, its
+  arguments and the exception text come out as visible escapes (``\\n``), so a
+  record is always one line plus the structural lines of its traceback. See
+  ``escape_control()`` and ``format_exception_safe()``. Each of those lines is
+  then capped at ``MAX_LINE_BYTES`` (MSHL-435, ``cap_lines()``), counting each
+  character at its longest form on any stream encoding: journald cuts a
+  line longer than its ``LineMax`` (48 KiB) into several entries, Docker at
+  16 KiB, and the start of such a continuation entry is text the client chose.
+- ``install_uncaught_handlers()`` sends what Python would otherwise print raw to
+  standard error (warnings, an uncaught exception in the main thread or another
+  thread, an unraisable one) through logging, so through that formatter too.
+  asyncio's default exception handler already logs (logger ``asyncio``).
 - ``secret_scope()`` registers literal secrets for the duration of a call; every
   registered form (text, hex, repr escapes) is replaced wherever it appears.
+- A channel key in a request URL (a path segment or a query value, as in
+  ``DELETE /api/channels/<key>``) is replaced in every formatted line: uvicorn's
+  access log, the server-error lines and the ``GET /api/debug`` buffer. Hashtag and
+  private channels alike. A contact's 64-digit public key stays readable. Accepted
+  limits: any other 32-digit session, token or pairing id in a URL is masked too, so a
+  debug report may not say which one was meant; a percent-encoded or otherwise crafted
+  form of a key is not recognized, and only someone who knows the key can send one.
 
-The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, so their
-level is clamped to INFO whatever ``MESHCORE_LOG_LEVEL`` says.
+The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, and
+``aiosqlite`` prints every statement with its parameters (password and token
+hashes, VAPID and fanout secrets), and ``urllib3.connectionpool`` prints every
+request line (the Web Push endpoint path is the subscription's token, Apprise
+and webhook URLs carry theirs), so their level is clamped to INFO whatever
+``MESHCORE_LOG_LEVEL`` says.
 
 Both the filter and the formatter are total: a redaction bug must never kill
 the meshcore dispatcher task or let ``Handler.handleError`` print the raw record.
@@ -34,16 +59,19 @@ were written against: review this module whenever that test fails.
 from __future__ import annotations
 
 import ast
+import copy
 import logging
 import re
+import sys
 import threading
+import traceback
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 REDACTED = "[redacted]"
 REDACTION_FAILED = "[log record dropped: redaction error]"
 UNFORMATTABLE_RECORD = "[unformattable meshcore record]"
-QUIET_THIRD_PARTY_LOGGERS = ("bleak", "dbus_fast")
+QUIET_THIRD_PARTY_LOGGERS = ("bleak", "dbus_fast", "aiosqlite", "urllib3")
 SECRET_MIN_LITERAL_BYTES = 4
 
 # Companion frame codes whose payload is secret. Outgoing: command codes.
@@ -52,16 +80,141 @@ SECRET_OUT: frozenset[int] = frozenset(
     {
         0x42,  # CMD_RUN_CLI_COMMAND ("set wifi.pwd ...")
         0x18,  # CMD_IMPORT_PRIVATE_KEY
+        0x20,  # CMD_SET_CHANNEL (the channel secret)
     }
 )
 SECRET_IN: frozenset[int] = frozenset(
     {
         0x1D,  # RESP_CODE_CLI_REPLY ("get wifi.pwd" answer)
         0x0E,  # RESP_CODE_PRIVATE_KEY (export, on every connect)
+        0x12,  # RESP_CODE_CHANNEL_INFO (the channel secret)
     }
 )
 
-_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY")
+_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY", "EventType.CHANNEL_INFO")
+
+# --------------------------------------------------------------------------
+# Log-line forging (MSHL-432)
+# --------------------------------------------------------------------------
+
+# Every C0 and C1 control character (CR, LF, tab, ESC, NEL...), DEL, and the
+# Unicode line and paragraph separators: anything a log consumer, a terminal or
+# ``str.splitlines()`` may treat as a line break or an escape sequence.
+_CONTROL_RE = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+_NAMED_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+_EXC_SAFE_ATTR = "_meshloom_exc_safe"
+
+
+def _escape_one(match: re.Match[str]) -> str:
+    char = match.group(0)
+    named = _NAMED_ESCAPES.get(char)
+    if named:
+        return named
+    code = ord(char)
+    return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}"
+
+
+def escape_control(text: str) -> str:
+    """``text`` with every control character written as a visible escape.
+
+    ``\\n``, ``\\r`` and ``\\t`` by name, ``\\xNN`` or ``\\uNNNN`` for the others. A
+    backslash is left alone: the point is that no input can end a line, not
+    that the escape is reversible.
+    """
+    return _CONTROL_RE.sub(_escape_one, text)
+
+
+class _SafeTracebackException(traceback.TracebackException):
+    """A traceback whose exception messages (the only attacker-reachable lines) are one line each."""
+
+    def format_exception_only(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        text = "".join(super().format_exception_only(*args, **kwargs))
+        yield escape_control(text.rstrip("\n")) + "\n"
+
+
+def _harden_chain(root: traceback.TracebackException) -> None:
+    seen: set[int] = set()
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        current.__class__ = _SafeTracebackException
+        for child in (current.__cause__, current.__context__, *(current.exceptions or ())):
+            if child is not None:
+                stack.append(child)
+
+
+def format_exception_safe(exc_info: tuple) -> str:  # type: ignore[type-arg]
+    """The traceback text with the structural lines of a traceback and nothing forged.
+
+    The frames (file names, our own source lines) keep their newlines; the
+    message of every exception in the chain, notes and groups included, is
+    escaped by ``escape_control()``, so it stays on one line.
+    """
+    exc_type, exc, tb = exc_info
+    root = traceback.TracebackException(exc_type, exc, tb)
+    _harden_chain(root)
+    return "".join(root.format()).rstrip("\n")
+
+
+# Longest line, in bytes, any handler writes (MSHL-435). Well under the 16 KiB
+# at which Docker's log drivers split a line and journald's 48 KiB ``LineMax``:
+# a line split there would start a new journal entry with text the client
+# chose, such as a whole forged ``AUTH_FAIL`` line. The marker starts with a
+# space, so a cut line never ends in a ``user=<token>`` a filter could take.
+MAX_LINE_BYTES = 8192
+TRUNCATED_MARKER = " [truncated: {} more bytes]"
+_MARKER_RESERVE = 48  # bytes kept for the marker
+# Most bytes one character can take on the stream, whatever its encoding: UTF-8
+# takes at most 4, and a stream that cannot encode a character writes its
+# backslash escape (``\xNN``, ``\uNNNN``, ``\UNNNNNNNN``) instead.
+_MAX_CHAR_COST = 10
+
+
+def _char_cost(char: str) -> int:
+    """Worst-case bytes of ``char`` on the stream: UTF-8 or its backslash escape."""
+    code = ord(char)
+    if code < 0x80:
+        return 1
+    if code < 0x100:
+        return 4  # \xNN (UTF-8: 2)
+    if code < 0x10000:
+        return 6  # \uNNNN (UTF-8: 3, a lone surrogate included)
+    return 10  # \UNNNNNNNN (UTF-8: 4)
+
+
+def cap_line(line: str) -> str:
+    """``line``, or its head and ``TRUNCATED_MARKER`` when it could exceed ``MAX_LINE_BYTES``.
+
+    Counted per character at its worst-case cost (``_char_cost``), so the cap
+    holds on a stream that is not UTF-8. The head is cut on a character, lone
+    surrogates included, and the marker gives the UTF-8 bytes left out.
+    """
+    if len(line) * _MAX_CHAR_COST <= MAX_LINE_BYTES:
+        return line
+    budget = MAX_LINE_BYTES - _MARKER_RESERVE
+    total = 0
+    cut = None
+    for index, char in enumerate(line):
+        total += _char_cost(char)
+        if cut is None and total > budget:
+            cut = index
+        if total > MAX_LINE_BYTES:
+            break
+    if total <= MAX_LINE_BYTES or cut is None:
+        return line
+    rest = line[cut:].encode("utf-8", "surrogatepass")
+    return line[:cut] + TRUNCATED_MARKER.format(len(rest))
+
+
+def cap_lines(text: str) -> str:
+    """Every line of ``text`` through ``cap_line()``."""
+    if len(text) * _MAX_CHAR_COST <= MAX_LINE_BYTES:
+        return text
+    return "\n".join(cap_line(line) for line in text.split("\n"))
+
 
 # --------------------------------------------------------------------------
 # Literal secrets (secret_scope)
@@ -254,7 +407,7 @@ def _rule_received_hex(rest: str) -> str | None:
 
 
 def _rule_received_private_key(rest: str) -> str | None:
-    return REDACTED
+    return REDACTED  # also the channel info response: the whole frame is the secret's
 
 
 def _rule_unhandled(rest: str) -> str | None:
@@ -279,6 +432,7 @@ _LINE_RULES = (
     ("sending pkt : ", _rule_sending_pkt),
     ("Received data: ", _rule_received_hex),
     ("Received private key response: ", _rule_received_private_key),
+    ("received channel info response: ", _rule_received_private_key),
     ("Unhandled data received ", _rule_unhandled),
     ("Dispatching event: ", _rule_dispatch),
 )
@@ -326,6 +480,10 @@ def _apply_line_rules(line: str, *, unanchored: bool) -> str:
     return line
 
 
+# 16 bytes in hex as a whole URL path segment or query value.
+_URL_CHANNEL_KEY_RE = re.compile(r"(?<=[/=])[0-9A-Fa-f]{32}(?![0-9A-Za-z])")
+
+
 def redact_text(message: str, *, unanchored: bool = False) -> str:
     """Return ``message`` with every secret-bearing part redacted.
 
@@ -333,14 +491,14 @@ def redact_text(message: str, *, unanchored: bool = False) -> str:
     start of the message or of a line. Unanchored (the formatter, on a formatted
     line that begins with the time/name/level prefix): the rules are searched
     anywhere in a line. Multi-line rules run on the whole text first, then the
-    single-line rules per line, then the literal scrub.
+    single-line rules per line, then the literal scrub and the URL channel keys.
     """
     text = _apply_multiline_rules(message, unanchored=unanchored)
     if any(prefix in text for prefix, _ in _LINE_RULES):
         text = "\n".join(
             _apply_line_rules(line, unanchored=unanchored) for line in text.split("\n")
         )
-    return _scrub_literals(text)
+    return _URL_CHANNEL_KEY_RE.sub(REDACTED, _scrub_literals(text))
 
 
 # --------------------------------------------------------------------------
@@ -405,8 +563,9 @@ class MeshcoreSecretFilter(logging.Filter):
             record.stack_info = None
             return
         if record.exc_info:
-            formatted = logging.Formatter().formatException(record.exc_info)
+            formatted = format_exception_safe(record.exc_info)
             record.exc_text = redact_text(formatted, unanchored=True)
+            setattr(record, _EXC_SAFE_ATTR, record.exc_text)
             record.exc_info = None
         elif record.exc_text:
             record.exc_text = redact_text(record.exc_text, unanchored=True)
@@ -424,22 +583,51 @@ class RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         had_traceback = bool(record.exc_info or record.exc_text)
         try:
-            exc_text = record.exc_text
-            if record.exc_info and not exc_text:
-                exc_text = self.inner.formatException(record.exc_info)
+            exc_text = self._safe_exc_text(record)
             if exc_text:
                 # Written back, only once redacted, so a handler that is not
                 # wrapped reuses it.
-                record.exc_text = redact_text(exc_text, unanchored=True)
+                exc_text = redact_text(exc_text, unanchored=True)
+                record.exc_text = exc_text
+                setattr(record, _EXC_SAFE_ATTR, exc_text)
             if record.stack_info:
                 record.stack_info = redact_text(record.stack_info, unanchored=True)
-            return redact_text(self.inner.format(record), unanchored=True)
+            # The inner formatter sees the record without its traceback, so its
+            # whole output (prefix, message, arguments, however they were
+            # formatted) is one escaped line; the traceback is added after.
+            bare = copy.copy(record)
+            bare.exc_info = None
+            bare.exc_text = None
+            bare.stack_info = None
+            parts = [escape_control(self.inner.format(bare))]
+            if exc_text:
+                parts.append(exc_text)
+            if record.stack_info:
+                parts.append(record.stack_info)
+            # Capped last: redaction first sees the whole text, and nothing it
+            # writes can make a line longer again.
+            return cap_lines(redact_text("\n".join(parts), unanchored=True))
         except Exception:
             # Never leave a traceback behind that later handlers would reuse.
             record.exc_info = None
             record.exc_text = REDACTION_FAILED if had_traceback else None
             record.stack_info = None
             return self._placeholder(record)
+
+    def _safe_exc_text(self, record: logging.LogRecord) -> str | None:
+        """The traceback with one line per exception message.
+
+        An ``exc_text`` cached on the record is trusted only when this module
+        wrote it: a plain ``Formatter`` upstream leaves the raw text there.
+        """
+        if record.exc_text and record.exc_text == getattr(record, _EXC_SAFE_ATTR, None):
+            return record.exc_text
+        if record.exc_info:
+            return format_exception_safe(record.exc_info)
+        if record.exc_text:
+            # Pre-rendered by someone else: no way to tell its structure.
+            return escape_control(record.exc_text)
+        return None
 
     def _placeholder(self, record: logging.LogRecord) -> str:
         try:
@@ -458,7 +646,8 @@ _meshcore_filter: MeshcoreSecretFilter | None = None
 
 
 def clamp_quiet_third_party_loggers() -> None:
-    """Keep the BLE libraries' frame dumps off, whatever the root level is.
+    """Keep the BLE frame dumps and aiosqlite's statement dumps off, whatever
+    the root level is.
 
     ``BLEAK_LOGGING`` sets ``bleak`` to DEBUG when bleak is imported, so this
     runs again after that import (``app/radio.py``) and at the end of
@@ -512,3 +701,61 @@ def install_redacting_formatter(handler: logging.Handler) -> None:
     if isinstance(current, RedactingFormatter):
         return
     handler.setFormatter(RedactingFormatter(current or logging.Formatter()))
+
+
+# --------------------------------------------------------------------------
+# What Python prints to standard error by itself (MSHL-435)
+# --------------------------------------------------------------------------
+
+UNCAUGHT_LOGGER = "meshloom.uncaught"
+
+
+def _excepthook(exc_type, exc, tb):  # type: ignore[no-untyped-def]
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Ctrl-C at a shell: Python's own short message, nothing untrusted in it.
+        sys.__excepthook__(exc_type, exc, tb)
+        return
+    logging.getLogger(UNCAUGHT_LOGGER).critical("Uncaught exception", exc_info=(exc_type, exc, tb))
+
+
+def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
+    if args.exc_type is SystemExit:  # Python ignores it too
+        return
+    name = args.thread.name if args.thread is not None else "<unknown>"
+    exc = args.exc_value
+    logging.getLogger(UNCAUGHT_LOGGER).error(
+        "Uncaught exception in thread %s: %s",
+        name,
+        args.exc_type.__name__,
+        exc_info=(args.exc_type, exc, args.exc_traceback) if exc is not None else None,
+    )
+
+
+def _unraisablehook(unraisable) -> None:  # type: ignore[no-untyped-def]
+    try:
+        where = repr(unraisable.object) if unraisable.object is not None else ""
+    except Exception:
+        where = "<object repr() failed>"
+    exc = unraisable.exc_value
+    logging.getLogger(UNCAUGHT_LOGGER).error(
+        "%s: %s",
+        unraisable.err_msg or "Exception ignored in",
+        where,
+        exc_info=(unraisable.exc_type, exc, unraisable.exc_traceback) if exc is not None else None,
+    )
+
+
+def install_uncaught_handlers() -> None:
+    """Route warnings and uncaught exceptions through logging. Idempotent.
+
+    Python's default hooks print the exception message raw to standard error,
+    where a message with a line break would forge a journal line. A hook someone
+    else installed (a test runner, a debugger) is left in place.
+    """
+    logging.captureWarnings(True)
+    if sys.excepthook is sys.__excepthook__:
+        sys.excepthook = _excepthook
+    if threading.excepthook is threading.__excepthook__:
+        threading.excepthook = _thread_excepthook
+    if sys.unraisablehook is sys.__unraisablehook__:
+        sys.unraisablehook = _unraisablehook

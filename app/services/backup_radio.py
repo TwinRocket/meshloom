@@ -26,6 +26,7 @@ from app.models import (
     RadioNodeSettings,
     RadioSettings,
 )
+from app.services.channel_slots import utf8_prefix, write_channel_slot
 from app.services.companion_cli import CompanionCli, read_cli_node_prefs
 
 logger = logging.getLogger(__name__)
@@ -217,19 +218,7 @@ async def read_radio_node_settings(mc, cli: CompanionCli | None) -> RadioSnapsho
 # -- Write back ----------------------------------------------------------------
 
 _CUSTOM_VAR_NAME_RE = re.compile(r"^[a-z0-9_]{1,32}$")
-CHANNEL_NAME_MAX_BYTES = 31  # 32-byte field, NUL kept by the firmware
 FLOOD_SCOPE_NAME_MAX_BYTES = 31
-
-
-def utf8_prefix(text: str, max_bytes: int) -> bytes:
-    """At most ``max_bytes`` of UTF-8, cut on a character boundary."""
-    out = bytearray()
-    for char in text:
-        encoded = char.encode("utf-8")
-        if len(out) + len(encoded) > max_bytes:
-            break
-        out += encoded
-    return bytes(out)
 
 
 def _custom_var_valid(name: str, value: str) -> bool:
@@ -510,7 +499,12 @@ async def _channel_activity() -> dict[str, int]:
 
 async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
     """Write the adopted channels into slots 0..n-1 (Public, favourites,
-    pinned, then by last activity), raw frames keeping each secret."""
+    pinned, then by last activity), raw frames keeping each secret.
+
+    With ``keep_channels_on_radio`` on (MSHL-41) the highest slot stays the
+    empty scratch slot and the pushed slots survive the next connect. Off, the
+    next connect sync empties them again: the ``channels_offloaded_next_connect``
+    warning says so."""
     from app.channel_constants import PUBLIC_CHANNEL_KEY
     from app.repository import ChannelRepository
     from app.services.radio_runtime import radio_runtime
@@ -529,20 +523,19 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
     )
     warnings: list[str] = []
     written = 0
-    capacity = max(0, int(manager.max_channels))
+    from app import radio_workarounds
+
+    keep = radio_workarounds.current().keep_channels_on_radio
+    slot_count = max(0, int(manager.max_channels))
+    # Keep mode: the highest slot is the scratch slot for on-demand sends.
+    capacity = max(0, slot_count - 1) if keep else slot_count
     for slot, channel in enumerate(channels[:capacity]):
         try:
             secret = bytes.fromhex(channel.key)
         except ValueError:
             warnings.append("channel_key_invalid")
             continue
-        frame = (
-            b"\x20"
-            + bytes([slot])
-            + utf8_prefix(channel.name, CHANNEL_NAME_MAX_BYTES).ljust(32, b"\x00")
-            + secret
-        )
-        result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
+        result = await write_channel_slot(mc, slot, channel.name, secret)
         if _rejected(result):
             warnings.append("channel_rejected")
             continue
@@ -550,7 +543,7 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
         written += 1
     # Empty the slots above: on the same radio they may still hold a channel
     # the user removed since (name "" and a zero secret, as setup clears them).
-    for slot in range(min(len(channels), capacity), capacity):
+    for slot in range(min(len(channels), capacity), slot_count):
         frame = b"\x20" + bytes([slot]) + bytes(32) + bytes(16)
         result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
         if _rejected(result):
@@ -558,6 +551,8 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
         manager.forget_channel_slot(slot)
     if len(channels) > written and len(channels) > capacity:
         warnings.append("channels_over_radio_limit")
+    if written and not keep:
+        warnings.append("channels_offloaded_next_connect")
     return written, list(dict.fromkeys(warnings))
 
 

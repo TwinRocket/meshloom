@@ -1,0 +1,54 @@
+def bot(**kwargs) -> str | list[str] | None:
+    """
+    Process messages and optionally return a reply.
+
+    Args:
+        kwargs keys currently provided:
+            sender_name: Display name of sender (may be None)
+            sender_key: 64-char hex public key (None for channel msgs)
+            message_text: The message content
+            is_dm: True for direct messages, False for channel
+            channel_key: 32-char hex key for channels, None for DMs
+            channel_name: Channel name with hash (e.g. "#bot"), None for DMs
+            sender_timestamp: Sender's timestamp (unix seconds, may be None)
+            path: Hex-encoded routing path (may be None)
+            is_outgoing: True if this is our own outgoing message
+            path_bytes_per_hop: Bytes per hop in path (1, 2, or 3) when known
+            scoped: True if the message carried a regional flood scope,
+                False for plain/unscoped flood. Check this first. Set for
+                scoped DMs too.
+            region: Only meaningful when scoped is True (else always None).
+                When scoped, it's the decoded region name, or None if the
+                scope matched none of your known_regions. region alone can't
+                distinguish unscoped from unrecognized — use scoped.
+
+    Returns:
+        None for no reply, a string for a single reply,
+        a list of strings to send multiple messages in order, or a dict
+        {"region": <name or None>, "message": <str or list[str]>} to scope a
+        channel reply to a region for that send only (None/"" = unscoped flood;
+        region is ignored for DM replies).
+    """
+    sender_name = kwargs.get("sender_name")
+    message_text = kwargs.get("message_text", "")
+    channel_name = kwargs.get("channel_name")
+    is_outgoing = kwargs.get("is_outgoing", False)
+    path_bytes_per_hop = kwargs.get("path_bytes_per_hop")
+
+    # Don't reply to our own outgoing messages
+    if is_outgoing:
+        return None
+    
+    # If you want to make use of persistant data between calls to this function, 
+    # you can put that data into the global _bot_globals dictionary, e.g.:
+    #
+    # bot_globals = globals()["_bot_globals"] 
+    # if not "known_sender_names" in bot_globals:
+    #     bot_globals["known_sender_names"] = set()
+    #
+    # bot_globals["known_sender_names"].add(sender_name)
+
+    # Example: Only respond in #bot channel to "!pling" command
+    if channel_name == "#bot" and "!pling" in message_text.lower():
+        return "[BOT] Plong!"
+    return None

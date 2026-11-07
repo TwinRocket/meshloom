@@ -1,0 +1,11 @@
+{
+  "description": "Leave the work dir: a later relative path would then name the server's files.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

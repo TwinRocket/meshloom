@@ -1,0 +1,18 @@
+{
+  "settings": {
+    "access": {
+      "audit": {
+        "actions": {
+          "pairing.created": "Pairing code created",
+          "pairing.revoked": "Pairing code revoked"
+        }
+      }
+    }
+  },
+  "errors": {
+    "auth_pairing_expired": "This pairing code is used, expired or unknown: show a new one.",
+    "auth_pairing_limit": "This account already has the maximum number of pending pairing codes: revoke one or wait for it to expire.",
+    "auth_pairing_not_found": "Pairing code not found: it may already be used, revoked or expired.",
+    "auth_pairing_ingress": "Devices cannot pair through Home Assistant: use Meshloom's own address."
+  }
+}

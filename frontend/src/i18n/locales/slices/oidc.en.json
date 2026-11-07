@@ -1,0 +1,106 @@
+{
+  "settingsNav": {
+    "connection": "Connection"
+  },
+  "settings": {
+    "connection": {
+      "tabs": {
+        "local": "Local sign-in",
+        "lan": "Local network",
+        "bans": "Bans",
+        "oidc": "OpenID Connect"
+      }
+    },
+    "access": {
+      "oidc": {
+        "title": "OpenID Connect",
+        "help": "Sign in with a Google, Discord, Keycloak… account. Each identity signs in an existing Meshloom account. Register Meshloom at the provider first.",
+        "enabled": "Offer sign-in with this provider",
+        "preset": "Provider",
+        "presets": {
+          "generic": "Other (any OpenID Connect provider)",
+          "google": "Google",
+          "discord": "Discord",
+          "keycloak": "Keycloak"
+        },
+        "presetHelp": {
+          "generic": "Give the issuer of your provider: its address without /.well-known/openid-configuration.",
+          "google": "Create an OAuth client of type \"Web application\" in the Google Cloud console and add the redirect address below.",
+          "discord": "Create an application in the Discord developer portal and add the redirect address below. Link accounts by subject.",
+          "keycloak": "The issuer is your realm's address (https://keycloak.example/realms/home). Create a confidential client with the redirect address below."
+        },
+        "label": "Button label",
+        "issuer": "Issuer",
+        "client_id": "Client id",
+        "clientSecret": "Client secret",
+        "secretKept": "Stored: leave empty to keep it",
+        "clearSecret": "Remove the secret",
+        "secretCleared": "Client secret removed.",
+        "scopes": "Scopes",
+        "authMethod": "How the secret is sent",
+        "authMethods": {
+          "client_secret_basic": "HTTP Basic (client_secret_basic)",
+          "client_secret_post": "In the form (client_secret_post)"
+        },
+        "privateNetwork": "The provider is on my local network",
+        "privateNetworkHelp": "For a provider on your local network, such as Keycloak.",
+        "autoCreate": "Create an account for an unknown identity",
+        "autoCreateHelp": "On, anyone the provider signs in gets a Viewer account. Only for a provider whose users you trust.",
+        "redirectUris": "Redirect addresses to register at the provider",
+        "redirectUrisHelp": "Register each address people sign in from at the provider.",
+        "save": "Save",
+        "saved": "OpenID Connect settings saved.",
+        "test": "Test the saved provider",
+        "testOk": "The provider answered: issuer {{issuer}}, {{keys}} signing key(s).",
+        "links": {
+          "title": "Linked identities",
+          "help": "Each line links one provider identity to an existing account, by verified e-mail or by subject.",
+          "empty": "No identity is linked yet.",
+          "account": "Account",
+          "kind": "Match on",
+          "byEmail": "Verified e-mail",
+          "bySubject": "Subject (sub)",
+          "email": "E-mail address",
+          "subject": "Subject",
+          "add": "Link",
+          "added": "Identity linked.",
+          "remove": "Remove",
+          "lastLogin": "last sign-in {{when}}",
+          "neverUsed": "never used",
+          "waitingFirst": "waiting for the first sign-in",
+          "otherIssuer": "(another provider: no longer matches)"
+        },
+        "announcedIssuer": "Announced issuer: {{issuer}}"
+      }
+    }
+  },
+  "auth": {
+    "oidc": {
+      "signIn": "Sign in with {{name}}",
+      "defaultLabel": "OpenID Connect"
+    }
+  },
+  "errors": {
+    "auth_oidc_disabled": "Sign-in with OpenID Connect is off.",
+    "auth_oidc_incomplete": "Set the issuer and the client id first.",
+    "auth_oidc_issuer_invalid": "The issuer must be an https address (http only for a provider on your local network).",
+    "auth_oidc_issuer_mismatch": "The provider announces another issuer: type the issuer exactly as it announces it.",
+    "auth_oidc_metadata_invalid": "The provider's configuration cannot be used.",
+    "auth_oidc_unavailable": "The provider could not be reached.",
+    "auth_oidc_http_public": "Plain http is accepted only for a provider on your local network.",
+    "auth_oidc_scopes_invalid": "Invalid scopes: words separated by spaces.",
+    "auth_oidc_secret_store_unavailable": "The secrets key of this instance is not available: the client secret cannot be stored.",
+    "auth_oidc_secret_unreadable": "The client secret cannot be read on this instance: an administrator types it again.",
+    "auth_oidc_state_invalid": "This sign-in expired or was started in another browser: try again.",
+    "auth_oidc_denied": "The provider did not sign you in.",
+    "auth_oidc_exchange_failed": "The provider refused the sign-in: check the client id and secret.",
+    "auth_oidc_token_invalid": "The provider's answer did not check: sign-in refused.",
+    "auth_oidc_no_account": "No Meshloom account is linked to this identity. Ask an administrator.",
+    "auth_oidc_failed": "Sign-in with the provider failed.",
+    "auth_oidc_link_invalid": "Give either a subject or an e-mail address.",
+    "auth_oidc_link_user_invalid": "Only an enabled local account (not a kiosk) can be linked.",
+    "auth_oidc_link_exists": "This identity is already linked.",
+    "auth_oidc_link_limit": "Too many linked identities (at most {{max}}).",
+    "auth_oidc_link_not_found": "This link no longer exists."
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "settings": {
+    "share": {
+      "cache": {
+        "title": "Local copies",
+        "help": "Shared images already fetched. Clearing them frees space; they are fetched again when needed.",
+        "clear": "Clear the cache",
+        "cleared": "Cache cleared: {{size}} freed."
+      },
+      "uploads": {
+        "title": "My uploads",
+        "intro": "Links and files shared from this Meshloom. Deleting one removes it from the share service and from this Meshloom's cache.",
+        "off": "Sharing is off. Links and files already shared stay online until they expire.",
+        "refresh": "Refresh",
+        "loading": "Loading…",
+        "empty": "Nothing shared from this Meshloom yet.",
+        "error": "The list could not be loaded: {{error}}",
+        "more": "Show more",
+        "columns": {
+          "kind": "Kind",
+          "what": "Type or site",
+          "size": "Size",
+          "expires": "Expires",
+          "status": "Status",
+          "actions": "Actions"
+        },
+        "kind": {
+          "link": "Link",
+          "file": "File",
+          "encrypted": "Encrypted file"
+        },
+        "status": {
+          "active": "Online",
+          "blocked": "Blocked: {{category}}"
+        },
+        "blockedHelp": "Blocked by the share service, so it cannot be deleted. <contact>Contact the service</contact> if you disagree.",
+        "never": "never",
+        "unknown": "—",
+        "delete": "Delete",
+        "deleteLabel": "Delete {{id}}",
+        "confirm": {
+          "title": "Delete this upload?",
+          "body": "The link will no longer open for anyone. This cannot be undone.",
+          "cancel": "Cancel",
+          "confirm": "Delete"
+        },
+        "deleted": "Deleted."
+      }
+    }
+  }
+}

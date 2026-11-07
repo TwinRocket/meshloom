@@ -11,7 +11,9 @@ name: Docs site
 # release.yml calls this workflow once its `publish` job has made the release
 # public. That call is what fires in practice: a release published with the
 # GITHUB_TOKEN does not trigger on.release. The on.release trigger covers a
-# release published by hand. workflow_dispatch rebuilds the site on demand.
+# release published by hand, a pre-release excepted: the site stays on the latest
+# X.Y.Z tag, and release.yml does not call this for an rc either.
+# workflow_dispatch rebuilds the site on demand.
 #
 # A Cloudflare deploy hook is a URL that starts a build when it receives a POST.
 # One secret, no cross-repository token, and nothing to keep in step.
@@ -30,6 +32,7 @@ permissions: {}
 jobs:
   deploy:
     name: Ask meshloom.app to rebuild
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     # Only a POST to the hook: no checkout, no token.
     permissions: {}

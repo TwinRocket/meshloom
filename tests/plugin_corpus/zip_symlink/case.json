@@ -1,0 +1,13 @@
+{
+  "description": "A symbolic link entry pointing at the server's database: refused, so extraction never follows it.",
+  "stage": "install",
+  "archive": [
+    {
+      "name": "data.db",
+      "symlink": "../../data/meshcore.db"
+    }
+  ],
+  "expect": {
+    "install_error": "package_symlink"
+  }
+}

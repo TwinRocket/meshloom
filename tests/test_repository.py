@@ -733,6 +733,7 @@ class TestAppSettingsRepository:
         - ``auto_resend_channel`` (migration 54)
         - ``telemetry_interval_hours`` (migration 57)
         - ``stale_contact_days`` (migration 64)
+        - ``auth_allowed_origins`` (migration 96)
         """
         from unittest.mock import MagicMock
 
@@ -783,6 +784,7 @@ class TestAppSettingsRepository:
         assert settings.auto_resend_channel is False
         assert settings.telemetry_interval_hours == DEFAULT_TELEMETRY_INTERVAL_HOURS
         assert settings.stale_contact_days == 0
+        assert settings.auth_allowed_origins == []
 
 
 class TestMessageRepositoryGetById:

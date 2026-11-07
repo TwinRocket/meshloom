@@ -1,0 +1,342 @@
+{
+  "app_started": {
+    "body": "{\"connect_s\":12,\"event\":\"app_started\",\"radio_connected\":true,\"version\":\"5.0.0\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "app_started",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=e232af34803d6e5eaf82bfeeb2713edb7151f8b6174791e2443017021f4a2eec",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "app_started_connected_no_time": {
+    "body": "{\"event\":\"app_started\",\"radio_connected\":true,\"version\":\"5.0.0\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "app_started",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=43ab0812cc342e2d3e5dc5362e64bbad5a41ebf9733b0ee931b5e50b30a5431c",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "app_started_waiting": {
+    "body": "{\"event\":\"app_started\",\"radio_connected\":false}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "app_started",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=bd8a7562a61dbfec2fa880688d9cdbd21e9f1795fe46aa8b27a54c780808f744",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "channel_found": {
+    "body": "{\"channel_key\":\"8B3387E9C5CDEA6AC9E5EDBAA115CD72\",\"event\":\"channel_found\",\"name\":\"#meshloom\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "channel_found",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=3504e21b7ed6dd7559cc6f4c5fa98a2554375b26069f288f026f99af9a33746c",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "channel_found_unnamed": {
+    "body": "{\"channel_key\":\"8B3387E9C5CDEA6AC9E5EDBAA115CD72\",\"event\":\"channel_found\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "channel_found",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=3db00f6fad7128cdefa4cae7abc796465a50f137441da75932ef8e14afed9721",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "destination_changed": {
+    "body": "{\"event\":\"notify.destination_changed\",\"kinds\":[\"email\",\"webhook\",\"apprise\"]}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "notify.destination_changed",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=47998772c173026213b5987a94a74f286a058c0899091f9ecaecc99bd59a65cb",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "first_seen_companion": {
+    "body": "{\"contact_type\":1,\"event\":\"first_seen\",\"name\":\"Alice\",\"public_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "first_seen",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=8fc65a8422dff1c71ab81e6f3dd6825953a157443aed7d68a053df1b32ee88a5",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "first_seen_empty": {
+    "body": "{\"event\":\"first_seen\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "first_seen",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=5e854ea782c2414db68201479e2bf03dcbf6f5d8a005300af161ed4886807270",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "first_seen_grouped": {
+    "body": "{\"count\":4,\"event\":\"first_seen_grouped\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "first_seen_grouped",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=9907a66503e4b45452117b1ad752d276e8a85d1db32479f1b5bb52c20785ab10",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "first_seen_repeater": {
+    "body": "{\"contact_type\":2,\"event\":\"first_seen\",\"name\":\"Rpt <b>&\",\"public_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "first_seen",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=7078ab06e38b1691b04c4661d2635ed6fd2adb58b8f1cb7609e499f75a087a61",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "first_seen_sensor_unnamed": {
+    "body": "{\"contact_type\":4,\"event\":\"first_seen\",\"public_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "first_seen",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=be885616b23b7beae1daccac5ba2669802d14b1c005195ca1d283e32e8d55f5d",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "message_channel_hashtag": {
+    "body": "{\"channel_name\":\"#test\",\"conversation_key\":\"A1B2C3D4E5F60718293A4B5C6D7E8F90\",\"event\":\"message\",\"text\":\"plain\",\"type\":\"CHAN\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "message",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=e23d86f9940ce522d4999af4cc17d0932e3b881158c1568e310714ebd25454bb",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "message_channel_private": {
+    "body": "{\"channel_name\":\"Secret\",\"conversation_key\":\"00112233445566778899AABBCCDDEEFF\",\"event\":\"message\",\"sender_name\":\"Eve\",\"text\":\"<!here> hidden_text\",\"type\":\"CHAN\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "message",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=f2ee401088ca2b0d4d255347b297a82ca36aac0e4f59c5fe8fbb2c72e59282a9",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "message_channel_public": {
+    "body": "{\"channel_name\":\"Public\",\"conversation_key\":\"8B3387E9C5CDEA6AC9E5EDBAA115CD72\",\"event\":\"message\",\"sender_name\":\"Bob\",\"text\":\"Hello @channel\",\"type\":\"CHAN\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "message",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=dd3e8ed6421685a72c0bbc780831f1e6adb3568495a014f05250a03ce6ebd098",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "message_channel_unnamed": {
+    "body": "{\"conversation_key\":\"00112233445566778899AABBCCDDEEFF\",\"text\":\"x\",\"type\":\"CHAN\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "notification",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=bce8f3a4e4ed136fe3a563336b323b071c447a41318493f624eb33dabd1cc680",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "message_dm": {
+    "body": "{\"conversation_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\",\"event\":\"message\",\"sender_name\":\"L\\u00e9a\",\"text\":\"Salut @everyone <@123> *gras* [lien](http://x)\",\"type\":\"PRIV\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "message",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=359ca841aedd344747901b9acbe72f390079423e8a077c751f2407f0cade9d86",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "message_dm_anonymous": {
+    "body": "{\"conversation_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\",\"text\":\"hello\",\"type\":\"PRIV\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "notification",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=5e4a9dcd9c8193892c109c7d10b454ffdbbda1690cb8ea6e2180f719b709aba6",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "notifications_grouped": {
+    "body": "{\"count\":7,\"event\":\"notifications_grouped\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "notifications_grouped",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=5a43f7bd40ffc309764a62cfcbe901daeae140a50e2a917cc4f5dc190e5c4b5c",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "oss_update": {
+    "body": "{\"current\":\"5.0.0\",\"event\":\"oss_update\",\"latest\":\"5.1.0\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "oss_update",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=08ee018a0485834e6714255465833065c0c46dacdeb4005b731608fce3c5c216",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "radio_offline": {
+    "body": "{\"connection\":\"Serial: /dev/ttyUSB0\",\"event\":\"radio_offline\",\"offline_s\":3725,\"urgent\":true}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "radio_offline",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=d466b4c26ab5c148a2fd166ba1ff7b2152b58739497e10db44b01b0b71739f2d",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "radio_online": {
+    "body": "{\"connection\":\"TCP: host:5000\",\"downtime_s\":125,\"event\":\"radio_online\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "radio_online",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=8d88bd9cc2864807755045c22742a945421251d62219eadd4254a4848951dfa4",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_battery": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"battery\",\"name\":\"Node1\",\"op\":\"lt\",\"public_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\",\"rule_id\":\"battery\",\"threshold\":3.5,\"unit\":\"V\",\"value\":3.46}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=2f376d53600f01210b1ae2e67857fda42492ec3a8fb875f099223b3af3175e32",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_gps_lost": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"gps_lost\",\"public_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\",\"rule_id\":\"gps_lost\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=283b42f0c0a1b578e2376e03ccec61b07fe15fc05799eeb3aec8b38ff94c7a8a",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_lpp_temperature": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"temperature\",\"name\":\"N\",\"op\":\"gt\",\"rule_id\":\"lpp:temperature:1\",\"threshold\":40,\"unit\":\"\\u00b0C\",\"value\":41.256}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=2e63a188675e042dee7f68ee510d006b7cffe20931a8e5e62cafd5b2b55d0eb5",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_noise": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"noise\",\"op\":\"gt\",\"public_key\":\"ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab\",\"rule_id\":\"noise\",\"threshold\":-100,\"unit\":\"dBm\",\"value\":-90}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=e59671b40256cf6dfad639f881728c8b97323c4a4b3889976bb26bf5ea35b0d7",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_plain_humidity": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"humidity\",\"name\":\"N\",\"op\":\"lt\",\"rule_id\":\"humidity\",\"threshold\":20,\"unit\":\"%\",\"value\":10}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=c3c053ba3532de4d9177f7e23b33b5c7cf8136c598fcd8f90a7a79775a0410a8",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_rssi": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"rssi\",\"name\":\"N\",\"op\":\"lt\",\"rule_id\":\"rssi\",\"threshold\":-110,\"unit\":\"dBm\",\"value\":-120}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=733c0a106d93a65582d7f69f574c608344c9c1f1d912d1a0b349fa1fdcd6ce29",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_silence": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"silence\",\"name\":\"N\",\"op\":\"gt\",\"rule_id\":\"silence\",\"threshold\":3,\"value\":3}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=fad2a301db20f7b7557236a998bf6f9b790ec516c18dae6363fedabc65a9fcdb",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_snr": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"snr\",\"name\":\"N\",\"op\":\"lt\",\"rule_id\":\"snr\",\"threshold\":-2,\"unit\":\"dB\",\"value\":-5}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=5b78b17462461a074fd633b9ca08335324bc545ecd5ba0ab175bccae16b3df15",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_test": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"test\",\"name\":\"Test node\",\"op\":\"lt\",\"rule_id\":\"test\",\"threshold\":3.5,\"unit\":\"V\",\"value\":3.46}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=7da64e18b7294ed34f483528b26564bf1672cab4f012450bd95e582ecaa5c256",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_tx_queue": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"tx_queue\",\"name\":\"N\",\"op\":\"gt\",\"rule_id\":\"tx_queue\",\"threshold\":8,\"value\":12}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=51a41696f303d1de8f774dfe3672622952ebc29c2400f3a4ac338786fa646f0d",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_unknown_no_threshold": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"custom\",\"name\":\"N\",\"rule_id\":\"custom\",\"value\":\"x\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=c674d6664c9409ee156e581105e9deb5aba45f9f3a6ac5e152a4d7278a68c799",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "telemetry_unknown_rule": {
+    "body": "{\"event\":\"telemetry_alert\",\"metric\":\"custom\",\"name\":\"N\",\"op\":\"gt\",\"rule_id\":\"custom\",\"threshold\":2,\"value\":1}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "telemetry_alert",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=bf0b2f6990aff71a95f5bf3577f31235ecab34bf4e7f058339ae4188fd5967c5",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  },
+  "unknown_event": {
+    "body": "{\"event\":\"something_else\",\"name\":\"x\"}",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-Webhook-Event": "something_else",
+      "X-Webhook-Id": "golden-id",
+      "X-Webhook-Signature": "sha256=2302d34770a567526c0ad02c756bcefff4b5a41a011efaa41422a74fe0c864b4",
+      "X-Webhook-Timestamp": "1700000000"
+    }
+  }
+}

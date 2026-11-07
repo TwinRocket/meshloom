@@ -257,9 +257,11 @@ def test_release_jobs_fail_closed_and_use_least_privilege() -> None:
         "meshloom.gpg",
         "meshloom.asc",
         "repomd.xml.asc",
-        "check_rpm_signed.py",
+        "fetch_linux_repo_packages.sh",
     ):
         assert needle in repo
+    packages = (BUILD / "check_linux_repo_packages.sh").read_text()
+    assert "check_rpm_signed.py" in packages and "check_deb_signed.py" in packages
     action = (ROOT / ".github" / "actions" / "import-signing-key" / "action.yml").read_text()
     assert "exit 1" in action and "MESHLOOM_REPO_GPG_PRIVATE_KEY" in action
 

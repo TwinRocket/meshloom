@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "notifications": {
+      "heartbeat": {
+        "title": "Battement de cœur",
+        "off": "Désactivé",
+        "everyMinutes_one": "Chaque minute",
+        "everyMinutes_other": "Toutes les {{count}} minutes",
+        "everyHours_one": "Toutes les heures",
+        "everyHours_other": "Toutes les {{count}} heures",
+        "help": "Envoie régulièrement un message « Meshloom est en vie » sur ce canal : une coupure se voit comme un silence.",
+        "url": "URL de ping (facultative)",
+        "urlKept": "Enregistrée : laissez vide pour la garder",
+        "urlHelp": "Avec une URL (healthchecks.io, Uptime Kuma…), Meshloom l’appelle au lieu d’envoyer un message, et le service vous alerte quand les appels cessent.",
+        "method": "Méthode",
+        "urlClear": "Supprimer l’URL de ping enregistrée"
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "notification_heartbeat_dropped": "Le battement de cœur d’un canal de notification ({{value}}) était hors limites ou non pris en charge par son type, et a été restauré désactivé."
+      }
+    }
+  },
+  "errors": {
+    "heartbeat_unsupported": "Ce type de canal n’a pas de battement de cœur."
+  }
+}

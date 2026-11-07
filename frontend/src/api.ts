@@ -1,9 +1,95 @@
 import type { TFunction } from 'i18next';
 
+import {
+  reportAuthRequired,
+  reportEnrolmentRequired,
+  reportForbidden,
+  reportPasswordChangeRequired,
+} from './auth/authEvents';
+import type {
+  BundledPlugin,
+  LocalPluginCreate,
+  PluginCheckResult,
+  PluginDiagnostic,
+  PluginInstallRequest,
+  PluginLogs,
+  PluginPatch,
+  PluginPauseState,
+  PluginSourceResult,
+  PluginTestRequest,
+  PluginTestResult,
+  PluginUpdate,
+  PluginUpdateRequest,
+  StoreReadme,
+  StoreRefreshResult,
+  StoreRepositories,
+  StoreRepository,
+  StoreStatus,
+} from './components/settings/extensions/pluginsTypes';
+import type {
+  MyPushRules,
+  MyPushRulesPatch,
+  NotificationChannel,
+  NotificationChannelCreate,
+  NotificationChannelCreated,
+  FanoutConversion,
+  NotificationChannelPatch,
+  NotificationTemplatePreview,
+  NotificationTemplatePreviewRequest,
+  NotificationDeliveries,
+  NotificationEventInfo,
+  NotificationRules,
+  NotificationRulesPatch,
+  NotificationTypeInfo,
+} from './notifications/types';
+import type {
+  AuthAuditPage,
+  AuthLoginRequest,
+  AuthMe,
+  AuthSessionRow,
+  AuthPairingCreate,
+  AuthPairingCreated,
+  AuthPairingRow,
+  AuthTokenCreate,
+  AuthTokenCreated,
+  AuthTokenRow,
+  AuthUserCreate,
+  AuthUserPatch,
+  AuthUserRow,
+  AuthSessionInfo,
+  AuthSettings,
+  EmailCodeSent,
+  EmailFactorStatus,
+  EmailSignInSettings,
+  IpBansView,
+  IpBanWhitelistEntry,
+  OidcLink,
+  OidcLinkCreate,
+  OidcLinksView,
+  OidcSettings,
+  OidcSettingsPatch,
+  OidcTestResult,
+  AuthSetupRequest,
+  PasskeyRow,
+  RecoveryCodes,
+  TotpEnrolment,
+  TotpStatus,
+} from './auth/types';
+import { appBase } from './auth/oidc';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
+import type {
+  RemoteAccessRequest,
+  RemoteAlertEmail,
+  RemoteDevice,
+  RemoteDomainTest,
+  RemoteEnrollTicket,
+  RemoteGateResult,
+  RemoteStatus,
+} from './components/settings/remote/remoteTypes';
 
 import type {
   AppSettings,
+  AppSettingsView,
   AppSettingsUpdate,
   BackupExport,
   BackupInspectResult,
@@ -67,7 +153,6 @@ import type {
   PathDiscoveryResponse,
   NotificationDestinationChannel,
   PushDefaultsPatch,
-  ConversationMediaOverride,
   PushPreferences,
   PushSubscriptionInfo,
   TelemetryAlertCatalog,
@@ -102,6 +187,14 @@ import type {
   OssUpdateStatus,
   TraceResponse,
   UnreadCounts,
+  ShareLink,
+  ShareCacheClear,
+  ShareMeta,
+  ShareMine,
+  ShareReportRequest,
+  PluginInstance,
+  ShareFile,
+  ShareStatus,
 } from './types';
 
 const API_BASE = './api';
@@ -112,7 +205,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly detail: unknown = undefined
+    public readonly detail: unknown = undefined,
+    /** Seconds the server asked us to wait (429), from `Retry-After` or `params.retry_after`. */
+    public readonly retryAfter: number | null = null
   ) {
     super(message);
     this.name = 'ApiError';
@@ -142,7 +237,15 @@ export function formatApiError(err: unknown, t: TFunction): string {
     const parsed = getApiErrorCode(err.detail);
     if (parsed) {
       const key = `errors.${parsed.code}`;
-      const translated = t(key, parsed.params);
+      const retryAfter = err.retryAfter ?? undefined;
+      // i18next would render an array param without a separator.
+      const params = Object.fromEntries(
+        Object.entries(parsed.params ?? {}).map(([k, v]) => [
+          k,
+          Array.isArray(v) && v.every((x) => typeof x === 'string') ? v.join(', ') : v,
+        ])
+      );
+      const translated = t(key, { retry_after: retryAfter, ...params });
       if (translated !== key) {
         return translated;
       }
@@ -155,11 +258,87 @@ export function formatApiError(err: unknown, t: TFunction): string {
   return String(err);
 }
 
+/** Session-layer side effects of a failed API call: a lost session, a forced change, a refusal. */
+/** `base=<the app's address>`: the OpenID Connect redirect URI keeps its subpath. */
+/** The mail language the server takes (`fr` or `en`) from an i18n language tag. */
+function mailLanguage(lang: string): 'fr' | 'en' {
+  return lang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+}
+
+function oidcBaseQuery(): string {
+  return new URLSearchParams({ base: appBase() }).toString();
+}
+
+function reportApiFailure(error: ApiError, url: string, method: string): void {
+  // The account is gone (expired session, or no account yet): the gate takes over.
+  // Login and setup answer their own 401, which is a form error and not a lost session.
+  if (error.status === 401 && !AUTH_FORM_PATHS.has(url)) {
+    reportAuthRequired(getApiErrorCode(error.detail)?.code ?? null);
+  }
+  // The role may not do this: the session layer decides whether to tell the reader.
+  const refusal = error.status === 403 ? getApiErrorCode(error.detail) : null;
+  if (refusal?.code === 'auth_password_change_required') reportPasswordChangeRequired();
+  if (refusal?.code === 'auth_2fa_enrolment_required') reportEnrolmentRequired();
+  if (refusal?.code === 'auth_forbidden') {
+    const permission = refusal.params.permission;
+    reportForbidden({
+      method,
+      permission: typeof permission === 'string' ? permission : null,
+    });
+  }
+}
+
+/** Retries of a request the relay refused with `relay_busy`, up to about 10 s in all. */
+const RELAY_BUSY_RETRIES = 4;
+/** The longest wait between two tries, whatever `Retry-After` asks. */
+const RELAY_BUSY_MAX_WAIT_MS = 5000;
+
+/** The relay's own refusal (JSON `{"detail","code"}`): the request never reached the instance. */
+async function isRelayBusy(res: Response): Promise<boolean> {
+  if (res.status !== 503) return false;
+  try {
+    const body = (await res.clone().json()) as { code?: unknown } | null;
+    return body?.code === 'relay_busy';
+  } catch {
+    return false;
+  }
+}
+
+function waitOrAbort(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', aborted);
+      resolve();
+    }, ms);
+    if (signal?.aborted) aborted();
+    else signal?.addEventListener('abort', aborted, { once: true });
+  });
+}
+
+/**
+ * `fetch`, waiting out the relay's `relay_busy`. Safe for every method: the request was refused
+ * before reaching the instance. The instance's own 503 answers are not retried.
+ */
+async function fetchPastRelayBusy(input: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(input, init);
+    if (attempt >= RELAY_BUSY_RETRIES || !(await isRelayBusy(res))) return res;
+    const seconds = Math.max(Number(res.headers.get('Retry-After')) || 1, 1);
+    // A growing wait with some jitter, so a page's refused requests do not all come back at once.
+    const wait = Math.min(seconds * 1000 * (attempt + 1), RELAY_BUSY_MAX_WAIT_MS);
+    await waitOrAbort(wait + Math.random() * 500, init.signal);
+  }
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${url}`, {
+    res = await fetchPastRelayBusy(`${API_BASE}${url}`, {
       ...options,
       headers: {
         ...(hasBody && { 'Content-Type': 'application/json' }),
@@ -181,9 +360,50 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw new ApiError('Authentication required', res.status);
   }
   if (!res.ok) {
-    throw await apiErrorFrom(res);
+    const error = await apiErrorFrom(res);
+    reportApiFailure(error, url, options?.method ?? 'GET');
+    if (AUTH_FORM_PATHS.has(url) && getApiErrorCode(error.detail)?.code === RELAY_LOGIN_CHALLENGE) {
+      openRelayLoginChallenge();
+    }
+    throw error;
   }
+  // 204 No Content (revoking a token) has no body to parse.
+  if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+const AUTH_FORM_PATHS = new Set([
+  '/auth/login',
+  '/auth/login/2fa',
+  '/auth/setup',
+  // The passkey sign-in answers its own 401 (a wrong assertion, an expired pending login).
+  '/auth/webauthn/login/options',
+  '/auth/webauthn/login/verify',
+  // The e-mail code and sign-in links answer their own 401 (MSHL-426).
+  '/auth/login/2fa/email',
+  '/auth/magic-link',
+  '/auth/magic-link/verify',
+]);
+
+/**
+ * Meshloom Remote's login challenge (meshloom-community `remote-relay.md` § Login challenge): after
+ * repeated failed sign-ins through the relay, it answers the login itself with 403
+ * `relay_login_challenge` (relay JSON `{"detail","code"}`) and serves a Turnstile page on
+ * `/_meshloom/challenge` of the same host, which comes back to `/` once solved.
+ */
+export const RELAY_LOGIN_CHALLENGE = 'relay_login_challenge';
+export const RELAY_LOGIN_CHALLENGE_PATH = '/_meshloom/challenge';
+
+export function openRelayLoginChallenge(): void {
+  window.location.assign(RELAY_LOGIN_CHALLENGE_PATH);
+}
+
+/** Seconds from a `Retry-After` header (delta-seconds form), or null. */
+function retryAfterSeconds(header: string | null, detail: unknown): number | null {
+  const fromParams = Number(getApiErrorCode(detail)?.params.retry_after);
+  if (Number.isFinite(fromParams) && fromParams > 0) return Math.ceil(fromParams);
+  const fromHeader = header === null ? NaN : Number(header);
+  return Number.isFinite(fromHeader) && fromHeader > 0 ? Math.ceil(fromHeader) : null;
 }
 
 /** The ApiError for a failed response (FastAPI's {"detail": ...} unwrapped). */
@@ -194,6 +414,13 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   let detail: unknown = errorText;
   try {
     const errorJson = JSON.parse(errorText);
+    if (errorJson.code === RELAY_LOGIN_CHALLENGE && typeof errorJson.detail === 'string') {
+      // The relay's own error shape: keep its code, so the form shows the translated message.
+      return new ApiError(errorJson.detail, res.status, {
+        code: RELAY_LOGIN_CHALLENGE,
+        message: errorJson.detail,
+      });
+    }
     if (errorJson.detail !== undefined) {
       detail = errorJson.detail;
       errorMessage =
@@ -204,7 +431,9 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   } catch {
     // Not JSON, use raw text
   }
-  return new ApiError(errorMessage, res.status, detail);
+  const retryAfter =
+    res.status === 429 ? retryAfterSeconds(res.headers?.get('Retry-After') ?? null, detail) : null;
+  return new ApiError(errorMessage, res.status, detail, retryAfter);
 }
 
 /** The file name a Content-Disposition header proposes (RFC 5987 first). */
@@ -238,7 +467,327 @@ interface DecryptResult {
   message: string;
 }
 
+/**
+ * The conversation an encrypted share file is sealed for: a channel by its
+ * `share_conversation_id` (never its key), a contact by its public key. The
+ * backend resolves the secret; no key material leaves the browser.
+ */
+export interface ShareConversation {
+  type: 'channel' | 'contact';
+  id: string;
+}
+
+/**
+ * `POST /api/share/files`: the raw bytes of an image with their `Content-Type`.
+ * XMLHttpRequest rather than fetch for the upload progress. Public mode unless
+ * `encrypted` names the conversation (`X-Share-Conversation-Type` / `-Id`);
+ * `name` (encrypted mode only, `X-Share-Name`, percent-encoded) is sealed in the
+ * envelope so the receiver sees it once decrypted. Failures are the same `ApiError`
+ * as every other call (coded `detail`, `Retry-After`); an aborted request rejects
+ * with an `AbortError` (`isAbortError`).
+ */
+export function uploadShareFile(
+  blob: Blob,
+  options: {
+    signal?: AbortSignal;
+    onProgress?: (loaded: number, total: number) => void;
+    encrypted?: ShareConversation;
+    name?: string;
+  } = {}
+): Promise<ShareFile> {
+  const { signal, onProgress, encrypted, name } = options;
+  const path = '/share/files';
+  return new Promise<ShareFile>((resolve, reject) => {
+    const abortError = () => new DOMException('The upload was cancelled', 'AbortError');
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    const onAbort = () => xhr.abort();
+    const done = () => signal?.removeEventListener('abort', onAbort);
+    signal?.addEventListener('abort', onAbort);
+    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.setRequestHeader('Content-Type', blob.type);
+    if (encrypted) {
+      xhr.setRequestHeader('X-Share-Mode', 'encrypted');
+      xhr.setRequestHeader('X-Share-Conversation-Type', encrypted.type);
+      xhr.setRequestHeader('X-Share-Conversation-Id', encrypted.id);
+      if (name) xhr.setRequestHeader('X-Share-Name', encodeURIComponent(name));
+    } else {
+      xhr.setRequestHeader('X-Share-Mode', 'public');
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+    };
+    xhr.onabort = () => {
+      done();
+      reject(abortError());
+    };
+    xhr.onerror = () => {
+      done();
+      reject(new Error('Network error'));
+    };
+    xhr.onload = () => {
+      done();
+      // A response from another origin is the proxy's login page, whatever its status.
+      if (
+        xhr.responseURL &&
+        new URL(xhr.responseURL, window.location.href).origin !== window.location.origin
+      ) {
+        reportEdgeSessionExpired();
+        reject(new ApiError('Authentication required', xhr.status));
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as ShareFile);
+        } catch {
+          reject(new ApiError('Unexpected answer', xhr.status));
+        }
+        return;
+      }
+      const headers = new Headers();
+      const retryAfter = xhr.getResponseHeader('Retry-After');
+      if (retryAfter) headers.set('Retry-After', retryAfter);
+      const res = new Response(xhr.responseText, { status: xhr.status || 599, headers });
+      void apiErrorFrom(res).then((error) => {
+        reportApiFailure(error, path, 'POST');
+        reject(error);
+      }, reject);
+    };
+    xhr.send(blob);
+  });
+}
+
+const BULK_DELETE_BATCH = 5000;
+
 export const api = {
+  // Auth (public routes: they answer before anyone is signed in)
+  getAuthSession: () => fetchJson<AuthSessionInfo>('/auth/session', { cache: 'no-store' }),
+  authSetup: (body: AuthSetupRequest) =>
+    fetchJson<AuthSessionInfo>('/auth/setup', { method: 'POST', body: JSON.stringify(body) }),
+  authLogin: (body: AuthLoginRequest) =>
+    fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  /** `POST /auth/login/2fa`: the second step, the pending token of the first and a code. */
+  authLogin2fa: (
+    body:
+      | { pending_token: string; code: string; method?: 'totp' | 'email' }
+      | { pending_token: string; passkey: object }
+  ) =>
+    fetchJson<AuthSessionInfo>('/auth/login/2fa', { method: 'POST', body: JSON.stringify(body) }),
+  /** Passkeys (`/auth/webauthn/*`): options and answers are the browser's JSON, passed through. */
+  passkeyLoginOptions: (pending_token?: string) =>
+    fetchJson<object>('/auth/webauthn/login/options', {
+      method: 'POST',
+      body: JSON.stringify(pending_token ? { pending_token } : {}),
+    }),
+  passkeyLoginVerify: (credential: object, remember = false) =>
+    fetchJson<AuthSessionInfo>('/auth/webauthn/login/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential, remember }),
+    }),
+  passkeyRegisterOptions: (password: string, code?: string) =>
+    fetchJson<object>('/auth/webauthn/register/options', {
+      method: 'POST',
+      body: JSON.stringify(code ? { password, code } : { password }),
+    }),
+  passkeyRegisterVerify: (credential: object, name: string) =>
+    fetchJson<PasskeyRow>('/auth/webauthn/register/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential, name }),
+    }),
+  listPasskeys: () => fetchJson<PasskeyRow[]>('/auth/webauthn/credentials', { cache: 'no-store' }),
+  deletePasskey: (id: number, password: string) =>
+    fetchJson<{ ok: boolean }>(`/auth/webauthn/credentials/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    }),
+  /** E-mail code and sign-in links (MSHL-426). `lang` is the language of the mail. */
+  sendLoginEmailCode: (pending_token: string, lang: string) =>
+    fetchJson<EmailCodeSent>('/auth/login/2fa/email', {
+      method: 'POST',
+      body: JSON.stringify({ pending_token, lang: mailLanguage(lang) }),
+    }),
+  requestMagicLink: (body: { username: string; remember: boolean; base: string; lang: string }) =>
+    fetchJson<{ sent: boolean; expires_in: number }>('/auth/magic-link', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, lang: mailLanguage(body.lang) }),
+    }),
+  verifyMagicLink: (token: string) =>
+    fetchJson<AuthSessionInfo>('/auth/magic-link/verify', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  getEmailFactor: () => fetchJson<EmailFactorStatus>('/auth/email', { cache: 'no-store' }),
+  startEmailAddress: (body: { password: string; address: string; code?: string; lang: string }) =>
+    fetchJson<EmailCodeSent>('/auth/email/address', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, lang: mailLanguage(body.lang) }),
+    }),
+  verifyEmailAddress: (code: string) =>
+    fetchJson<EmailFactorStatus>('/auth/email/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  patchEmailFactor: (body: {
+    password: string;
+    code?: string;
+    otp_enabled?: boolean;
+    magic_link_enabled?: boolean;
+  }) =>
+    fetchJson<EmailFactorStatus>('/auth/email', { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteEmailFactor: (password: string) =>
+    fetchJson<{ ok: boolean }>('/auth/email', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    }),
+  getEmailSignInSettings: () =>
+    fetchJson<EmailSignInSettings>('/auth/email/settings', { cache: 'no-store' }),
+  patchEmailSignInSettings: (channel_id: string | null) =>
+    fetchJson<EmailSignInSettings>('/auth/email/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ channel_id }),
+    }),
+  getTotpStatus: () => fetchJson<TotpStatus>('/auth/2fa', { cache: 'no-store' }),
+  enrolTotp: (password: string) =>
+    fetchJson<TotpEnrolment>('/auth/2fa/enrol', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  confirmTotp: (code: string) =>
+    fetchJson<RecoveryCodes>('/auth/2fa/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  disableTotp: (password: string, code: string) =>
+    fetchJson<{ ok: boolean }>('/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
+  regenerateRecoveryCodes: (password: string, code: string) =>
+    fetchJson<RecoveryCodes>('/auth/2fa/recovery', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
+  authLogout: () => fetchJson<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  /** `PATCH /auth/me`: the one write open while a password change is required. */
+  changeOwnPassword: (current_password: string, new_password: string) =>
+    fetchJson<unknown>('/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+  getAuthMe: () => fetchJson<AuthMe>('/auth/me', { cache: 'no-store' }),
+  patchAuthMe: (patch: { display_name: string }) =>
+    fetchJson<AuthMe>('/auth/me', { method: 'PATCH', body: JSON.stringify(patch) }),
+  listAuthSessions: () => fetchJson<AuthSessionRow[]>('/auth/sessions', { cache: 'no-store' }),
+  revokeAuthSession: (id: string) =>
+    fetchJson<{ ok: boolean }>(`/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Every session but the current one. */
+  revokeOtherAuthSessions: () =>
+    fetchJson<{ revoked: number }>('/auth/sessions', { method: 'DELETE' }),
+  // API and device tokens (own account; an admin lists everyone's)
+  listAuthTokens: () => fetchJson<AuthTokenRow[]>('/auth/tokens', { cache: 'no-store' }),
+  createAuthToken: (body: AuthTokenCreate) =>
+    fetchJson<AuthTokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify(body) }),
+  revokeAuthToken: (id: string) =>
+    fetchJson<void>(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Meshloom Remote (docs/dev/remote.md): state and own devices for every account role
+  // but the kiosk; enable, disable, unregister, rotate and revoke-all are admin-only.
+  getRemote: () => fetchJson<RemoteStatus>('/remote', { cache: 'no-store' }),
+  enableRemote: () => fetchJson<RemoteStatus>('/remote/enable', { method: 'POST' }),
+  disableRemote: () => fetchJson<RemoteStatus>('/remote/disable', { method: 'POST' }),
+  unregisterRemote: () => fetchJson<RemoteStatus>('/remote', { method: 'DELETE' }),
+  rotateRemote: () => fetchJson<RemoteStatus>('/remote/rotate', { method: 'POST' }),
+  testRemoteDomain: (domain: string) =>
+    fetchJson<RemoteDomainTest>('/remote/domain/test', {
+      method: 'POST',
+      body: JSON.stringify({ domain }),
+    }),
+  getRemoteAlertEmail: () =>
+    fetchJson<RemoteAlertEmail>('/remote/alert-email', { cache: 'no-store' }),
+  setRemoteAlertEmail: (email: string) =>
+    fetchJson<RemoteAlertEmail>('/remote/alert-email', {
+      method: 'PUT',
+      body: JSON.stringify({ email }),
+    }),
+  clearRemoteAlertEmail: () =>
+    fetchJson<RemoteAlertEmail>('/remote/alert-email', { method: 'DELETE' }),
+  issueRemoteEnroll: () => fetchJson<RemoteEnrollTicket>('/remote/enroll', { method: 'POST' }),
+  revokeRemoteDevice: (id: string) =>
+    fetchJson<RemoteGateResult>(`/remote/devices/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  revokeAllRemoteDevices: () =>
+    fetchJson<RemoteGateResult>('/remote/devices/revoke-all', { method: 'POST' }),
+  listRemoteAccessRequests: () =>
+    fetchJson<RemoteAccessRequest[]>('/remote/access-requests', { cache: 'no-store' }),
+  approveRemoteAccessRequest: (code: string, label?: string) =>
+    fetchJson<RemoteDevice>('/remote/access-requests/approve', {
+      method: 'POST',
+      body: JSON.stringify(label ? { code, label } : { code }),
+    }),
+  denyRemoteAccessRequest: (requestId: string) =>
+    fetchJson<void>(`/remote/access-requests/${encodeURIComponent(requestId)}/deny`, {
+      method: 'POST',
+    }),
+  // Device pairing codes (admin, own session)
+  listAuthPairings: () => fetchJson<AuthPairingRow[]>('/auth/pairings', { cache: 'no-store' }),
+  createAuthPairing: (body: AuthPairingCreate) =>
+    fetchJson<AuthPairingCreated>('/auth/pairings', { method: 'POST', body: JSON.stringify(body) }),
+  revokeAuthPairing: (id: string) =>
+    fetchJson<void>(`/auth/pairings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Users (admin)
+  listAuthUsers: () => fetchJson<AuthUserRow[]>('/auth/users', { cache: 'no-store' }),
+  createAuthUser: (body: AuthUserCreate) =>
+    fetchJson<AuthUserRow>('/auth/users', { method: 'POST', body: JSON.stringify(body) }),
+  patchAuthUser: (id: number, patch: AuthUserPatch) =>
+    fetchJson<AuthUserRow>(`/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteAuthUser: (id: number) =>
+    fetchJson<{ ok: boolean }>(`/auth/users/${id}`, { method: 'DELETE' }),
+  setAuthUserPassword: (id: number, password: string, must_change_password: boolean) =>
+    fetchJson<AuthUserRow>(`/auth/users/${id}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password, must_change_password }),
+    }),
+  revokeAuthUserSessions: (id: number) =>
+    fetchJson<{ revoked: number }>(`/auth/users/${id}/sessions`, { method: 'DELETE' }),
+  /** `GET /auth/audit` (admin): one page of the audit log, newest first; `cursor` is the previous `next_cursor`. */
+  getAuthAudit: (cursor?: string | null, limit = 100) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return fetchJson<AuthAuditPage>(`/auth/audit?${params}`, { cache: 'no-store' });
+  },
+  getAuthSettings: () => fetchJson<AuthSettings>('/auth/settings', { cache: 'no-store' }),
+  patchAuthSettings: (patch: Partial<AuthSettings>) =>
+    fetchJson<AuthSettings>('/auth/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  // IP bans and their whitelist (admin)
+  getIpBans: () => fetchJson<IpBansView>('/auth/bans', { cache: 'no-store' }),
+  unbanIp: (address: string) =>
+    fetchJson<void>(`/auth/bans?address=${encodeURIComponent(address)}`, { method: 'DELETE' }),
+  addIpBanWhitelist: (network: string, note: string) =>
+    fetchJson<IpBanWhitelistEntry>('/auth/ban-whitelist', {
+      method: 'POST',
+      body: JSON.stringify({ network, note }),
+    }),
+  removeIpBanWhitelist: (network: string) =>
+    fetchJson<void>(`/auth/ban-whitelist?network=${encodeURIComponent(network)}`, {
+      method: 'DELETE',
+    }),
+  // OpenID Connect sign-in (admin; the sign-in itself is a navigation, `oidcStartUrl`)
+  getOidcSettings: () =>
+    fetchJson<OidcSettings>(`/auth/oidc/settings?${oidcBaseQuery()}`, { cache: 'no-store' }),
+  patchOidcSettings: (patch: OidcSettingsPatch) =>
+    fetchJson<OidcSettings>(`/auth/oidc/settings?${oidcBaseQuery()}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  testOidc: () => fetchJson<OidcTestResult>('/auth/oidc/test', { method: 'POST' }),
+  listOidcLinks: () => fetchJson<OidcLinksView>('/auth/oidc/links', { cache: 'no-store' }),
+  addOidcLink: (body: OidcLinkCreate) =>
+    fetchJson<OidcLink>('/auth/oidc/links', { method: 'POST', body: JSON.stringify(body) }),
+  deleteOidcLink: (id: number) => fetchJson<void>(`/auth/oidc/links/${id}`, { method: 'DELETE' }),
+
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),
   getUpdates: () => fetchJson<OssUpdateStatus>('/updates'),
@@ -393,12 +942,24 @@ export const api = {
     fetchJson<{ status: string }>(`/contacts/${publicKey}`, {
       method: 'DELETE',
     }),
-  bulkDeleteContacts: (publicKeys: string[]) =>
-    fetchJson<{ deleted: number }>('/contacts/bulk-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ public_keys: publicKeys }),
-    }),
+  // In batches: the server caps a request at 1 MiB, about 15,000 keys.
+  bulkDeleteContacts: async (
+    publicKeys: string[],
+    onBatch?: (keys: string[], deleted: number) => void
+  ) => {
+    let deleted = 0;
+    for (let start = 0; start < publicKeys.length; start += BULK_DELETE_BATCH) {
+      const batch = publicKeys.slice(start, start + BULK_DELETE_BATCH);
+      const result = await fetchJson<{ deleted: number }>('/contacts/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public_keys: batch }),
+      });
+      deleted += result.deleted;
+      onBatch?.(batch, result.deleted);
+    }
+    return { deleted };
+  },
   createContact: (publicKey: string, name?: string, tryHistorical?: boolean, type?: number) =>
     fetchJson<Contact>('/contacts', {
       method: 'POST',
@@ -474,6 +1035,12 @@ export const api = {
       after?: number;
       after_id?: number;
       q?: string;
+      outgoing?: boolean;
+      since_id?: number;
+      muted?: 'all' | 'exclude' | 'only';
+      membership?: 'all' | 'adopted' | 'pending';
+      /** Repeated `conversation_keys` (1 to 50 hex keys); not with `conversation_key`. */
+      conversation_keys?: readonly string[];
     },
     signal?: AbortSignal
   ) => {
@@ -487,8 +1054,27 @@ export const api = {
     if (params?.after !== undefined) searchParams.set('after', params.after.toString());
     if (params?.after_id !== undefined) searchParams.set('after_id', params.after_id.toString());
     if (params?.q) searchParams.set('q', params.q);
+    if (params?.outgoing !== undefined) searchParams.set('outgoing', String(params.outgoing));
+    if (params?.since_id !== undefined) searchParams.set('since_id', params.since_id.toString());
+    if (params?.muted) searchParams.set('muted', params.muted);
+    if (params?.membership) searchParams.set('membership', params.membership);
+    for (const key of params?.conversation_keys ?? [])
+      searchParams.append('conversation_keys', key);
     const query = searchParams.toString();
     return fetchJson<Message[]>(`/messages${query ? `?${query}` : ''}`, { signal });
+  },
+  /** Messages per conversation (the Feed's facets and hidden counts); mute is left to the caller. */
+  getConversationCounts: (
+    params?: { type?: 'PRIV' | 'CHAN'; outgoing?: boolean },
+    signal?: AbortSignal
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.type) searchParams.set('type', params.type);
+    if (params?.outgoing !== undefined) searchParams.set('outgoing', String(params.outgoing));
+    const query = searchParams.toString();
+    return fetchJson<{
+      conversations: { type: 'PRIV' | 'CHAN'; conversation_key: string; count: number }[];
+    }>(`/messages/conversation-counts${query ? `?${query}` : ''}`, { signal });
   },
   getMessagesAround: (
     messageId: number,
@@ -588,6 +1174,7 @@ export const api = {
 
   // App Settings
   getSettings: () => fetchJson<AppSettings>('/settings'),
+  getSettingsView: () => fetchJson<AppSettingsView>('/settings/view'),
   updateSettings: (settings: AppSettingsUpdate) =>
     fetchJson<AppSettings>('/settings', {
       method: 'PATCH',
@@ -675,12 +1262,16 @@ export const api = {
   getJsonBackup: () => fetchJson<BackupExport>('/settings/backup/json'),
   /** The full backup (radio identity, settings, Wi-Fi, Meshloom), optionally encrypted. */
   exportFullBackup: async (
-    passphrase?: string
+    passphrase?: string,
+    includeAccounts = true
   ): Promise<{ data: unknown; filename: string; warnings: string[] }> => {
     const res = await fetch(`${API_BASE}/settings/backup/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(passphrase ? { passphrase } : {}),
+      body: JSON.stringify({
+        ...(passphrase ? { passphrase } : {}),
+        include_accounts: includeAccounts,
+      }),
     });
     if (!res.ok) {
       throw await apiErrorFrom(res);
@@ -821,17 +1412,18 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(update),
     }),
+  /** MSHL-134: a fanout Apprise row becomes a notification channel (or joins `channelId`). */
+  convertFanoutToChannel: (id: string, channelId?: string) =>
+    fetchJson<FanoutConversion>(
+      `/fanout/${encodeURIComponent(id)}/convert-to-notification-channel`,
+      {
+        method: 'POST',
+        body: JSON.stringify(channelId ? { channel_id: channelId } : {}),
+      }
+    ),
   deleteFanoutConfig: (id: string) =>
     fetchJson<{ deleted: boolean }>(`/fanout/${id}`, {
       method: 'DELETE',
-    }),
-  disableBotsUntilRestart: () =>
-    fetchJson<{
-      status: string;
-      bots_disabled: boolean;
-      bots_disabled_source: 'env' | 'until_restart';
-    }>('/fanout/bots/disable-until-restart', {
-      method: 'POST',
     }),
 
   // Statistics
@@ -986,23 +1578,199 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(subscription),
     }),
-  getPushSubscriptions: () => fetchJson<PushSubscriptionInfo[]>('/push/subscriptions'),
+  getPushSubscriptions: (scope: 'mine' | 'all' = 'mine') =>
+    fetchJson<PushSubscriptionInfo[]>(
+      scope === 'all' ? '/push/subscriptions?scope=all' : '/push/subscriptions'
+    ),
   deletePushSubscription: (id: string) =>
     fetchJson<{ deleted: boolean }>(`/push/subscriptions/${id}`, { method: 'DELETE' }),
   testPushSubscription: (id: string) =>
     fetchJson<{ status: string }>(`/push/subscriptions/${id}/test`, { method: 'POST' }),
+  getMyPushRules: () => fetchJson<MyPushRules>('/push/my-rules'),
+  patchMyPushRules: (body: MyPushRulesPatch) =>
+    fetchJson<MyPushRules>('/push/my-rules', { method: 'PATCH', body: JSON.stringify(body) }),
+  resetMyPushRules: () => fetchJson<MyPushRules>('/push/my-rules', { method: 'DELETE' }),
+  pauseMyPush: (until: number | null) =>
+    fetchJson<MyPushRules>('/push/my-pause', { method: 'PUT', body: JSON.stringify({ until }) }),
+  resumeMyPush: () => fetchJson<MyPushRules>('/push/my-pause', { method: 'DELETE' }),
+  getPlugins: () => fetchJson<PluginInstance[]>('/plugins'),
+  getBundledPlugins: () => fetchJson<BundledPlugin[]>('/plugins/bundled'),
+  getStoreStatus: () => fetchJson<StoreStatus>('/store/status', { cache: 'no-store' }),
+  refreshStore: () => fetchJson<StoreRefreshResult>('/store/refresh', { method: 'POST' }),
+  getStoreReadme: (repository: string, lang: string) => {
+    const [owner, name] = repository.split('/');
+    return fetchJson<StoreReadme>(
+      `/store/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/readme?lang=${encodeURIComponent(lang)}`
+    );
+  },
+  getStoreUpdates: (lang: string) =>
+    fetchJson<PluginUpdate[]>(`/store/updates?lang=${encodeURIComponent(lang)}`, {
+      cache: 'no-store',
+    }),
+  updatePlugin: (id: string, body: PluginUpdateRequest) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getStoreRepositories: () => fetchJson<StoreRepositories>('/store/repositories'),
+  addStoreRepository: (repository: string) =>
+    fetchJson<StoreRepository>('/store/repositories', {
+      method: 'POST',
+      body: JSON.stringify({ repository }),
+    }),
+  removeStoreRepository: (repository: string) => {
+    const [owner, name] = repository.split('/');
+    return fetchJson<void>(
+      `/store/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+  },
+  installPlugin: (body: PluginInstallRequest) =>
+    fetchJson<PluginInstance>('/plugins/install', { method: 'POST', body: JSON.stringify(body) }),
+  patchPlugin: (id: string, body: PluginPatch) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  createLocalPlugin: (body: LocalPluginCreate) =>
+    fetchJson<PluginInstance>('/plugins', { method: 'POST', body: JSON.stringify(body) }),
+  putPluginSource: (id: string, source: string) =>
+    fetchJson<PluginSourceResult>(`/plugins/${encodeURIComponent(id)}/source`, {
+      method: 'PUT',
+      body: JSON.stringify({ source }),
+    }),
+  checkPlugin: (id: string) =>
+    fetchJson<PluginCheckResult>(`/plugins/${encodeURIComponent(id)}/check`, { method: 'POST' }),
+  testPlugin: (id: string, body: PluginTestRequest) =>
+    fetchJson<PluginTestResult>(`/plugins/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  reinstallPlugin: (id: string) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/reinstall`, { method: 'POST' }),
+  restartPlugin: (id: string) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
+  getPluginLogs: (id: string, limit = 200) =>
+    fetchJson<PluginLogs>(`/plugins/${encodeURIComponent(id)}/logs?limit=${limit}`, {
+      cache: 'no-store',
+    }),
+  getPluginDiagnostic: (id: string) =>
+    fetchJson<PluginDiagnostic>(`/plugins/${encodeURIComponent(id)}/diagnostic`, {
+      cache: 'no-store',
+    }),
+  getPluginsPause: () => fetchJson<PluginPauseState>('/plugins/pause', { cache: 'no-store' }),
+  setPluginsPause: (paused: boolean) =>
+    fetchJson<PluginPauseState>('/plugins/pause', {
+      method: 'PUT',
+      body: JSON.stringify({ paused }),
+    }),
+  acknowledgeConvertedBots: () =>
+    fetchJson<{ acknowledged: boolean }>('/plugins/converted-bots/acknowledge', {
+      method: 'POST',
+    }),
+  deletePlugin: (id: string, keepData: boolean) =>
+    fetchJson<void>(`/plugins/${encodeURIComponent(id)}?keep_data=${keepData}`, {
+      method: 'DELETE',
+    }),
+  getShareStatus: (signal?: AbortSignal) =>
+    fetchJson<ShareStatus>('/share/status', signal ? { signal } : undefined),
+  shortenLink: (url: string, signal?: AbortSignal) =>
+    fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }), signal }),
+  uploadShareFile,
+  /**
+   * `messageId` names the message the id was seen in: an encrypted file is decrypted
+   * with that conversation's secret (`decryptable`, `name`, `content_type`).
+   */
+  getShareMeta: (id: string, options: { messageId?: number; signal?: AbortSignal } = {}) =>
+    fetchJson<ShareMeta>(
+      `/share/${encodeURIComponent(id)}/meta${
+        options.messageId ? `?message_id=${options.messageId}` : ''
+      }`,
+      options.signal ? { signal: options.signal } : undefined
+    ),
+  reportShare: (id: string, body: ShareReportRequest) =>
+    fetchJson<{ received: boolean }>(`/share/${encodeURIComponent(id)}/report`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** What this instance posted (member+), newest first; `cursor` is the previous `next_cursor`. */
+  listShareMine: (cursor?: string) =>
+    fetchJson<ShareMine>(`/share/mine${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
+  /** Delete one of this instance's objects (member+); a blocked one answers 409. */
+  deleteShare: (id: string) =>
+    fetchJson<void>(`/share/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Empty the local object cache (admin); no request to the service. */
+  clearShareCache: () => fetchJson<ShareCacheClear>('/share/cache/clear', { method: 'POST' }),
+  // Notifications (admin). The push preference routes below are deprecated shims, removed
+  // in 5.2.0: use the rules.
+  getNotificationTypes: () => fetchJson<NotificationTypeInfo[]>('/notifications/types'),
+  getNotificationEvents: () =>
+    fetchJson<{ contract_version: number; events: NotificationEventInfo[] }>(
+      '/notifications/events'
+    ),
+  getNotificationChannels: () => fetchJson<NotificationChannel[]>('/notifications/channels'),
+  getNotificationChannel: (id: string) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}`),
+  createNotificationChannel: (body: NotificationChannelCreate) =>
+    fetchJson<NotificationChannelCreated>('/notifications/channels', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateNotificationChannel: (id: string, body: NotificationChannelPatch) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteNotificationChannel: (id: string) =>
+    fetchJson<{ deleted: boolean }>(`/notifications/channels/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  /** Test a configuration before saving it: nothing is persisted. */
+  testNotificationConfig: (body: NotificationChannelCreate) =>
+    fetchJson<{ status: string }>('/notifications/channels/test', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** Render message templates on a sample DM and channel message (nothing is stored or sent). */
+  previewNotificationTemplate: (body: NotificationTemplatePreviewRequest) =>
+    fetchJson<NotificationTemplatePreview>('/notifications/channels/preview-template', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** One test per 5 s per channel: a second one answers 429 `rate_limited`. */
+  testNotificationChannel: (id: string) =>
+    fetchJson<{ status: string }>(`/notifications/channels/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+    }),
+  resumeNotificationChannel: (id: string) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}/resume`, {
+      method: 'POST',
+    }),
+  getNotificationRules: () => fetchJson<NotificationRules>('/notifications/rules'),
+  patchNotificationRules: (body: NotificationRulesPatch) =>
+    fetchJson<NotificationRules>('/notifications/rules', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  /** `channels: null` clears the exception of the conversation. */
+  setNotificationConversationRule: (key: string, channels: Record<string, boolean> | null) =>
+    fetchJson<NotificationRules>(`/notifications/rules/conversations/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ channels }),
+    }),
+  getNotificationDeliveries: (params: { channel?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.channel) query.set('channel', params.channel);
+    if (params.limit) query.set('limit', String(params.limit));
+    const suffix = query.toString();
+    return fetchJson<NotificationDeliveries>(
+      `/notifications/deliveries${suffix ? `?${suffix}` : ''}`
+    );
+  },
   getPushPreferences: () => fetchJson<PushPreferences>('/push/preferences'),
   patchPushPreferences: (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) =>
     fetchJson<PushPreferences>('/push/preferences', {
       method: 'PATCH',
       body: JSON.stringify(partial),
-    }),
-  setPushConversationOverride: (
-    key: string,
-    override: boolean | ConversationMediaOverride | null
-  ) =>
-    fetchJson<PushPreferences>(`/push/preferences/conversations/${encodeURIComponent(key)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ override }),
     }),
 };

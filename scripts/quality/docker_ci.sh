@@ -9,6 +9,12 @@ NC='\033[0m'
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
+# `docker_ci.sh --ntfy`: the backend integration test against a real ntfy container
+# instead of the frontend Node/npm matrix (scripts/quality/ntfy_integration.sh).
+if [[ "${1:-}" == "--ntfy" ]]; then
+    exec "$REPO_ROOT/scripts/quality/ntfy_integration.sh"
+fi
+
 # Floor: Node 22 / npm 10, the same minimum install_service.sh enforces for a
 # local build (vite 8 needs Node >= 22.12 on the 22 line; Node 20 is EOL).
 # Node 26 is what CI, the Docker image, the .deb and the release zip use.

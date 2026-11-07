@@ -1,17 +1,20 @@
+import { useCapabilities } from '../auth/SessionProvider';
+import { toolAllowed } from './navDestinations';
 import { useTranslation } from 'react-i18next';
 import {
   Radio,
   List,
-  ScrollText,
   Waypoints,
   Waypoints as Trace,
   Crosshair,
   Search,
   Hash,
   RadioTower,
+  Newspaper,
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
 import { RadioStatusChip } from './RadioStatusChip';
+import { makeFeedConversation, toolIdOf } from './feed/feedConversation';
 import { cn } from '../lib/utils';
 
 /**
@@ -24,7 +27,7 @@ import { cn } from '../lib/utils';
  */
 
 type ToolId =
-  'raw' | 'control' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered' | 'test';
+  'raw' | 'feed' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered' | 'test';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
@@ -48,10 +51,10 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
     Icon: List,
   },
   {
-    id: 'control',
-    labelKey: 'sidebar.controlJournal',
-    descriptionKey: 'toolsView.controlDescription',
-    Icon: ScrollText,
+    id: 'feed',
+    labelKey: 'sidebar.feed',
+    descriptionKey: 'toolsView.feedDescription',
+    Icon: Newspaper,
   },
   {
     id: 'live',
@@ -113,7 +116,11 @@ export function ToolsView({
   directoryEnabled = false,
 }: Props) {
   const { t } = useTranslation();
-  const tools = TOOLS.filter(({ id }) => directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(id));
+  const capabilities = useCapabilities();
+  const tools = TOOLS.filter(
+    ({ id }) =>
+      (directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(id)) && toolAllowed(id, capabilities)
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -135,9 +142,15 @@ export function ToolsView({
             <li key={id}>
               <button
                 type="button"
-                aria-current={activeConversation?.type === id ? 'page' : undefined}
-                className={cn(ROW_CLASS, activeConversation?.type === id && 'bg-accent/60')}
-                onClick={() => onSelectConversation({ type: id, id, name: t(labelKey) })}
+                aria-current={toolIdOf(activeConversation) === id ? 'page' : undefined}
+                className={cn(ROW_CLASS, toolIdOf(activeConversation) === id && 'bg-accent/60')}
+                onClick={() =>
+                  onSelectConversation(
+                    id === 'feed'
+                      ? makeFeedConversation(t(labelKey))
+                      : { type: id, id, name: t(labelKey) }
+                  )
+                }
               >
                 <span
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"

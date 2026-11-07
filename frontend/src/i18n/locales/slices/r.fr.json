@@ -1,0 +1,31 @@
+{
+  "errors": {
+    "network_error_apprise": "URL Apprise {{line}} ({{url}}) : le service est injoignable.",
+    "rate_limited_apprise": "URL Apprise {{line}} ({{url}}) : le service demande de ralentir (HTTP 429). Réessayez plus tard.",
+    "service_error_apprise": "URL Apprise {{line}} ({{url}}) : le service a répondu avec l'erreur HTTP {{status}}.",
+    "service_rejected_apprise": "URL Apprise {{line}} ({{url}}) : le service a refusé la notification (HTTP {{status}}). Vérifiez le jeton ou l'adresse.",
+    "send_failed_apprise": "URL Apprise {{line}} ({{url}}) : Apprise n'a pas pu envoyer la notification."
+  },
+  "settings": {
+    "notifications": {
+      "mediaApprise": "Apprise",
+      "appriseTitle": "Apprise",
+      "appriseHelp": "Envoyez les notifications vers ntfy, Telegram, Discord, Home Assistant et bien d'autres grâce aux URL Apprise.",
+      "appriseWiki": "Formats d'URL Apprise",
+      "appriseUrls": "URL, une par ligne",
+      "appriseUrlsHelp": "Exemples : ntfys://ntfy.sh/mon-sujet, tgram://bot_token/chat_id. Elles ne sont plus affichées après l'enregistrement.",
+      "appriseUrlsKept": "Les URL enregistrées sont masquées (********). Remplacez-les pour les modifier, ou videz le champ pour les supprimer.",
+      "appriseText": "Texte des messages",
+      "appriseTextPublicOnly": "Canaux publics et # seulement",
+      "appriseTextAlways": "Toujours",
+      "appriseTextNever": "Jamais (titre seul)",
+      "apprisePrivacy": "Les messages privés sont envoyés en titre seul, sauf si vous choisissez Toujours.",
+      "appriseFormat": "Format",
+      "appriseFormatText": "Texte brut",
+      "appriseFormatMarkdown": "Markdown",
+      "appriseAllowPrivate": "Autoriser une destination sur un réseau privé (LAN, localhost)",
+      "appriseAllowPrivateHelp": "Pour un serveur ntfy, Gotify ou Home Assistant sur votre réseau.",
+      "testApprise": "Tester Apprise"
+    }
+  }
+}

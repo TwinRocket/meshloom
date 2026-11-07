@@ -1,0 +1,126 @@
+"""The plugin host's three seams for the app: lifespan start, bounded stop, health fields.
+
+`app/main.py` calls `start()` once the database is open and the fanout modules
+are loaded, and `stop()` as a shutdown step before the background tasks are
+drained; `/api/health` merges `health_fields()` into its payload. Before any child
+starts, `start()` updates the bundled plugins, marks the custom/store instances outside
+their `compat.meshloom` as `incompatible` and registers the Store auto-update refresher
+(`app/plugins/updates.py`). The supervisor is `app/plugins/host.py`.
+"""
+
+import asyncio
+import logging
+from typing import Any, Final
+
+from app.plugins import bundled_update, installer, isolation, updates
+from app.plugins.host import isolation_level, plugin_manager
+
+logger = logging.getLogger(__name__)
+
+SHUTDOWN_TIMEOUT_SECONDS = 10.0
+# Who may read a plugin's `last_error` and `send_guard` (health) and its
+# `plugin_status` events: admins only (MSHL-64). The others get the statuses
+# without them (`app/routers/health.py`, `without_admin_details`).
+PLUGIN_ERROR_PERMISSION: Final = "admin"
+
+
+async def start() -> None:
+    """Start the enabled instances (staggered, in the background). Never raises."""
+    source = plugin_manager.disabled_source()
+    if source is not None:
+        logger.info("Plugin system disabled (%s)", source)
+        return
+    try:
+        # Detect the OS isolation (the bwrap self-test runs a process) and apply
+        # the dedicated uid's file model before the first child, off the loop.
+        await asyncio.to_thread(isolation.startup, plugin_manager.plugins_root().parent)
+    except Exception:
+        # Fail closed: a dedicated uid without its file model could read the
+        # database. No child starts; health says why (`plugins_disabled_source`).
+        logger.exception("Plugin isolation setup failed: no plugin will start")
+        plugin_manager.fail_closed()
+        return
+    try:
+        # Under `setuid`: what deleted or crashed instances left, before any start.
+        await plugin_manager.reap_uids()
+    except Exception:
+        logger.exception("Plugin uid cleanup failed")
+    try:
+        # What a crash left in `<plugins>/_staging`, before the bundled update.
+        await asyncio.to_thread(installer.sweep_staging, plugin_manager.plugins_root())
+    except Exception:
+        logger.exception("Plugin staging sweep failed")
+    try:
+        # Bundled plugins newer in this release: code and rows, before any start.
+        await bundled_update.update_bundled()
+    except Exception:
+        logger.exception("Bundled plugin update failed")
+    # Custom/store instances outside their `compat.meshloom` never start (MSHL-197).
+    await updates.mark_compat()
+    # Store auto-updates run after the custom repositories' refresh (registered before).
+    updates.register()
+    try:
+        await plugin_manager.load_from_db()
+    except Exception:
+        logger.exception("Failed to start plugins")
+
+
+async def stop(timeout: float = SHUTDOWN_TIMEOUT_SECONDS) -> None:
+    """Stop every child: `plugin.shutdown`, a bounded wait, then SIGKILL; at most `timeout`."""
+    updates.unregister()
+    await plugin_manager.stop_all(timeout)
+
+
+def without_plugin_errors(health: dict[str, Any]) -> dict[str, Any]:
+    """`health` as a principal without `PLUGIN_ERROR_PERMISSION` gets it: no
+    `last_error` nor `send_guard`, and no `plugins_purge_blocked` paths."""
+    if health.get("plugins_purge_blocked"):
+        health = {**health, "plugins_purge_blocked": []}
+    statuses = health.get("plugin_statuses")
+    if not isinstance(statuses, dict) or not statuses:
+        return health
+    return {
+        **health,
+        "plugin_statuses": {
+            key: {**value, "last_error": None, "send_guard": {}}
+            if isinstance(value, dict)
+            else value
+            for key, value in statuses.items()
+        },
+    }
+
+
+def health_fields() -> dict[str, Any]:
+    """`plugins_isolation`, `plugins_disabled`, `plugins_disabled_source`,
+    `plugins_paused_since`, `plugins_pause_unreadable`, `plugins_purge_blocked` and
+    `plugin_statuses` for `/api/health`.
+
+    The host lock, the platform and a failed isolation take precedence over the
+    global pause (`paused`, `app/plugins/pause.py`)."""
+    from app.plugins import pause
+
+    source: str | None = plugin_manager.disabled_source()
+    pause_state = pause.state()
+    if source is None and pause_state.paused:
+        source = "paused"
+    try:
+        statuses = plugin_manager.statuses()
+    except Exception:
+        statuses = {}
+    try:
+        purge_blocked = plugin_manager.purge_blocked()
+    except Exception:
+        purge_blocked = []
+    return {
+        "plugins_isolation": None
+        if source is not None and source != "paused"
+        else isolation_level(),
+        "plugins_disabled": source is not None,
+        "plugins_disabled_source": source,
+        "plugins_paused_since": pause_state.since if pause_state.paused else None,
+        "plugins_pause_unreadable": pause_state.unreadable,
+        # Under `setuid`: temp directories a uid purge could not list (the uid is
+        # kept until an administrator removes or opens them; MSHL-349).
+        "plugins_purge_blocked": purge_blocked,
+        "plugin_statuses": statuses,
+    }

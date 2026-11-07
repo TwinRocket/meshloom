@@ -377,6 +377,11 @@ class TestSemVerAndCache:
             ):
                 assert get_update_status()["html_url"] is None, bad
 
+    def test_a_machine_on_an_rc_is_offered_only_what_is_newer(self):
+        assert is_newer_release("4.18.2", "5.0.0-rc.1") is False
+        assert is_newer_release("5.0.0-rc.1", "5.0.0-rc.1") is False
+        assert is_newer_release("5.0.0", "5.0.0-rc.1") is True
+
     @pytest.mark.asyncio
     async def test_answer_without_version_counts_as_no_answer(self):
         null_payload = {

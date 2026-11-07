@@ -1,0 +1,1148 @@
+"""The notification dispatcher (MSHL-109): queues and workers per channel, the minimal
+limiter, the retry policy, the journal and counters, the channel status in health, the
+shutdown and the legacy adapter.
+
+Retries and spacing run on a fake clock (``Dispatcher(clock=..., sleep=...)``); the
+isolation test uses the real notification executor and a transport that holds its thread.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from dataclasses import dataclass, field
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+from aiolimiter import AsyncLimiter
+
+from app.notifications import dispatcher as dispatcher_module
+from app.notifications.channels import Channel, min_interval_s
+from app.notifications.dispatcher import (
+    GROUPED_EVENT,
+    LONG_RETRY_S,
+    MAX_RETRY_AFTER_S,
+    Dispatcher,
+    notification_dispatcher,
+)
+from app.notifications.events import event_from_payload
+from app.notifications.executor import run_blocking
+from app.notifications.rules import event_channel_ids, message_channel_ids
+from app.notifications.transports.base import Delivery, SendResult, result_from_exception
+from app.repository.notification_channels import (
+    NotificationChannelRepository as Channels,
+)
+from app.repository.notification_channels import invalidate_cache
+
+pytestmark = pytest.mark.async_notifications
+
+DM_KEY = "ab" * 32
+SECRET_TEXT = "meet at the old mill at 9"
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+        await asyncio.sleep(0)
+
+
+@dataclass
+class StubTransport:
+    """Answers ``script`` in order (the last answer repeats); records each call."""
+
+    clock: FakeClock | None = None
+    script: list[SendResult] = field(default_factory=lambda: [SendResult("ok")])
+    calls: list[tuple[str, str, float]] = field(default_factory=list)
+    payloads: list[dict] = field(default_factory=list)
+    gate: asyncio.Event | None = None
+
+    async def send(self, channel, rendered, event, secrets) -> SendResult:
+        self.calls.append((channel.id, event.name, self.clock() if self.clock else 0.0))
+        self.payloads.append(dict(event.payload))
+        if self.gate is not None:
+            await self.gate.wait()
+        answer = self.script.pop(0) if len(self.script) > 1 else self.script[0]
+        return answer
+
+
+db = None  # the test database, set by ``_wired``
+
+
+@pytest.fixture(autouse=True)
+def _wired(request):
+    global db
+    invalidate_cache()
+    db = request.getfixturevalue("test_db") if "test_db" in request.fixturenames else None
+    yield
+    invalidate_cache()
+
+
+async def _add_channel(channel_id: str, type_: str, *, preset: str | None = None, **cols) -> None:
+    async with db.tx() as conn:
+        await conn.execute(
+            "INSERT OR REPLACE INTO notification_channels "
+            "(id, type, preset, name, enabled, config, secrets, created_at, paused_until) "
+            "VALUES (?, ?, ?, ?, ?, '{}', ?, 1, ?)",
+            (
+                channel_id,
+                type_,
+                preset,
+                channel_id,
+                cols.get("enabled", 1),
+                json.dumps(cols.get("secrets", {})),
+                cols.get("paused_until"),
+            ),
+        )
+    invalidate_cache()
+
+
+async def _set_rules(rules: dict) -> None:
+    async with db.tx() as conn:
+        await conn.execute(
+            "UPDATE app_settings SET notification_rules = ? WHERE id = 1", (json.dumps(rules),)
+        )
+
+
+async def _deliveries() -> list[dict]:
+    async with db.readonly() as conn:
+        async with conn.execute("SELECT * FROM notification_deliveries ORDER BY id") as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
+
+def _dispatcher(transport, clock: FakeClock | None = None, **kwargs) -> Dispatcher:
+    if clock is None:
+        return Dispatcher(transport_for=lambda _channel: transport, **kwargs)
+    return Dispatcher(
+        clock=clock, sleep=clock.sleep, transport_for=lambda _channel: transport, **kwargs
+    )
+
+
+def _dm(text: str = SECRET_TEXT, n: int = 0) -> dict:
+    return {
+        "event": "message",
+        "type": "PRIV",
+        "conversation_key": DM_KEY,
+        "text": text,
+        "sender_name": "Alice",
+        "id": n,
+    }
+
+
+def _chan(n: int) -> dict:
+    return {
+        "event": "message",
+        "type": "CHAN",
+        "conversation_key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+        "text": f"hello {n}",
+        "sender_name": "Bob",
+        "channel_name": "Public",
+        "id": n,
+    }
+
+
+async def _settle(dispatcher: Dispatcher) -> None:
+    """Until the workers, the long retries and the journal are done."""
+    for _ in range(10):
+        await dispatcher.wait_idle()
+        pending = [t for w in dispatcher._workers.values() for t in w.long_retries]
+        if not pending:
+            break
+        await asyncio.gather(*pending, return_exceptions=True)
+    await dispatcher.wait_idle()
+
+
+# -- retry policy (fake clock) -----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retry_waits_are_0_5_30_then_success(test_db):
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(
+        clock, [SendResult("retry", error_code="service_error")] * 2 + [SendResult("ok")]
+    )
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert [c[2] for c in transport.calls] == [1000.0, 1005.0, 1035.0]
+    assert clock.sleeps == [5.0, 30.0]
+    assert await _deliveries() == []  # a success writes no row
+
+
+@pytest.mark.asyncio
+async def test_no_retry_on_401_and_the_error_is_recorded(test_db):
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(clock, [SendResult("failed", error_code="http_401")])
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert len(transport.calls) == 1
+    assert clock.sleeps == []
+    [row] = await _deliveries()
+    assert (row["status"], row["error"], row["attempts"]) == ("failed", "http_401", 1)
+    channel = await Channels.get("webhook-1")
+    assert channel is not None
+    assert (channel.failure_count, channel.last_error) == (1, "http_401")
+
+
+def test_http_answers_map_to_the_policy():
+    request = httpx.Request("POST", "https://hook.example/x")
+
+    def answer(status: int, headers: dict | None = None) -> SendResult:
+        response = httpx.Response(status, headers=headers or {}, request=request)
+        return result_from_exception(httpx.HTTPStatusError("x", request=request, response=response))
+
+    assert answer(401) == SendResult("failed", error_code="http_401")
+    assert answer(404).status == "failed"
+    assert answer(503) == SendResult("retry", error_code="service_error")
+    assert answer(429, {"Retry-After": "7"}) == SendResult(
+        "retry", retry_after=7.0, error_code="rate_limited"
+    )
+    assert result_from_exception(httpx.ReadTimeout("x")).status == "retry"
+    assert result_from_exception(httpx.ConnectError("x")).status == "retry"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_is_honoured_and_capped(test_db):
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(
+        clock,
+        [
+            SendResult("retry", retry_after=12.0, error_code="rate_limited"),
+            SendResult("retry", retry_after=10_000.0, error_code="rate_limited"),
+            SendResult("ok"),
+        ],
+    )
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert clock.sleeps == [12.0, MAX_RETRY_AFTER_S]
+    assert len(transport.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_failing_message_is_dropped_as_stale(test_db):
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(clock, [SendResult("retry", error_code="timeout")])
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload=_dm(), targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert len(transport.calls) == 3
+    assert LONG_RETRY_S not in clock.sleeps
+    [row] = await _deliveries()
+    assert (row["event"], row["status"], row["attempts"]) == ("message.dm", "failed", 3)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{"event": "radio_offline"}, {"event": "telemetry_alert"}])
+async def test_radio_offline_and_telemetry_get_one_long_retry(test_db, payload):
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(
+        clock, [SendResult("retry", error_code="timeout")] * 3 + [SendResult("ok")]
+    )
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload=payload, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert clock.sleeps == [5.0, 30.0, LONG_RETRY_S]
+    assert len(transport.calls) == 4
+    assert await _deliveries() == []
+    channel = await Channels.get("webhook-1")
+    assert channel is not None and channel.failure_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{"event": "radio_offline"}, {"event": "telemetry_alert"}])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        SendResult("failed", error_code="http_410"),
+        SendResult("failed", error_code="egress_private_address"),
+        SendResult("failed", error_code="line 2 (tgram://****): service_error"),
+    ],
+)
+async def test_a_refused_urgent_alert_gets_no_long_retry(test_db, payload, answer):
+    """Review round 1: a ``failed`` answer is final, the long retry is for ``retry`` only."""
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(clock, [answer])
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload=payload, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert len(transport.calls) == 1
+    assert LONG_RETRY_S not in clock.sleeps
+    assert all(not w.long_retries for w in dispatcher._workers.values())
+    [row] = await _deliveries()
+    assert (row["status"], row["error"], row["attempts"]) == ("failed", answer.error_code, 1)
+
+
+@pytest.mark.asyncio
+async def test_an_apprise_partial_failure_never_resends_to_the_urls_that_took_it(
+    test_db, monkeypatch
+):
+    """The legacy Apprise medium: URL 1 took the alert, URL 2 failed for good. The
+    dispatcher must not send again (no retry, no long retry), so URL 1 gets it once."""
+    from app import notify
+    from app.models import NotificationDestinations
+    from app.notifications.apprise_medium import AppriseSendFailed
+    from app.notifications.transports.legacy import LegacyAppriseTransport
+
+    reached: list[str] = []
+
+    async def partial_send(dest, payload):
+        reached.append("tgram://url-1")  # URL 1 took it
+        raise AppriseSendFailed("service_error", line=2, url="tgram://****", status=503)
+
+    monkeypatch.setattr(notify, "send_apprise_alert", partial_send)
+    dest = NotificationDestinations.model_validate(
+        {"apprise": {"urls": "tgram://a/1\ntgram://b/2"}}
+    )
+    monkeypatch.setattr(
+        "app.repository.settings.AppSettingsRepository.get",
+        AsyncMock(return_value=type("S", (), {"notification_destinations": dest})()),
+    )
+    clock = FakeClock()
+    dispatcher = Dispatcher(
+        clock=clock, sleep=clock.sleep, transport_for=lambda _c: LegacyAppriseTransport()
+    )
+    await dispatcher.emit(None, payload={"event": "telemetry_alert"}, targets=["legacy:apprise"])
+    await _settle(dispatcher)
+    assert reached == ["tgram://url-1"]
+    assert clock.sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_long_retry_is_recorded_once(test_db):
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(clock, [SendResult("retry", error_code="timeout")])
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload={"event": "radio_offline"}, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert len(transport.calls) == 4
+    [row] = await _deliveries()
+    assert (row["event"], row["status"], row["attempts"]) == ("radio.offline", "failed", 4)
+
+
+@pytest.mark.asyncio
+async def test_a_success_resets_failure_count(test_db):
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(clock, [SendResult("failed", error_code="http_400")] * 2)
+    transport.script.append(SendResult("ok"))
+    dispatcher = _dispatcher(transport, clock)
+    for _ in range(2):
+        await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+        await _settle(dispatcher)
+    channel = await Channels.get("webhook-1")
+    assert channel is not None and channel.failure_count == 2
+    await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+    await _settle(dispatcher)
+    channel = await Channels.get("webhook-1")
+    assert channel is not None
+    assert (channel.failure_count, channel.last_error) == (0, None)
+
+
+@pytest.mark.asyncio
+async def test_a_raising_transport_is_a_failure_not_a_crash(test_db):
+    await _add_channel("webhook-1", "webhook")
+
+    class Boom:
+        async def send(self, *args):
+            raise RuntimeError("https://user:token@hook.example/secret")
+
+    dispatcher = _dispatcher(Boom(), FakeClock())
+    await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+    await _settle(dispatcher)
+    [row] = await _deliveries()
+    assert row["error"] == "send_failed"
+
+
+# -- isolation -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_slow_channel_never_delays_another_nor_web_push(test_db):
+    await _add_channel("apprise-slow", "apprise")
+    await _add_channel("webhook-fast", "webhook")
+    done: dict[str, float] = {}
+    started = time.monotonic()
+
+    class Transports:
+        async def send(self, channel, rendered, event, secrets):
+            if channel.id == "apprise-slow":
+                # A blocking send holding its thread in the real notification pool.
+                await run_blocking(time.sleep, 1.5)
+            else:
+                await run_blocking(lambda: None)
+            done[channel.id] = time.monotonic() - started
+            return SendResult("ok")
+
+    dispatcher = Dispatcher(transport_for=lambda _c: Transports())
+    for _ in range(2):
+        await dispatcher.emit(
+            None,
+            payload={"event": "oss_update"},
+            targets=["apprise-slow", "webhook-fast", "builtin:push"],
+        )
+    for _ in range(100):
+        if "webhook-fast" in done and "builtin:push" in done:
+            break
+        await asyncio.sleep(0.02)
+    assert done["webhook-fast"] < 0.5
+    assert done["builtin:push"] < 0.5
+    assert "apprise-slow" not in done  # still holding its thread
+    await dispatcher.wait_idle()
+
+
+# -- limiter ----------------------------------------------------------------------
+
+
+def test_minimum_intervals_come_from_the_registry():
+    assert min_interval_s("apprise", "telegram") == 3.0
+    assert min_interval_s("apprise", "discord") == 2.0
+    assert min_interval_s("ntfy") == 1.0
+    assert min_interval_s("email") == 10.0
+    assert min_interval_s("webhook") == 0.0
+    assert min_interval_s("web_push") == 0.0
+
+
+@pytest.mark.asyncio
+async def test_a_burst_on_a_telegram_channel_is_spaced_and_summarised(test_db):
+    await _add_channel("apprise-tg", "apprise", preset="telegram")
+    clock = FakeClock()
+    gate = asyncio.Event()  # the first send waits until the whole burst is in
+    transport = StubTransport(clock, gate=gate)
+    plain_sleep = clock.sleep
+
+    async def window_after_the_burst(seconds: float) -> None:
+        await gate.wait()  # the fake sleep is instant: hold the window until the burst is in
+        await plain_sleep(seconds)
+
+    clock.sleep = window_after_the_burst  # type: ignore[method-assign]
+    dispatcher = _dispatcher(transport, clock)
+    for n in range(50):
+        await dispatcher.emit(None, payload=_chan(n), targets=["apprise-tg"])
+    gate.set()
+    await _settle(dispatcher)
+
+    # Telegram: 15 a minute. The rest waits one window, then goes as one summary.
+    grouped = [p for p in transport.payloads if p["event"] == GROUPED_EVENT]
+    assert len(grouped) == 1
+    assert transport.payloads[-1] == grouped[0]
+    assert grouped[0] == {"event": GROUPED_EVENT, "count": 35, "channels": {"Public": 35}}
+    assert len(transport.payloads) - 1 == 15
+    stamps = [c[2] for c in transport.calls[:15]]
+    assert all(b - a >= 3.0 for a, b in zip(stamps, stamps[1:], strict=False))
+    rows = await _deliveries()
+    assert [r["status"] for r in rows] == ["aggregated"] * 35
+
+
+@pytest.mark.asyncio
+async def test_a_full_queue_records_rate_limited(test_db):
+    await _add_channel("webhook-1", "webhook")
+    gate = asyncio.Event()
+    transport = StubTransport(gate=gate)
+    dispatcher = _dispatcher(transport, FakeClock(), queue_max=3)
+    # Urgent jobs are never folded into a summary: only the queue bound stops them.
+    for n in range(6):
+        await dispatcher.emit(
+            None,
+            payload={"event": "radio_offline", "outage_started_at": n},
+            targets=["webhook-1"],
+        )
+        await asyncio.sleep(0)
+    gate.set()
+    await _settle(dispatcher)
+    rows = await _deliveries()
+    limited = [r for r in rows if r["status"] == "rate_limited"]
+    assert len(limited) == 6 - 3 - 1  # three queued, one in flight
+    assert len(transport.calls) == 4
+
+
+class _FrozenLoop:
+    """The running loop, except `time()` reads a fake clock and timers poll every millisecond."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, clock: FakeClock) -> None:
+        self._loop, self._clock = loop, clock
+
+    def time(self) -> float:
+        return self._clock()
+
+    def call_at(self, _when, callback, *args, **kwargs):
+        # `_when` is on the fake clock: never hand it to the real loop. Poll instead.
+        return self._loop.call_at(self._loop.time() + 0.001, callback, *args, **kwargs)
+
+    def call_later(self, _delay, callback, *args, **kwargs):
+        return self._loop.call_later(0.001, callback, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._loop, name)
+
+
+@pytest.mark.asyncio
+async def test_first_seen_is_capped_then_grouped(test_db, monkeypatch):
+    # The hourly budget is an aiolimiter bucket that leaks on the loop's real clock, so on
+    # a loaded machine a slow burst of emits would regain a slot and send an 11th message.
+    # Freeze its clock: no slot is freed until the test moves the fake time forward.
+    clock = FakeClock()
+
+    class FrozenLimiter(AsyncLimiter):
+        @property
+        def _loop(self):
+            return _FrozenLoop(asyncio.get_running_loop(), clock)
+
+    monkeypatch.setattr(dispatcher_module, "AsyncLimiter", FrozenLimiter)
+    await _add_channel("webhook-1", "webhook")
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, clock, first_seen_per_hour=10, first_seen_period_s=0.5)
+
+    async def burst() -> None:
+        for n in range(15):
+            await dispatcher.emit(
+                None,
+                payload={"event": "first_seen", "public_key": f"{n:064x}", "contact_type": 1},
+                targets=["webhook-1"],
+            )
+        await dispatcher.wait_idle()
+
+    # A broken cap blocks the 11th emit forever: fail fast instead of hanging CI.
+    await asyncio.wait_for(burst(), 5)
+    assert len(transport.payloads) == 10  # the budget, however long the burst took
+    worker = dispatcher._workers["webhook-1"]
+    assert worker.first_seen_flusher is not None
+    clock.now += 0.5  # a full period later the budget is back
+    await worker.first_seen_flusher
+    await dispatcher.wait_idle()
+    assert len(transport.payloads) == 11
+    assert transport.payloads[-1] == {"event": "first_seen_grouped", "count": 5}
+    assert [r["status"] for r in await _deliveries()] == ["aggregated"] * 5
+
+
+# -- journal, counters, text --------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_deliveries_never_hold_message_text_and_successes_are_counters(test_db):
+    await _add_channel("webhook-bad", "webhook", secrets={"url": "https://h.example/t0ken"})
+    await _add_channel("webhook-ok", "webhook")
+
+    class Mixed:
+        async def send(self, channel, rendered, event, secrets):
+            if channel.id == "webhook-bad":
+                return SendResult("failed", error_code="http_403 https://h.example/t0ken")
+            return SendResult("ok")
+
+    dispatcher = _dispatcher(Mixed(), FakeClock())
+    for n in range(3):
+        await dispatcher.emit(None, payload=_dm(n=n), targets=["webhook-bad", "webhook-ok"])
+    await _settle(dispatcher)
+    await dispatcher.flush_counters()
+
+    async with db.readonly() as conn:
+        dump = []
+        for table in ("notification_deliveries", "notification_counters", "notification_channels"):
+            async with conn.execute(f"SELECT * FROM {table}") as cursor:  # noqa: S608
+                dump += [dict(row) for row in await cursor.fetchall()]
+    text = json.dumps(dump)
+    assert SECRET_TEXT not in text
+    assert "Alice" not in text
+    assert "t0ken" not in json.dumps([r.get("last_error") for r in dump])
+    rows = await _deliveries()
+    assert {r["channel_id"] for r in rows} == {"webhook-bad"}
+    assert all(r["status"] == "failed" and "t0ken" not in r["error"] for r in rows)
+    async with db.readonly() as conn:
+        async with conn.execute(
+            "SELECT channel_id, SUM(sent) FROM notification_counters GROUP BY channel_id"
+        ) as cursor:
+            # The third failure also sends notify.channel_failed to the others (MSHL-130); not
+            # to Web Push here: no administrator owns a device (MSHL-399).
+            assert sorted(tuple(r) for r in await cursor.fetchall()) == [("webhook-ok", 4)]
+    ok = await Channels.get("webhook-ok")
+    assert ok is not None and ok.last_ok_at is not None
+
+
+@pytest.mark.asyncio
+async def test_global_pause_holds_all_but_urgent_and_always_deliver(test_db):
+    await _add_channel("webhook-1", "webhook")
+    await _set_rules(
+        {
+            "version": 1,
+            "paused_until": int(time.time()) + 3600,
+            "events": {"app.update": {"channels": ["webhook-1"], "always_deliver": False}},
+        }
+    )
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, FakeClock())
+    await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+    await dispatcher.emit(None, payload={"event": "radio_offline"}, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert [c[1] for c in transport.calls] == ["radio.offline"]
+    [row] = await _deliveries()
+    assert (row["event"], row["status"]) == ("app.update", "paused")
+
+
+@pytest.mark.asyncio
+async def test_disabled_and_unknown_channels_are_skipped(test_db):
+    await _add_channel("webhook-off", "webhook", enabled=0)
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, FakeClock())
+    await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-off", "nope-1"])
+    await _settle(dispatcher)
+    assert transport.calls == []
+
+
+# -- rules ----------------------------------------------------------------------
+
+
+RULES = {
+    "version": 1,
+    "events": {
+        "message.dm": {"channels": ["builtin:push", "ntfy-1"]},
+        "message.channel": {"channels": ["builtin:push"]},
+        "contact.first_seen": {
+            "channels": ["builtin:push", "ntfy-1"],
+            "contact_types": {"companion": ["builtin:push"], "repeater": ["ntfy-1"], "sensor": []},
+        },
+        "radio.offline": {"channels": ["ntfy-1"], "always_deliver": True},
+    },
+    "conversations": {
+        f"contact-{DM_KEY}": {"ntfy-1": False},
+        "channel-PRIVATE": {"ntfy-1": True},
+    },
+}
+
+
+def test_conversation_policy_generalises_the_push_policy():
+    assert message_channel_ids(
+        RULES, state_key="contact-other", is_dm=True, is_public_or_hashtag=False
+    ) == ["builtin:push", "ntfy-1"]
+    # A stored exception wins, either way.
+    assert message_channel_ids(
+        RULES, state_key=f"contact-{DM_KEY}", is_dm=True, is_public_or_hashtag=False
+    ) == ["builtin:push"]
+    assert message_channel_ids(
+        RULES, state_key="channel-PUBLIC", is_dm=False, is_public_or_hashtag=True
+    ) == ["builtin:push"]
+    # A channel with its own key notifies only through an exception.
+    assert (
+        message_channel_ids(
+            RULES, state_key="channel-OTHER", is_dm=False, is_public_or_hashtag=False
+        )
+        == []
+    )
+    assert message_channel_ids(
+        RULES, state_key="channel-PRIVATE", is_dm=False, is_public_or_hashtag=False
+    ) == ["ntfy-1"]
+
+
+@pytest.mark.parametrize(
+    ("contact_type", "expected"),
+    [(1, ["builtin:push"]), (2, ["ntfy-1"]), (3, []), (4, []), (0, [])],
+)
+def test_first_seen_follows_the_contact_type(contact_type, expected):
+    event = event_from_payload({"event": "first_seen", "contact_type": contact_type})
+    assert event is not None
+    assert event_channel_ids(RULES, event) == expected
+
+
+@pytest.mark.asyncio
+async def test_emit_without_targets_follows_the_rules(test_db):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, FakeClock())
+    await dispatcher.emit(event_from_payload(_dm()))
+    await dispatcher.emit(event_from_payload({"event": "radio_offline"}))
+    await _settle(dispatcher)
+    assert sorted((c[0], c[1]) for c in transport.calls) == [
+        ("builtin:push", "message.dm"),
+        ("ntfy-1", "radio.offline"),
+    ]
+
+
+# -- status in health ----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_health_status_changes_broadcast_health(test_db, monkeypatch):
+    await _add_channel("webhook-1", "webhook")
+    broadcasts: list[bool] = []
+    monkeypatch.setattr(
+        "app.websocket.broadcast_health", lambda *args, **kwargs: broadcasts.append(True)
+    )
+    transport = StubTransport(
+        script=[SendResult("failed", error_code="http_400")] * 2 + [SendResult("ok")]
+    )
+    dispatcher = _dispatcher(transport, FakeClock())
+
+    async def send_one() -> dict:
+        await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+        await _settle(dispatcher)
+        return (await dispatcher.statuses())["webhook-1"]
+
+    status = await send_one()
+    assert (status["status"], status["last_error"]) == ("error", "http_400")
+    assert len(broadcasts) == 1
+    await send_one()  # same status, same error: nothing to say
+    assert len(broadcasts) == 1
+    status = await send_one()
+    assert (status["status"], status["last_error"]) == ("connected", None)
+    assert status["last_ok_at"] is not None
+    assert len(broadcasts) == 2
+
+
+@pytest.mark.asyncio
+async def test_health_lists_every_channel_with_its_status(test_db, client):
+    await _add_channel("webhook-off", "webhook", enabled=0)
+    await _add_channel("ntfy-paused", "ntfy", paused_until=int(time.time()) + 600)
+    body = (await client.get("/api/health")).json()
+    statuses = body["notification_statuses"]
+    assert statuses["builtin:push"] == {
+        "status": "connected",
+        "last_error": None,
+        "last_ok_at": None,
+    }
+    assert statuses["webhook-off"]["status"] == "disconnected"
+    assert statuses["ntfy-paused"]["status"] == "paused"
+
+
+# -- shutdown -------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_shutdown_records_pending_jobs_as_aborted(test_db, monkeypatch):
+    from app import background_tasks
+
+    await _add_channel("webhook-1", "webhook")
+    gate = asyncio.Event()  # never set: the first send hangs
+    transport = StubTransport(gate=gate)
+    dispatcher = _dispatcher(transport, FakeClock())
+    for _ in range(3):
+        await dispatcher.emit(None, payload={"event": "oss_update"}, targets=["webhook-1"])
+    for _ in range(50):
+        if transport.calls:
+            break
+        await asyncio.sleep(0.01)
+    await background_tasks.drain_background_tasks(timeout=2.0)
+    rows = await _deliveries()
+    assert [r["status"] for r in rows] == ["aborted"] * 3
+
+
+@pytest.mark.asyncio
+async def test_shutdown_aborts_a_pending_long_retry(test_db):
+    from app import background_tasks
+
+    await _add_channel("webhook-1", "webhook")
+    transport = StubTransport(script=[SendResult("retry", error_code="timeout")])
+
+    async def no_wait(seconds: float) -> None:
+        if seconds == LONG_RETRY_S:
+            await asyncio.Event().wait()  # the five minutes never end
+
+    dispatcher = Dispatcher(sleep=no_wait, transport_for=lambda _c: transport)
+    await dispatcher.emit(None, payload={"event": "radio_offline"}, targets=["webhook-1"])
+    await dispatcher.wait_idle()
+    await background_tasks.drain_background_tasks(timeout=2.0)
+    rows = await _deliveries()
+    assert [(r["status"], r["attempts"]) for r in rows] == [("aborted", 3)]
+
+
+# -- the producers' entry point -------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_event_reaches_web_push_through_the_rules(test_db, monkeypatch):
+    from app.notifications.producers import emit_payload
+    from app.push.manager import PushOutcome, push_manager
+
+    sent: list[dict] = []
+
+    async def fake_dispatch_event(data):
+        sent.append(dict(data))
+        return PushOutcome(total=1, delivered=1)
+
+    monkeypatch.setattr(push_manager, "dispatch_event", fake_dispatch_event)
+    await emit_payload({"event": "app_started", "version": "5"})
+    await notification_dispatcher().wait_idle()
+    assert sent == [{"event": "app_started", "version": "5"}]
+
+
+@pytest.mark.asyncio
+async def test_exclude_drops_a_channel_the_rules_chose(test_db, monkeypatch):
+    seen: list[str] = []
+
+    class Spy:
+        async def send(self, channel, rendered, event, secrets):
+            seen.append(channel.id)
+            return SendResult("ok")
+
+    async def instant(seconds: float) -> None:
+        return None
+
+    dispatcher = Dispatcher(sleep=instant, transport_for=lambda _c: Spy())
+    await dispatcher.emit(None, payload={"event": "app_started"}, exclude=["builtin:push"])
+    await dispatcher.wait_idle()
+    assert seen == []
+    await dispatcher.emit(None, payload={"event": "app_started"})
+    await dispatcher.wait_idle()
+    assert seen == ["builtin:push"]
+
+
+@pytest.mark.asyncio
+async def test_web_push_with_every_subscription_failing_is_an_error(test_db, monkeypatch):
+    from app.notifications.transports.web_push import WebPushTransport
+    from app.push.manager import PushOutcome, push_manager
+
+    monkeypatch.setattr(
+        push_manager, "dispatch_event", AsyncMock(return_value=PushOutcome(total=2, delivered=0))
+    )
+    channel = Channel(id="builtin:push", type="web_push", name="Web Push")
+    result = await WebPushTransport().send(channel, None, Delivery("app.started"), {})
+    assert result == SendResult("failed", error_code="push_delivery_failed")
+    monkeypatch.setattr(
+        push_manager, "dispatch_event", AsyncMock(return_value=PushOutcome(total=0))
+    )
+    assert (await WebPushTransport().send(channel, None, Delivery("app.started"), {})).ok
+
+
+# -- notification_event WebSocket frame (MSHL-138) -------------------------------
+
+
+def _capture_frames(monkeypatch) -> list[tuple[str, dict]]:
+    from app.websocket import ws_manager
+
+    frames: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        ws_manager,
+        "broadcast_nowait",
+        lambda event_type, data, **kwargs: frames.append((str(event_type), data)),
+    )
+    return frames
+
+
+@pytest.mark.asyncio
+async def test_a_matching_event_is_broadcast_as_a_typed_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    await dispatcher.emit(event_from_payload({"event": "radio_offline", "offline_s": 90}))
+    await _settle(dispatcher)
+    [(event_type, frame)] = frames
+    assert event_type == "notification_event"
+    assert frame["event"] == "radio.offline"
+    assert frame["data"]["offline_s"] == 90
+    assert (frame["conversation_key"], frame["conversation_type"]) == (None, None)
+    # Typed data only: nothing rendered.
+    assert "rendered" not in frame and "title" not in frame and "body" not in frame
+    from app.websocket import _DROPPABLE_EVENTS
+
+    assert "notification_event" not in _DROPPABLE_EVENTS
+
+
+@pytest.mark.asyncio
+async def test_a_suppressed_event_sends_no_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    # Muted conversation, then an event no rule gives a channel.
+    await dispatcher.emit(event_from_payload(_dm()), muted=True)
+    await dispatcher.emit(event_from_payload({"event": "oss_update", "latest": "9.9.9"}))
+    await _settle(dispatcher)
+    assert frames == []
+
+
+@pytest.mark.asyncio
+async def test_a_dm_frame_says_it_is_private_and_keeps_its_text(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules({**RULES, "conversations": {}})
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    await dispatcher.emit(event_from_payload(_dm()))
+    await _settle(dispatcher)
+    [(_, frame)] = frames
+    assert (frame["event"], frame["conversation_type"]) == ("message.dm", "PRIV")
+    assert frame["conversation_key"] == DM_KEY
+    assert frame["data"]["text"] == SECRET_TEXT
+
+
+@pytest.mark.asyncio
+async def test_emit_ws_events_false_turns_the_frame_off(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules({**RULES, "emit_ws_events": False})
+    frames = _capture_frames(monkeypatch)
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, FakeClock())
+    await dispatcher.emit(event_from_payload({"event": "radio_offline"}))
+    await _settle(dispatcher)
+    assert frames == []
+    assert [c[1] for c in transport.calls] == ["radio.offline"]  # delivery unchanged
+
+
+@pytest.mark.asyncio
+async def test_a_paused_event_still_sends_its_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(
+        {
+            **RULES,
+            "events": {"contact.first_seen": {"channels": ["ntfy-1"]}},
+            "paused_until": int(time.time()) + 600,
+        }
+    )
+    frames = _capture_frames(monkeypatch)
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, FakeClock())
+    await dispatcher.emit(
+        event_from_payload({"event": "first_seen", "public_key": "cd" * 32, "contact_type": 1})
+    )
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["contact.first_seen"]
+    assert transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_mention_on_a_private_key_channel_never_reaches_a_kiosk(test_db, monkeypatch):
+    """End to end: the dispatcher marks a mention on a channel with its own key as not
+    open, and the per-socket filter keeps it from a kiosk (a viewer and an admin get it)."""
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock
+
+    from app.auth.models import User
+    from app.auth.principal import Principal
+    from app.websocket import WebSocketManager
+
+    manager = WebSocketManager()
+    monkeypatch.setattr("app.websocket.ws_manager", manager)
+    sockets = {}
+    for role in ("kiosk", "viewer", "admin"):
+        ws = AsyncMock()
+        user = User(id=3, username=role, role=role, created_at=0, updated_at=0)  # type: ignore[arg-type]
+        await manager.connect(ws, Principal(user=user, via="lan", credential="session"))
+        sockets[role] = ws
+
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules({**RULES, "events": {"message.mention": {"channels": ["ntfy-1"]}}})
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    private_key = "5A" * 16  # neither Public nor a # channel
+    await dispatcher.emit(
+        event_from_payload(
+            {
+                "event": "message",
+                "type": "CHAN",
+                "conversation_key": private_key,
+                "text": "secret plan @[Base]",
+                "sender_name": "Bob",
+                "channel_name": "Club",
+                "id": 7,
+                "mention": True,
+            }
+        )
+    )
+    await _settle(dispatcher)
+    for _ in range(1000):
+        if all(c.queue.empty() for c in manager.active_connections.values()):
+            break
+        await asyncio.sleep(0)
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    def frames(role: str) -> list[dict]:
+        sent = [json.loads(c.args[0]) for c in sockets[role].send_text.await_args_list]
+        return [f["data"] for f in sent if f["type"] == "notification_event"]
+
+    for role in ("viewer", "admin"):
+        [frame] = frames(role)
+        assert (frame["event"], frame["conversation_key"]) == ("message.mention", private_key)
+        assert (frame["conversation_type"], frame["conversation_open"]) == ("CHAN", False)
+    assert frames("kiosk") == []
+    for ws in sockets.values():
+        await manager.disconnect(ws)
+
+
+# -- the mention's frame and one frame per event (MSHL-402) -----------------------
+
+
+def _channel_message(key: str = "8B3387E9C5CDEA6AC9E5EDBAA115CD72") -> dict:
+    return {
+        "event": "message",
+        "type": "CHAN",
+        "conversation_key": key,
+        "text": "hello @[Base]",
+        "sender_name": "Alice",
+        "channel_name": "Public",
+        "id": 42,
+        "sender_timestamp": 1700000000,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_mention_only_web_push_gets_is_framed_as_a_mention(test_db, monkeypatch):
+    """The producers emit a mention that only Web Push takes as ``message.channel`` with a
+    ``push_mention`` version: the frame is the mention, with the mention's dedup key."""
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    plain = _channel_message()
+    mention_payload = plain | {"mention": True}
+    mention = event_from_payload(mention_payload)
+    await dispatcher.emit(
+        event_from_payload(plain),
+        payload=plain,
+        targets=["ntfy-1"],
+        is_open=True,
+        push_mention=(mention, mention_payload),
+    )
+    await _settle(dispatcher)
+    [(_, frame)] = frames
+    assert frame["event"] == "message.mention"
+    assert frame["dedup_key"] == mention.dedup_key
+    assert frame["data"]["mention"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_mention_split_across_channels_sends_one_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _add_channel("ntfy-2", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    plain = _channel_message()
+    mention_payload = plain | {"mention": True}
+    mention = event_from_payload(mention_payload)
+    # What ``producers._emit_message`` does: the mention to its channels, the plain message
+    # to the others, each carrying the mention version for Web Push.
+    await dispatcher.emit(mention, payload=mention_payload, targets=["ntfy-1"], is_open=True)
+    await dispatcher.emit(
+        event_from_payload(plain),
+        payload=plain,
+        targets=["ntfy-2"],
+        is_open=True,
+        push_mention=(mention, mention_payload),
+    )
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["message.mention"]
+
+
+@pytest.mark.asyncio
+async def test_an_entity_event_routed_again_is_framed_again(test_db, monkeypatch):
+    """Frame dedup is only for one message split across channels: a ``dedup_key`` that names
+    an entity (contact, telemetry rule and node) must not swallow a new occurrence."""
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    payload = {"event": "first_seen", "public_key": "cd" * 32, "contact_type": 1}
+    await dispatcher.emit(event_from_payload(payload))
+    await dispatcher.emit(event_from_payload(payload))
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["contact.first_seen"] * 2
+    assert dispatcher._frames_sent == {}
+
+
+@pytest.mark.asyncio
+async def test_a_telemetry_alert_that_fires_again_is_framed_again(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    alert = {
+        "event": "telemetry_alert",
+        "rule_id": "r1",
+        "public_key": "ef" * 32,
+        "name": "Hilltop",
+        "value": 3.1,
+        "threshold": 3.3,
+    }
+    first = event_from_payload(alert)
+    again = event_from_payload(alert | {"value": 3.0})
+    assert first is not None and again is not None
+    assert first.dedup_key == again.dedup_key
+    await dispatcher.emit(first, payload=alert, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    await dispatcher.emit(again, payload=alert | {"value": 3.0}, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["telemetry.alert"] * 2
+    assert [f[1]["data"]["value"] for f in frames] == [3.1, 3.0]
+
+
+@pytest.mark.asyncio
+async def test_two_messages_with_the_same_event_id_send_two_frames(test_db, monkeypatch):
+    """The message dedup is per ``(event, dedup_key)``, not per event id."""
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    for n in (1, 2):
+        payload = _chan(n)
+        await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [(f[1]["event"], f[1]["data"]["text"]) for f in frames] == [
+        ("message.channel", "hello 1"),
+        ("message.channel", "hello 2"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_message_emitted_again_sends_one_frame_within_the_window(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    payload = _chan(7)
+    await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["message.channel"]
+    # Bounded: the oldest keys are forgotten.
+    for n in range(dispatcher_module.FRAME_DEDUP_MAX + 1):
+        dispatcher._frames_sent[("x", str(n))] = None
+        while len(dispatcher._frames_sent) > dispatcher_module.FRAME_DEDUP_MAX:
+            dispatcher._frames_sent.popitem(last=False)
+    await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["message.channel"] * 2
+
+
+@pytest.mark.asyncio
+async def test_a_web_push_mention_on_a_private_key_channel_never_reaches_a_kiosk(
+    test_db, monkeypatch
+):
+    """Before MSHL-402 a mention only Web Push took left as a ``message.channel`` frame, which
+    the per-socket filter lets a kiosk read; as a mention it stays with ``read_private``."""
+    from app.auth.ws_events import WsEvent
+    from app.websocket import _reveals_direct_message
+
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    plain = _channel_message("5A" * 16) | {"channel_name": "Club"}
+    mention_payload = plain | {"mention": True}
+    await dispatcher.emit(
+        event_from_payload(plain),
+        payload=plain,
+        targets=["ntfy-1"],
+        is_open=False,
+        push_mention=(event_from_payload(mention_payload), mention_payload),
+    )
+    await _settle(dispatcher)
+    [(_, frame)] = frames
+    assert (frame["event"], frame["conversation_open"]) == ("message.mention", False)
+    assert _reveals_direct_message(WsEvent.NOTIFICATION_EVENT, frame) is True
