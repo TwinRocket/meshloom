@@ -7,10 +7,10 @@ Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``/api/share`` (``POST /api/share/files`` and ``/{id}/report`` included) and
 ``/api/remote`` (``POST /api/remote/enable`` included: Remote needs Community, MSHL-445)
 is called (found dynamically from
-``app.routes``), plus the hashtag catalogue and the update check with GitHub
-answering 503. Any request to ``*.meshloom.app``, ``*.meshloom.link`` (Meshloom Remote),
-``api.fx-port.com`` (the retired airport search) or the effective Community API
-base fails the test. Placing an IATA code reads the bundled airport list.
+``app.routes``), plus the hashtag catalogue and the update check, whose route
+``/v1/meshloom/latest`` is the one Community route allowed. Any other request to
+``*.meshloom.app``, ``*.meshloom.link`` (Meshloom Remote), ``api.fx-port.com`` (the
+retired airport search) or the effective Community API base fails the test. Placing an IATA code reads the bundled airport list.
 
 The transition tests cover the opt-out itself (on → off) and an IATA change:
 the retained MQTT status is cleared before the DISCONNECT, the Live socket is

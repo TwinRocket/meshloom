@@ -320,7 +320,14 @@ async def test_a_failed_auto_update_writes_an_error_row(monkeypatch):
     from app.services import install_kind, oss_updates, update_apply
 
     monkeypatch.setattr(
-        oss_updates, "get_update_status", lambda: {"update_available": True, "latest": "9.9.9"}
+        oss_updates,
+        "get_update_status",
+        lambda: {
+            "update_available": True,
+            "latest": "9.9.9",
+            "auto_update_held": False,
+            "check_stale": False,
+        },
     )
     monkeypatch.setattr(install_kind, "detect_install_kind", lambda: ("deb", True))
     monkeypatch.setattr(

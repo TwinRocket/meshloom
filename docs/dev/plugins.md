@@ -1200,7 +1200,7 @@ an unsigned source.
   rules (`parse_repository`, 400 `repository_invalid`); the lowercase form is the key, the
   typed form is kept for display. At most `MAX_REPOSITORIES` (50, 409 `repository_limit`).
 - **Lookup.** No API and no token: `GET https://github.com/<owner>/<name>/releases/latest`
-  with redirects off, like `fetch_github_latest` in `app/services/oss_updates.py`. The tag
+  with redirects off. The tag
   is read from the `Location` (`/releases/tag/<tag>`, `repository_tag_invalid` when it
   fails the tag regex). A 404 or a redirect to `/releases` or the repository page is
   404 `repository_no_release`; a redirect to another `owner/name` (renamed or moved) is
