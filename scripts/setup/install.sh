@@ -58,8 +58,9 @@ apt_get() {
 finish_interrupted_package() {
     case "$(dpkg-query -W -f='${Status}' meshloom 2>/dev/null || true)" in
         *unpacked* | *half-configured* | *half-installed* | *triggers-awaited* | *triggers-pending*)
-            run_quiet as_root env DEBIAN_FRONTEND=noninteractive dpkg \
-                --force-confdef --force-confold --configure -a </dev/null
+            # Soft: a package whose own script fails is replaced by the install that follows.
+            run_soft as_root env DEBIAN_FRONTEND=noninteractive dpkg \
+                --force-confdef --force-confold --configure -a </dev/null || true
             ;;
     esac
 }

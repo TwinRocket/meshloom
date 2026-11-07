@@ -278,7 +278,7 @@ def test_an_interrupted_package_is_finished_without_a_question(
     _exe(bin_dir / "dpkg-query", f"printf '%s' '{status}'\n")
     _exe(bin_dir / "dpkg", f"""printf '%s|%s\\n' "$*" "$DEBIAN_FRONTEND" >>'{log}'\n""")
     result = _bash(
-        ("ensure_log", "run_quiet", "finish_interrupted_package"),
+        ("ensure_log", "run_soft", "finish_interrupted_package"),
         'as_root() { "$@"; }\nINSTALL_LOG=/dev/null\nfinish_interrupted_package',
         bin_dir,
     )
@@ -290,3 +290,18 @@ def test_an_interrupted_package_is_finished_without_a_question(
         )
     else:
         assert not log.exists()
+
+
+def test_a_package_that_cannot_be_finished_does_not_stop_the_install(tmp_path: Path) -> None:
+    """Its own script fails: the install that follows replaces it, as it always did."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _exe(bin_dir / "dpkg-query", "printf '%s' 'install ok half-configured'\n")
+    _exe(bin_dir / "dpkg", "exit 1\n")
+    result = _bash(
+        ("ensure_log", "run_soft", "finish_interrupted_package"),
+        'as_root() { "$@"; }\nINSTALL_LOG=/dev/null\nfinish_interrupted_package; echo "went on"',
+        bin_dir,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "went on" in result.stdout
