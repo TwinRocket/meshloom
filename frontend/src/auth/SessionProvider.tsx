@@ -247,6 +247,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       <SetupPage
         setupLocalOnly={session.setup_local_only}
         setupLocalUrl={session.setup_local_url}
+        setupLegacyBasic={session.setup_legacy_basic}
         kioskScreen={session.kiosk_screen}
         onDone={(next) => setState({ status: 'ready', session: next })}
       />

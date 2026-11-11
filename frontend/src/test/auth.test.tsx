@@ -103,6 +103,61 @@ describe('session gate', () => {
     });
   });
 
+  it('asks for the 4.x Basic login when the server says so, and sends it', async () => {
+    const user = userEvent.setup();
+    const fetchFn = stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse({ ...base, setup_required: true, setup_legacy_basic: true }),
+      'POST /auth/setup': () => jsonResponse(signedIn),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    expect(await screen.findByText(t('auth.setup.legacyBasic.title'))).toBeInTheDocument();
+    await fillSetupForm(user);
+    const submit = screen.getByRole('button', { name: t('auth.setup.submit') });
+    expect(submit).toBeDisabled();
+    await user.type(screen.getByLabelText(t('auth.setup.legacyBasic.username')), 'mesh');
+    await user.type(screen.getByLabelText(t('auth.setup.legacyBasic.password')), 'old secret');
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+
+    expect(await screen.findByTestId('app')).toBeInTheDocument();
+    const post = fetchFn.mock.calls.find(([, init]) => init?.method === 'POST')!;
+    expect(JSON.parse(String(post[1]!.body))).toEqual({
+      username: 'owner',
+      password: 'correct horse battery',
+      legacy_basic_username: 'mesh',
+      legacy_basic_password: 'old secret',
+    });
+  });
+
+  it('keeps a wrong 4.x Basic login on the form', async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse({ ...base, setup_required: true, setup_legacy_basic: true }),
+      'POST /auth/setup': () =>
+        jsonResponse({ detail: { code: 'auth_setup_legacy_basic_invalid', message: 'no' } }, 401),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    await fillSetupForm(user);
+    await user.type(screen.getByLabelText(t('auth.setup.legacyBasic.username')), 'mesh');
+    await user.type(screen.getByLabelText(t('auth.setup.legacyBasic.password')), 'wrong');
+    await user.click(screen.getByRole('button', { name: t('auth.setup.submit') }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      t('errors.auth_setup_legacy_basic_invalid')
+    );
+    expect(screen.getByRole('heading', { name: t('auth.setup.title') })).toBeInTheDocument();
+  });
+
   it('creates the administrator with no code to fetch', async () => {
     const user = userEvent.setup();
     const fetchFn = stubFetch({
