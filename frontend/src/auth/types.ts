@@ -35,6 +35,8 @@ export interface AuthSessionInfo {
   setup_local_only: boolean;
   /** With `setup_local_only`: the address to use on the local network, when it can be known. */
   setup_local_url?: string;
+  /** Setup also asks for the 4.x Basic user name and password (a retired variable is set). */
+  setup_legacy_basic?: boolean;
   methods: {
     password: boolean;
     ingress: boolean;
@@ -146,6 +148,9 @@ export interface AuthSetupRequest {
   username: string;
   password: string;
   display_name?: string;
+  /** With `setup_legacy_basic`: the 4.x Basic login. */
+  legacy_basic_username?: string;
+  legacy_basic_password?: string;
 }
 
 export interface AuthLoginRequest {

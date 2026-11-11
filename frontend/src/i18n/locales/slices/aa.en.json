@@ -56,6 +56,12 @@
         "title": "Open Meshloom on your local network",
         "description": "The administrator account is created from the local network. Open Meshloom from a phone or computer on the same network as this machine."
       },
+      "legacyBasic": {
+        "title": "4.x sign-in",
+        "body": "This Meshloom used the 4.x login. Enter its user name and password to create the account, or create it on the machine with meshloom-admin.",
+        "username": "4.x user name",
+        "password": "4.x password"
+      },
       "submit": "Create the account"
     },
     "userMenu": {
