@@ -1,14 +1,46 @@
 ## [Unreleased]
 
+---
+
+## [5.0.0-rc.5] - 2026-11-11
+
+Fifth release candidate of Meshloom 5.0. It makes the upgrade from 4.18 safer and fixes what testers and the pre-release review found. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new.
+
 ### Changed
 
-- **Beta badge.** Meshloom Remote and Share: links and files now show a *Beta* badge next to their name in Settings.
+- **First account after an upgrade from 4.x.** While the retired `MESHCORE_BASIC_AUTH_*` variables are still set and no account exists, the setup page also asks for that 4.x user name and password. Remove the variables once the administrator exists. A Meshloom reached through a public IP address is treated like one reached through a public name: create the account from the local network or with `meshloom-admin create-admin`.
+- **Update from a 4.18 page.** A 4.18.3 page left open during the update now reloads into the setup page instead of saying that Meshloom did not come back.
+- **Linux packages.** On `dnf`, the installer upgrades an installed Meshloom, and the in-app update installs `bubblewrap` when it is missing. A host that follows the pre-release source is told in **Settings → Updates** to run the stable installer once. Your `meshloom.env` is kept.
+- **Beta badge.** Meshloom Remote and Share: links and files show a *Beta* badge next to their name in Settings.
+
+### Fixed
+
+- **Extensions.** The sandbox of extensions blocks more system calls they never need.
+- **Logs.** Lines about outgoing requests keep only the host of the address, without its path or query.
+- **Errors.** A crash of one part of the page shows an error with a reload button instead of a blank page, and more server errors are translated.
+- **Manual update commands.** **Settings → Updates** and the docs now run `apt-get update` first and use `dnf upgrade --refresh`.
+- **Map tiles.** The check of the tile server address is stricter.
+- **Going back to 4.18.** The docs name the right copy of the database (`schema95` from 4.18.3).
 
 ### Français
 
+Cinquième version candidate de Meshloom 5.0. Elle rend la mise à jour depuis la 4.18 plus sûre et corrige ce que les testeurs et la relecture de la pré-version ont trouvé. [Les notes de la rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) restent valables : avant d'essayer, limites connues et nouveautés.
+
 #### Changements
 
-- **Badge Bêta.** Meshloom Remote et Partage : liens et fichiers affichent maintenant un badge *Bêta* à côté de leur nom dans les Réglages.
+- **Premier compte après une mise à jour depuis la 4.x.** Tant que les anciennes variables `MESHCORE_BASIC_AUTH_*` sont définies et qu'aucun compte n'existe, la page de création demande aussi l'identifiant et le mot de passe de la 4.x. Retirez ces variables une fois l'administrateur créé. Un Meshloom joint par une adresse IP publique est traité comme un Meshloom joint par un nom public : créez le compte depuis le réseau local ou avec `meshloom-admin create-admin`.
+- **Mise à jour depuis une page 4.18.** Une page 4.18.3 restée ouverte pendant la mise à jour se recharge maintenant sur la page de création du compte, au lieu de dire que Meshloom n'est pas revenu.
+- **Paquets Linux.** Avec `dnf`, l'installeur met à jour un Meshloom déjà installé, et la mise à jour depuis l'application installe `bubblewrap` s'il manque. Une machine qui suit la source des pré-versions est invitée dans **Réglages → Mises à jour** à lancer une fois l'installeur stable. Votre `meshloom.env` est conservé.
+- **Badge Bêta.** Meshloom Remote et Partage : liens et fichiers affichent un badge *Bêta* à côté de leur nom dans les Réglages.
+
+#### Corrections
+
+- **Extensions.** Le bac à sable des extensions bloque davantage d'appels système dont elles n'ont jamais besoin.
+- **Journaux.** Les lignes sur les requêtes sortantes ne gardent que l'hôte de l'adresse, sans son chemin ni sa partie requête.
+- **Erreurs.** Si une partie de la page plante, une erreur s'affiche avec un bouton pour recharger, au lieu d'une page blanche, et davantage d'erreurs du serveur sont traduites.
+- **Commandes de mise à jour manuelle.** **Réglages → Mises à jour** et la doc lancent d'abord `apt-get update` et utilisent `dnf upgrade --refresh`.
+- **Tuiles de carte.** La vérification de l'adresse du serveur de tuiles est plus stricte.
+- **Retour à la 4.18.** La doc nomme la bonne copie de la base (`schema95` depuis la 4.18.3).
 
 ---
 
@@ -59,6 +91,7 @@ Meshloom 5.0 is a big release. Meshloom now has accounts and everyone signs in; 
 
 ### Meshloom Remote and sharing
 
+- **Both are in beta.** A *Beta* badge marks them in Settings.
 - **Meshloom Remote** opens your instance from anywhere through a relay, with no open port and no TwinRocket account. It is off by default, in **Settings → Remote access**: devices are allowed one by one, by QR code or access request, and can be revoked. [Your own domain](https://meshloom.app/en/docs/deep/remote-domain/) can redirect to it, and Web Push on iPhone works without typing a contact. The relay ends the encrypted connection, so it can read the traffic it passes. For traffic TwinRocket cannot read, use your own tunnel: see [Remote access on your own](https://meshloom.app/en/docs/deep/remote-self-hosted/).
 - **Short links and photos** through `meshl.ink`, off until an administrator accepts the terms; until then Meshloom makes no connection to it. In **Automatic** mode Send shortens long addresses by itself. **Send a photo** in the composer strips position and camera data in your browser, and photos can be encrypted in private channels and direct messages, with limits the guide spells out. Photos load by themselves by default: **Settings → Share: links and files** changes that. [Short links and photos](https://meshloom.app/en/docs/deep/share/).
 - **What the services keep.** Sharing signs with a key of its own, never the radio's. Each new link or file carries a pseudonymous code for the local account; Community keeps a confidential record of which radio obtained a proof for which service key, for one year. [Proof for Remote and sharing](https://meshloom.app/en/docs/deep/community/#proof-for-remote-and-sharing).
@@ -176,6 +209,7 @@ Meshloom 5.0 est une grosse version. Meshloom a désormais des comptes et tout l
 
 #### Meshloom Remote et partage
 
+- **Les deux sont en bêta.** Un badge *Bêta* les signale dans les Réglages.
 - **Meshloom Remote** ouvre votre instance de partout via un relais, sans port ouvert et sans compte TwinRocket. Il est désactivé par défaut, dans **Réglages → Accès à distance** : les appareils sont autorisés un par un, par QR code ou demande d'accès, et révocables. [Votre propre domaine](https://meshloom.app/docs/deep/remote-domain/) peut y rediriger, et le Web Push sur iPhone fonctionne sans saisir de contact. Le relais termine la connexion chiffrée, il peut donc lire le trafic qu'il transmet. Pour un trafic que TwinRocket ne peut pas lire, utilisez votre propre tunnel : voir [L'accès à distance par vos propres moyens](https://meshloom.app/docs/deep/remote-self-hosted/).
 - **Liens courts et photos** via `meshl.ink`, désactivés tant qu'un administrateur n'a pas accepté les conditions ; d'ici là Meshloom ne s'y connecte pas. En mode **Automatique**, Envoyer raccourcit de lui-même les longues adresses. **Envoyer une photo**, dans la zone de saisie, retire la position et les données de l'appareil dans votre navigateur, et les photos peuvent être chiffrées dans les canaux privés et les messages directs, avec des limites que le guide détaille. Les photos se chargent d'elles-mêmes par défaut : **Réglages → Partage : liens et fichiers** le change. [Liens courts et photos](https://meshloom.app/docs/deep/share/).
 - **Ce que gardent les services.** Le partage signe avec une clé à lui, jamais celle de la radio. Chaque nouveau lien ou fichier porte un code pseudonyme du compte local ; Community garde un registre confidentiel de quelle radio a obtenu une preuve pour quelle clé de service, pendant un an. [La preuve pour Remote et le partage](https://meshloom.app/docs/deep/community/#preuve-pour-remote-et-le-partage).
