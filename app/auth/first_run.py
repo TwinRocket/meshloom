@@ -318,12 +318,12 @@ async def _prepare() -> None:
     if await UserRepository.any_exist():
         return
     if legacy_basic_gate_active():
+        # The variable names only, never their values (written out: no value can slip in).
         logger.warning(
-            "No account yet and %s or %s is still set: creating the administrator from the "
-            "local network also asks for those 4.x Basic credentials. Or create it on this "
-            "machine with: meshloom-admin create-admin <user>",
-            ENV_BASIC_USERNAME,
-            ENV_BASIC_PASSWORD,
+            "No account yet and MESHCORE_BASIC_AUTH_USERNAME or _PASSWORD is still set: "
+            "creating the administrator from the local network also asks for those 4.x "
+            "Basic credentials. Or create it on this machine with: "
+            "meshloom-admin create-admin <user>"
         )
         return
     logger.info("No account yet: open Meshloom on the local network to create the administrator")
