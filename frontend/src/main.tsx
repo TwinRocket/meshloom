@@ -11,6 +11,7 @@ import { migrateLegacyLocalStoragePrefix } from './utils/legacyStoragePrefix';
 import { initAppViewport } from './utils/appViewport';
 import { installPreloadErrorHandler, scheduleReload } from './utils/chunkReload';
 import { SessionProvider } from './auth/SessionProvider';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { PushSubscriptionProvider } from './contexts/PushSubscriptionContext';
 
 migrateLegacyLocalStoragePrefix();
@@ -40,11 +41,13 @@ i18nReady.then(
     if (root.querySelector('[data-boot-failed]')) return;
     createRoot(root).render(
       <StrictMode>
-        <SessionProvider>
-          <PushSubscriptionProvider>
-            <App />
-          </PushSubscriptionProvider>
-        </SessionProvider>
+        <AppErrorBoundary>
+          <SessionProvider>
+            <PushSubscriptionProvider>
+              <App />
+            </PushSubscriptionProvider>
+          </SessionProvider>
+        </AppErrorBoundary>
       </StrictMode>
     );
   },

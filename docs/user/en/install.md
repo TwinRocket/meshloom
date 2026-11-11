@@ -79,7 +79,7 @@ Two cases update by hand:
 - A Linux package, if you prefer the terminal.
 
 ```bash
-sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
+sudo apt-get update && sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
 sudo dnf upgrade --refresh meshloom            # Fedora
 sudo docker compose pull && sudo docker compose up -d   # Docker without the helper
 ```

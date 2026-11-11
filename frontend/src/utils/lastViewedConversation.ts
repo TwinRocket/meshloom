@@ -50,6 +50,14 @@ export function setReopenLastConversationEnabled(enabled: boolean): void {
   }
 }
 
+export function clearLastViewedConversation(): void {
+  try {
+    localStorage.removeItem(LAST_VIEWED_CONVERSATION_KEY);
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
 export function saveLastViewedConversation(conversation: Conversation): void {
   try {
     localStorage.setItem(LAST_VIEWED_CONVERSATION_KEY, JSON.stringify(conversation));

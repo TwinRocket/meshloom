@@ -3,6 +3,11 @@
     "message": "Une partie de l’application n’a pas pu être chargée (elle a sans doute été mise à jour). Rechargez pour continuer.",
     "reload": "Recharger"
   },
+  "appError": {
+    "message": "Une erreur est survenue à l’affichage de l’application. Rechargez la page pour continuer.",
+    "reload": "Recharger",
+    "home": "Retour à l’accueil"
+  },
   "language": {
     "label": "Langue",
     "description": "S’applique uniquement à ce navigateur. Français par défaut.",
@@ -1411,6 +1416,9 @@
   },
   "errors": {
     "message_too_long": "Le message est trop long pour la radio : {{bytes}} octets, la limite est de {{limit}} octets.",
+    "notification_rule_unknown": "Cette règle de notification n’existe plus.",
+    "notification_pause_invalid": "La durée de pause n’est pas valide.",
+    "auth_audit_cursor_invalid": "Le curseur de page du journal d’audit n’est pas valide. Rechargez la liste.",
     "radio_not_connected": "Radio non connectée",
     "resend_window_expired": "Le délai de renvoi est dépassé ({{seconds}} secondes). Utilisez plutôt « Renvoyer comme nouveau ».",
     "resend_window_expired_server": "Le délai de renvoi est dépassé : le serveur a envoyé ce message il y a plus de {{seconds}} secondes. Utilisez plutôt « Renvoyer comme nouveau ».",
