@@ -20,7 +20,7 @@ rely on it. Community and `#live` detail: `docs/dev/frontend-community.md`.
 
 ## Beta badge
 
-`components/BetaBadge.tsx` is the one "Beta" pill (strings `beta.label`, `beta.title` in `locales/slices/beta.*.json`). It goes next to the title of a feature in beta, never in a sentence or a toast. Today: Meshloom Remote and Links & Files, through `SettingsGroupHeader`'s `beta` prop and `BETA_SETTINGS_SECTIONS` (`settingsConstants.ts`), which badges the settings index, the modal's section buttons and the phone header. Drop a feature from that list and its header prop when it leaves beta.
+`components/BetaBadge.tsx` is the one "Beta" pill (strings `beta.label`, `beta.title` in `locales/slices/beta.*.json`). It goes next to the title of a feature in beta, never in a sentence or a toast. Today: Meshloom Remote and "Share: links and files", through `SettingsGroupHeader`'s `beta` prop and `BETA_SETTINGS_SECTIONS` (`settingsConstants.ts`), which badges the settings index, the modal's section buttons (not the phone header, which would double the group header's badge). Drop a feature from that list and its header prop when it leaves beta.
 
 ## Invariants that are easy to break
 

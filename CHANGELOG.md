@@ -2,13 +2,13 @@
 
 ### Changed
 
-- **Beta badge.** Meshloom Remote and Links & Files now show a *Beta* badge next to their name in Settings.
+- **Beta badge.** Meshloom Remote and Share: links and files now show a *Beta* badge next to their name in Settings.
 
 ### Français
 
 #### Changements
 
-- **Badge Bêta.** Meshloom Remote et Liens et fichiers affichent maintenant un badge *Bêta* à côté de leur nom dans les Réglages.
+- **Badge Bêta.** Meshloom Remote et Partage : liens et fichiers affichent maintenant un badge *Bêta* à côté de leur nom dans les Réglages.
 
 ---
 
