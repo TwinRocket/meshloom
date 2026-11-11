@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
@@ -42,7 +43,7 @@ ui_wrap() {{ :; }}
 {textwrap.dedent(body)}
 """
     return subprocess.run(
-        ["bash", "-c", script],
+        [shutil.which("bash") or "/bin/bash", "-c", script],
         input=stdin,
         capture_output=True,
         text=True,
@@ -128,8 +129,16 @@ def _docker_host(tmp_path: Path, apt_knows_v2: bool, install_works: bool) -> dic
         encoding="utf-8",
     )
     apt_cache.chmod(0o755)
+    # Only the tools the functions need: a host Docker in /usr/bin (CI runners
+    # have one) must not count as installed.
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    for tool in ("tr", "chmod", "cat"):
+        found = shutil.which(tool)
+        assert found, tool
+        (tools / tool).symlink_to(found)
     return {
-        "PATH": f"{stubs}:/usr/bin:/bin",
+        "PATH": f"{stubs}:{tools}",
         "STUB_LOG": str(log),
         "STUB_BIN": str(stubs),
         "STUB_INSTALL_WORKS": "1" if install_works else "0",
