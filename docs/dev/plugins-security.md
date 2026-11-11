@@ -65,7 +65,12 @@ status, and `128 + signal` for a child killed by a signal. The package
 (`dpkg -i` skips Recommends). On rpm hosts the in-app update enables only the
 Meshloom repository, so it cannot pull the weak dependency: `apply-update`, and
 `install.sh` (`ensure_bubblewrap_rpm`), install `bubblewrap` from the system
-repositories, best effort, when it is missing. The systemd unit sets no `RestrictNamespaces`, and
+repositories, best effort, when it is missing. That step runs only from the
+helper shipped with 5.0.0: the 4.18 -> 5.0.0 in-app update on rpm still runs the
+4.18.3 `apply-update` (bash already has it open when rpm replaces the file), which
+has no bubblewrap step. Those hosts run `sudo dnf install bubblewrap` or re-run the
+stable installer; Settings > Extensions shows the isolation level in effect. The
+systemd unit sets no `RestrictNamespaces`, and
 `NoNewPrivileges=yes` is fine: Debian, Raspberry Pi OS and Fedora ship bwrap
 without the setuid bit.
 
