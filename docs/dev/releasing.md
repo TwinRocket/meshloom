@@ -207,10 +207,13 @@ takes everything from the line starting `## [X.Y.Z-rc.N]` up to the next `## [`.
 - 5.0.0-rc.1's section replaced the development log of the cycle. That log, per feature,
   is `CHANGELOG.md` at commit `3003b5511ef5450762fa3369ddc00637f922b066`: not revised, so
   some entries were superseded later. Check any of it against the code.
-- During the rc, all the links of `docs/user/*/prerelease.md` and `docs/user/*/upgrade-4-18.md`
-  are absolute GitHub links to `preversion-5`, because `/next/docs` sends a tester to GitHub,
-  where a site path (`/en/docs/...`) answers 404. The other pages keep site paths. Put site
-  paths back in these two before the final.
+- The links of `docs/user/*/prerelease.md` and `docs/user/*/upgrade-4-18.md` are site
+  paths (`/en/docs/...`, `/docs/...` in French), like the other pages, and resolve once the
+  site carries the 5.0 documentation. A tester who reads them on GitHub before the final gets
+  a 404. In a changelog section, user pages are absolute `https://meshloom.app/en/docs/...`
+  links and other files are absolute links to the tag.
+- The `[5.0.0]` section is written ahead of the tag and dated `Unreleased`: set the date
+  before running `publish.sh`, which leaves an existing section as it is.
 
 ### How a tester gets an rc
 

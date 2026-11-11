@@ -32,7 +32,7 @@ Un appareil appartient au compte qui l’a autorisé. Supprimer un compte coupe 
 
 Le relais est exploité par TwinRocket. Il termine la connexion chiffrée avant de transmettre le trafic à votre instance : il pourrait donc techniquement tout lire, y compris votre mot de passe quand vous vous connectez, vos messages et vos réglages. Il bloque tout appareil que vous n’avez pas autorisé.
 
-Seule la double authentification empêche qu’un mot de passe vu par le relais suffise à entrer (**Réglages → Utilisateurs et accès**, voir [Double authentification](/docs/deep/access/#la-double-authentification)). Une [clé d’accès (passkey)](/docs/deep/access/#les-passkeys) évite de saisir le mot de passe, mais celui-ci reste valable.
+La double authentification empêche qu’un mot de passe vu par le relais suffise pour se connecter (**Réglages → Utilisateurs et accès**, voir [Double authentification](/docs/deep/access/#la-double-authentification)). Une [clé d’accès (passkey)](/docs/deep/access/#les-passkeys) évite de saisir le mot de passe, mais celui-ci reste valable. Le relais voit aussi la session pendant que vous l’utilisez, ce que la double authentification ne change pas. Pour un trafic que TwinRocket ne peut pas lire, utilisez [votre propre tunnel](/docs/deep/self-host-tailscale/).
 
 Quand Remote est activé, Meshloom indique aussi au relais sa version, son type d’installation, et s’il fait tourner des plugins avec quel niveau d’isolation. Tant que Remote est désactivé, rien n’est envoyé. Il n’y a pas de compte sur le relais. Pour chaque instance, il conserve :
 

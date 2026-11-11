@@ -2,7 +2,8 @@
 requests (docs/dev/remote.md; contracts in meshloom-community ``docs/contracts/``
 ``remote-registration.md`` and ``remote-relay.md``).
 
-Remote is a blind relay: no TwinRocket account, no portal, no pairing. The instance
+Remote is an account-less relay (TLS ends at Cloudflare, so the relay can read the
+traffic it passes): no TwinRocket account, no portal, no pairing. The instance
 registers its Remote key (``instance_identity``, service ``remote``) and gets a slug;
 who may reach it through ``<slug>.meshloom.link`` is decided here alone, by the device
 passes this instance signs (``app/services/remote_passes.py``).

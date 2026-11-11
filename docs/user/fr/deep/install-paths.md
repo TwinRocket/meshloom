@@ -192,7 +192,7 @@ Lancé à la main sans `--host`, Meshloom ne répond que sur la machine elle-mê
 
 ### La copie faite avant une mise à niveau
 
-Quand une mise à niveau doit changer la structure de votre base, Meshloom en fait d’abord une copie, dans le même dossier, sous un nom qui dit quelle structure elle contient et quelle version l’a faite : par exemple `meshcore.db.schema87.before-5.0.0.db`, ou `meshcore.db.schema87.before-5.0.0-rc.1.db` sur une version candidate (le schéma 87 est celui de toutes les 4.18). Quand un fichier `secrets.key` existe, il est copié aussi, sous le nom `meshcore.db.schema144.before-5.1.0.secrets.key`. Une nouvelle installation, ou un démarrage sans rien à mettre à niveau, ne fait pas de copie.
+Quand une mise à niveau doit changer la structure de votre base, Meshloom en fait d’abord une copie, dans le même dossier, sous un nom qui dit quelle structure elle contient et quelle version l’a faite : par exemple `meshcore.db.schema95.before-5.0.0.db` depuis la 4.18.3, ou `meshcore.db.schema95.before-5.0.0-rc.1.db` sur une version candidate (schéma 87 pour les 4.18.0 à 4.18.2, schéma 95 pour la 4.18.3, la version stable actuelle). Quand un fichier `secrets.key` existe, il est copié aussi, sous le nom `meshcore.db.schema144.before-5.1.0.secrets.key`. Une nouvelle installation, ou un démarrage sans rien à mettre à niveau, ne fait pas de copie.
 
 - **Taille.** La copie est aussi grande que la base, et prend jusqu’à quelques minutes sur un Raspberry Pi avec une grosse base (le journal montre sa progression). Meshloom demande de la place libre dans ce dossier : la taille de la base plus un quart, 64 Mo au minimum.
 - **Si la copie échoue.** Meshloom ne met pas à niveau et ne démarre pas, et le journal dit pourquoi et combien de place il lui faut. Votre base reste telle quelle. Libérez de la place et redémarrez. Une mise à niveau ne s’annule pas : Meshloom préfère un démarrage qui attend à une mise à niveau sans retour.
@@ -201,23 +201,25 @@ Quand une mise à niveau doit changer la structure de votre base, Meshloom en fa
 
 ### Revenir à une version plus ancienne
 
-Meshloom refuse de démarrer sur une base faite par une version plus récente, et n’y touche pas. Pour revenir en arrière, remettez la copie. Tout ce qui a été reçu ou modifié depuis la mise à niveau est perdu.
+Meshloom 5.0 et les suivantes refusent de démarrer sur une base faite par une version plus récente, et n’y touchent pas. **La 4.18 ne le fait pas** : elle ouvre une base migrée par la 5.0 et tourne dessus sans rien dire, donc la copie doit être remise en place avant de démarrer la 4.18. Pour revenir en arrière, remettez la copie. Tout ce qui a été reçu ou modifié depuis la mise à niveau est perdu.
+
+Revenez à la **4.18.3**, la dernière 4.18. Avant de démarrer la 4.18, désactivez les mises à jour automatiques dans ses **Réglages → Mises à jour**, et bloquez le paquet pour que rien ne vous remette en 5.0 : `sudo apt-mark hold meshloom` (avec `dnf`, `sudo dnf versionlock add meshloom`, qui demande l’extension versionlock). Avec Docker, l’image épinglée ci-dessous suffit.
 
 1. Arrêtez Meshloom.
 2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les fichiers qui accompagnent l’ancienne (si les fichiers ne sont pas à vous, ouvrez d’abord un shell root avec `sudo -s` : avec le paquet Linux, `/var/lib/meshloom` est fermé aux autres comptes, donc un `sudo cp` depuis votre shell ne peut pas développer le `*`) :
 
    ```bash
-   cp -p meshcore.db.schema87.before-*.db meshcore.db &&
+   cp -p meshcore.db.schema95.before-*.db meshcore.db &&
      rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
 
-   Si plusieurs copies correspondent, ou aucune, la commande échoue et la base reste telle quelle : listez les copies avec `ls meshcore.db.schema*` et nommez celle que vous voulez.
+   Le numéro dans le nom est le schéma de la version à laquelle vous revenez : `schema95` pour la 4.18.3, `schema87` si vous revenez à la 4.18.0, 4.18.1 ou 4.18.2. Si plusieurs copies correspondent, ou aucune, la commande échoue et la base reste telle quelle : listez les copies avec `ls meshcore.db.schema*` et nommez celle que vous voulez.
 
    Pour revenir à une 5.0 ou plus récente, remettez aussi la clé si la copie en a une : `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Installez l’ancienne version, puis démarrez-la :
-   - Docker : dans `.env`, indiquez `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@<empreinte>`, avec l’empreinte du fichier `OCI-DIGESTS` de cette version (elle commence par `sha256:`), puis `docker compose up -d`. Sans l’empreinte, **Réglages > Mises à jour** ne peut pas mettre à jour cette installation.
+   - Docker : dans `.env`, indiquez `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.3@<empreinte>`, avec l’empreinte du fichier `OCI-DIGESTS` de cette version (elle commence par `sha256:`), puis `docker compose up -d`. Sans l’empreinte, **Réglages > Mises à jour** ne peut pas mettre à jour cette installation.
    - Paquet Linux : téléchargez le paquet sur la [page des versions](https://github.com/TwinRocket/meshloom/releases), puis `sudo apt install --allow-downgrades ./<fichier>.deb` ou `sudo dnf downgrade ./<fichier>.rpm`.
-   - Copie du code : `git checkout 4.18.2`, puis relancez `install_service.sh`.
+   - Copie du code : `git checkout 4.18.3`, puis relancez `install_service.sh`.
    - Home Assistant : restaurez l’add-on depuis la sauvegarde que Home Assistant propose de faire avant une mise à jour, sans passer par l’étape 2 : elle contient l’ancienne base. Cette sauvegarde est facultative, et sans elle Home Assistant ne peut pas réinstaller un ancien add-on : laissez l’option cochée quand vous mettez à jour. La restauration remplace tout le dossier de l’add-on et supprime les copies, que les sauvegardes laissent de côté.
 
 **Si cette machine est passée par `get.meshloom.app/next` :** avec un paquet Linux, une fois la 4.18 relancée avec la copie en place, lancez tout de suite la commande d’installation habituelle, avant tout `apt upgrade` ou `dnf upgrade`. La machine est encore sur la source de paquets des pré-versions, et une mise à niveau installerait une pré-version et migrerait à nouveau votre base. Tant que la 4.18 est la version stable, cette commande garde la 4.18 et remet la source sur stable ; une fois la 5.0 finale, elle installe la 5.0. Avec Docker, l’épinglage ci-dessus suffit.

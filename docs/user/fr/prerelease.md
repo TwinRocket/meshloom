@@ -9,7 +9,7 @@ Une pré-version (une version candidate, `5.0.0-rc.1` par exemple) est la procha
 
 ## Avant de commencer
 
-Copiez d’abord vos données, ou essayez la pré-version sur une nouvelle instance. Si vous venez de la 4.18, lisez [Passer de la 4.18 à la 5.0](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/fr/upgrade-4-18.md). Ce qui change et les limites connues sont dans les [notes de version](https://github.com/TwinRocket/meshloom/releases).
+Copiez d’abord vos données, ou essayez la pré-version sur une nouvelle instance. Si vous venez de la 4.18, lisez [Passer de la 4.18 à la 5.0](/docs/upgrade-4-18/). Ce qui change et les limites connues sont dans les [notes de version](https://github.com/TwinRocket/meshloom/releases).
 
 ## Installer la pré-version ou y passer
 
@@ -34,7 +34,7 @@ Relancez la même commande. **Réglages > Mises à jour** ne regarde que les ver
 - **Docker :** la mise à jour épingle cette version finale, et la machine suit ensuite les versions stables.
 - **Paquet `apt` ou `dnf` :** la machine reste sur la source de paquets des pré-versions. Une mise à jour, depuis **Réglages > Mises à jour** ou avec `apt upgrade` ou `dnf upgrade`, installe ce que cette source sert. Si une pré-version suivante est déjà sortie, c’est elle que vous obtenez, même si la page proposait la version finale.
 
-Avec un paquet, lancez donc la commande d’installation habituelle une fois la version finale sortie. Elle revient à la source stable. Avec `apt`, elle installe aussi la version finale si la machine est encore sur une pré-version ; avec `dnf`, lancez ensuite `sudo dnf upgrade meshloom` :
+Avec un paquet, lancez donc la commande d’installation habituelle une fois la version finale sortie. Elle revient à la source stable. Elle installe aussi la version finale si la machine est encore sur une pré-version, avec `apt` comme avec `dnf` (l’installeur stable met à jour un paquet `rpm` installé et installe `bubblewrap` s’il manque, pour que les extensions gardent leur isolation) :
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -45,6 +45,6 @@ Avec un paquet, lancez donc la commande d’installation habituelle une fois la 
 Deux possibilités :
 
 - Utilisez une nouvelle instance, et gardez celle-ci telle quelle.
-- Restaurez votre propre copie des données sur une installation neuve de la 4.18 : les étapes sont dans [Revenir à la 4.18](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/fr/upgrade-4-18.md#revenir-à-la-418).
+- Restaurez votre propre copie des données sur une installation neuve de la 4.18 : les étapes sont dans [Revenir à la 4.18](/docs/upgrade-4-18/#revenir-à-la-418).
 
 Ne lancez jamais le script d’installation de la 4.18 sur une machine en pré-version. Il ne connaît pas les pré-versions, et peut démarrer la 4.18 sur une base qu’elle ne sait pas lire. Les versions suivantes de l’installateur refusent et ne changent rien.

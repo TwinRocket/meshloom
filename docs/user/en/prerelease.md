@@ -9,7 +9,7 @@ A pre-release (a release candidate, `5.0.0-rc.1` for example) is the next versio
 
 ## Before you start
 
-Copy your data first, or try the pre-release on a new instance. Coming from 4.18, read [Upgrading from 4.18](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/en/upgrade-4-18.md). What changed and the known limits are in the [release notes](https://github.com/TwinRocket/meshloom/releases).
+Copy your data first, or try the pre-release on a new instance. Coming from 4.18, read [Upgrading from 4.18](/en/docs/upgrade-4-18/). What changed and the known limits are in the [release notes](https://github.com/TwinRocket/meshloom/releases).
 
 ## Install or move to the pre-release
 
@@ -34,7 +34,7 @@ Run the same command again. **Settings > Updates** only looks at stable releases
 - **Docker:** the update pins that final release, and from then on the machine follows stable releases.
 - **`apt` or `dnf` package:** the machine stays on the pre-release package source. An update, from **Settings > Updates** or with `apt upgrade` or `dnf upgrade`, installs what that source serves. If a later pre-release is already out, you get that one, even though the page offered the final release.
 
-So with a package, run the usual install command once the final is out. It goes back to the stable source. With `apt` it also installs the final release if the machine is still on a pre-release; with `dnf`, run `sudo dnf upgrade meshloom` afterwards:
+So with a package, run the usual install command once the final is out. It goes back to the stable source. It also installs the final release if the machine is still on a pre-release, with `apt` and with `dnf` (the stable installer upgrades an installed `rpm` package and installs `bubblewrap` if it is missing, so extensions keep their isolation):
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -45,6 +45,6 @@ So with a package, run the usual install command once the final is out. It goes 
 Two ways:
 
 - Use a new instance, and keep this one as it is.
-- Restore your own copy of the data on a fresh 4.18 install: the steps are in [Going back to 4.18](https://github.com/TwinRocket/meshloom/blob/preversion-5/docs/user/en/upgrade-4-18.md#going-back-to-418).
+- Restore your own copy of the data on a fresh 4.18 install: the steps are in [Going back to 4.18](/en/docs/upgrade-4-18/#going-back-to-418).
 
 Never run the 4.18 install script on a machine running a pre-release. It does not know pre-releases, and can start 4.18 on a database it cannot read. Later versions of the installer refuse and change nothing.
