@@ -335,19 +335,52 @@ class MinimalHealthResponse(BaseModel):
     ok: bool = True
 
 
+class SetupVersionInfo(BaseModel):
+    version: str
+
+
+class SetupPendingHealthResponse(BaseModel):
+    """An anonymous caller while no account exists: also the running version.
+
+    A 4.18.3 tab that ran the in-app update to 5.0 polls ``/api/health`` and
+    reloads only when ``app_info.version`` is the target; ``/api/updates`` needs an
+    administrator, who does not exist yet. Without the version that tab reports a
+    failed update."""
+
+    ok: bool = True
+    app_info: SetupVersionInfo
+
+
 @router.get(
     "/health",
-    response_model=HealthResponse | MinimalHealthResponse,
+    # Most fields first: a union matches the first model that validates.
+    response_model=HealthResponse | SetupPendingHealthResponse | MinimalHealthResponse,
     dependencies=[Depends(public())],
 )
-async def healthcheck(request: Request) -> HealthResponse | MinimalHealthResponse:
+async def healthcheck(
+    request: Request,
+) -> HealthResponse | SetupPendingHealthResponse | MinimalHealthResponse:
     """Check if the API is running and if the radio is connected.
 
     Public, for probes (Uptime Kuma, Home Assistant REST sensors, Docker, the
-    kiosk launcher): an anonymous caller gets only ``{"ok": true}``, the details
-    need a signed-in principal (``app/auth/middleware.py``).
+    kiosk launcher): an anonymous caller gets only ``{"ok": true}``, plus
+    ``app_info.version`` while no account exists (``SetupPendingHealthResponse``;
+    never through the relay); the details need a signed-in principal
+    (``app/auth/middleware.py``).
     """
     if get_principal(request) is None:
+        from app.auth.middleware import request_via
+        from app.repository.auth import UserRepository
+
+        try:
+            setup_pending = not await UserRepository.any_exist()
+        except Exception:
+            # A probe must keep answering while the database does not.
+            setup_pending = False
+        if setup_pending and request_via(request.scope) != "relay":
+            return SetupPendingHealthResponse(
+                app_info=SetupVersionInfo(version=get_app_build_info().version)
+            )
         return MinimalHealthResponse()
     data = await build_health_data(radio_manager.is_connected, radio_manager.connection_info)
     if not has_permission(get_principal(request), HEALTH_DETAIL_PERMISSION):

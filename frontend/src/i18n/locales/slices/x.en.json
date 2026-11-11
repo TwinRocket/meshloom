@@ -4,6 +4,7 @@
     "auth_setup_required": "No account exists yet: create the administrator account first.",
     "auth_setup_done": "The administrator account already exists. Sign in instead.",
     "auth_setup_local_only": "Create the administrator account from the local network: open Meshloom from a device on the same network as this machine.",
+    "auth_setup_legacy_basic_invalid": "Wrong 4.x user name or password. Or create the account on the machine with meshloom-admin create-admin.",
     "auth_invalid_credentials": "Wrong user name or password.",
     "auth_password_policy": "This password is not accepted.",
     "auth_password_policyDetail": "Use at least {{min_length}} characters, different from the user name and not a common password.",

@@ -371,7 +371,9 @@ purpose.
   before anything else mounts, so nothing loads before the server knows who calls.
   `setup_required` renders `SetupPage` (no form when `setup_local_only`, or after a 403
   `auth_setup_local_only`: it asks to open Meshloom from the local network, with
-  `setup_local_url` as a link when present; on the kiosk screen,
+  `setup_local_url` as a link when present; with `setup_legacy_basic` the form also asks
+  for the 4.x Basic user name and password and sends them as `legacy_basic_username` /
+  `legacy_basic_password`, a 401 `auth_setup_legacy_basic_invalid` staying on the form; on the kiosk screen,
   `kiosk_screen` set, it re-reads the session every 5 s and opens the app once an
   administrator exists, the screen's own `kiosk` session coming from the launcher's device
   token, `docs/dev/auth.md` "Kiosk device token"), an anonymous

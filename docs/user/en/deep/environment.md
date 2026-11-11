@@ -65,7 +65,7 @@ See [Meshloom Community](/en/docs/deep/community/).
 |----------|---------|-------------|
 | `MESHCORE_DISABLE_PLUGINS` | `false` | Host lock of the plugin system: when `true`, no plugin can be installed, changed or started, whatever the settings say; viewing, deleting and pausing all plugins still work, and plugins restored from a backup come back turned off and stay so. The Linux package ships it commented out in `meshloom.env`. The bot lock variable of 4.18 and earlier no longer does anything: Meshloom logs a warning naming this variable if it is still set (see [Plugins](/en/docs/deep/plugins/#bots-from-418-and-earlier)). In the Home Assistant add-on, it is the `disable_plugins` option |
 
-`MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` are retired (also listed under **Retired variables**): Meshloom no longer imports them as an account and no longer accepts `Authorization: Basic`; it only logs a warning at every start while they are set (remove them; accounts are managed in **Settings → Users & Access**, scripts use an API token). An installation that relied only on the Basic login goes through the first-run setup, from the local network. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
+`MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` are retired (also listed under **Retired variables**): Meshloom no longer imports them as an account and no longer accepts `Authorization: Basic`; it logs a warning at every start while they are set (accounts are managed in **Settings → Users & Access**, scripts use an API token). An installation that relied only on the Basic login goes through the first-run setup, from the local network, which also asks for that 4.x user name and password while they are set: remove them once the administrator exists. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 
 ## Installation and updates
 
@@ -115,7 +115,7 @@ Meshloom writes the same warning at each start while one of them is still set.
 
 | Retired variable | What happens to it |
 |----------|---------|
-| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Ignored: not imported as an account, and `Authorization: Basic` is no longer accepted (use an API token). Meshloom logs a warning at each start while one is set. Accounts are managed in **Settings → Users & Access** |
+| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Not imported as an account, and `Authorization: Basic` is no longer accepted (use an API token). Until the first account exists, the setup page asks for them. Meshloom logs a warning at each start while one is set. Accounts are managed in **Settings → Users & Access** |
 | `MESHCORE_DISABLE_BOTS` | The Python bots are extensions since 5.0.0. Read one last time by the migration of the bots (`true` stores every converted extension switched off), then ignored, with a start-up warning that names `MESHCORE_DISABLE_PLUGINS` (a package install that still has the shipped `true` gets an information line instead). It locks nothing in 5.0. To lock every extension, set that variable (see [Plugins](/en/docs/deep/plugins/#bots-from-418-and-earlier)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignored, with the same warning. The radio's private key can always be read back: through `GET /api/radio/private-key` and in the full backup (**Settings → Database**, see [Back up your radio](/en/docs/backup/)). See [Security](/en/docs/deep/security/#the-nodes-private-key) |
 

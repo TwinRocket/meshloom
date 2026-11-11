@@ -149,7 +149,9 @@ jobs:
   # runner's filter: only the backend job proves that guard (and the bwrap level,
   # which needs user namespaces). Sockets and pidfds are allowed by Docker's
   # profile, so `pidfd_signal` and the socket probe of test_plugin_seccomp.py do
-  # prove the runner's filter here, at the setuid level included.
+  # prove the runner's filter here, at the setuid level included. io_uring, bpf,
+  # userfaultfd, perf_event_open, keyctl and the mount API are refused by Docker's
+  # profile too (io_uring since Docker 25): the backend job proves those.
   plugin-isolation-root:
     name: Plugin isolation as root (Python ${{ matrix.image }})
     runs-on: ubuntu-latest

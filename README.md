@@ -52,8 +52,8 @@ On a package or installer-managed Docker install, **Settings → Updates** can i
 Otherwise update by hand, or re-run the installer so it can install the apply helper if it is missing:
 
 ```bash
-sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu (Meshloom only)
-sudo dnf upgrade meshloom                      # Fedora / Rocky / Alma
+sudo apt-get update && sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu (Meshloom only)
+sudo dnf upgrade --refresh meshloom                                    # Fedora
 sudo docker compose pull && sudo docker compose up -d
 ```
 

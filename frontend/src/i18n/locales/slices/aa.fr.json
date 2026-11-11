@@ -56,6 +56,12 @@
         "title": "Ouvrez Meshloom sur votre réseau local",
         "description": "Le compte administrateur se crée depuis le réseau local. Ouvrez Meshloom depuis un téléphone ou un ordinateur connecté au même réseau que cette machine."
       },
+      "legacyBasic": {
+        "title": "Identifiant 4.x",
+        "body": "Ce Meshloom utilisait l’identifiant de la 4.x. Saisissez son nom d’utilisateur et son mot de passe pour créer le compte, ou créez-le sur la machine avec meshloom-admin.",
+        "username": "Nom d’utilisateur 4.x",
+        "password": "Mot de passe 4.x"
+      },
       "submit": "Créer le compte"
     },
     "userMenu": {
