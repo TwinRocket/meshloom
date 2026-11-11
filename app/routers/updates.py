@@ -98,6 +98,13 @@ class UpdateStatusResponse(BaseModel):
             "(`testing` after the pre-release installer); null when unknown or not a package"
         ),
     )
+    stable_reaches_current: bool = Field(
+        default=False,
+        description=(
+            "Community's latest final release is this version or newer, so the stable "
+            "installer would not go back to an older version; false when unknown"
+        ),
+    )
     job: UpdateJobResponse
 
 
@@ -187,6 +194,7 @@ async def build_update_status() -> UpdateStatusResponse:
         ),
         legacy_update_helper=bool(kind == "compose" and supported and not secure_compose_helper()),
         package_channel=package_channel() if kind == "package" else None,
+        stable_reaches_current=bool(catalogue.get("stable_reaches_current")),
         job=UpdateJobResponse.model_validate(
             public_job_for_client(
                 current=catalogue["current"],

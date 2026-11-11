@@ -108,6 +108,11 @@
           "none": "No sandbox here: an extension could read your data. Only install extensions you trust.",
           "unknown": "The isolation level is reported once the server has started the extension system."
         },
+        "reason": {
+          "bwrap_missing": "bubblewrap is not installed on the server: install it, then restart Meshloom.",
+          "bwrap_refused": "bubblewrap is installed, but the system refuses its sandbox (common on Ubuntu 24.04 and later).",
+          "not_linux": "A sandbox needs a Linux server."
+        },
         "purgeBlocked": {
           "title": "A temporary folder keeps extension accounts taken",
           "text": "Meshloom could not clean the temporary folders of removed extensions, so these accounts stay reserved:",

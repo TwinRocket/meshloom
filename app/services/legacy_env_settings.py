@@ -28,7 +28,7 @@ off, the setting now starts on).
 variables no longer become an account. One use is left: while no account exists,
 first-run setup asks for those credentials (``app/auth/first_run.py``, "The 4.x
 Basic credentials"), so their startup warning says to remove them only once the
-administrator exists.
+administrator exists; once it does, the warning only says they are ignored.
 
 The 4.18.x bot lock (``ENV_BOT_LOCK``) is retired with the bots (MSHL-192):
 migration 122 reads it once to store the converted bots disabled, then each start
@@ -69,10 +69,7 @@ ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
 ENV_BOT_LOCK = "MESHCORE_DISABLE_BOTS"
 ENV_BASIC_USERNAME = "MESHCORE_BASIC_AUTH_USERNAME"
 ENV_BASIC_PASSWORD = "MESHCORE_BASIC_AUTH_PASSWORD"
-_BASIC_UI = (
-    "Settings → Users & Access (HTTP Basic auth is removed: sign in with an account; "
-    "a script uses an API token)"
-)
+_BASIC_UI = "Settings → Users & Access (sign in with an account; a script uses an API token)"
 # Never imported: the setting that replaces it is on by default.
 ENV_CLOCK_WRAPAROUND = "__CLOWNTOWN_DO_CLOCK_WRAPAROUND"
 _COMMUNITY_UI = "Settings → Meshloom Community"
@@ -122,8 +119,23 @@ def _packaged_bot_lock() -> bool:
     )
 
 
-def warn_about_retired_env() -> list[str]:
-    """Log one warning per retired variable still set (and not blank). Returns their names."""
+async def _accounts_exist() -> bool | None:
+    """Whether the administrator exists; None when the database cannot say."""
+    from app.repository.auth import UserRepository
+
+    try:
+        return await UserRepository.any_exist()
+    except Exception:  # noqa: BLE001 - only picks the wording of a warning
+        logger.debug("Could not tell whether an account exists", exc_info=True)
+        return None
+
+
+def warn_about_retired_env(*, accounts_exist: bool | None = None) -> list[str]:
+    """Log one warning per retired variable still set (and not blank). Returns their names.
+
+    ``accounts_exist`` picks the wording for the 4.x Basic variables: while no account
+    exists (or it is unknown), setup still asks for them; afterwards they are only left over.
+    """
     still_set = [name for name in RETIRED_ENV if _env(name)]
     for name in still_set:
         if name == ENV_BOT_LOCK and _packaged_bot_lock():
@@ -134,13 +146,20 @@ def warn_about_retired_env() -> list[str]:
             )
             continue
         if name in (ENV_BASIC_USERNAME, ENV_BASIC_PASSWORD):
-            logger.warning(
-                "%s is set: HTTP Basic auth is removed, see %s. Until the first account "
-                "exists, creating the administrator asks for these 4.x credentials; "
-                "remove the variable once it exists.",
-                name,
-                RETIRED_ENV[name],
-            )
+            if accounts_exist:
+                logger.warning(
+                    "%s is set but no longer read: HTTP Basic auth is removed and an account "
+                    "exists. Remove the variable from your environment.",
+                    name,
+                )
+            else:
+                logger.warning(
+                    "%s is set: HTTP Basic auth is removed, see %s. Until the first account "
+                    "exists, creating the administrator asks for these 4.x credentials; "
+                    "remove the variable once it exists.",
+                    name,
+                    RETIRED_ENV[name],
+                )
             continue
         logger.warning(
             "%s is set but no longer read: this setting lives in %s. "
@@ -198,7 +217,7 @@ async def import_legacy_env_settings() -> dict[str, object]:
     unset; afterwards it only warns about variables that are still defined.
     """
     if await AppSettingsRepository.get_legacy_env_settings_imported():
-        warn_about_retired_env()
+        warn_about_retired_env(accounts_exist=await _accounts_exist())
         return {}
 
     imported: dict[str, object] = {}
@@ -237,5 +256,5 @@ async def import_legacy_env_settings() -> dict[str, object]:
     await AppSettingsRepository.mark_legacy_env_settings_imported()
     for key, value in imported.items():
         logger.warning("Imported %s=%r from the environment into app_settings", key, value)
-    warn_about_retired_env()
+    warn_about_retired_env(accounts_exist=await _accounts_exist())
     return imported

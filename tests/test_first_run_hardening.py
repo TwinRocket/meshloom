@@ -257,6 +257,36 @@ async def test_the_start_warns_with_the_command_and_no_secret(caplog):
     assert BASIC_PASSWORD not in caplog.text
 
 
+@pytest.mark.usefixtures("upgraded_db", "basic_env")
+async def test_the_basic_warning_says_it_once_and_changes_once_the_account_exists(caplog):
+    """G2: "HTTP Basic auth is removed" twice per line, and "until the first account
+    exists" still logged after setup."""
+    from app.services.legacy_env_settings import import_legacy_env_settings
+
+    def basic_lines() -> list[str]:
+        return [r.getMessage() for r in caplog.records if "MESHCORE_BASIC_AUTH_" in r.getMessage()]
+
+    with caplog.at_level(logging.WARNING):
+        await import_legacy_env_settings()
+    before = basic_lines()
+    assert len(before) == 2
+    assert all(line.count("HTTP Basic auth is removed") == 1 for line in before)
+    assert all("Until the first account exists" in line for line in before)
+
+    await _prepared()
+    body = _setup_body(legacy_basic_username=BASIC_USER, legacy_basic_password=BASIC_PASSWORD)
+    async with make_client(client=LAN) as client:
+        assert (await client.post("/api/auth/setup", json=body)).status_code == 200
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        await import_legacy_env_settings()
+    after = basic_lines()
+    assert len(after) == 2
+    assert all("no longer read" in line and "Remove the variable" in line for line in after)
+    assert not any("first account" in line for line in after)
+    assert BASIC_PASSWORD not in caplog.text
+
+
 def test_the_comparison_is_exact(monkeypatch):
     """As 4.x compared: the values as set, nothing stripped."""
     monkeypatch.setenv("MESHCORE_BASIC_AUTH_USERNAME", "mesh")

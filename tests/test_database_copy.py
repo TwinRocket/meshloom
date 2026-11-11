@@ -483,6 +483,79 @@ def test_disk_space_counts_the_copy_that_will_be_removed(db_path, monkeypatch) -
     assert prepare_for_migrations(str(db_path)) is not None
 
 
+def test_a_leftover_temporary_is_removed_before_the_disk_check(
+    db_path, monkeypatch, caplog
+) -> None:
+    """G2: a copy killed half way left 0.9 GB that the check counted, on every start."""
+    _make_db(db_path, 87)
+    temporary = db_path.with_name("meshcore.db.copy-in-progress")
+    leftovers = [temporary] + [
+        temporary.with_name(temporary.name + suffix) for suffix in ("-journal", "-wal", ".key")
+    ]
+    for path in leftovers:
+        path.write_bytes(b"x" * 1024)
+    real_usage = database_copy.shutil.disk_usage
+
+    def usage(path):
+        assert not any(p.exists() for p in leftovers), "the leftover is still there"
+        return real_usage(path)
+
+    monkeypatch.setattr(database_copy.shutil, "disk_usage", usage)
+    with caplog.at_level("INFO", logger="app.database_copy"):
+        copy = prepare_for_migrations(str(db_path))
+    assert copy is not None
+    assert "left by an interrupted copy" in caplog.text
+    assert not any(p.exists() for p in leftovers)
+
+
+def test_a_leftover_that_cannot_be_removed_is_named(db_path, monkeypatch) -> None:
+    _make_db(db_path, 87)
+    temporary = db_path.with_name("meshcore.db.copy-in-progress")
+    temporary.write_bytes(b"half a copy")
+    real_unlink = Path.unlink
+
+    def unlink(self, missing_ok=False):
+        if self.name == temporary.name:
+            raise PermissionError("read-only")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    usage = database_copy.shutil.disk_usage(db_path.parent)._replace(free=0)
+    monkeypatch.setattr(database_copy.shutil, "disk_usage", lambda _path: usage)
+    with pytest.raises(CopyFailedError, match=re.escape(f"{temporary.name} is left")):
+        prepare_for_migrations(str(db_path))
+
+
+@pytest.mark.parametrize("systemd", [True, False])
+def test_disk_refusal_links_the_copy_section_and_says_how_to_start_again(
+    db_path, monkeypatch, systemd
+) -> None:
+    _make_db(db_path, 87)
+    monkeypatch.delenv("MESHLOOM_INSTALL_KIND", raising=False)
+    monkeypatch.setattr("app.services.install_kind.detect_install_kind", lambda: ("source", False))
+    if systemd:
+        monkeypatch.setenv("INVOCATION_ID", "0123456789abcdef")
+    else:
+        monkeypatch.delenv("INVOCATION_ID", raising=False)
+    usage = database_copy.shutil.disk_usage(db_path.parent)._replace(free=0)
+    monkeypatch.setattr(database_copy.shutil, "disk_usage", lambda _path: usage)
+    with pytest.raises(CopyFailedError) as refused:
+        prepare_for_migrations(str(db_path))
+    message = str(refused.value)
+    assert message.endswith("/deep/install-paths/#the-copy-made-before-an-upgrade")
+    assert ("systemctl reset-failed meshloom" in message) is systemd
+
+
+def test_a_package_install_is_told_to_reset_the_unit(db_path, monkeypatch) -> None:
+    _make_db(db_path, 87)
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.setattr("app.services.install_kind.detect_install_kind", lambda: ("package", True))
+    usage = database_copy.shutil.disk_usage(db_path.parent)._replace(free=0)
+    monkeypatch.setattr(database_copy.shutil, "disk_usage", lambda _path: usage)
+    with pytest.raises(CopyFailedError, match="sudo systemctl reset-failed meshloom"):
+        prepare_for_migrations(str(db_path))
+
+
 def test_retention_keeps_the_way_back_and_the_newest(db_path, monkeypatch) -> None:
     monkeypatch.setattr(migrations, "latest_known_version", lambda: 1000)
     _make_db(db_path, 87)

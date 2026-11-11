@@ -13,7 +13,7 @@ import logging
 from typing import Any, Final
 
 from app.plugins import bundled_update, installer, isolation, updates
-from app.plugins.host import isolation_level, plugin_manager
+from app.plugins.host import isolation_level, isolation_reason, plugin_manager
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +91,9 @@ def without_plugin_errors(health: dict[str, Any]) -> dict[str, Any]:
 
 
 def health_fields() -> dict[str, Any]:
-    """`plugins_isolation`, `plugins_disabled`, `plugins_disabled_source`,
-    `plugins_paused_since`, `plugins_pause_unreadable`, `plugins_purge_blocked` and
-    `plugin_statuses` for `/api/health`.
+    """`plugins_isolation`, `plugins_isolation_reason`, `plugins_disabled`,
+    `plugins_disabled_source`, `plugins_paused_since`, `plugins_pause_unreadable`,
+    `plugins_purge_blocked` and `plugin_statuses` for `/api/health`.
 
     The host lock, the platform and a failed isolation take precedence over the
     global pause (`paused`, `app/plugins/pause.py`)."""
@@ -111,10 +111,11 @@ def health_fields() -> dict[str, Any]:
         purge_blocked = plugin_manager.purge_blocked()
     except Exception:
         purge_blocked = []
+    level = None if source is not None and source != "paused" else isolation_level()
     return {
-        "plugins_isolation": None
-        if source is not None and source != "paused"
-        else isolation_level(),
+        "plugins_isolation": level,
+        # Only for `none`: bubblewrap missing or refused (Settings → Extensions says which).
+        "plugins_isolation_reason": isolation_reason() if level == "none" else None,
         "plugins_disabled": source is not None,
         "plugins_disabled_source": source,
         "plugins_paused_since": pause_state.since if pause_state.paused else None,

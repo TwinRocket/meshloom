@@ -119,6 +119,25 @@ describe('SettingsExtensionsSection', () => {
     expect(await screen.findByText(t('settings.extensions.empty'))).toBeInTheDocument();
   });
 
+  it('says why the level is hooks only, with a docs link', async () => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([]);
+    const { rerender } = render(
+      <SettingsExtensionsSection
+        health={health({ plugins_isolation: 'none', plugins_isolation_reason: 'bwrap_refused' })}
+      />
+    );
+    const reason = screen.getByTestId('plugin-isolation-reason');
+    expect(reason).toHaveTextContent(t('settings.extensions.isolation.reason.bwrap_refused'));
+    expect(reason.querySelector('a')?.getAttribute('href')).toContain('/docs/deep/plugins/');
+    rerender(
+      <SettingsExtensionsSection
+        health={health({ plugins_isolation: 'bwrap', plugins_isolation_reason: 'bwrap_refused' })}
+      />
+    );
+    expect(screen.queryByTestId('plugin-isolation-reason')).not.toBeInTheDocument();
+    expect(await screen.findByText(t('settings.extensions.empty'))).toBeInTheDocument();
+  });
+
   it('lists the instances with their badges and last error', async () => {
     vi.spyOn(api, 'getPlugins').mockResolvedValue([
       instance({ status: 'error', last_error: 'boom' }),

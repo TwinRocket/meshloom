@@ -827,7 +827,8 @@
       "checkFailed": "The last version check got no answer. Meshloom will try again within 6 hours.",
       "manualHelp": "How to upgrade",
       "legacyHelper": "Run the Meshloom installer again on the host to switch to the signed update helper.",
-      "testingChannel": "This install follows the pre-release channel: updates can install release candidates. To go back to stable releases, run the installer from get.meshloom.app once."
+      "testingChannel": "This install follows the pre-release channel: updates can install release candidates. To go back to stable releases, run the installer from get.meshloom.app once.",
+      "testingChannelUntilFinal": "This install follows the pre-release channel and keeps getting release candidates. Once the final version is out, run the installer from get.meshloom.app once to go back to stable releases."
     },
     "common": {
       "storedOnRadio": "Written to the radio",

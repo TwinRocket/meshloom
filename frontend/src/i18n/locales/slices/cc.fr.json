@@ -108,6 +108,11 @@
           "none": "Pas de bac à sable ici : une extension pourrait lire vos données. N’installez que des extensions de confiance.",
           "unknown": "Le niveau d'isolation est indiqué dès que le serveur a démarré le système d'extensions."
         },
+        "reason": {
+          "bwrap_missing": "bubblewrap n’est pas installé sur le serveur : installez-le, puis redémarrez Meshloom.",
+          "bwrap_refused": "bubblewrap est installé, mais le système refuse son bac à sable (fréquent sur Ubuntu 24.04 et suivants).",
+          "not_linux": "Un bac à sable demande un serveur Linux."
+        },
         "purgeBlocked": {
           "title": "Un dossier temporaire garde des comptes d'extension occupés",
           "text": "Meshloom n’a pas pu nettoyer les dossiers temporaires d’extensions supprimées : ces comptes restent réservés :",
