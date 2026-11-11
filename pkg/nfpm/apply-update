@@ -349,6 +349,16 @@ if [ -n "$BEFORE" ] && [ "$AFTER" = "$BEFORE" ]; then
     fail "no newer meshloom in the signed repository (installed $AFTER)"
 fi
 
+# The meshloom-only transaction above cannot pull a weak dependency from the distro
+# repositories, so a host without bubblewrap would run plugins without isolation.
+# Best effort, one named package, from the system's own (signed) repositories.
+if [ -n "${DNF_ACTION:-}" ] && command -v rpm >/dev/null 2>&1 \
+    && ! rpm -q bubblewrap >/dev/null 2>&1; then
+    log "installing bubblewrap (plugin isolation) from the system repositories"
+    dnf -y --setopt=install_weak_deps=False install bubblewrap \
+        || log "could not install bubblewrap: plugins get no OS isolation until it is installed"
+fi
+
 PHASE=restarting
 PERCENT=90
 write_status

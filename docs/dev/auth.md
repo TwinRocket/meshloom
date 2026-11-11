@@ -2034,7 +2034,7 @@ B. **Upgrade from 4.18.**
 
 | Kind | Where to check | What differs |
 |---|---|---|
-| `package` (apt/dnf, Pi image) | `sudo meshloom-admin list-users`; log in `journalctl -u meshloom`; `/etc/meshloom/meshloom.env` | `sudo` is required, the command switches to `meshloom`; extensions are not locked by default (`MESHCORE_DISABLE_PLUGINS` is commented out in `meshloom.env`); loopback is not a trusted-network source; `systemctl restart meshloom` keeps sessions |
+| `package` (apt/dnf, Pi image) | `sudo meshloom-admin list-users`; log in `journalctl -u meshloom`; `/etc/meshloom/meshloom.env` | `sudo` is required, the command switches to `meshloom`; extensions are not locked by default (`meshloom.env` sets no `MESHCORE_DISABLE_PLUGINS`; its `MESHCORE_DISABLE_BOTS=true`, kept from 4.18.3, is only read by migration 122); loopback is not a trusted-network source; `systemctl restart meshloom` keeps sessions |
 | `compose` | `docker compose exec meshloom meshloom-admin list-users`; `docker compose logs` | behind the Docker bridge every visitor looks like the gateway: with no **Trusted proxies** set, only the per-account delay applies (see user docs); a rule covering the gateway is refused while a public address is set |
 | `container` (plain `docker run`) | `docker exec -it <name> meshloom-admin list-users` | same as compose; `--user 10001` when `MESHLOOM_RUN_AS_USER` is set |
 | `source` | `uv run python -m app.cli list-users` in the checkout | database in `data/`; no root; loopback refused for trusted networks |

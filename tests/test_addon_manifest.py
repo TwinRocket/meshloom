@@ -87,9 +87,14 @@ def test_the_host_bus_is_documented_as_a_root_grant() -> None:
 
 
 def test_every_option_is_described_by_the_schema() -> None:
-    """An option with no schema entry is silently dropped by the supervisor."""
+    """An option with no schema entry is silently dropped by the supervisor.
+
+    The reverse is allowed for optional (`?`) entries only: `disable_bots` stays in the
+    schema with no default so a 4.18 value still reaches migration 122."""
     config = _config()
-    assert set(config["options"]) == set(config["schema"])
+    assert set(config["options"]) <= set(config["schema"])
+    for key in set(config["schema"]) - set(config["options"]):
+        assert str(config["schema"][key]).endswith("?"), key
 
 
 def test_the_addon_builds_on_the_release_image_rather_than_running_it_as_is() -> None:

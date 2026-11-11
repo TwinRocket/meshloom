@@ -83,6 +83,7 @@ export function SettingsUpdatesSection({
   const showRecipes = !applySupported && kind !== 'addon';
   const showInstall = applySupported && updateAvailable && Boolean(onApply);
   const showLegacyHelper = updates?.legacy_update_helper === true;
+  const onTestingChannel = kind === 'package' && updates?.package_channel === 'testing';
   const showJobError =
     Boolean(updates?.job?.error) &&
     updateAvailable &&
@@ -174,6 +175,15 @@ export function SettingsUpdatesSection({
             className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[0.8125rem] text-foreground"
           >
             {t('settings.updates.legacyHelper')}
+          </p>
+        ) : null}
+        {onTestingChannel ? (
+          <p
+            role="status"
+            data-testid="updates-testing-channel"
+            className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[0.8125rem] text-foreground"
+          >
+            {t('settings.updates.testingChannel')}
           </p>
         ) : null}
       </SettingsGroup>

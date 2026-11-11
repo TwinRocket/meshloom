@@ -286,3 +286,21 @@ def test_basic_auth_variables_are_retired_with_the_users_and_access_hint(monkeyp
     assert "Settings → Users & Access" in caplog.text
     assert "Only one of" not in caplog.text
     assert "s3cret-value" not in caplog.text
+
+
+def test_the_packaged_bot_lock_is_only_an_info_line(monkeypatch, caplog):
+    """The package keeps 4.18.3's meshloom.env, lock line included: nobody set it."""
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    monkeypatch.setenv("MESHCORE_DISABLE_BOTS", "true")
+    with caplog.at_level(logging.INFO, logger="app.services.legacy_env_settings"):
+        assert warn_about_retired_env() == ["MESHCORE_DISABLE_BOTS"]
+    assert [r.levelno for r in caplog.records] == [logging.INFO]
+    assert "MESHCORE_DISABLE_PLUGINS" in caplog.text
+
+
+def test_a_bot_lock_set_by_hand_on_a_package_still_warns(monkeypatch, caplog):
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    monkeypatch.setenv("MESHCORE_DISABLE_BOTS", "1")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert warn_about_retired_env() == ["MESHCORE_DISABLE_BOTS"]
+    assert "MESHCORE_DISABLE_BOTS is set but no longer read" in caplog.text

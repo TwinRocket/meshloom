@@ -76,4 +76,8 @@ schema:
   # for that reason.
   proxy_port: port
   vapid_subject: str?
+  # DEPRECATED, remove in the next release. Declared (with no default under
+  # options) only so a 4.18 `disable_bots: true` survives the Supervisor's options
+  # rewrite and reaches migration 122 once (meshloom/run.py).
+  disable_bots: bool?
   disable_plugins: bool?

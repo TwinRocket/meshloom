@@ -247,7 +247,6 @@ nothing when that suite serves a stable version.
   - It can also refuse after the documented return from a 5.1 rc to 5.0.0: treat before the 5.1 cycle.
   - A failed `up` keeps the rc's pin, and its message does not say to run `/next` again, which repairs it.
   - After a failed `up` the helper stays disabled until `/next` is run again.
-  - On dnf, the regular installer does not move an rc to the final: `dnf install` does nothing on an installed package.
 - There is no return command: testers restore their own copy on a fresh 4.18 install or
   use a new instance (`docs/user/{en,fr}/upgrade-4-18.md`).
 - `install.sh` must stay under Linux's limit for one argument (128 KiB, `MAX_ARG_STRLEN`):

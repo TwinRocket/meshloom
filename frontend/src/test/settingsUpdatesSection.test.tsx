@@ -218,4 +218,21 @@ describe('SettingsUpdatesSection', () => {
     rerender(<SettingsUpdatesSection updates={status({ install_kind: 'compose' })} />);
     expect(screen.queryByTestId('updates-legacy-helper')).not.toBeInTheDocument();
   });
+
+  it('says when a package install follows the pre-release channel', () => {
+    const { rerender } = render(
+      <SettingsUpdatesSection
+        updates={status({ install_kind: 'package', package_channel: 'testing' })}
+      />
+    );
+    expect(screen.getByTestId('updates-testing-channel')).toHaveTextContent(
+      i18n.t('settings.updates.testingChannel')
+    );
+    rerender(
+      <SettingsUpdatesSection
+        updates={status({ install_kind: 'package', package_channel: 'stable' })}
+      />
+    );
+    expect(screen.queryByTestId('updates-testing-channel')).not.toBeInTheDocument();
+  });
 });

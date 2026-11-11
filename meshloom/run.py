@@ -91,13 +91,13 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
         "MESHLOOM_INSTALL_KIND": "addon",
     }
 
-    if "disable_bots" in options:
+    if options.get("disable_bots") is True:
         # Retired in 5.0.0: bots became extensions. The old lock survives only as the
         # one-shot input of migration 122, which reads this variable once to store the
         # converted bots switched off (as the package does); nothing else reads it and
-        # it is not a setting. A value of false maps to nothing.
-        if options["disable_bots"] is True:
-            env["MESHCORE_DISABLE_BOTS"] = "true"
+        # it is not a setting. The schema still declares it for that (config.yaml),
+        # so every 4.18 install keeps its stored value: false maps to nothing, silently.
+        env["MESHCORE_DISABLE_BOTS"] = "true"
         print(
             "Warning: the add-on option disable_bots was removed. Bots are now "
             "extensions: a leftover true value is only used once, to store the bots "

@@ -1699,7 +1699,17 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   reads, deletes or chowns the request file.
 - **Target.** `pkg/nfpm/apply-update` upgrades only the `meshloom` package from the
   signed repository (`signed-by=` / `gpgcheck=1`, apt pin), fails closed if that
-  source is not signature-checked, and has a 120 s cooldown.
+  source is not signature-checked, and has a 120 s cooldown. On dnf it then installs
+  `bubblewrap` from the system repositories when it is missing (best effort: the
+  meshloom-only transaction cannot pull that weak dependency). Not on the
+  4.18 -> 5.0.0 update: systemd runs the 4.18.3 helper bash already opened, which
+  has no such step, so those rpm hosts need `sudo dnf install bubblewrap` or a
+  re-run of the stable installer (`docs/dev/plugins-security.md`).
+- **Channel.** `GET /api/updates` reports `package_channel` (`stable` or `testing`,
+  package installs only) from the source `install.sh` wrote
+  (`services/install_kind.py`, `package_channel()`); Settings → Updates says when a
+  host follows `testing`, whose updates can be release candidates. Running the
+  stable installer once moves it back to `stable`.
 - **Status, root to app.** The helper writes `/var/lib/meshloom-update/status.json`
   (root-owned `StateDirectory`, 0644); the app only reads it. The app keeps its own
   memory in `update-attempt.json`, in its data directory.

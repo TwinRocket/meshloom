@@ -33,7 +33,9 @@ administrator exists.
 The 4.18.x bot lock (``ENV_BOT_LOCK``) is retired with the bots (MSHL-192):
 migration 122 reads it once to store the converted bots disabled, then each start
 warns that it is set and names ``MESHCORE_DISABLE_PLUGINS``, the lock of every
-extension. It is not mapped onto that variable.
+extension. It is not mapped onto that variable. The packaged ``meshloom.env`` still
+carries ``MESHCORE_DISABLE_BOTS=true`` (it is kept identical to 4.18.3's), so on a
+package install that exact value only gets an info line.
 
 The ``MESHLOOM_COMMUNITY*`` variables are retired too (Community is an opt-in in
 the UI, its addresses are fixed): ``import_legacy_community_iata`` copies a
@@ -109,10 +111,28 @@ def _env_true(name: str) -> bool:
     return _env(name).lower() in _TRUE_VALUES
 
 
+def _packaged_bot_lock() -> bool:
+    """The package keeps the 4.18.3 ``meshloom.env`` byte for byte, lock line included.
+
+    dpkg would otherwise ask about every edited copy on a plain ``apt upgrade``, and the
+    line carries the lock to migration 122. Nobody set it, so it is not worth a warning.
+    """
+    return (
+        _env("MESHLOOM_INSTALL_KIND").lower() == "package" and _env(ENV_BOT_LOCK).lower() == "true"
+    )
+
+
 def warn_about_retired_env() -> list[str]:
     """Log one warning per retired variable still set (and not blank). Returns their names."""
     still_set = [name for name in RETIRED_ENV if _env(name)]
     for name in still_set:
+        if name == ENV_BOT_LOCK and _packaged_bot_lock():
+            logger.info(
+                "%s=true comes from the packaged meshloom.env and is no longer read; "
+                "the lock of every extension is MESHCORE_DISABLE_PLUGINS.",
+                name,
+            )
+            continue
         if name in (ENV_BASIC_USERNAME, ENV_BASIC_PASSWORD):
             logger.warning(
                 "%s is set: HTTP Basic auth is removed, see %s. Until the first account "
