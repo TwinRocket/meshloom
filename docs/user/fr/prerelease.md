@@ -34,7 +34,7 @@ Relancez la même commande. **Réglages > Mises à jour** ne regarde que les ver
 - **Docker :** la mise à jour épingle cette version finale, et la machine suit ensuite les versions stables.
 - **Paquet `apt` ou `dnf` :** la machine reste sur la source de paquets des pré-versions. Une mise à jour, depuis **Réglages > Mises à jour** ou avec `apt upgrade` ou `dnf upgrade`, installe ce que cette source sert. Si une pré-version suivante est déjà sortie, c’est elle que vous obtenez, même si la page proposait la version finale.
 
-Avec un paquet, lancez donc la commande d’installation habituelle une fois la version finale sortie. Elle revient à la source stable. Elle installe aussi la version finale si la machine est encore sur une pré-version, avec `apt` comme avec `dnf` (l’installeur stable met à jour un paquet `rpm` installé et installe `bubblewrap` s’il manque, pour que les extensions gardent leur isolation) :
+Avec un paquet, lancez donc la commande d’installation habituelle une fois la version finale sortie, pas avant : d’ici là, `get.meshloom.app` sert l’installeur de la 4.18 (voir plus bas). Restez sur la pré-version en attendant ; relancer `get.meshloom.app/next` la tient à jour. Une fois la version finale sortie, la commande d’installation habituelle revient à la source stable. Elle installe aussi la version finale si la machine est encore sur une pré-version, avec `apt` comme avec `dnf` (l’installeur stable met à jour un paquet `rpm` installé et installe `bubblewrap` s’il manque, pour que les extensions gardent leur isolation) :
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -47,4 +47,4 @@ Deux possibilités :
 - Utilisez une nouvelle instance, et gardez celle-ci telle quelle.
 - Restaurez votre propre copie des données sur une installation neuve de la 4.18 : les étapes sont dans [Revenir à la 4.18](/docs/upgrade-4-18/#revenir-à-la-418).
 
-Ne lancez jamais le script d’installation de la 4.18 sur une machine en pré-version. Il ne connaît pas les pré-versions, et peut démarrer la 4.18 sur une base qu’elle ne sait pas lire. Les versions suivantes de l’installateur refusent et ne changent rien.
+Ne lancez jamais le script d’installation de la 4.18 sur une machine en pré-version, et tant que la 5.0.0 n’est pas sortie, c’est lui que sert `get.meshloom.app`. Il ne connaît pas les pré-versions : avec Docker, il propose une « mise à niveau » vers la 4.18 et la démarre sur la base migrée, sans demander le compte de la 5.0 ; avec un paquet, lancé depuis un compte `sudo`, il peut réécrire `/etc/meshloom/meshloom.env` et perdre les lignes que vous y avez ajoutées. Relancer `get.meshloom.app/next` remet la pré-version. Les versions suivantes de l’installateur refusent et ne changent rien.
