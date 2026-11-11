@@ -59,6 +59,8 @@ contents:
     packager: deb
     file_info:
       mode: 0644
+  # Kept byte for byte as 4.18.3 shipped it (tests/test_package_conffile.py): a
+  # changed conffile makes dpkg ask about every edited copy on a plain apt upgrade.
   - src: __PKGDIR__/meshloom.env
     dst: /etc/meshloom/meshloom.env
     type: config|noreplace
@@ -103,7 +105,9 @@ deb:
 overrides:
   # bubblewrap isolates the plugin children (app/plugins/isolation/bwrap.py).
   # Recommended, not required: without it plugins run "hooks only", logged and
-  # shown in /api/health.
+  # shown in /api/health. A required rpm dependency would break the in-app
+  # update, which enables the meshloom repository only: apply-update and
+  # install.sh install it from the system repositories instead.
   deb:
     depends:
       - libc6

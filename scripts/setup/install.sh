@@ -1642,7 +1642,7 @@ _restore_package_update_helper() {
             apt_get install --reinstall -y meshloom || true
         fi
     elif [ "${PKG_MGR:-}" = "dnf" ]; then
-        as_root dnf install -y meshloom || true
+        dnf_meshloom || true
         if ! _package_update_helper_present; then
             as_root dnf reinstall -y meshloom || true
         fi
@@ -2112,6 +2112,25 @@ start_meshloom_unit() {
     as_root systemctl restart meshloom
 }
 
+# dnf install does nothing on an installed package (dnf5), and a cached metadata
+# set can hide a new release: upgrade an installed meshloom, --refresh either way.
+dnf_meshloom() {
+    if rpm -q meshloom >/dev/null 2>&1; then
+        as_root dnf -y --refresh upgrade meshloom
+    else
+        as_root dnf -y --refresh install meshloom
+    fi
+}
+
+# bubblewrap isolates the plugins. It is a weak dependency of the rpm, which
+# install_weak_deps=False (or an upgrade made by the in-app helper of 4.18)
+# leaves out. Best effort: Meshloom runs without it, with no plugin isolation.
+ensure_bubblewrap_rpm() {
+    [ "${PKG_MGR:-}" = "dnf" ] || return 0
+    rpm -q bubblewrap >/dev/null 2>&1 && return 0
+    run_soft as_root dnf -y install bubblewrap || true
+}
+
 install_from_pages() {
     phase "$(t using_repo)"
     add_signed_repo
@@ -2120,7 +2139,8 @@ install_from_pages() {
         finish_interrupted_package
         run_quiet apt_get install -y meshloom
     else
-        run_quiet as_root dnf install -y meshloom
+        run_quiet dnf_meshloom
+        ensure_bubblewrap_rpm
     fi
     REPO_HAS_ARCH=1
     write_meshloom_env /etc/meshloom/meshloom.env
@@ -2205,6 +2225,7 @@ install_from_release_asset() {
         run_quiet apt_get install -y "$tmp"
     else
         run_quiet as_root dnf install -y "$tmp"
+        ensure_bubblewrap_rpm
     fi
     rm -rf "$tmpdir"
     # Always add the signed repository so later updates come from it. When it
@@ -2862,11 +2883,9 @@ install_prerelease_package() {
         run_quiet apt_get update
         finish_interrupted_package
         run_quiet apt_get install -y meshloom
-    elif rpm -q meshloom >/dev/null 2>&1; then
-        # dnf install does nothing on an installed package (dnf5).
-        run_quiet as_root dnf -y --refresh upgrade meshloom
     else
-        run_quiet as_root dnf -y --refresh install meshloom
+        run_quiet dnf_meshloom
+        ensure_bubblewrap_rpm
     fi
     REPO_HAS_ARCH=1
     write_meshloom_env /etc/meshloom/meshloom.env

@@ -175,6 +175,7 @@ def env_root(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         stubs / "rpm",
         common
         + """
+        case "$*" in *bubblewrap*) [ "${STUB_BWRAP:-1}" = 1 ]; exit $? ;; esac
         [ -n "$installed" ] || exit 1
         printf '%s' "$installed"
         """,
@@ -502,6 +503,29 @@ def test_apply_update_dnf_uses_only_the_signed_repo(dnf_host) -> None:
     status = _status(root / "var/lib/meshloom-update/status.json")
     assert status["state"] == "succeeded"
     assert status["version"] == "4.18.0-1"
+
+
+def test_apply_update_dnf_adds_bubblewrap_from_the_system_repos(dnf_host) -> None:
+    """The meshloom-only transaction cannot pull the weak dependency."""
+    root, log, env = dnf_host
+    (root / "etc/yum.repos.d/meshloom.repo").write_text(_GOOD_REPO)
+    env["STUB_BWRAP"] = "0"
+    assert _run(APPLY_UPDATE, env).returncode == 0
+    dnf = [line for line in log.read_text().splitlines() if line.startswith("dnf ")]
+    assert dnf[1:] == ["dnf -y --setopt=install_weak_deps=False install bubblewrap"]
+
+
+def test_apply_update_dnf_succeeds_when_bubblewrap_cannot_be_installed(dnf_host) -> None:
+    root, log, env = dnf_host
+    (root / "etc/yum.repos.d/meshloom.repo").write_text(_GOOD_REPO)
+    env["STUB_BWRAP"] = "0"
+    stub = Path(env["PATH"].split(":")[0]) / "dnf"
+    text = stub.read_text()
+    stub.write_text(text.replace("exit 0\n", 'case "$*" in *bubblewrap*) exit 1 ;; esac\nexit 0\n'))
+    result = _run(APPLY_UPDATE, env)
+    assert result.returncode == 0, result.stderr
+    assert "could not install bubblewrap" in result.stderr
+    assert _status(root / "var/lib/meshloom-update/status.json")["state"] == "succeeded"
 
 
 def test_apply_update_dnf_installs_when_absent(dnf_host) -> None:

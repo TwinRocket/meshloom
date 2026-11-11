@@ -62,7 +62,10 @@ said `--ro-bind <app_root>`): a source checkout keeps its database in
 `<app_root>/data` and the Docker image in `/app/data`. bwrap returns the child's
 status, and `128 + signal` for a child killed by a signal. The package
 `Recommends: bubblewrap` (deb and rpm); the Raspberry Pi images install it
-(`dpkg -i` skips Recommends). The systemd unit sets no `RestrictNamespaces`, and
+(`dpkg -i` skips Recommends). On rpm hosts the in-app update enables only the
+Meshloom repository, so it cannot pull the weak dependency: `apply-update`, and
+`install.sh` (`ensure_bubblewrap_rpm`), install `bubblewrap` from the system
+repositories, best effort, when it is missing. The systemd unit sets no `RestrictNamespaces`, and
 `NoNewPrivileges=yes` is fine: Debian, Raspberry Pi OS and Fedora ship bwrap
 without the setuid bit.
 

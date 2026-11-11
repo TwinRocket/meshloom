@@ -377,6 +377,50 @@ def test_a_prerelease_package_has_no_fallback() -> None:
     assert "install_from_release_asset" not in _fn("install_prerelease_package")
 
 
+# ── dnf: an installed meshloom is upgraded, never "installed" (dnf5 no-op) ────
+
+_DNF_STUBS = """
+dnf() { echo "dnf $*"; }
+rpm() { [ "$2" = bubblewrap ] && [ -n "${HAS_BWRAP:-}" ] && return 0; [ "$2" = meshloom ] && [ -n "${HAS_MESHLOOM:-}" ]; }
+run_soft() { "$@"; }
+run_quiet() { "$@"; }
+PKG_MGR=dnf
+"""
+
+
+@pytest.mark.parametrize(
+    ("installed", "action"), [("1", "upgrade"), ("", "install")], ids=["installed", "absent"]
+)
+def test_dnf_upgrades_an_installed_meshloom(installed: str, action: str) -> None:
+    out = _ok(
+        ("dnf_meshloom",),
+        f"{_DNF_STUBS}\nHAS_MESHLOOM={installed}\ndnf_meshloom",
+    )
+    assert out.splitlines() == [f"dnf -y --refresh {action} meshloom"]
+
+
+def test_every_dnf_package_path_goes_through_dnf_meshloom() -> None:
+    for name in (
+        "install_from_pages",
+        "install_prerelease_package",
+        "_restore_package_update_helper",
+    ):
+        body = _fn(name)
+        assert "dnf_meshloom" in body, name
+        assert "dnf install -y meshloom" not in body, name
+
+
+@pytest.mark.parametrize(("has", "expected"), [("1", []), ("", ["dnf -y install bubblewrap"])])
+def test_bubblewrap_is_added_on_rpm_hosts_without_it(has: str, expected: list[str]) -> None:
+    out = _ok(("ensure_bubblewrap_rpm",), f"{_DNF_STUBS}\nHAS_BWRAP={has}\nensure_bubblewrap_rpm")
+    assert out.splitlines() == expected
+
+
+def test_bubblewrap_is_left_alone_on_apt_hosts() -> None:
+    out = _ok(("ensure_bubblewrap_rpm",), f"{_DNF_STUBS}\nPKG_MGR=apt\nensure_bubblewrap_rpm")
+    assert out == ""
+
+
 def test_the_summary_tells_to_copy_the_data_first_in_both_languages() -> None:
     text = INSTALL_SH.read_text(encoding="utf-8")
     body = _fn("confirm_install")
