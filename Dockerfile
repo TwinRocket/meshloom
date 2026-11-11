@@ -28,7 +28,7 @@ RUN VITE_COMMIT_HASH=${COMMIT_HASH} npm run build
 # Normalised here instead. `COPY --from` is keyed on what the files contain, so
 # two releases hand that layer the same bytes. This stage runs on the build
 # machine and costs a second.
-FROM --platform=$BUILDPLATFORM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS deps-manifest
+FROM --platform=$BUILDPLATFORM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS deps-manifest
 
 WORKDIR /manifest
 
@@ -38,7 +38,7 @@ RUN python neutralize_project_version.py .
 
 
 # Stage 3: Python runtime
-FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 WORKDIR /app
 
