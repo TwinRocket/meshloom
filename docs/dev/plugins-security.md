@@ -42,7 +42,7 @@ end in `none` with the reason logged.
 | `/proc/<server>/environ`, `mem` | not there (own pid namespace and `/proc`) | refused (root's process, or another uid's undumpable one) | refused by `PR_SET_DUMPABLE` (non-root servers), readable when the server is root |
 | Write outside the work dir | refused (read-only binds, `--remount-ro /`) | refused (a tree owned by root or the server's uid) | only the hooks |
 | Signal the server or another plugin | not there (own pid namespace) | refused (another uid, no `CAP_KILL`) | only the hooks (same uid) |
-| Network | none (own network namespace, loopback down; both seccomp filters refuse every socket) | no socket, loopback and the radio proxy included: the runner's seccomp filter refuses `socket` and `socketpair` (MSHL-415) | same as `setuid` (Linux); the hooks only elsewhere |
+| Network | none (own network namespace, loopback down; both seccomp filters refuse every socket) | no socket, loopback and the radio proxy included: the runner's seccomp filter refuses `socket` and `socketpair` (MSHL-415), and `io_uring_*`, which would open sockets without them | same as `setuid` (Linux); the hooks only elsewhere |
 | A process it execs (`fork_exec` rebuilt) | none: the seccomp filter and `RLIMIT_NPROC` 0 fail the fork | same | same; as root only the filter holds, and a root child without one does not start |
 | SIGKILL of the group | kills everything (the sandbox's pid 1 goes, the kernel kills the namespace) | kills the group; a grandchild that called `setsid()` survives until the service or container stops | same as `setuid` |
 
@@ -77,11 +77,8 @@ Two hardening flags, detected once at startup (`bwrap.probe()`, which
   `launch.close_passed_fds`). bwrap installs it right before it executes the
   interpreter, so it binds the start-up too, and the runner stacks its own
   filter on top (`Seccomp_filters: 2` in `/proc/<pid>/status`). It is the runner's list
-  but `execve` (bwrap's own exec of the interpreter) plus kernel attack surface:
-  `io_uring_setup`/`enter`/`register`, `userfaultfd`, `bpf`,
-  `perf_event_open`, `keyctl`, `add_key`, `request_key`, and the mount API
-  (`mount`, `umount2`, `pivot_root`, `open_tree`, `move_mount`, `fsopen`,
-  `fsconfig`, `fsmount`, `fspick`, `mount_setattr`). A plugin past the
+  (kernel attack surface included, see "What the runner does")
+  but `execve` (bwrap's own exec of the interpreter). A plugin past the
   runner's filter (a bug in it, or in the runner before it installs it) still
   meets this one, and the reverse. On an architecture without a table the box
   has no filter of its own (a startup warning says so); the runner's filter
@@ -291,9 +288,12 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
   does not bind, refuses to start.
 - The second seccomp filter (MSHL-413) and `--disable-userns` (MSHL-414) are
   described under "`bwrap`" above. Plugin code reaches a raw syscall only
-  through the standard library (no `ctypes`, no native module), so the bwrap
-  filter's kernel-surface list is defence in depth against a runner bypass plus
-  a kernel bug.
+  through the standard library (no `ctypes`, no native module), so the
+  kernel-surface list (`KERNEL_SURFACE`, in both filters) is defence in depth
+  against a hooks bypass plus a kernel bug. At the `setuid` level it is the only
+  kernel-side guard of that surface: the Home Assistant Supervisor starts
+  add-ons without Docker's seccomp profile, and Docker engines before 25.0
+  allow io_uring in theirs.
 
 ## What the runner does
 
@@ -305,7 +305,7 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 | Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` 0 (Linux, every level); small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap; no thread and no process can be created, whatever path the hook does not see (the kernel counts the uid's tasks against the limit; root, `CAP_SYS_RESOURCE` and `CAP_SYS_ADMIN` ignore it) |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
 | Inherited capabilities dropped (Linux, non-root child): ambient cleared, effective, permitted and inheritable emptied, checked in `/proc/self/status` | `CAP_SETUID`/`CAP_SETGID` kept by a `MESHLOOM_RUN_AS_USER` server do not reach plugin code |
-| seccomp filter (Linux, `meshloom_plugin/seccomp.py`, `RUNNER_DENIED`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `unshare`, `setns`, `socket`, `socketpair` (`socketcall` on i386), `pidfd_open`, `pidfd_send_signal`, `pidfd_getfd`, `ptrace`, `process_vm_readv`, `process_vm_writev` and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); no new or joined namespace (MSHL-212: `os.unshare` and `os.setns`, Python 3.12+, raise no audit event, and a plugin could create a user namespace at every level); no socket, loopback included (MSHL-415); no other process reached past the audit hook (MSHL-417, "Audit events per Python version"); required for a root child and at the `setuid` level, best effort otherwise |
+| seccomp filter (Linux, `meshloom_plugin/seccomp.py`, `RUNNER_DENIED`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `unshare`, `setns`, `socket`, `socketpair` (`socketcall` on i386), `pidfd_open`, `pidfd_send_signal`, `pidfd_getfd`, `ptrace`, `process_vm_readv`, `process_vm_writev`, the kernel attack surface (`KERNEL_SURFACE`: `io_uring_setup`/`enter`/`register`, `userfaultfd`, `bpf`, `perf_event_open`, `keyctl`, `add_key`, `request_key`, and the mount API: `mount`, `umount2`, `pivot_root`, `open_tree`, `move_mount`, `fsopen`, `fsconfig`, `fsmount`, `fspick`, `mount_setattr`) and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); no new or joined namespace (MSHL-212: `os.unshare` and `os.setns`, Python 3.12+, raise no audit event, and a plugin could create a user namespace at every level); no socket, loopback included (MSHL-415); no other process reached past the audit hook (MSHL-417, "Audit events per Python version"); no io_uring ring (it would open and connect sockets with no `socket` syscall) and none of the kernel surface no plugin needs; required for a root child and at the `setuid` level, best effort otherwise |
 | `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no other process of the same uid can open its `/proc/<pid>/mem` or `ptrace` it |
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
@@ -627,7 +627,9 @@ What runs, and where:
   a small interpreter for every ABI, the bytes handed to bwrap, and a probe
   process that installs the filter and checks `fork`, `execv`, `posix_spawn`,
   `subprocess`, a thread start, `unshare` and `setns` (3.12+), a connection to
-  `127.0.0.1:5051` (the add-on's proxy port), IPv6, Unix and `socketpair` sockets and `pidfd_open` are
+  `127.0.0.1:5051` (the add-on's proxy port), IPv6, Unix and `socketpair` sockets, `pidfd_open`
+  and raw kernel-surface syscalls (`io_uring_setup`/`enter`/`register`,
+  `userfaultfd`, `bpf`, `perf_event_open`, `keyctl`, `mount`, `fsopen`) are
   refused, and that a non-root process ends with no capability.
   `tests/test_plugin_isolation.py` checks the bwrap flags, the pipe, `probe()`'s
   fallbacks, and that a program with no runner in the box meets the box's own

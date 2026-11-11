@@ -3,7 +3,8 @@
 The filter is the guard that refuses task creation and exec to a child running as
 root, which `RLIMIT_NPROC` does not bind (MSHL-323), every socket (loopback and
 the radio proxy included, MSHL-415) and the pidfd/ptrace paths to other
-processes (MSHL-417); the bwrap level's own filter is checked here as a program. The probes below install it
+processes (MSHL-417) and the kernel attack surface no plugin needs (io_uring,
+userfaultfd, bpf, perf_event_open, keys, the mount API); the bwrap level's own filter is checked here as a program. The probes below install it
 exactly as the runner does (`_libc_prctl`, `PR_SET_NO_NEW_PRIVS`, then `apply`) in
 a fresh interpreter and try every way out; the root CI job runs them as root.
 Stdlib and pytest only (`--noconftest` works).
@@ -74,6 +75,32 @@ PROBE = textwrap.dedent(
     attempt("socketpair", lambda: [end.close() for end in socket.socketpair()])
     # No other process through a pidfd (MSHL-417): no audit event there either.
     attempt("pidfd_open", lambda: os.close(os.pidfd_open(os.getppid())))
+    # Kernel attack surface (KERNEL_SURFACE): an io_uring ring would open and
+    # connect sockets with no socket syscall. Raw syscalls with arguments the
+    # kernel rejects (NULL pointers, bad fds), so nothing is created even unfiltered.
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    numbers = seccomp.TABLES[abi][1]
+    def raw(name, *args):
+        def call():
+            ctypes.set_errno(0)
+            longs = [ctypes.c_long(0 if a is None else a) for a in args]
+            if libc.syscall(ctypes.c_long(numbers[name]), *longs) == -1:
+                err = ctypes.get_errno()
+                raise OSError(err, os.strerror(err))
+        return call
+    for name, args in (
+        ("io_uring_setup", (1, None)),
+        ("io_uring_enter", (-1, 0, 0, 0, None, 0)),
+        ("io_uring_register", (-1, 0, None, 0)),
+        ("userfaultfd", (-1,)),
+        ("bpf", (-1, None, 0)),
+        ("perf_event_open", (None, 0, -1, -1, 0)),
+        ("keyctl", (-1, 0, 0, 0, 0)),
+        ("mount", (None, None, None, 0, None)),
+        ("fsopen", (None, 0)),
+    ):
+        attempt(name, raw(name, *args))
     out["caps"] = seccomp.capability_sets()
     out["getpid"] = os.getpid() > 0
     print(json.dumps(out))
@@ -152,11 +179,19 @@ def test_every_abi_numbers_every_denied_name(abi: str) -> None:
     assert len(set(numbers.values())) == len(numbers), abi
 
 
-def test_bwrap_filter_is_the_runner_list_but_execve_plus_kernel_surface() -> None:
+def test_runner_filter_denies_the_kernel_surface_too() -> None:
+    # The setuid level has no other kernel-side guard of it (the Docker image and
+    # the Home Assistant add-on may run without Docker's seccomp profile), and an
+    # io_uring ring would open sockets without the socket syscall.
+    assert seccomp.KERNEL_SURFACE <= seccomp.RUNNER_DENIED
+    assert {"io_uring_setup", "io_uring_enter", "io_uring_register"} <= seccomp.RUNNER_DENIED
+
+
+def test_bwrap_filter_is_the_runner_list_but_execve() -> None:
     # bwrap installs its filter right before it executes the interpreter: execve
     # must pass; everything else the runner refuses stays refused (MSHL-413).
     assert "execve" not in seccomp.BWRAP_DENIED
-    assert seccomp.RUNNER_DENIED - {"execve"} <= seccomp.BWRAP_DENIED
+    assert seccomp.RUNNER_DENIED - {"execve"} == seccomp.BWRAP_DENIED
     assert {"io_uring_setup", "bpf", "userfaultfd", "keyctl", "mount", "ptrace"} <= (
         seccomp.BWRAP_DENIED
     )
@@ -235,6 +270,18 @@ def test_child_cannot_fork_exec_or_thread_once_filtered() -> None:
         assert out["unshare"] == "EPERM", out
         assert out["setns"] == "EPERM", out
     for name in ("loopback", "socket_inet6", "socket_unix", "socketpair", "pidfd_open"):
+        assert out[name] == "EPERM", (name, out)
+    for name in (
+        "io_uring_setup",
+        "io_uring_enter",
+        "io_uring_register",
+        "userfaultfd",
+        "bpf",
+        "perf_event_open",
+        "keyctl",
+        "mount",
+        "fsopen",
+    ):
         assert out[name] == "EPERM", (name, out)
     assert out["getpid"] is True
     if out["euid"] != 0:
