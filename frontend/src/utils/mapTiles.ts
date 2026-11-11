@@ -24,10 +24,19 @@ export function osmRasterTransformRequest(
   url: string,
   resourceType?: string
 ): { url: string; referrerPolicy: typeof OSM_RASTER_REFERRER_POLICY } | undefined {
-  if (resourceType === 'Tile' && url.includes('tile.openstreetmap.org')) {
+  if (resourceType === 'Tile' && isOsmTileHost(url)) {
     return { url, referrerPolicy: OSM_RASTER_REFERRER_POLICY };
   }
   return undefined;
+}
+
+/** True when the URL's parsed host is exactly the OSM tile server. */
+function isOsmTileHost(url: string): boolean {
+  try {
+    return new URL(url).hostname === 'tile.openstreetmap.org';
+  } catch {
+    return false;
+  }
 }
 
 /** MapLibre raster style for `#live`. Same OSM tiles as `#map`; no CARTO. */
