@@ -203,7 +203,7 @@ Quand une mise à niveau doit changer la structure de votre base, Meshloom en fa
 
 Meshloom 5.0 et les suivantes refusent de démarrer sur une base faite par une version plus récente, et n’y touchent pas. **La 4.18 ne le fait pas** : elle ouvre une base migrée par la 5.0 et tourne dessus sans rien dire, donc la copie doit être remise en place avant de démarrer la 4.18. Pour revenir en arrière, remettez la copie. Tout ce qui a été reçu ou modifié depuis la mise à niveau est perdu.
 
-Revenez à la **4.18.3**, la version stable actuelle. Avant de démarrer la 4.18, désactivez les mises à jour automatiques dans ses **Réglages → Mises à jour**, et bloquez le paquet pour que rien ne vous remette en 5.0 : `sudo apt-mark hold meshloom` (avec `dnf`, `sudo dnf versionlock add meshloom`, qui demande l’extension versionlock). Avec Docker, l’image épinglée ci-dessous suffit.
+Revenez à la **4.18.3**, la dernière 4.18. Avant de démarrer la 4.18, désactivez les mises à jour automatiques dans ses **Réglages → Mises à jour**, et bloquez le paquet pour que rien ne vous remette en 5.0 : `sudo apt-mark hold meshloom` (avec `dnf`, `sudo dnf versionlock add meshloom`, qui demande l’extension versionlock). Avec Docker, l’image épinglée ci-dessous suffit.
 
 1. Arrêtez Meshloom.
 2. Dans le dossier de données, mettez la copie à la place de la base et supprimez les fichiers qui accompagnent l’ancienne (si les fichiers ne sont pas à vous, ouvrez d’abord un shell root avec `sudo -s` : avec le paquet Linux, `/var/lib/meshloom` est fermé aux autres comptes, donc un `sudo cp` depuis votre shell ne peut pas développer le `*`) :

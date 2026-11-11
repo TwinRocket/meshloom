@@ -203,7 +203,7 @@ When an upgrade has to change the structure of your database, Meshloom first mak
 
 Meshloom 5.0 and later refuse to start on a database made by a newer version, and leave it untouched. **4.18 does not**: it opens a database that 5.0 migrated and runs on it without a word, so the copy must be put back before 4.18 starts. To go back, put the copy back. Everything received or changed since the upgrade is lost.
 
-Go back to **4.18.3**, the current stable version. Before you start 4.18, turn off automatic updates in its **Settings → Updates**, and hold the package so that nothing moves you to 5.0 again: `sudo apt-mark hold meshloom` (with `dnf`, `sudo dnf versionlock add meshloom`, which needs the versionlock plugin). With Docker, the pinned image below is enough.
+Go back to **4.18.3**, the last 4.18. Before you start 4.18, turn off automatic updates in its **Settings → Updates**, and hold the package so that nothing moves you to 5.0 again: `sudo apt-mark hold meshloom` (with `dnf`, `sudo dnf versionlock add meshloom`, which needs the versionlock plugin). With Docker, the pinned image below is enough.
 
 1. Stop Meshloom.
 2. In the data folder, put the copy in place of the database and remove the files that go with the old one (if the files are not yours, open a root shell first with `sudo -s`: with the Linux package `/var/lib/meshloom` is closed to other accounts, so a `sudo cp` from your own shell cannot expand the `*`):

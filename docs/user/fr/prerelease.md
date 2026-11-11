@@ -34,7 +34,7 @@ Relancez la même commande. **Réglages > Mises à jour** ne regarde que les ver
 - **Docker :** la mise à jour épingle cette version finale, et la machine suit ensuite les versions stables.
 - **Paquet `apt` ou `dnf` :** la machine reste sur la source de paquets des pré-versions. Une mise à jour, depuis **Réglages > Mises à jour** ou avec `apt upgrade` ou `dnf upgrade`, installe ce que cette source sert. Si une pré-version suivante est déjà sortie, c’est elle que vous obtenez, même si la page proposait la version finale.
 
-Avec un paquet, lancez donc la commande d’installation habituelle une fois la version finale sortie. Elle revient à la source stable. Avec `apt`, elle installe aussi la version finale si la machine est encore sur une pré-version ; avec `dnf`, lancez ensuite `sudo dnf upgrade --refresh meshloom`, et `sudo dnf install bubblewrap` s’il manque (une mise à jour `rpm` ne l’ajoute pas, et sans lui les extensions tournent avec une isolation plus faible) :
+Avec un paquet, lancez donc la commande d’installation habituelle une fois la version finale sortie. Elle revient à la source stable. Elle installe aussi la version finale si la machine est encore sur une pré-version, avec `apt` comme avec `dnf` (l’installeur stable met à jour un paquet `rpm` installé et installe `bubblewrap` s’il manque, pour que les extensions gardent leur isolation) :
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
