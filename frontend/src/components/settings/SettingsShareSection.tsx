@@ -305,7 +305,7 @@ export function SettingsShareSection({
     return (
       <div className={className}>
         <div className="space-y-1">
-          <SettingsGroupHeader title={t('settings.share.title')} storedOn="server" />
+          <SettingsGroupHeader title={t('settings.share.title')} storedOn="server" beta />
         </div>
         {canSend && <ShareUploads status={status} />}
       </div>
@@ -334,7 +334,7 @@ export function SettingsShareSection({
   return (
     <div className={className}>
       <div className="space-y-1">
-        <SettingsGroupHeader title={t('settings.share.title')} storedOn="server" instant />
+        <SettingsGroupHeader title={t('settings.share.title')} storedOn="server" beta instant />
         <p className="text-[0.8125rem] text-muted-foreground">{t('settings.share.intro')}</p>
       </div>
 

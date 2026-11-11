@@ -66,4 +66,15 @@ describe('SettingsIndexView', () => {
     );
     expect(shareIdx).toBe(communityIdx + 1);
   });
+
+  it('badges Remote and Links as beta, no other section', () => {
+    render(<SettingsIndexView onSelectSection={vi.fn()} />);
+    for (const section of ['remote', 'share'] as const) {
+      const row = screen.getByRole('button', {
+        name: new RegExp(i18n.t(SETTINGS_SECTION_LABELS[section]), 'i'),
+      });
+      expect(within(row).getByTestId('beta-badge')).toBeInTheDocument();
+    }
+    expect(screen.getAllByTestId('beta-badge')).toHaveLength(2);
+  });
 });

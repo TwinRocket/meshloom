@@ -7,6 +7,8 @@ order: 24.2
 
 Meshloom Remote ouvre votre instance de n’importe où, depuis n’importe quel appareil (téléphone, tablette, ordinateur), sans ouvrir de port sur votre box et sans compte TwinRocket. Il est **désactivé par défaut** : tant qu’il l’est, Meshloom n’envoie rien au relais. Tout se passe dans **Réglages → Accès à distance**.
 
+Meshloom Remote est en **bêta** : son titre dans les Réglages porte un badge *Bêta*. Il fonctionne et il est utilisé, mais il peut encore évoluer.
+
 ## L’activer
 
 Un administrateur appuie sur **Activer Meshloom Remote**. L’instance enregistre sa propre clé auprès du relais, avec une preuve de Meshloom Community qu’une autre station a entendu votre radio récemment (voir [Preuve pour Remote et le partage](/docs/deep/community/#preuve-pour-remote-et-le-partage)), et reçoit sa propre adresse, comme `https://k3xwq2m7ta.meshloom.link`. Personne ne peut ouvrir cette adresse tant que vous n’avez pas autorisé un appareil.

@@ -9,6 +9,8 @@ Un message MeshCore contient 156 octets, et une adresse web en prend souvent dav
 
 Cette version raccourcit des **adresses web** et envoie des **photos** depuis le panneau **Envoyer une photo** de la zone de saisie. Une photo est soit **publique**, et toute personne qui a son lien peut l’ouvrir, soit, dans un canal privé ou un message direct, **chiffrée** pour cette conversation, et ses membres l’ouvrent dans Meshloom. Le chiffrement n’est proposé que là où il protège quelque chose, et il a des limites qu’il faut connaître : lisez [Fichiers chiffrés](#fichiers-chiffrés) avant de vous y fier. Meshloom ne peut pas savoir qu’un canal a été renommé avec une autre casse ou sous un nom sans rapport : sa clé peut rester publique. Les sections ci-dessous ne décrivent que ce qui existe.
 
+Le partage de liens et de photos est en **bêta** : son titre dans les Réglages porte un badge *Bêta*. Il fonctionne, mais il peut encore évoluer.
+
 ## L’activer
 
 Le partage passe par les serveurs de TwinRocket : il a donc besoin de **Meshloom Community** activé. Tant que Community est désactivé, la case est grisée et la section propose un bouton vers les réglages Community. Désactiver Community met le partage en pause sans perdre votre choix ni les conditions acceptées : voir [Fonctions qui ont besoin de Community](/docs/deep/community/#fonctions-qui-ont-besoin-de-community).

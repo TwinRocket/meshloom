@@ -7,6 +7,8 @@ order: 24.2
 
 Meshloom Remote opens your instance from anywhere, from any device (phone, tablet, computer), without opening a port on your router and without a TwinRocket account. It is **off by default**: while it is off, Meshloom sends nothing to the relay. Everything happens in **Settings → Remote access**.
 
+Meshloom Remote is in **beta**: the Settings title carries a *Beta* badge. It works and is in use, but it may still change.
+
 ## Turning it on
 
 An administrator presses **Turn on Meshloom Remote**. The instance registers its own key with the relay, with a proof from Meshloom Community that another station heard your radio recently (see [Proof for Remote and sharing](/en/docs/deep/community/#proof-for-remote-and-sharing)), and gets its own address, such as `https://k3xwq2m7ta.meshloom.link`. Nobody can open that address until you allow a device.

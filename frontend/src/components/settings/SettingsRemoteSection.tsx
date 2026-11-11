@@ -200,7 +200,7 @@ export function SettingsRemoteSection({
   return (
     <div className={className} data-testid="settings-remote">
       <SettingsGroup>
-        <SettingsGroupHeader title={t('settings.remote.about.title')} storedOn="server" />
+        <SettingsGroupHeader title={t('settings.remote.about.title')} storedOn="server" beta />
         <p className="text-sm">{t('settings.remote.about.intro')}</p>
         <p role="note" data-testid="remote-privacy-note" className="text-[0.8125rem]">
           {t('settings.remote.about.secure')}{' '}

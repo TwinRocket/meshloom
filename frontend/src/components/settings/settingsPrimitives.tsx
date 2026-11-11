@@ -1,3 +1,4 @@
+import { BetaBadge } from '../BetaBadge';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -28,6 +29,7 @@ export function SettingsGroupHeader({
   storedOn,
   instant,
   dirty,
+  beta,
 }: {
   id?: string;
   title: string;
@@ -36,6 +38,8 @@ export function SettingsGroupHeader({
   instant?: boolean;
   /** Set when the group holds edits an explicit Save has not written yet. */
   dirty?: boolean;
+  /** Set when the feature is in beta: shows the Beta badge next to the title. */
+  beta?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -43,6 +47,7 @@ export function SettingsGroupHeader({
       <h3 id={id} className="text-base font-semibold tracking-tight">
         {title}
       </h3>
+      {beta && <BetaBadge className="self-center" />}
       <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground">
         {t(TARGET_KEYS[storedOn])}
         {instant && ` · ${t('settings.common.appliesImmediately')}`}
