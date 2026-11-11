@@ -87,12 +87,24 @@ def test_a_leftover_disable_bots_true_is_handed_to_the_migration_and_warns(capsy
     assert "MESHCORE_DISABLE_PLUGINS" in capsys.readouterr().err
 
 
-def test_a_leftover_disable_bots_false_maps_to_nothing_and_warns(capsys) -> None:
+def test_a_leftover_disable_bots_false_maps_to_nothing_silently(capsys) -> None:
+    """Every 4.18 install stored `disable_bots: false`, the 4.18 default."""
     for value in (False, "true", None):
         env = addon.build_environment({"disable_bots": value})
         assert "MESHCORE_DISABLE_BOTS" not in env
         assert "MESHCORE_DISABLE_PLUGINS" not in env
-        assert "MESHCORE_DISABLE_PLUGINS" in capsys.readouterr().err
+        assert capsys.readouterr().err == ""
+
+
+def test_disable_bots_stays_declared_for_one_release() -> None:
+    """The Supervisor drops options.json keys missing from the schema, so a 4.18
+    `disable_bots: true` would never reach migration 122. No default: a new install
+    never shows it."""
+    import yaml
+
+    config = yaml.safe_load((ENTRYPOINT.parent / "config.yaml").read_text(encoding="utf-8"))
+    assert config["schema"]["disable_bots"] == "bool?"
+    assert "disable_bots" not in config["options"]
 
 
 def test_no_warning_without_the_retired_option(capsys) -> None:
