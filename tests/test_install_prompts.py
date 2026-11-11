@@ -115,17 +115,21 @@ def test_steps_have_no_total_that_could_change_on_the_way() -> None:
 # ── Docker packages ──────────────────────────────────────────────────────────
 
 
-def _docker_host(tmp_path: Path, apt_knows_v2: bool, install_works: bool) -> dict[str, str]:
+def _docker_host(
+    tmp_path: Path, apt_knows_v2: bool, install_works: bool, apt_lists: bool = True
+) -> dict[str, str]:
     stubs = tmp_path / "stubs"
     stubs.mkdir()
     log = tmp_path / "calls.log"
     log.touch()
-    known = "docker-compose-v2" if apt_knows_v2 else "no-such-package"
+    # Debian lists know docker-compose; Ubuntu's also know docker-compose-v2.
+    known = ["docker-compose-v2", "docker-compose"] if apt_knows_v2 else ["docker-compose"]
+    if not apt_lists:
+        known = []
+    cases = "".join(f'    *" {name}") exit 0 ;;\n' for name in known)
     apt_cache = stubs / "apt-cache"
     apt_cache.write_text(
-        "#!/bin/sh\n"
-        f'case "$*" in *{known}*) exit 0 ;; esac\n'
-        'echo "E: No packages found" >&2\nexit 100\n',
+        f'#!/bin/sh\ncase " $*" in\n{cases}esac\necho "E: No packages found" >&2\nexit 100\n',
         encoding="utf-8",
     )
     apt_cache.chmod(0o755)
@@ -166,7 +170,7 @@ apt_get() {
 def test_docker_on_debian_installs_the_debian_compose_package(tmp_path: Path) -> None:
     env = _docker_host(tmp_path, apt_knows_v2=False, install_works=True)
     result = _run(
-        ("docker_packages", "offer_cmd_install", "ensure_docker"),
+        ("is_ubuntu_like", "docker_packages", "offer_cmd_install", "ensure_docker"),
         _DOCKER_STUBS + "ensure_docker\necho READY\n",
         env=env,
     )
@@ -180,7 +184,7 @@ def test_docker_on_debian_installs_the_debian_compose_package(tmp_path: Path) ->
 def test_docker_on_ubuntu_installs_compose_v2(tmp_path: Path) -> None:
     env = _docker_host(tmp_path, apt_knows_v2=True, install_works=True)
     result = _run(
-        ("docker_packages", "offer_cmd_install", "ensure_docker"),
+        ("is_ubuntu_like", "docker_packages", "offer_cmd_install", "ensure_docker"),
         _DOCKER_STUBS + "ensure_docker\n",
         env=env,
     )
@@ -189,10 +193,26 @@ def test_docker_on_ubuntu_installs_compose_v2(tmp_path: Path) -> None:
     assert calls[-1] == "apt-get install -y docker.io docker-compose-v2"
 
 
+def test_docker_packages_without_apt_lists_follow_os_release(tmp_path: Path) -> None:
+    # Before `apt-get update` on a fresh image: apt-cache knows neither package.
+    env = _docker_host(tmp_path, apt_knows_v2=False, install_works=False, apt_lists=False)
+    names = ("is_ubuntu_like", "docker_packages")
+    ubuntu = _run(names, "PKG_MGR=apt\nis_ubuntu_like() { return 0; }\ndocker_packages\n", env=env)
+    debian = _run(names, "PKG_MGR=apt\nis_ubuntu_like() { return 1; }\ndocker_packages\n", env=env)
+    assert ubuntu.stdout == "docker.io docker-compose-v2", ubuntu.stderr
+    assert debian.stdout == "docker.io docker-compose", debian.stderr
+
+
+def test_is_ubuntu_like_reads_id_and_id_like() -> None:
+    fn = _extract_fn("is_ubuntu_like")
+    assert ". /etc/os-release" in fn
+    assert '" ${ID:-} ${ID_LIKE:-} "' in fn
+
+
 def test_docker_install_failure_points_to_the_docker_docs(tmp_path: Path) -> None:
     env = _docker_host(tmp_path, apt_knows_v2=False, install_works=False)
     result = _run(
-        ("docker_packages", "offer_cmd_install", "ensure_docker"),
+        ("is_ubuntu_like", "docker_packages", "offer_cmd_install", "ensure_docker"),
         _DOCKER_STUBS + "ensure_docker\necho READY\n",
         env=env,
     )

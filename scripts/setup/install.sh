@@ -1080,15 +1080,33 @@ ensure_uv() {
     fi
 }
 
-# Ubuntu names the Compose v2 package docker-compose-v2; Debian and Raspberry Pi
-# OS have no such package and ship Compose as docker-compose (v2 from Debian 13;
-# Debian 12's v1 also works through compose_cmd). Unknown lists: the Debian name.
+# Ubuntu or a derivative (Linux Mint, Pop!_OS...), from /etc/os-release.
+is_ubuntu_like() {
+    (
+        # shellcheck disable=SC1091
+        . /etc/os-release 2>/dev/null || exit 1
+        case " ${ID:-} ${ID_LIKE:-} " in
+            *" ubuntu "*) exit 0 ;;
+        esac
+        exit 1
+    )
+}
+
+# Ubuntu names the Compose v2 package docker-compose-v2 (its docker-compose is
+# v1 on 24.04); Debian and Raspberry Pi OS have no such package and ship Compose
+# as docker-compose (v2 from Debian 13; Debian 12's v1 also works through
+# compose_cmd). Runs before `apt-get update`: when the lists know neither
+# package (a fresh cloud or container image), /etc/os-release decides.
 docker_packages() {
     if [ "$PKG_MGR" = "dnf" ]; then
         printf '%s' "docker docker-compose"
         return 0
     fi
     if apt-cache show --no-all-versions docker-compose-v2 >/dev/null 2>&1; then
+        printf '%s' "docker.io docker-compose-v2"
+    elif apt-cache show --no-all-versions docker-compose >/dev/null 2>&1; then
+        printf '%s' "docker.io docker-compose"
+    elif is_ubuntu_like; then
         printf '%s' "docker.io docker-compose-v2"
     else
         printf '%s' "docker.io docker-compose"

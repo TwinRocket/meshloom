@@ -185,14 +185,37 @@ is_upgrade() {
     { [ "$1" = "configure" ] && [ -n "$2" ]; } || [ "$1" = "2" ] || [ "$1" = "upgrade" ]
 }
 
-# Stops the old server before the new one starts. SIGTERM first, so it closes the
-# radio and the database itself (a normal stop takes well under a second). SIGKILL
-# after 20 s: up to 4.13 the in-app update held a request open on `systemctl start
-# meshloom-update.service`, which waits for this very script, so such a server never
-# finishes stopping on its own (and with SIGTERM alone it would end that request by
-# reporting a failed update). Polled here rather than through TimeoutStopSec=, which
-# would need a drop-in and a reload. is-active says "deactivating" while it stops.
+# True while an in-app update from 4.12.0 to 4.13.4 is running: that server's
+# request waits on a blocking `systemctl start meshloom-update.service`, which
+# itself waits for this script (4.13.5 and later pass --no-block, so they never
+# match). pgrep comes with procps; without it, /proc is read directly.
+old_server_waits_on_update() {
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -x -f 'systemctl start meshloom-update.service' >/dev/null 2>&1
+        return
+    fi
+    for cmdline in /proc/[0-9]*/cmdline; do
+        [ "$(tr '\0' ' ' <"$cmdline" 2>/dev/null)" = "systemctl start meshloom-update.service " ] &&
+            return 0
+    done
+    return 1
+}
+
+# Stops the old server before the new one starts.
+# - In-app update from 4.12.0 to 4.13.4: SIGKILL right away. meshloom.service has
+#   the default KillMode=control-group, so a SIGTERM also reaches the waiting
+#   systemctl client: it exits with an error, the server records the update as
+#   failed and sends "failed" to the open page before it exits, although the old
+#   helper then finishes the upgrade. SIGKILL gives it no chance to answer.
+# - Otherwise: SIGTERM, so the server closes the radio and the database itself (a
+#   normal stop takes well under a second), then SIGKILL after 20 s. Polled here
+#   rather than through TimeoutStopSec=, which would need a drop-in and a reload.
+#   is-active says "deactivating" while it stops.
 stop_old_server() {
+    if old_server_waits_on_update; then
+        systemctl kill --kill-whom=all -s SIGKILL meshloom.service || true
+        return 0
+    fi
     systemctl stop --no-block meshloom.service || true
     i=0
     while [ "$i" -lt 20 ]; do

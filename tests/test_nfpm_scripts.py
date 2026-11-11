@@ -78,11 +78,17 @@ def _shell_fn(text: str, name: str) -> str:
 
 
 def _run_with_fake_systemctl(
-    tmp_path: Path, body: str, states: list[str], enabled: bool = False
+    tmp_path: Path,
+    body: str,
+    states: list[str],
+    enabled: bool = False,
+    blocking_update: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-    """Runs postinstall functions against a systemctl stub.
+    """Runs postinstall functions against systemctl and pgrep stubs.
 
     `is-active` answers the next entry of `states` (the last one repeats).
+    `pgrep` finds a blocking `systemctl start meshloom-update.service` only
+    when `blocking_update` is set.
     """
     stubs = tmp_path / "stubs"
     stubs.mkdir()
@@ -108,6 +114,15 @@ esac
         encoding="utf-8",
     )
     systemctl.chmod(0o755)
+    pgrep = stubs / "pgrep"
+    pgrep.write_text(
+        f"""#!/bin/sh
+echo "pgrep $*" >>"{log}"
+[ "{1 if blocking_update else 0}" = 1 ]
+""",
+        encoding="utf-8",
+    )
+    pgrep.chmod(0o755)
     (stubs / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     (stubs / "sleep").chmod(0o755)
     result = subprocess.run(
@@ -122,21 +137,53 @@ esac
     return result, calls
 
 
+STOP_OLD_SERVER = (
+    _shell_fn(POSTINST, "old_server_waits_on_update")
+    + _shell_fn(POSTINST, "stop_old_server")
+    + "stop_old_server\n"
+)
+BLOCKING_PGREP = "pgrep -x -f systemctl start meshloom-update.service"
+
+
 def test_stop_old_server_is_graceful_when_the_server_stops(tmp_path: Path) -> None:
-    body = _shell_fn(POSTINST, "stop_old_server") + "stop_old_server\n"
-    result, calls = _run_with_fake_systemctl(tmp_path, body, ["active", "deactivating", "inactive"])
+    result, calls = _run_with_fake_systemctl(
+        tmp_path, STOP_OLD_SERVER, ["active", "deactivating", "inactive"]
+    )
     assert result.returncode == 0, result.stderr
-    assert calls[0] == "systemctl stop --no-block meshloom.service"
+    assert calls[0] == BLOCKING_PGREP
+    assert calls[1] == "systemctl stop --no-block meshloom.service"
     assert not [c for c in calls if "SIGKILL" in c]
 
 
 def test_stop_old_server_kills_a_server_that_does_not_stop(tmp_path: Path) -> None:
-    # Up to 4.13 an in-app update kept a request open that waits for this script.
-    body = _shell_fn(POSTINST, "stop_old_server") + "stop_old_server\n"
-    result, calls = _run_with_fake_systemctl(tmp_path, body, ["deactivating"])
+    result, calls = _run_with_fake_systemctl(tmp_path, STOP_OLD_SERVER, ["deactivating"])
     assert result.returncode == 0, result.stderr
     assert calls[-1] == "systemctl kill --kill-whom=all -s SIGKILL meshloom.service"
     assert len([c for c in calls if c.startswith("systemctl is-active")]) == 20
+
+
+def test_stop_old_server_kills_at_once_during_a_blocking_in_app_update(tmp_path: Path) -> None:
+    # 4.12.0 to 4.13.4 wait on `systemctl start meshloom-update.service`. Under
+    # KillMode=control-group a SIGTERM would reach that client and the server
+    # would answer the open page with a false "update failed".
+    result, calls = _run_with_fake_systemctl(
+        tmp_path, STOP_OLD_SERVER, ["active"], blocking_update=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls == [
+        BLOCKING_PGREP,
+        "systemctl kill --kill-whom=all -s SIGKILL meshloom.service",
+    ]
+
+
+def test_blocking_update_check_matches_only_the_pre_4_13_5_call() -> None:
+    # 4.13.5 and later pass --no-block: an exact full-command-line match skips them.
+    fn = _shell_fn(POSTINST, "old_server_waits_on_update")
+    assert "pgrep -x -f 'systemctl start meshloom-update.service'" in fn
+    assert '"systemctl start meshloom-update.service "' in fn
+    assert "--no-block" not in fn
+    old_kill = POSTINST.index("if old_server_waits_on_update; then")
+    assert old_kill < POSTINST.index("systemctl stop --no-block meshloom.service")
 
 
 def _tail_messages(tmp_path: Path, args: str, enabled: bool) -> str:
