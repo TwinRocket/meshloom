@@ -12,6 +12,6 @@ def test_httpx_request_log_drops_path_query_and_userinfo(caplog):
     with caplog.at_level(logging.INFO, logger="httpx"):
         logging.getLogger("httpx").info('HTTP Request: %s %s "%s"', "GET", url, "HTTP/1.1 200 OK")
     text = caplog.text
-    assert "hc.example.org:8443" in text
+    assert 'GET https://hc.example.org:8443/ "HTTP/1.1' in text
     for secret in ("secret-uuid", "key=abc", "user", "pw@", "frag"):
         assert secret not in text

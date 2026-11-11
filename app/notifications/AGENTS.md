@@ -712,8 +712,9 @@ entry through the API calls `forget()` (rows and in-memory cooldown). Both event
   `retry` with the longest of `Retry-After`, `X-RateLimit-Reset-After` and the body's `retry_after`;
   `X-RateLimit-Remaining: 0` makes the next send of that webhook answer `retry` without a request
   (in-process, per webhook id hash; the transport never sleeps). 401/403/404 `auth_failed`, 400
-  `invalid_config`. `verify_tls=false` is refused (public host). httpx logs the request path at INFO:
-  `discord.py` installs a filter that masks the token.
+  `invalid_config`. `verify_tls=false` is refused (public host). The egress guard's httpx log filter keeps only
+  `scheme://host[:port]`, so the path (and the token) is not logged; `discord.py` also installs a
+  filter that masks the token (defence in depth).
 - **Apprise** (`apprise.py`). `apprise_medium.send_to_urls` sends each URL on its own (retries per
   URL); any URL still failing makes the delivery `failed` with `line N (redacted url): code`,
   never `retry`. Discord URLs get `avatar=False`; `verify_tls` maps to `verify_certificate`.
