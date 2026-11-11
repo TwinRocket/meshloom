@@ -1,3 +1,4 @@
+import { BetaBadge } from './BetaBadge';
 import { lazy, Suspense, useState, useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -18,6 +19,7 @@ import type {
 } from '../types';
 import {
   SETTINGS_SECTION_ICONS,
+  BETA_SETTINGS_SECTIONS,
   SETTINGS_SECTION_LABELS,
   type SettingsSection,
 } from './settings/settingsConstants';
@@ -245,6 +247,7 @@ export function SettingsModal(props: SettingsModalProps) {
         <span className="inline-flex items-center gap-2 font-medium" role="heading" aria-level={3}>
           <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <span>{t(SETTINGS_SECTION_LABELS[section])}</span>
+          {BETA_SETTINGS_SECTIONS.includes(section) && <BetaBadge />}
         </span>
         <span className="text-muted-foreground md:hidden" aria-hidden="true">
           {expandedSections[section] ? '−' : '+'}

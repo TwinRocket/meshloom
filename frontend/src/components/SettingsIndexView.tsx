@@ -4,11 +4,13 @@ import { useCapabilities } from '../auth/SessionProvider';
 import { ChevronRight, PanelLeftClose } from 'lucide-react';
 import {
   SETTINGS_SECTION_ICONS,
+  BETA_SETTINGS_SECTIONS,
   SETTINGS_SECTION_LABELS,
   type SettingsSection,
 } from './settings/settingsConstants';
 import { RadioStatusChip } from './RadioStatusChip';
 import type { HealthStatus } from '../types';
+import { BetaBadge } from './BetaBadge';
 import { cn } from '../lib/utils';
 import { usePluginUpdateCount } from '../stores/pluginUpdatesStore';
 
@@ -144,6 +146,7 @@ export function SettingsIndexView({
                           )}
                         >
                           <span className="truncate">{t(SETTINGS_SECTION_LABELS[section])}</span>
+                          {BETA_SETTINGS_SECTIONS.includes(section) && <BetaBadge />}
                           {section === 'extensions' && pluginUpdates > 0 && (
                             <span
                               className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary"

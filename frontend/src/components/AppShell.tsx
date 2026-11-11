@@ -1,3 +1,4 @@
+import { BetaBadge } from './BetaBadge';
 import { lazy, useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { useSwipeable } from 'react-swipeable';
 
@@ -32,6 +33,7 @@ import { RadioIdentityModal } from './RadioIdentityModal';
 import { RadioWifiPrompt } from './RadioWifiPrompt';
 import { Toaster } from './ui/sonner';
 import {
+  BETA_SETTINGS_SECTIONS,
   SETTINGS_SECTION_LABELS,
   SETTINGS_SECTION_ORDER,
   type SettingsSection,
@@ -592,6 +594,9 @@ export function AppShell({
                 </button>
                 <h1 className="pointer-events-none absolute inset-x-14 truncate text-center text-base font-semibold">
                   {t(SETTINGS_SECTION_LABELS[settingsSection])}
+                  {BETA_SETTINGS_SECTIONS.includes(settingsSection) && (
+                    <BetaBadge className="ml-2 align-middle" />
+                  )}
                 </h1>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">

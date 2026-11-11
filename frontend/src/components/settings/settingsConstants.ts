@@ -61,6 +61,9 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'about',
 ];
 
+/** Sections whose feature is in beta: their title carries the Beta badge. */
+export const BETA_SETTINGS_SECTIONS: readonly SettingsSection[] = ['remote', 'share'];
+
 /** i18n key ids. Translate at render with t(SETTINGS_SECTION_LABELS[section]). */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   radio: 'settingsNav.radio',
