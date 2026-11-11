@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG = ROOT / "pkg" / "nfpm"
 APPLY = (PKG / "apply-update").read_text(encoding="utf-8")
 PRERM = (PKG / "preremove.sh").read_text(encoding="utf-8")
+POSTRM = PKG / "postremove.sh"
 POSTINST = (PKG / "postinstall.sh").read_text(encoding="utf-8")
 POSTTRANS = (PKG / "posttrans.sh").read_text(encoding="utf-8")
 NFPM = (PKG / "nfpm.yaml.tmpl").read_text(encoding="utf-8")
@@ -34,13 +38,14 @@ def test_postinstall_enables_path_unit_offline_then_restarts_watcher() -> None:
     running_at = POSTINST.index("if [ -d /run/systemd/system ]")
     reload_at = POSTINST.index("systemctl daemon-reload")
     start_path_at = POSTINST.index("systemctl start meshloom-update.path")
-    kill_at = POSTINST.index("kill --kill-whom=all -s SIGKILL meshloom.service")
+    kill_at = POSTINST.index("        stop_old_server\n")
     start_at = POSTINST.index("systemctl start meshloom || true")
     wait_at = POSTINST.index("systemctl is-active --quiet meshloom")
     # enable runs even without a running systemd (RPi image bake, chroots).
     assert enable_at < running_at < reload_at < start_path_at < kill_at < start_at < wait_at
     assert "request-update" not in POSTINST
-    assert "activating" not in POSTINST
+    # Only the stop loop names a state; the start wait never accepts "activating".
+    assert "activating" not in POSTINST.replace("deactivating", "")
     assert "dst: /usr/lib/systemd/system/meshloom-update.path" in NFPM
 
 
@@ -59,12 +64,127 @@ def test_postinstall_migrates_existing_installs() -> None:
     assert "d /var/lib/meshloom-update 0755 root root" in tmpfiles
 
 
-def test_postinstall_hard_kills_before_start() -> None:
-    kill_at = POSTINST.index("kill --kill-whom=all -s SIGKILL meshloom.service")
+def test_postinstall_stops_the_old_server_before_start() -> None:
+    stop_at = POSTINST.index("        stop_old_server\n")
     start_at = POSTINST.index("systemctl start meshloom || true")
-    assert kill_at < start_at
+    assert stop_at < start_at
     assert "zz-meshloom-upgrade-kill.conf" not in POSTINST
     assert "systemctl restart meshloom" not in POSTINST
+
+
+def _shell_fn(text: str, name: str) -> str:
+    start = text.index(f"\n{name}() {{\n") + 1
+    return text[start : text.index("\n}\n", start) + 3]
+
+
+def _run_with_fake_systemctl(
+    tmp_path: Path, body: str, states: list[str], enabled: bool = False
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Runs postinstall functions against a systemctl stub.
+
+    `is-active` answers the next entry of `states` (the last one repeats).
+    """
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    log = tmp_path / "calls.log"
+    state_file = tmp_path / "states"
+    state_file.write_text("\n".join(states) + "\n", encoding="utf-8")
+    systemctl = stubs / "systemctl"
+    systemctl.write_text(
+        f"""#!/bin/sh
+echo "systemctl $*" >>"{log}"
+case "$1" in
+    is-active)
+        state=$(head -n 1 "{state_file}")
+        if [ "$(wc -l <"{state_file}")" -gt 1 ]; then
+            tail -n +2 "{state_file}" >"{state_file}.n" && mv "{state_file}.n" "{state_file}"
+        fi
+        echo "$state"
+        [ "$state" = active ]
+        ;;
+    is-enabled) [ "{1 if enabled else 0}" = 1 ] ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    systemctl.chmod(0o755)
+    (stubs / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (stubs / "sleep").chmod(0o755)
+    result = subprocess.run(
+        ["sh", "-c", body],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={"PATH": f"{stubs}:/usr/bin:/bin"},
+    )
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return result, calls
+
+
+def test_stop_old_server_is_graceful_when_the_server_stops(tmp_path: Path) -> None:
+    body = _shell_fn(POSTINST, "stop_old_server") + "stop_old_server\n"
+    result, calls = _run_with_fake_systemctl(tmp_path, body, ["active", "deactivating", "inactive"])
+    assert result.returncode == 0, result.stderr
+    assert calls[0] == "systemctl stop --no-block meshloom.service"
+    assert not [c for c in calls if "SIGKILL" in c]
+
+
+def test_stop_old_server_kills_a_server_that_does_not_stop(tmp_path: Path) -> None:
+    # Up to 4.13 an in-app update kept a request open that waits for this script.
+    body = _shell_fn(POSTINST, "stop_old_server") + "stop_old_server\n"
+    result, calls = _run_with_fake_systemctl(tmp_path, body, ["deactivating"])
+    assert result.returncode == 0, result.stderr
+    assert calls[-1] == "systemctl kill --kill-whom=all -s SIGKILL meshloom.service"
+    assert len([c for c in calls if c.startswith("systemctl is-active")]) == 20
+
+
+def _tail_messages(tmp_path: Path, args: str, enabled: bool) -> str:
+    tail = POSTINST[POSTINST.index("# An upgrade keeps the radio") :]
+    body = _shell_fn(POSTINST, "is_upgrade") + f"set -- {args}\n" + tail
+    result, _ = _run_with_fake_systemctl(tmp_path, body, ["inactive"], enabled=enabled)
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.mark.parametrize("args", ["configure 4.18.3-1", "2", "upgrade"])
+def test_postinstall_upgrade_does_not_say_to_start_meshloom(tmp_path: Path, args: str) -> None:
+    out = _tail_messages(tmp_path, args, enabled=True)
+    assert "Start Meshloom with" not in out
+    assert "Settings > Radio" not in out
+    assert "UI: http://localhost:8000" in out
+
+
+@pytest.mark.parametrize("args", ["configure ''", "1"])
+def test_postinstall_fresh_install_says_how_to_start(tmp_path: Path, args: str) -> None:
+    out = _tail_messages(tmp_path, args, enabled=False)
+    assert "Start Meshloom with: sudo systemctl enable --now meshloom" in out
+    assert "Settings > Radio" in out
+
+
+def test_postinstall_fresh_install_already_enabled_skips_the_start_hint(tmp_path: Path) -> None:
+    out = _tail_messages(tmp_path, "1", enabled=True)
+    assert "Start Meshloom with" not in out
+    assert "Settings > Radio" in out
+
+
+@pytest.mark.parametrize(
+    ("arg", "said"),
+    [
+        ("remove", True),
+        ("0", True),
+        ("purge", False),
+        ("upgrade", False),
+        ("1", False),
+        ("failed-upgrade", False),
+    ],
+)
+def test_postremove_mentions_kept_data_only_on_removal(arg: str, said: bool) -> None:
+    result = subprocess.run(
+        ["sh", str(POSTRM), arg], capture_output=True, text=True, timeout=30, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("left in place" in result.stdout) is said
 
 
 def test_apply_update_starts_service_after_packages() -> None:
