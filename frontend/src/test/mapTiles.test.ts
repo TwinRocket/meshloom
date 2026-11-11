@@ -33,3 +33,15 @@ describe('OSM raster tiles', () => {
     expect(osmRasterTransformRequest('https://example.com/3/4/2.png', 'Tile')).toBeUndefined();
   });
 });
+
+describe('osmRasterTransformRequest host check', () => {
+  it('ignores URLs that only mention the tile host outside the hostname', () => {
+    expect(
+      osmRasterTransformRequest('https://example.com/?u=tile.openstreetmap.org', 'Tile')
+    ).toBeUndefined();
+    expect(
+      osmRasterTransformRequest('https://tile.openstreetmap.org.example.com/1/2/3.png', 'Tile')
+    ).toBeUndefined();
+    expect(osmRasterTransformRequest('not a url', 'Tile')).toBeUndefined();
+  });
+});
