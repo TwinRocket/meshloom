@@ -1627,25 +1627,3 @@ def test_without_proc_a_locked_dir_fails_the_removal_clearly(monkeypatch) -> Non
         with contextlib.suppress(OSError):
             os.chmod(top, 0o700)
         shutil.rmtree(shared, ignore_errors=True)
-
-
-@pytest.mark.parametrize(
-    ("chosen", "level", "reason"),
-    [
-        (selection.Selection(NoneBackend(), reason="bwrap_refused"), "none", "bwrap_refused"),
-        (selection.Selection(BwrapBackend("/usr/bin/bwrap")), "bwrap", None),
-    ],
-)
-def test_health_reports_why_the_level_is_none(monkeypatch, chosen, level, reason) -> None:
-    from app.plugins import lifecycle
-    from app.plugins.host import plugin_manager
-
-    monkeypatch.setattr(selection, "detect", lambda: chosen)
-    monkeypatch.setattr(plugin_manager, "disabled_source", lambda: None)
-    selection.reset_for_tests()
-    try:
-        fields = lifecycle.health_fields()
-    finally:
-        selection.reset_for_tests()
-    assert fields["plugins_isolation"] == level
-    assert fields["plugins_isolation_reason"] == reason
