@@ -47,7 +47,9 @@ describe('UpdateAvailableDialog', () => {
     render(<UpdateAvailableDialog open updates={updates} onClose={vi.fn()} />);
 
     expect(screen.getByText(i18n.t('updates.title'))).toBeInTheDocument();
-    expect(screen.getByText(/sudo apt-get update && sudo apt-get install --only-upgrade meshloom/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/sudo apt-get update && sudo apt-get install --only-upgrade meshloom/)
+    ).toBeInTheDocument();
     expect(screen.getByText(/sudo dnf upgrade --refresh meshloom/)).toBeInTheDocument();
     expect(screen.getByText(/sudo docker compose pull/)).toBeInTheDocument();
 
@@ -89,7 +91,9 @@ describe('UpdateAvailableDialog', () => {
     );
 
     expect(screen.getByText(i18n.t('updates.manual'))).toBeInTheDocument();
-    expect(screen.getByText(/sudo apt-get update && sudo apt-get install --only-upgrade meshloom/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/sudo apt-get update && sudo apt-get install --only-upgrade meshloom/)
+    ).toBeInTheDocument();
     expect(screen.getByText(/sudo docker compose pull/)).toBeInTheDocument();
   });
 
@@ -103,7 +107,9 @@ describe('UpdateAvailableDialog', () => {
     );
 
     expect(screen.getByText(i18n.t('updates.manual'))).toBeInTheDocument();
-    expect(screen.getByText(/sudo apt-get update && sudo apt-get install --only-upgrade meshloom/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/sudo apt-get update && sudo apt-get install --only-upgrade meshloom/)
+    ).toBeInTheDocument();
     expect(screen.getByText(/sudo docker compose pull/)).toBeInTheDocument();
   });
 
