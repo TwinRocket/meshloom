@@ -32,7 +32,7 @@ A device belongs to the account that allowed it. Deleting an account cuts all it
 
 The relay is run by TwinRocket. It ends the encrypted connection before passing the traffic on to your instance: it could therefore technically read everything, including your password when you sign in, your messages and your settings. It blocks every device you have not allowed.
 
-Only two-factor authentication stops a password seen by the relay from being enough to get in (**Settings → Users & Access**, see [Two-factor authentication](/en/docs/deep/access/#two-factor-authentication)). A [passkey](/en/docs/deep/access/#passkeys) avoids typing the password, but the password stays valid.
+Two-factor authentication stops a password seen by the relay from being enough to sign in (**Settings → Users & Access**, see [Two-factor authentication](/en/docs/deep/access/#two-factor-authentication)). A [passkey](/en/docs/deep/access/#passkeys) avoids typing the password, but the password stays valid. The relay also sees the session while you use it, which two-factor authentication does not change. For traffic TwinRocket cannot read, use [your own tunnel](/en/docs/deep/self-host-tailscale/).
 
 While Remote is on, Meshloom also tells the relay its version, its kind of install, and whether it runs plugins and with which isolation. While Remote is off, nothing is sent. There is no relay account. For each instance the relay keeps:
 
