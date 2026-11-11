@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -68,6 +68,14 @@ describe('SettingsShareSection', () => {
 
   const renderSection = () => render(<SettingsShareSection onSaveAppSettings={save} />);
   const enableBox = () => screen.findByRole('checkbox', { name: i18n.t('settings.share.enable') });
+
+  it('shows the Beta badge next to the Links title', async () => {
+    renderSection();
+    const title = await screen.findByRole('heading', { name: i18n.t('settings.share.title') });
+    const badge = within(title.parentElement as HTMLElement).getByTestId('beta-badge');
+    expect(badge).toHaveTextContent(i18n.t('beta.label'));
+    expect(badge).toHaveAttribute('title', i18n.t('beta.title'));
+  });
 
   it('is off by default and enabling opens the consent without saving', async () => {
     renderSection();

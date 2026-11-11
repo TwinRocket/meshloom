@@ -9,6 +9,8 @@ A MeshCore message holds 156 bytes, and a web address often takes more than that
 
 This version shortens **web addresses** and sends **photos** from the composer's **Send a photo** panel. A photo is either **public**, which anyone who has its link can open, or, in a private channel or a direct message, **encrypted** for that conversation, which its members open in Meshloom. Encryption is offered only where it protects something, and it has honest limits: read [Encrypted files](#encrypted-files) before relying on it. Meshloom cannot tell that a channel was renamed to another letter case or to an unrelated name: its key may still be public. The sections below only describe what exists.
 
+Links and photo sharing is in **beta**: its Settings title carries a *Beta* badge. It works, but it may still change.
+
 ## Turning it on
 
 Sharing runs on TwinRocket's servers, so it needs **Meshloom Community** on. While Community is off, the box is greyed out and the section offers a button to the Community settings. Turning Community off pauses sharing without losing your choice or the accepted terms: see [Features that need Community](/en/docs/deep/community/#features-that-need-community).

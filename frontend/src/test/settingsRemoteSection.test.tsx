@@ -231,6 +231,15 @@ describe('SettingsRemoteSection', () => {
     }
   });
 
+  it('shows the Beta badge next to the Meshloom Remote title', async () => {
+    vi.spyOn(api, 'getRemote').mockResolvedValue(OFF);
+    await renderAs('admin');
+    const title = await screen.findByRole('heading', { name: t('settings.remote.about.title') });
+    expect(within(title.parentElement as HTMLElement).getByTestId('beta-badge')).toHaveTextContent(
+      t('beta.label')
+    );
+  });
+
   it('shows one actionable line and links the Remote docs for the details', async () => {
     vi.spyOn(api, 'getRemote').mockResolvedValue(OFF);
     await renderAs('admin');
