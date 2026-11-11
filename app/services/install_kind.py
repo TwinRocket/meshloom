@@ -78,3 +78,61 @@ def _detect() -> tuple[InstallKind, bool]:
     if _in_container():
         return "container", False
     return "source", False
+
+
+PackageChannel = Literal["stable", "testing"]
+
+# Written by scripts/setup/install.sh (add_signed_repo); both are world-readable.
+APT_SOURCE = Path("/etc/apt/sources.list.d/meshloom.list")
+YUM_REPO = Path("/etc/yum.repos.d/meshloom.repo")
+_APT_REPO_SUFFIX = "/meshloom/apt"
+
+
+def _read_small(path: Path) -> str | None:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            return handle.read(8192)
+    except OSError:
+        return None
+
+
+def _apt_channel(text: str) -> PackageChannel | None:
+    for raw in text.splitlines():
+        tokens = raw.split("#", 1)[0].split()
+        if not tokens or tokens[0] != "deb":
+            continue
+        for i, token in enumerate(tokens[:-1]):
+            if token.rstrip("/").endswith(_APT_REPO_SUFFIX):
+                suite = tokens[i + 1]
+                return "testing" if suite == "testing" else "stable"
+    return None
+
+
+def _yum_channel(text: str) -> PackageChannel | None:
+    for raw in text.splitlines():
+        key, sep, value = raw.partition("=")
+        if not sep or key.strip().lower() != "baseurl":
+            continue
+        url = value.strip()
+        if "/meshloom/rpm/" not in url:
+            continue
+        return "testing" if "/meshloom/rpm/testing/" in url else "stable"
+    return None
+
+
+def package_channel() -> PackageChannel | None:
+    """Which suite of the signed repository this package install follows.
+
+    ``testing`` is what the pre-release installer writes: it serves the release
+    candidates (and the stable release when no candidate is newer), so the in-app
+    update installs whatever that suite holds. ``None`` when neither source is found.
+    """
+    apt = _read_small(APT_SOURCE)
+    if apt is not None:
+        channel = _apt_channel(apt)
+        if channel is not None:
+            return channel
+    yum = _read_small(YUM_REPO)
+    if yum is not None:
+        return _yum_channel(yum)
+    return None

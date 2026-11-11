@@ -2676,6 +2676,8 @@ export interface OssUpdateStatus {
   next_auto_apply_at?: number | null;
   /** Compose install still runs the pre-4.18 host helper; re-run the installer. */
   legacy_update_helper?: boolean;
+  /** Package installs: the signed repository suite (`testing` after the pre-release installer). */
+  package_channel?: 'stable' | 'testing' | null;
   /** Where `latest` came from: Community, or an env pin. */
   latest_source?: 'community' | 'env' | null;
   /** Community asks not to auto-apply this update; a manual install stays available. */

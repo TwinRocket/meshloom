@@ -12,7 +12,7 @@ from app.auth import audit
 from app.auth.permissions import require
 from app.background_tasks import spawn
 from app.repository import AppSettingsRepository
-from app.services.install_kind import detect_install_kind
+from app.services.install_kind import detect_install_kind, package_channel
 from app.services.oss_updates import (
     get_update_status,
     recheck_auto_apply,
@@ -89,6 +89,13 @@ class UpdateStatusResponse(BaseModel):
         description=(
             "Compose install still runs the pre-4.18 host update helper; "
             "re-running the installer replaces it with the signed helper"
+        ),
+    )
+    package_channel: Literal["stable", "testing"] | None = Field(
+        default=None,
+        description=(
+            "Package installs only: the suite of the signed repository this host follows "
+            "(`testing` after the pre-release installer); null when unknown or not a package"
         ),
     )
     job: UpdateJobResponse
@@ -179,6 +186,7 @@ async def build_update_status() -> UpdateStatusResponse:
             else None
         ),
         legacy_update_helper=bool(kind == "compose" and supported and not secure_compose_helper()),
+        package_channel=package_channel() if kind == "package" else None,
         job=UpdateJobResponse.model_validate(
             public_job_for_client(
                 current=catalogue["current"],
