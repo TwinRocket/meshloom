@@ -50,9 +50,10 @@ it against the code.
 ## Sending (IP pinning)
 
 - httpx logs every request at INFO (`HTTP Request: GET <url> ...`). Importing
-  the guard adds a filter to the `httpx` logger that drops the user info, query
-  and fragment of that URL (API keys, webhook tokens), for every httpx client of
-  the process.
+  the guard adds a filter to the `httpx` logger that keeps only
+  `scheme://host[:port]` of that URL (the user info, path, query and fragment,
+  which can carry API keys or webhook tokens, are dropped), for every httpx
+  client of the process.
 
 - httpx: `pinned_async_client(dest, *, verify_tls=True, timeout)` yields a
   client whose `request()`/`post()` connect to a validated IP

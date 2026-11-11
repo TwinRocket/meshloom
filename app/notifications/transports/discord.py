@@ -58,8 +58,8 @@ _TOKEN_PATH = re.compile(r"(/webhooks/\d+/)[^/?#\s]+")
 
 
 class _WebhookTokenRedaction(logging.Filter):
-    """httpx logs every request URL at INFO, and a Discord token sits in the path
-    (the egress guard's filter only drops the query and user info)."""
+    """A Discord token sits in the webhook URL path. The egress guard's httpx filter
+    already keeps only scheme://host[:port]; this masks the token as defence in depth."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple):
