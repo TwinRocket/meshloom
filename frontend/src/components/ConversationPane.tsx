@@ -37,6 +37,7 @@ import {
   isPrefixOnlyContact,
   isUnknownFullKeyContact,
 } from '../utils/pubkey';
+import { AppErrorBoundary } from './AppErrorBoundary';
 import { LazyBoundary } from './LazyBoundary';
 
 const RepeaterDashboard = lazy(() =>
@@ -651,92 +652,94 @@ export function ConversationPane({
       {showRoomChat && <div data-toast-anchor="conversation" aria-hidden="true" />}
       {showRoomChat && (
         <div className="mx-auto flex w-full max-w-none flex-1 min-h-0 flex-col lg:max-w-208 2xl:max-w-5xl">
-          <MessageList
-            key={activeConversation.id}
-            messages={messages}
-            preSorted={preSorted}
-            contacts={contacts}
-            channels={channels}
-            loading={messagesLoading}
-            loadingOlder={loadingOlder}
-            hasOlderMessages={hasOlderMessages}
-            unreadMarkerMessageId={
-              activeConversation.type === 'channel' ? unreadMarkerMessageId : undefined
-            }
-            onNavigateToUnread={
-              activeConversation.type === 'channel' ? onNavigateToUnread : undefined
-            }
-            onDismissUnreadMarker={
-              activeConversation.type === 'channel' ? onDismissUnreadMarker : undefined
-            }
-            onSenderClick={onSenderClick}
-            onSendMessage={onSendMessage}
-            onChannelReferenceClick={onChannelReferenceClick}
-            onLoadOlder={onLoadOlder}
-            onResendChannelMessage={
-              activeConversation.type === 'channel' && capabilities.canSend
-                ? onResendChannelMessage
-                : undefined
-            }
-            radioName={config?.name}
-            config={config}
-            onOpenContactInfo={onOpenContactInfo}
-            targetMessageId={targetMessageId}
-            onTargetReached={onTargetReached}
-            hasNewerMessages={hasNewerMessages}
-            loadingNewer={loadingNewer}
-            onLoadNewer={onLoadNewer}
-            onJumpToBottom={onJumpToBottom}
-            onMessageDeleted={onMessageDeleted}
-            directoryEnabled={directoryEnabled}
-            conversationKey={activeConversation.id}
-          />
-          {activeConversation.type === 'channel' &&
-          capabilities.canSend &&
-          isPendingChannel(channels.find((channel) => channel.key === activeConversation.id)) ? (
-            <div className="flex shrink-0 gap-2 border-t border-border p-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 flex-1 border-green-600/50 text-green-700 hover:bg-green-600/10 dark:text-green-400"
-                onClick={() => void onAdoptChannel?.(activeConversation.id)}
-              >
-                {t('discovered.adopt')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
-                onClick={() => void onRefuseChannel?.(activeConversation.id)}
-              >
-                {t('discovered.refuse')}
-              </Button>
-            </div>
-          ) : !capabilities.canSend ||
-            (activeContactIsRoom && !capabilities.canAdministerRepeaters) ? null : !(
-              activeConversation.type === 'contact' && isPrefixOnlyActiveContact
-            ) ? (
-            <MessageInput
-              ref={messageInputRef}
-              onSend={onSendMessage}
-              disabled={!health?.radio_connected}
-              conversationType={activeConversation.type}
-              conversationId={
-                activeConversation.type === 'contact' || activeConversation.type === 'channel'
-                  ? activeConversation.id
+          <AppErrorBoundary key={activeConversation.id} compact>
+            <MessageList
+              key={activeConversation.id}
+              messages={messages}
+              preSorted={preSorted}
+              contacts={contacts}
+              channels={channels}
+              loading={messagesLoading}
+              loadingOlder={loadingOlder}
+              hasOlderMessages={hasOlderMessages}
+              unreadMarkerMessageId={
+                activeConversation.type === 'channel' ? unreadMarkerMessageId : undefined
+              }
+              onNavigateToUnread={
+                activeConversation.type === 'channel' ? onNavigateToUnread : undefined
+              }
+              onDismissUnreadMarker={
+                activeConversation.type === 'channel' ? onDismissUnreadMarker : undefined
+              }
+              onSenderClick={onSenderClick}
+              onSendMessage={onSendMessage}
+              onChannelReferenceClick={onChannelReferenceClick}
+              onLoadOlder={onLoadOlder}
+              onResendChannelMessage={
+                activeConversation.type === 'channel' && capabilities.canSend
+                  ? onResendChannelMessage
                   : undefined
               }
-              senderName={config?.name}
-              radioLat={config?.lat}
-              radioLon={config?.lon}
-              shareTarget={shareTarget}
-              placeholder={
-                !health?.radio_connected
-                  ? t('chat.radioNotConnected')
-                  : t('chat.messagePlaceholder')
-              }
+              radioName={config?.name}
+              config={config}
+              onOpenContactInfo={onOpenContactInfo}
+              targetMessageId={targetMessageId}
+              onTargetReached={onTargetReached}
+              hasNewerMessages={hasNewerMessages}
+              loadingNewer={loadingNewer}
+              onLoadNewer={onLoadNewer}
+              onJumpToBottom={onJumpToBottom}
+              onMessageDeleted={onMessageDeleted}
+              directoryEnabled={directoryEnabled}
+              conversationKey={activeConversation.id}
             />
-          ) : null}
+            {activeConversation.type === 'channel' &&
+            capabilities.canSend &&
+            isPendingChannel(channels.find((channel) => channel.key === activeConversation.id)) ? (
+              <div className="flex shrink-0 gap-2 border-t border-border p-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 flex-1 border-green-600/50 text-green-700 hover:bg-green-600/10 dark:text-green-400"
+                  onClick={() => void onAdoptChannel?.(activeConversation.id)}
+                >
+                  {t('discovered.adopt')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
+                  onClick={() => void onRefuseChannel?.(activeConversation.id)}
+                >
+                  {t('discovered.refuse')}
+                </Button>
+              </div>
+            ) : !capabilities.canSend ||
+              (activeContactIsRoom && !capabilities.canAdministerRepeaters) ? null : !(
+                activeConversation.type === 'contact' && isPrefixOnlyActiveContact
+              ) ? (
+              <MessageInput
+                ref={messageInputRef}
+                onSend={onSendMessage}
+                disabled={!health?.radio_connected}
+                conversationType={activeConversation.type}
+                conversationId={
+                  activeConversation.type === 'contact' || activeConversation.type === 'channel'
+                    ? activeConversation.id
+                    : undefined
+                }
+                senderName={config?.name}
+                radioLat={config?.lat}
+                radioLon={config?.lon}
+                shareTarget={shareTarget}
+                placeholder={
+                  !health?.radio_connected
+                    ? t('chat.radioNotConnected')
+                    : t('chat.messagePlaceholder')
+                }
+              />
+            ) : null}
+          </AppErrorBoundary>
         </div>
       )}
     </>

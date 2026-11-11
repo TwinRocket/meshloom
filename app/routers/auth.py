@@ -35,7 +35,10 @@ from app.auth import audit, device_cookie, email_factor, ratelimit, sessions, to
 from app.auth.fail_log import log_auth_failure
 from app.auth.first_run import (
     SetupUnavailable,
+    basic_credentials_from_header,
     ensure_first_run_ready,
+    legacy_basic_credentials_match,
+    legacy_basic_gate_active,
     local_setup_url,
     refusal_audit_due,
     request_exposed,
@@ -106,6 +109,9 @@ _setup_lock = asyncio.Lock()
 _MESSAGES = {
     "auth_setup_done": "The administrator already exists",
     "auth_setup_local_only": "Create the administrator from the local network",
+    "auth_setup_legacy_basic_invalid": (
+        "Enter the 4.x Basic user name and password, or run meshloom-admin create-admin"
+    ),
     "auth_password_policy": "Password refused by the password policy",
     "auth_username_invalid": "Invalid username",
     "auth_invalid_credentials": "Invalid credentials",
@@ -275,6 +281,10 @@ class AuthSessionResponse(BaseModel):
     # from the local network. The address to use there, when it can be known.
     setup_local_only: bool
     setup_local_url: str | None = None
+    # Setup also asks for the 4.x Basic credentials: a retired MESHCORE_BASIC_AUTH_*
+    # variable is still set (``app/auth/first_run.py``, "The 4.x Basic credentials").
+    # Absent otherwise.
+    setup_legacy_basic: bool | None = None
     methods: AuthMethods
     # Whether the server saw this request as https (``scope["scheme"]``, from a
     # trusted proxy's X-Forwarded-Proto behind one): the session cookie is the
@@ -296,6 +306,10 @@ class SetupRequest(BaseModel):
     username: str = Field(min_length=1, max_length=USERNAME_MAX_LENGTH)
     password: SecretStr = Field(max_length=MAX_PASSWORD_LENGTH)
     display_name: str = Field(default="", max_length=128)
+    # The 4.x Basic login, while a retired variable is set (``setup_legacy_basic``).
+    # Without them, an ``Authorization: Basic`` header is read instead.
+    legacy_basic_username: str | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
+    legacy_basic_password: SecretStr | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
 
 
 class LoginRequest(BaseModel):
@@ -416,6 +430,9 @@ async def _session_payload(
         setup_required=setup_required,
         setup_local_only=exposed,
         setup_local_url=await local_setup_url(request.scope) if exposed else None,
+        setup_legacy_basic=(
+            True if setup_required and not under_ingress and legacy_basic_gate_active() else None
+        ),
         methods=AuthMethods(
             password=not under_ingress,
             ingress=under_ingress,
@@ -592,7 +609,9 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
 
     403 ``auth_ingress_only`` under ingress: the first Home Assistant user to
     open the sidebar becomes the administrator there. 403 ``auth_setup_local_only``
-    when the request did not come straight from the local network, and 503
+    when the request did not come straight from the local network, 401
+    ``auth_setup_legacy_basic_invalid`` without the 4.x Basic credentials while a
+    retired Basic variable is set (``_check_legacy_basic``), and 503
     ``auth_setup_unavailable`` until first-run preparation succeeded
     (``app/auth/first_run.py``)."""
     _refuse_under_ingress(request)
@@ -614,6 +633,8 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
                     request, "setup", "failure", details={"reason": "setup_local_only"}
                 )
             raise _error(403, "auth_setup_local_only")
+        if legacy_basic_gate_active():
+            await _check_legacy_basic(body, request)
         password = body.password.get_secret_value()
         if reason := password_policy_violation(password, body.username):
             raise _policy_error(reason)
@@ -637,6 +658,48 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
         details={"role": user.role},
     )
     return await _session_payload(principal, _via(request), request)
+
+
+async def _check_legacy_basic(body: SetupRequest, request: Request) -> None:
+    """The 4.x Basic gate of the first run (``app/auth/first_run.py``): the body's pair,
+    or else an ``Authorization: Basic`` header. A wrong or missing pair is a failed
+    sign-in for the login delays (429 ``auth_rate_limited`` while one runs) and 401
+    ``auth_setup_legacy_basic_invalid``."""
+    if body.legacy_basic_username is not None or body.legacy_basic_password is not None:
+        secret = body.legacy_basic_password
+        pair: tuple[str, str] | None = (
+            body.legacy_basic_username or "",
+            secret.get_secret_value() if secret is not None else "",
+        )
+    else:
+        pair = basic_credentials_from_header(request.headers)
+    name = pair[0] if pair else ""
+    limiter = ratelimit.login_limiter
+    address = limiter.address_key(request.scope)
+    try:
+        limiter.check(address, name)
+    except ratelimit.LoginDelayed as delayed:
+        if delayed.first:
+            await audit.record_request(
+                request,
+                "setup",
+                "refused" if delayed.reason == "ip" else "delayed",
+                details={"reason": delayed.reason, "retry_after": delayed.retry_after_s},
+            )
+        raise _error(
+            429,
+            "auth_rate_limited",
+            {"retry_after": delayed.retry_after_s},
+            headers={"Retry-After": str(delayed.retry_after_s)},
+        ) from None
+    if pair is not None and legacy_basic_credentials_match(*pair):
+        limiter.record_success(address, name)
+        return
+    await limiter.record_failure(address, name)
+    await audit.record_request(
+        request, "setup", "failure", details={"reason": "legacy_basic_invalid"}
+    )
+    raise _error(401, "auth_setup_legacy_basic_invalid")
 
 
 @router.post(

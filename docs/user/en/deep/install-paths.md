@@ -181,8 +181,8 @@ The recovery command `meshloom-admin` reads the same file; how to run it for eac
 **Settings → Updates** shows the update status and can check for a new version (**Check now**). Where it is supported, it installs the update from a signed source, either on request (**Install now**) or by itself inside a time window and on the days you choose. This works for a Linux package and for a Docker stack managed by the helper. A copy of the code is updated as described above. Elsewhere, update by hand:
 
 ```bash
-sudo apt-get install --only-upgrade meshloom
-sudo dnf upgrade meshloom
+sudo apt-get update && sudo apt-get install --only-upgrade meshloom
+sudo dnf upgrade --refresh meshloom
 sudo docker compose pull && sudo docker compose up -d
 ```
 

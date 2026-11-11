@@ -20,12 +20,15 @@ export const KIOSK_SETUP_POLL_MS = 5000;
 export function SetupPage({
   setupLocalOnly = false,
   setupLocalUrl,
+  setupLegacyBasic = false,
   kioskScreen = false,
   onDone,
 }: {
   setupLocalOnly?: boolean;
   /** Where to go on the local network, when the server can tell. */
   setupLocalUrl?: string;
+  /** The server also asks for the 4.x Basic login (a retired variable is still set). */
+  setupLegacyBasic?: boolean;
   /** This browser is the kiosk screen: nobody types on it. */
   kioskScreen?: boolean;
   onDone: (session: AuthSessionInfo) => void;
@@ -35,6 +38,8 @@ export function SetupPage({
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [legacyUser, setLegacyUser] = useState('');
+  const [legacyPassword, setLegacyPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The server can refuse a page that loaded as local (a public address declared since).
@@ -67,7 +72,8 @@ export function SetupPage({
     username.trim().length > 0 &&
     strength !== 'empty' &&
     strength !== 'tooShort' &&
-    confirm === password;
+    confirm === password &&
+    (!setupLegacyBasic || (legacyUser.length > 0 && legacyPassword.length > 0));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -79,6 +85,10 @@ export function SetupPage({
         username: username.trim(),
         password,
         ...(displayName.trim() && { display_name: displayName.trim() }),
+        ...(setupLegacyBasic && {
+          legacy_basic_username: legacyUser,
+          legacy_basic_password: legacyPassword,
+        }),
       });
       const reason = noSessionReason(session);
       if (reason) {
@@ -139,6 +149,41 @@ export function SetupPage({
         </div>
       )}
       <form onSubmit={submit} className="space-y-4" noValidate>
+        {setupLegacyBasic && (
+          <fieldset className="space-y-3 rounded-md border border-border p-3">
+            <legend className="px-1 text-sm font-medium">
+              {t('auth.setup.legacyBasic.title')}
+            </legend>
+            <p className="text-xs text-muted-foreground">
+              {t('auth.setup.legacyBasic.body')} <LearnMoreLink page="first-run" />
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="auth-legacy-username">{t('auth.setup.legacyBasic.username')}</Label>
+              <Input
+                id="auth-legacy-username"
+                name="legacy-username"
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+                value={legacyUser}
+                onChange={(event) => setLegacyUser(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="auth-legacy-password">{t('auth.setup.legacyBasic.password')}</Label>
+              <Input
+                id="auth-legacy-password"
+                name="legacy-password"
+                type="password"
+                autoComplete="off"
+                value={legacyPassword}
+                onChange={(event) => setLegacyPassword(event.target.value)}
+              />
+            </div>
+          </fieldset>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="auth-username">{t('auth.username')}</Label>
           <Input
@@ -148,7 +193,7 @@ export function SetupPage({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            autoFocus
+            autoFocus={!setupLegacyBasic}
             value={username}
             onChange={(event) => setUsername(event.target.value)}
           />

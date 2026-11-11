@@ -26,7 +26,15 @@ ones have no permission check) is ever needed; `_socket.socketpair` raises no
 audit event. And the paths to another process that raise no audit event either
 (MSHL-417): `pidfd_open`, `pidfd_send_signal`, `pidfd_getfd` (`os.kill` is
 audited, `signal.pidfd_send_signal` is not), `ptrace`, `process_vm_readv` and
-`process_vm_writev` (what `sys.remote_exec`, 3.14, rests on).
+`process_vm_writev` (what `sys.remote_exec`, 3.14, rests on). Last, the
+kernel attack surface no plugin needs (`KERNEL_SURFACE`): `io_uring_*` (an
+io_uring ring opens and connects sockets without a `socket` syscall, so the
+socket refusal above needs it), `userfaultfd`, `bpf`, `perf_event_open`, the
+key syscalls (`keyctl`, `add_key`, `request_key`) and the mount API (`mount`,
+`umount2`, `pivot_root`, `open_tree`, `move_mount`, `fsopen`, `fsconfig`,
+`fsmount`, `fspick`, `mount_setattr`). It is the only kernel-side guard of
+these at the `setuid` level (Docker image and Home Assistant add-on, whose
+container may run without Docker's own seccomp profile).
 
 A syscall of another ABI than the interpreter's (x32 on x86_64, `int 0x80`
 i386 calls) is refused whatever its number. Unknown architectures get no
@@ -39,12 +47,8 @@ program the `bwrap` level hands to bubblewrap (`--seccomp FD`,
 `app/plugins/isolation/bwrap.py`): bwrap installs it right before it executes
 the interpreter, so it binds the interpreter's start-up too, and it stays when
 the runner's filter is stacked on top. It denies the runner's list but `execve`
-(bwrap's own exec of the interpreter needs it), plus kernel attack surface no
-plugin needs: `io_uring_*`, `userfaultfd`, `bpf`, `perf_event_open`, the key
-syscalls (`keyctl`, `add_key`, `request_key`) and the mount API (`mount`,
-`umount2`, `pivot_root`, `open_tree`, `move_mount`, `fsopen`, `fsconfig`,
-`fsmount`, `fspick`, `mount_setattr`). A bypass of one filter still meets the
-other.
+(bwrap's own exec of the interpreter needs it). A bypass of one filter still
+meets the other.
 
 **Capabilities.** A server that is not root but keeps `CAP_SETUID` and
 `CAP_SETGID` as ambient capabilities (the Docker image with
@@ -80,7 +84,7 @@ _X32_SYSCALL_BIT = 0x40000000
 _LINUX_CAPABILITY_VERSION_3 = 0x20080522
 
 # What the runner's filter refuses, and what the bwrap filter refuses (see above).
-RUNNER_DENIED = frozenset(
+_TASKS_SOCKETS_PROCESSES = frozenset(
     {
         "clone",
         "clone3",
@@ -124,7 +128,8 @@ KERNEL_SURFACE = frozenset(
         "mount_setattr",
     }
 )
-BWRAP_DENIED = (RUNNER_DENIED - {"execve"}) | KERNEL_SURFACE
+RUNNER_DENIED = _TASKS_SOCKETS_PROCESSES | KERNEL_SURFACE
+BWRAP_DENIED = RUNNER_DENIED - {"execve"}
 
 # Syscalls numbered the same on every ABI below (allocated after the tables were
 # unified, Linux 5.1+).

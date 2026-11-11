@@ -181,8 +181,8 @@ La commande de récupération `meshloom-admin` lit le même fichier ; la façon 
 **Réglages → Mises à jour** affiche l’état des mises à jour et peut chercher une nouvelle version (**Vérifier maintenant**). Là où c’est pris en charge, il installe la mise à jour depuis une source signée, soit à la demande (**Installer maintenant**), soit tout seul dans une plage horaire et les jours que vous choisissez. Cela fonctionne pour un paquet Linux et pour une pile Docker gérée par l’assistant. Une copie du code se met à jour comme décrit plus haut. Ailleurs, mettez à jour à la main :
 
 ```bash
-sudo apt-get install --only-upgrade meshloom
-sudo dnf upgrade meshloom
+sudo apt-get update && sudo apt-get install --only-upgrade meshloom
+sudo dnf upgrade --refresh meshloom
 sudo docker compose pull && sudo docker compose up -d
 ```
 

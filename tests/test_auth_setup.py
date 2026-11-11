@@ -1,4 +1,7 @@
-"""First-run setup (app/auth/first_run.py, POST /api/auth/setup); no Basic import (MSHL-100)."""
+"""First-run setup (app/auth/first_run.py, POST /api/auth/setup); no Basic import (MSHL-100).
+
+The 4.x Basic gate, the public IP literal ``Host`` and the health version while setup
+is pending are in ``tests/test_first_run_hardening.py``."""
 
 import logging
 
@@ -113,7 +116,7 @@ async def test_retired_basic_variables_import_nothing_and_only_warn(caplog, monk
         warn_about_retired_env()
     assert await UserRepository.list_all() == []
     assert "secret" not in caplog.text
-    assert any("no longer read" in r.getMessage() for r in caplog.records)
+    assert any("HTTP Basic auth is removed" in r.getMessage() for r in caplog.records)
     async with make_client() as client:
         response = await client.get("/api/contacts", headers=basic("mesh", "secret"))
         assert response.status_code == 401
@@ -428,10 +431,10 @@ def on_a_lan(monkeypatch):
 def _scope(**extra):
     return {
         "type": "http",
-        "client": ("8.8.8.8", 1),
+        "client": ("192.168.1.10", 1),
         "server": ("192.168.1.5", 8000),
         "scheme": "http",
-        "state": {proxy_headers.PEER_STATE_KEY: "8.8.8.8"},
+        "state": {proxy_headers.PEER_STATE_KEY: "192.168.1.10"},
         "headers": [],
         **extra,
     }
@@ -439,8 +442,9 @@ def _scope(**extra):
 
 @pytest.mark.usefixtures("on_a_lan")
 async def test_the_session_offers_the_local_address_to_an_exposed_visitor():
+    """A LAN visitor under a public name; an Internet visitor is never told it."""
     await _prepared()
-    async with make_client(client=PUBLIC, base_url="http://mesh.example.com:8000") as client:
+    async with make_client(client=LAN, base_url="http://mesh.example.com:8000") as client:
         session = (await client.get("/api/auth/session")).json()
     assert session["setup_local_only"] is True
     assert session["setup_local_url"] == "http://192.168.1.5:8000"
@@ -470,7 +474,7 @@ async def test_no_local_address_once_an_account_exists():
 async def test_a_kiosk_account_alone_still_offers_it():
     await _prepared()
     await UserRepository.create("kiosk", "kiosk", provider="system")
-    async with make_client(client=PUBLIC, base_url="http://mesh.example.com:8000") as client:
+    async with make_client(client=LAN, base_url="http://mesh.example.com:8000") as client:
         session = (await client.get("/api/auth/session")).json()
     assert session["setup_required"] is True
     assert session["setup_local_url"].startswith("http://192.168.1.5:")
@@ -509,7 +513,9 @@ async def test_the_local_address_is_built_from_the_real_port_and_scheme():
 
 
 @pytest.mark.usefixtures("on_a_lan")
-@pytest.mark.parametrize("client", ["8.8.8.8", "192.168.1.2"])  # with and without X-Forwarded-For
+@pytest.mark.parametrize(
+    "client", ["192.168.1.20", "192.168.1.2"]
+)  # with and without X-Forwarded-For
 async def test_a_trusted_proxys_scheme_says_nothing_about_the_lan_address(monkeypatch, client):
     monkeypatch.setattr(proxy_headers, "current", lambda: ["192.168.1.2/32"])
     scope = _scope(

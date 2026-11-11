@@ -25,7 +25,10 @@ off, the setting now starts on).
 
 ``MESHCORE_BASIC_AUTH_USERNAME`` / ``_PASSWORD`` are retired without an import
 (MSHL-100): HTTP Basic auth is gone, ``Authorization: Basic`` is ignored and the
-variables no longer become an account. They only get the startup warning.
+variables no longer become an account. One use is left: while no account exists,
+first-run setup asks for those credentials (``app/auth/first_run.py``, "The 4.x
+Basic credentials"), so their startup warning says to remove them only once the
+administrator exists.
 
 The 4.18.x bot lock (``ENV_BOT_LOCK``) is retired with the bots (MSHL-192):
 migration 122 reads it once to store the converted bots disabled, then each start
@@ -128,6 +131,15 @@ def warn_about_retired_env() -> list[str]:
                 "%s=true comes from the packaged meshloom.env and is no longer read; "
                 "the lock of every extension is MESHCORE_DISABLE_PLUGINS.",
                 name,
+            )
+            continue
+        if name in (ENV_BASIC_USERNAME, ENV_BASIC_PASSWORD):
+            logger.warning(
+                "%s is set: HTTP Basic auth is removed, see %s. Until the first account "
+                "exists, creating the administrator asks for these 4.x credentials; "
+                "remove the variable once it exists.",
+                name,
+                RETIRED_ENV[name],
             )
             continue
         logger.warning(

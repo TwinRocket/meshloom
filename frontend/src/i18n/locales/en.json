@@ -3,6 +3,11 @@
     "message": "Part of the app could not be loaded (it was probably updated). Reload to continue.",
     "reload": "Reload"
   },
+  "appError": {
+    "message": "Something went wrong while displaying the app. Reload the page to continue.",
+    "reload": "Reload",
+    "home": "Go to home"
+  },
   "language": {
     "label": "Language",
     "description": "Applies only to this browser. French is the default.",
@@ -1411,6 +1416,9 @@
   },
   "errors": {
     "message_too_long": "The message is too long for the radio: {{bytes}} bytes, the limit is {{limit}} bytes.",
+    "notification_rule_unknown": "This notification rule no longer exists.",
+    "notification_pause_invalid": "The pause duration is not valid.",
+    "auth_audit_cursor_invalid": "The audit log page cursor is not valid. Reload the list.",
     "radio_not_connected": "Radio not connected",
     "resend_window_expired": "The resend window has expired ({{seconds}} seconds). Use “Resend as new” instead.",
     "resend_window_expired_server": "The resend window has expired: the server sent this message more than {{seconds}} seconds ago. Use “Resend as new” instead.",

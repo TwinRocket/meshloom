@@ -243,8 +243,9 @@ purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
   refused `uid_leased`, or `uid_lease_io_error` when the lease cannot be written (MSHL-360);
   see docs/dev/plugins-security.md). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
-  (dropped capabilities, a seccomp filter refusing clone/fork/exec, unshare/setns, sockets and
-  pidfd/ptrace, required for a root child and at `setuid`) are `meshloom_plugin/seccomp.py`; the
+  (dropped capabilities, a seccomp filter refusing clone/fork/exec, unshare/setns, sockets,
+  pidfd/ptrace and the kernel surface: io_uring, userfaultfd, bpf, perf, keys, mount API;
+  required for a root child and at `setuid`) are `meshloom_plugin/seccomp.py`; the
   bwrap level adds a filter of its own (`BWRAP_DENIED`, `--seccomp FD` through a pipe in
   `pass_fds`) and `--disable-userns` when bubblewrap is 0.8 or later (`bwrap.probe()`). Stdlib only, so
   `tests/test_plugin_isolation.py`, `test_plugin_runner.py` and

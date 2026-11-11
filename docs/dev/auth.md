@@ -199,7 +199,7 @@ logged at ERROR and the row is not written (a bug at the call site).
 
   | Action | Written by |
   |---|---|
-  | `setup` | `POST /auth/setup` (`failure` + `details.reason` `setup_local_only` for an exposed request, one row a minute at most, `REFUSAL_AUDIT_INTERVAL_S`; `error` when first-run preparation failed) |
+  | `setup` | `POST /auth/setup` (`failure` + `details.reason` `setup_local_only` for an exposed request, one row a minute at most, `REFUSAL_AUDIT_INTERVAL_S`; `failure` + `details.reason` `legacy_basic_invalid` for a missing or wrong 4.x Basic login, one row per attempt; `delayed`/`refused` while a login delay runs; `error` when first-run preparation failed) |
   | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`; `pending` with `details.factor = totp` when the password checked and a second factor is owed), `POST /auth/login/2fa` (`success` with `details.factor` `totp` or `recovery`, plus `remaining` recovery codes for the latter; `failure` with `details.reason = second_factor_invalid`; `delayed`/`refused` while a login delay runs), `POST /auth/logout`, `GET /auth/kiosk-session` (`details.method = "kiosk_token"`, `reason` on failure) |
   | `totp.enrolled` | `POST /auth/2fa/confirm` (`success` with `details.sessions_revoked`; `failure` for a wrong first code), and the password check of `POST /auth/2fa/enrol` (`failure`, `delayed`, `refused`) |
   | `totp.disabled` | `POST /auth/2fa/disable` (password and code checks too), `meshloom-admin disable-2fa` |
@@ -900,10 +900,11 @@ Up to 4.18 `MESHCORE_BASIC_AUTH_USERNAME` / `_PASSWORD` were the only gate;
 5.0 previews imported them as an admin and accepted `Authorization: Basic`.
 HTTP Basic auth is removed (MSHL-100):
 
-- The variables are never read: each start logs the retired-variable warning
-  while they are set (`RETIRED_ENV`). A 4.x install that had only them goes
-  through the first run, from the local network. An account an earlier
-  preview imported stays a normal account.
+- The variables are never imported: each start logs a warning while they are
+  set (`warn_about_retired_env`). A 4.x install that had only them goes
+  through the first run, from the local network, where setup also asks for
+  that Basic login until the administrator exists ("First run", "The 4.x Basic
+  gate"). An account an earlier preview imported stays a normal account.
 - A `Basic` header is no credential: the gate ignores it like any unknown
   scheme, so the request gets the plain 401 with no argon2id work, no
   `WWW-Authenticate` challenge and no `AUTH_FAIL` line. A valid session cookie
@@ -1509,13 +1510,14 @@ OpenID Connect case in `tests/test_auth_oidc.py`. Frontend: `frontend/src/auth/m
 `prepare_first_run()` (`app/auth/first_run.py`) runs in the lifespan: it creates the
 kiosk account and its device token on a kiosk host and checks the database answers. The
 retired `MESHCORE_BASIC_AUTH_*` variables are never imported (HTTP Basic auth was removed,
-MSHL-100): when set, they only get the retired-variable warning (`RETIRED_ENV`,
-`app/services/legacy_env_settings.py`).
+MSHL-100): when set, they get a startup warning (`warn_about_retired_env`,
+`app/services/legacy_env_settings.py`) that says to remove them once the administrator
+exists, and they gate setup until then ("The 4.x Basic gate" below).
 
 While no account exists, `POST /api/auth/setup` creates the administrator for a request
 from the local network, on a new database, on an existing one (a 4.x upgrade) and on the
-kiosk image alike. No secret is asked: there is no installation code since 5.0.0
-(migration 146 drops its column).
+kiosk image alike. No secret is asked, except the 4.x Basic login below: there is no
+installation code since 5.0.0 (migration 146 drops its column).
 
 **Exposed first run (MSHL-424).** A request is *exposed*
 (`first_run.request_exposed(scope)`) when it does not come through the LAN
@@ -1527,7 +1529,10 @@ loopback, link-local, ULA or CGNAT per `app/net/local_address.py`, so a
 documentation or reserved address is exposed too; on the address a trusted
 proxy forwarded), has a `Host` a public DNS zone could hold
 (`host_guard.name_cannot_be_rebound` fails, whatever `host_guard_mode` says: DNS
-rebinding, MSHL-461), or when `auth_settings.public_urls` is not empty. Setup answers it
+rebinding, MSHL-461), has a `Host` that is an IP literal outside the local ranges
+(`first_run._public_ip_literal`: `Host: 203.0.113.7:8000`, `[2001:db8::1]`; the host guard
+accepts every IP literal, so this is checked here), or when `auth_settings.public_urls`
+is not empty. Setup answers it
 403 `auth_setup_local_only` and `GET /api/auth/session` says `setup_local_only: true`.
 Under ingress neither applies: setup answers `auth_ingress_only` first. A refusal guesses
 no secret, so it writes no `AUTH_FAIL` line and at most one audit row a minute
@@ -1536,23 +1541,50 @@ no secret, so it writes no `AUTH_FAIL` line and at most one audit row a minute
 With `public_urls` declared the local network is refused too, and the only way to the
 first account is `meshloom-admin create-admin`.
 
+**The 4.x Basic gate.** While no account exists and `MESHCORE_BASIC_AUTH_USERNAME` or
+`_PASSWORD` is set and not blank (`first_run.legacy_basic_gate_active()`, read live),
+setup also needs the 4.x Basic login: `legacy_basic_username` and `legacy_basic_password`
+in the body or, when the body has neither, an `Authorization: Basic` header (a browser
+that still remembers the 4.x login sends it). The pair is compared with the values as
+set, as 4.x did, in constant time (`legacy_basic_credentials_match`, `hmac.compare_digest`
+on both, no short circuit). It runs after the exposure check, so an exposed request is
+refused with 403 before any guess, and before the password policy. A missing or wrong
+pair is 401 `auth_setup_legacy_basic_invalid`, one audit row, and a failure for the
+login delays (`login_limiter`, keyed by the typed 4.x user name: 429
+`auth_rate_limited` while a delay runs); it writes no `AUTH_FAIL` line (the route
+vocabulary is unchanged). With only one of the two variables set, nothing matches and
+`meshloom-admin create-admin` is the way in. `GET /auth/session` says
+`setup_legacy_basic: true` while the gate applies (absent otherwise, and under ingress),
+and the setup page then asks for the pair. The variables become an account in no case.
+`prepare_first_run` logs a warning naming the gate and `meshloom-admin create-admin`.
+The add-on cannot carry them: the Supervisor drops the removed `basic_auth_*` options.
+
 **`setup_local_url`** (`first_run.local_setup_url(scope)`) comes with `setup_local_only`,
-while no account exists: `<scheme>://<primary private IPv4>:<port>`. The address is the one
+while no account exists, to a visitor seen on the local network only
+(`_client_seen_on_the_lan`: no forwarding header from a peer that is not a trusted proxy,
+and a local client address that is not loopback, since a proxy or tunnel on the machine
+shows Internet visitors as 127.0.0.1), and never once `public_urls` is declared:
+`<scheme>://<primary private IPv4>:<port>`. The address is the one
 on the default route (`_primary_private_ipv4`, a UDP `connect` that sends nothing), RFC 1918
 only (`local_address.is_rfc1918`). The port is `scope["server"]`'s, the one the connection
 reached. It is checked by connecting to that address (`_accepts_connections`), which also
-rules out a server bound to loopback. https only when no trusted proxy sent the request.
+rules out a server bound to loopback; the answer, a failure included, is reused for
+`LOCAL_URL_PROBE_CACHE_S` (60 s, `_listening`), so anonymous session reads do not open a
+socket each. https only when no trusted proxy sent the request.
 None in a container (`install_kind.in_container`), through the relay, and on any failure; it
-never raises. It gives an anonymous visitor a private address until the account exists,
+never raises. It gives an anonymous LAN visitor a private address until the account exists,
 which the owner accepted to spare them the search.
 
 **Residual risk.** Some exposures cannot be seen from here, for example: Docker's userland
 proxy, where every client appears as the gateway (private), also for a port published over
 IPv6; a local tunnel that forwards without headers (`ssh -R`, `socat`, HAProxy in TCP mode),
 where Internet visitors appear as 127.0.0.1; a bare nginx `proxy_pass` (no forwarding header,
-no public `Host`); a router port forwarded with source NAT. On a machine reachable that way the first visitor can become administrator, on
-an upgraded database too. Create the account with `meshloom-admin create-admin` before
-publishing it.
+no public `Host`); a router port forwarded with source NAT. On a machine reachable that way
+the first visitor can become administrator, on an upgraded database too, unless the 4.x
+Basic gate applies. The Docker gateway (`trusted_network.docker_gateways()`) still counts
+as a local client for the first run: refusing it would break a legitimate first run on
+Docker Desktop, where every LAN client arrives from it (owner decision pending). Create
+the account with `meshloom-admin create-admin` before publishing such a machine.
 
 **Fail closed.** `POST /api/auth/setup` answers 503 `auth_setup_unavailable`
 until `prepare_first_run()` has succeeded in this process: when it raised at
@@ -1581,8 +1613,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_local_only, setup_local_url?, kiosk_screen, methods: {password, ingress, passkey, oidc, oidc_label?, magic_link}, secure}` (`magic_link`: at least one account takes sign-in links, the SMTP profile is usable and this request's origin may carry a mailed link, the `auth_magic_link_origin_untrusted` rule of `POST /auth/magic-link`) (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
-| `POST /auth/setup` | public while no account exists | `{username, password, display_name?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_local_only` for an exposed request ("Exposed first run"); 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_local_only, setup_local_url?, setup_legacy_basic?, kiosk_screen, methods: {password, ingress, passkey, oidc, oidc_label?, magic_link}, secure}` (`magic_link`: at least one account takes sign-in links, the SMTP profile is usable and this request's origin may carry a mailed link, the `auth_magic_link_origin_untrusted` rule of `POST /auth/magic-link`) (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
+| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, legacy_basic_username?, legacy_basic_password?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_local_only` for an exposed request ("Exposed first run"); 401 `auth_setup_legacy_basic_invalid` and 429 `auth_rate_limited` from the 4.x Basic gate ("First run"); 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony; "email" alone or added when the e-mail code is on, with `email_hint`), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code, method?}` (`method: "email"` for an e-mail code) or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
 | `POST /auth/login/2fa/email` | public | `{pending_token, lang?}`: mails an e-mail code for the pending login ("E-mail code and sign-in links"). `{sent, expires_in, resend_in}`; 401 `auth_2fa_pending_invalid`, 429 `auth_email_send_limit` or `auth_rate_limited`, 503 `auth_email_unavailable`, 502 `auth_email_send_failed` |
@@ -1641,7 +1673,11 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 Every route above that changes something writes one audit row ("Audit log").
 
 `GET /api/health` is public: anonymous callers get exactly `{"ok": true}`
-(probes, the kiosk launcher), a signed-in caller the full payload.
+(probes, the kiosk launcher), a signed-in caller the full payload. While no account
+exists (a `kiosk` account alone counts as none) an anonymous caller not relayed also gets
+`app_info: {version}` (`SetupPendingHealthResponse`): a 4.18.3 tab that ran the in-app
+update to 5.0 cannot read `/api/updates` (admin only) and reloads only once
+`/api/health` names the target version.
 
 ### Setting up without the UI
 
@@ -1951,8 +1987,9 @@ Use a fresh database for A, a copy of a 4.18 database for B.
 A. **Fresh install.**
 1. Open the address: the setup page asks for the administrator
    (add-on: not asked, see below). Create it; you land in the app. From a public
-   address or a domain name the page shows no form, asks for the local network and
-   links the local address (package install, not in a container).
+   address or a domain name the page shows no form and asks for the local network; a
+   LAN browser under a domain name also gets the local address as a link (package
+   install, not in a container), an Internet visitor never does.
 2. Sign out, sign in with a wrong password six times: the delay message
    appears, the right password still works for this browser.
 3. Create a `member`, a `viewer` and a `kiosk` in **Users & Access**. As each:
@@ -1980,13 +2017,17 @@ B. **Upgrade from 4.18.**
 1. Without Basic variables: after the update the setup page, from the local
    network, creates the administrator directly.
 2. With the retired `MESHCORE_BASIC_AUTH_*` set: they are not imported, the
-   log warns they are retired, and the setup page works
-   as in 1; a script using `Authorization: Basic` gets a plain 401 (use an API
-   token).
-3. With trusted network rules: after the update they sign nobody in until an
+   log warns they are retired and that setup asks for them, and the setup page
+   asks for the 4.x user name and password next to the new account (a wrong pair
+   stays on the form); a script using `Authorization: Basic` on any other route
+   gets a plain 401 (use an API token).
+3. A 4.18.3 tab left open on **Settings → Updates** during the in-app update to 5.0
+   reloads into the setup page (anonymous `/api/health` names the version while no
+   account exists), instead of "The node did not come back".
+4. With trusted network rules: after the update they sign nobody in until an
    admin turns on **Login-free on the local network** (migration 136 logs a
    warning).
-4. The 4.18 history, contacts and channels are intact, the radio still binds
+5. The 4.18 history, contacts and channels are intact, the radio still binds
    (**Bind without wipe**).
 
 ### Per install kind

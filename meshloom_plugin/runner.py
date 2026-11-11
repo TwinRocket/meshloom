@@ -250,8 +250,10 @@ def _apply_limits(params: dict[str, Any]) -> None:
         # Capabilities inherited from a non-root server (MESHLOOM_RUN_AS_USER keeps
         # CAP_SETUID/CAP_SETGID ambient) go, and a seccomp filter refuses clone,
         # fork, exec, unshare and setns (the guard that holds for a root child,
-        # which RLIMIT_NPROC does not bind, MSHL-323), every socket (MSHL-415) and
-        # the pidfd/ptrace paths to other processes (MSHL-417). Fatal where nothing
+        # which RLIMIT_NPROC does not bind, MSHL-323), every socket (MSHL-415), the
+        # pidfd/ptrace paths to other processes (MSHL-417) and the kernel surface no
+        # plugin needs (io_uring, which opens sockets on its own, bpf, userfaultfd,
+        # perf, keys, the mount API). Fatal where nothing
         # else would hold: a root child, and the setuid level, where the socket
         # refusal is the only guard of loopback (the radio proxy).
         from meshloom_plugin import seccomp

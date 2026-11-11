@@ -262,8 +262,8 @@ export function SettingsUpdatesSection({
             <Recipe
               title={t('updates.packagesTitle')}
               code={[
-                'sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu',
-                'sudo dnf install meshloom                      # Fedora / Rocky / Alma',
+                'sudo apt-get update && sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu',
+                'sudo dnf upgrade --refresh meshloom                                    # Fedora',
               ].join('\n')}
             />
             <Recipe

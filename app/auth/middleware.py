@@ -76,7 +76,8 @@ API_PREFIX = "/api"
 AUTH_PREFIX = "/api/auth/"
 
 # Reachable without a principal. The routes themselves decide what an
-# anonymous caller sees (``/api/health`` answers only ``{"ok": true}``).
+# anonymous caller sees (``/api/health`` answers only ``{"ok": true}``, plus the
+# running version while no account exists, ``app/routers/health.py``).
 PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/api/health"),

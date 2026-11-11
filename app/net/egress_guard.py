@@ -50,13 +50,13 @@ logger = logging.getLogger(__name__)
 
 class _HttpxUrlRedaction(logging.Filter):
     """httpx logs every request URL at INFO (``HTTP Request: GET <url> ...``):
-    keep its scheme, host, port and path, never its user info, query or
-    fragment, where API keys and webhook tokens sit."""
+    keep its scheme, host and port only, never its user info, path, query or
+    fragment, where API keys, webhook tokens and health-check ids sit."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple):
             record.args = tuple(
-                arg.copy_with(username=None, password=None, query=None, fragment=None)
+                arg.copy_with(username=None, password=None, path="/", query=None, fragment=None)
                 if isinstance(arg, httpx.URL)
                 else arg
                 for arg in record.args
