@@ -19,7 +19,7 @@ The file names are a contract with the return to stable in ``install.sh``
 
 A database does not record the release that last wrote it, so the source is named
 by its schema: a release reads the copy when its highest migration is at least
-that number (87 for all of 4.18.x).
+that number (87 for 4.18.0 to 4.18.2, 95 for 4.18.3; 4.x never refuses a newer schema).
 
 At most two copies stay: the one with the lowest source schema, which is the way
 back to the oldest release, and the newest. The others are removed before a new

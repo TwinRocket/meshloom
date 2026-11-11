@@ -1,7 +1,7 @@
 # Meshloom Remote on the instance
 
 Meshloom Remote lets a user reach their instance from outside the LAN through
-`https://<slug>.meshloom.link`, without opening a port. It is a **blind relay**: no
+`https://<slug>.meshloom.link`, without opening a port. It is an **account-less relay** (TLS ends at Cloudflare, so the relay can read the traffic): no
 TwinRocket account, no portal, no pairing (owner decisions of 2026-10-27). The instance
 registers an Ed25519 key, gets a slug, and decides alone who may get past the relay's
 edge lock, by signing **device passes**.

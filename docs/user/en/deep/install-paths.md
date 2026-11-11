@@ -192,7 +192,7 @@ Started by hand without `--host`, Meshloom answers only on the machine itself, a
 
 ### The copy made before an upgrade
 
-When an upgrade has to change the structure of your database, Meshloom first makes a copy of it, in the same folder, under a name that says which structure it holds and which version made it: for example `meshcore.db.schema87.before-5.0.0.db`, or `meshcore.db.schema87.before-5.0.0-rc.1.db` on a release candidate (schema 87 is what every 4.18 uses). When a `secrets.key` file exists, it is copied too, as `meshcore.db.schema144.before-5.1.0.secrets.key`. A new installation, or a start with nothing to upgrade, makes no copy.
+When an upgrade has to change the structure of your database, Meshloom first makes a copy of it, in the same folder, under a name that says which structure it holds and which version made it: for example `meshcore.db.schema95.before-5.0.0.db` from 4.18.3, or `meshcore.db.schema95.before-5.0.0-rc.1.db` on a release candidate (schema 87 for 4.18.0 to 4.18.2, schema 95 for 4.18.3, the current stable version). When a `secrets.key` file exists, it is copied too, as `meshcore.db.schema144.before-5.1.0.secrets.key`. A new installation, or a start with nothing to upgrade, makes no copy.
 
 - **Size.** The copy is as large as the database, and takes up to a few minutes on a Raspberry Pi with a large database (the log shows its progress). Meshloom asks for the size of the database plus a quarter of it, 64 MB at least, free in that folder.
 - **If the copy fails.** Meshloom does not upgrade and does not start, and the log says why and how much space it needs. Your database is left as it was. Free some space and start again. An upgrade cannot be undone, so Meshloom prefers a start that waits to an upgrade with no way back.
@@ -201,23 +201,25 @@ When an upgrade has to change the structure of your database, Meshloom first mak
 
 ### Going back to an older version
 
-Meshloom refuses to start on a database made by a newer version, and leaves it untouched. To go back, put the copy back. Everything received or changed since the upgrade is lost.
+Meshloom 5.0 and later refuse to start on a database made by a newer version, and leave it untouched. **4.18 does not**: it opens a database that 5.0 migrated and runs on it without a word, so the copy must be put back before 4.18 starts. To go back, put the copy back. Everything received or changed since the upgrade is lost.
+
+Go back to **4.18.3**, the current stable version. Before you start 4.18, turn off automatic updates in its **Settings → Updates**, and hold the package so that nothing moves you to 5.0 again: `sudo apt-mark hold meshloom` (with `dnf`, `sudo dnf versionlock add meshloom`, which needs the versionlock plugin). With Docker, the pinned image below is enough.
 
 1. Stop Meshloom.
 2. In the data folder, put the copy in place of the database and remove the files that go with the old one (if the files are not yours, open a root shell first with `sudo -s`: with the Linux package `/var/lib/meshloom` is closed to other accounts, so a `sudo cp` from your own shell cannot expand the `*`):
 
    ```bash
-   cp -p meshcore.db.schema87.before-*.db meshcore.db &&
+   cp -p meshcore.db.schema95.before-*.db meshcore.db &&
      rm -f meshcore.db-wal meshcore.db-shm meshcore.db.migration-in-progress
    ```
 
-   With several copies matching, or none, the command fails and the database stays as it was: list the copies with `ls meshcore.db.schema*` and name the file you want.
+   The number in the name is the schema of the version you go back to: `schema95` for 4.18.3, `schema87` if you went back to 4.18.0, 4.18.1 or 4.18.2. With several copies matching, or none, the command fails and the database stays as it was: list the copies with `ls meshcore.db.schema*` and name the file you want.
 
    Going back to 5.0 or later, also put back the key if the copy has one: `cp -p meshcore.db.schema144.before-5.1.0.secrets.key secrets.key`.
 3. Install the older version, then start it:
-   - Docker: in `.env`, set `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.2@<digest>`, with the digest from the `OCI-DIGESTS` file of that release (it starts with `sha256:`), then `docker compose up -d`. Without the digest, **Settings > Updates** cannot update this stack.
+   - Docker: in `.env`, set `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.3@<digest>`, with the digest from the `OCI-DIGESTS` file of that release (it starts with `sha256:`), then `docker compose up -d`. Without the digest, **Settings > Updates** cannot update this stack.
    - Linux package: download the package from the [releases page](https://github.com/TwinRocket/meshloom/releases), then `sudo apt install --allow-downgrades ./<file>.deb` or `sudo dnf downgrade ./<file>.rpm`.
-   - Copy of the code: `git checkout 4.18.2`, then run `install_service.sh` again.
+   - Copy of the code: `git checkout 4.18.3`, then run `install_service.sh` again.
    - Home Assistant: restore the add-on from the backup Home Assistant offers to make before an update, and skip step 2: that backup holds the old database. This backup is optional, and without it Home Assistant cannot reinstall an older add-on, so leave the option ticked when you update. The restore replaces the add-on's whole folder and deletes the copies, since backups leave them out.
 
 **If this machine went through `get.meshloom.app/next`:** with a Linux package, once 4.18 runs again with the copy in place, run the usual install command right away, before any `apt upgrade` or `dnf upgrade`. The machine is still on the pre-release package source, and an upgrade would install a pre-release and migrate your database again. While 4.18 is the stable version, that command keeps 4.18 and moves the source back to stable; once 5.0 is final, it installs 5.0. With Docker, the pin above is enough.
