@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+---
+
+## [5.0.0-rc.6] - 2026-11-12
+
+Sixth release candidate of Meshloom 5.0. It fixes what the upgrade tests from 4.18.3 found on rc.5. [The notes of rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) still apply: before you try it, known limits, and what is new.
+
 ### Fixed
 
 - **Settings → Updates on the pre-release source.** Until the final release is out, the page no longer asks you to run the installer from get.meshloom.app, which still installs 4.18: the machine keeps getting release candidates, and the page says to run it once the final version is out.
@@ -12,6 +18,8 @@
 - **Upgrade docs.** `apt-get upgrade` keeps Meshloom on 4.18 without an error, because 5.0 recommends a new package: the docs give commands that work, also for scripts. After `sudo dnf install bubblewrap`, restart Meshloom. On a pre-release, wait for 5.0.0 before running the usual installer.
 
 ### Français
+
+Sixième version candidate de Meshloom 5.0. Elle corrige ce que les tests de mise à jour depuis la 4.18.3 ont trouvé sur la rc.5. [Les notes de la rc.1](https://github.com/TwinRocket/meshloom/releases/tag/5.0.0-rc.1) restent valables : avant d'essayer, limites connues et nouveautés.
 
 #### Corrections
 
