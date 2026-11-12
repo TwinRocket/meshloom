@@ -188,6 +188,8 @@ sudo docker compose pull && sudo docker compose up -d
 
 The first line is for Debian, Ubuntu and Raspberry Pi OS, the second for Fedora and similar systems, the third for Docker.
 
+With `apt`, upgrade with `apt-get install`, `apt upgrade` or `apt-get full-upgrade`, not `apt-get upgrade`: since 5.0 the package recommends `bubblewrap`, and `apt-get upgrade` keeps back a package that brings a new one, without an error. In a script, without a terminal, `sudo apt-get -y -o Dpkg::Options::=--force-confold install --only-upgrade meshloom` keeps your `meshloom.env` without asking. With `dnf`, if you install `bubblewrap` by hand, restart Meshloom afterwards (`sudo systemctl restart meshloom`): it looks for it only when it starts.
+
 Started by hand without `--host`, Meshloom answers only on the machine itself, at `http://127.0.0.1:8000`. The page at `/docs` documents the programming interface (API). It is not this website.
 
 ### The copy made before an upgrade
@@ -222,6 +224,13 @@ Go back to **4.18.3**, the last 4.18. Before you start 4.18, turn off automatic 
    - Copy of the code: `git checkout 4.18.3`, then run `install_service.sh` again.
    - Home Assistant: restore the add-on from the backup Home Assistant offers to make before an update, and skip step 2: that backup holds the old database. This backup is optional, and without it Home Assistant cannot reinstall an older add-on, so leave the option ticked when you update. The restore replaces the add-on's whole folder and deletes the copies, since backups leave them out.
 
-**If this machine went through `get.meshloom.app/next`:** with a Linux package, once 4.18 runs again with the copy in place, run the usual install command right away, before any `apt upgrade` or `dnf upgrade`. The machine is still on the pre-release package source, and an upgrade would install a pre-release and migrate your database again. While 4.18 is the stable version, that command keeps 4.18 and moves the source back to stable; once 5.0 is final, it installs 5.0. With Docker, the pin above is enough.
+**If this machine went through `get.meshloom.app/next`:** with a Linux package, the machine is still on the pre-release package source, and an upgrade would install a pre-release and migrate your database again. Once 4.18 runs again with the copy in place, move the source back to stable right away, before any `apt upgrade` or `dnf upgrade`:
+
+```bash
+sudo sed -i 's# testing main# stable main#' /etc/apt/sources.list.d/meshloom.list   # apt
+sudo sed -i 's#/rpm/testing/#/rpm/#' /etc/yum.repos.d/meshloom.repo                 # dnf
+```
+
+Once 5.0.0 is out, the usual install command does this too, and installs 5.0. Until then, `get.meshloom.app` serves the 4.18 installer, which, run from a `sudo` account, rewrites `/etc/meshloom/meshloom.env` and drops the lines you added. With Docker, the pin above is enough.
 
 Your bots are back as they were on 4.18, and the `secrets.key` file left in the folder is simply not used. When you upgrade again, Meshloom makes a new copy and converts the bots again.

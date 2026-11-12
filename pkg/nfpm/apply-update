@@ -333,6 +333,16 @@ elif command -v dnf >/dev/null 2>&1; then
     PHASE=installing
     PERCENT=
     write_status
+    # The meshloom-only transaction below cannot pull a weak dependency from the
+    # distro repositories, so a host without bubblewrap would run plugins without
+    # isolation. Installed first: the package's %post restarts the server, which
+    # picks its isolation once at start. Best effort, one named package, from the
+    # system's own (signed) repositories.
+    if ! rpm -q bubblewrap >/dev/null 2>&1; then
+        log "installing bubblewrap (plugin isolation) from the system repositories"
+        dnf -y --setopt=install_weak_deps=False install bubblewrap \
+            || log "could not install bubblewrap: plugins get no OS isolation until it is installed"
+    fi
     # dnf install is a no-op on an installed package (dnf5): upgrade it, and
     # --refresh so a 48 h metadata cache does not hide the new release.
     if rpm -q meshloom >/dev/null 2>&1; then DNF_ACTION=upgrade; else DNF_ACTION=install; fi
@@ -347,16 +357,6 @@ AFTER=$(installed_version)
 if [ -n "$BEFORE" ] && [ "$AFTER" = "$BEFORE" ]; then
     VERSION=$AFTER
     fail "no newer meshloom in the signed repository (installed $AFTER)"
-fi
-
-# The meshloom-only transaction above cannot pull a weak dependency from the distro
-# repositories, so a host without bubblewrap would run plugins without isolation.
-# Best effort, one named package, from the system's own (signed) repositories.
-if [ -n "${DNF_ACTION:-}" ] && command -v rpm >/dev/null 2>&1 \
-    && ! rpm -q bubblewrap >/dev/null 2>&1; then
-    log "installing bubblewrap (plugin isolation) from the system repositories"
-    dnf -y --setopt=install_weak_deps=False install bubblewrap \
-        || log "could not install bubblewrap: plugins get no OS isolation until it is installed"
 fi
 
 PHASE=restarting

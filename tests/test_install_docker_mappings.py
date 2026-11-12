@@ -43,7 +43,6 @@ TRANSPORT=""
 SERIAL_PORT=""
 SERIAL_COMPOSE_HOST_PATH=""
 DBUS_SOCKET=""
-STEP_TOTAL=3
 INSTALL_STEP=3
 SERIAL_FOUND_HOST_PATHS=()
 SERIAL_FOUND_LABELS=()
@@ -128,7 +127,7 @@ find_serial_devices() {
 choose_serial_among_found() { echo PROMPT; }
 """
     out = _ok(
-        'prepare_docker_mappings; printf %s "$TRANSPORT|$SERIAL_COMPOSE_HOST_PATH|$STEP_TOTAL"',
+        'prepare_docker_mappings; printf %s "$TRANSPORT|$SERIAL_COMPOSE_HOST_PATH|$INSTALL_STEP"',
         extra,
     )
     assert out == "serial|/dev/ttyACM0|2"
@@ -146,7 +145,7 @@ find_serial_devices() {
 choose_serial_among_found() { echo PROMPT; }
 """
     out = _ok(
-        'prepare_docker_mappings; printf %s "$TRANSPORT|$SERIAL_COMPOSE_HOST_PATH|$DBUS_SOCKET|$STEP_TOTAL"',
+        'prepare_docker_mappings; printf %s "$TRANSPORT|$SERIAL_COMPOSE_HOST_PATH|$DBUS_SOCKET|$INSTALL_STEP"',
         extra,
     )
     assert out == "ui||/run/dbus/system_bus_socket|2"
@@ -163,7 +162,7 @@ find_serial_devices() {
 }
 choose_serial_among_found() { echo PROMPT; TRANSPORT=ui; }
 """
-    out = _ok('prepare_docker_mappings; printf %s "$STEP_TOTAL"', extra)
+    out = _ok('prepare_docker_mappings; printf %s "$INSTALL_STEP"', extra)
     assert out.splitlines()[-1] == "3"
     assert "PROMPT" in out
 
@@ -179,7 +178,7 @@ find_serial_devices() {
 }
 """
     out = _ok(
-        'prepare_docker_mappings; printf %s "$TRANSPORT|$SERIAL_COMPOSE_HOST_PATH|$DBUS_SOCKET|$STEP_TOTAL"',
+        'prepare_docker_mappings; printf %s "$TRANSPORT|$SERIAL_COMPOSE_HOST_PATH|$DBUS_SOCKET|$INSTALL_STEP"',
         extra,
     )
     assert out == "ui|||2"

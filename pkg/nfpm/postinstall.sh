@@ -180,21 +180,65 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl enable meshloom-update.path || true
 fi
 
+# Deb: $1=configure $2=old-version. RPM %post: $1>=2 on upgrade.
+is_upgrade() {
+    { [ "$1" = "configure" ] && [ -n "$2" ]; } || [ "$1" = "2" ] || [ "$1" = "upgrade" ]
+}
+
+# True while an in-app update from 4.12.0 to 4.13.4 is running: that server's
+# request waits on a blocking `systemctl start meshloom-update.service`, which
+# itself waits for this script (4.13.5 and later pass --no-block, so they never
+# match). pgrep comes with procps; without it, /proc is read directly.
+old_server_waits_on_update() {
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -x -f 'systemctl start meshloom-update.service' >/dev/null 2>&1
+        return
+    fi
+    for cmdline in /proc/[0-9]*/cmdline; do
+        [ "$(tr '\0' ' ' <"$cmdline" 2>/dev/null)" = "systemctl start meshloom-update.service " ] &&
+            return 0
+    done
+    return 1
+}
+
+# Stops the old server before the new one starts.
+# - In-app update from 4.12.0 to 4.13.4: SIGKILL right away. meshloom.service has
+#   the default KillMode=control-group, so a SIGTERM also reaches the waiting
+#   systemctl client: it exits with an error, the server records the update as
+#   failed and sends "failed" to the open page before it exits, although the old
+#   helper then finishes the upgrade. SIGKILL gives it no chance to answer.
+# - Otherwise: SIGTERM, so the server closes the radio and the database itself (a
+#   normal stop takes well under a second), then SIGKILL after 20 s. Polled here
+#   rather than through TimeoutStopSec=, which would need a drop-in and a reload.
+#   is-active says "deactivating" while it stops.
+stop_old_server() {
+    if old_server_waits_on_update; then
+        systemctl kill --kill-whom=all -s SIGKILL meshloom.service || true
+        return 0
+    fi
+    systemctl stop --no-block meshloom.service || true
+    i=0
+    while [ "$i" -lt 20 ]; do
+        case "$(systemctl is-active meshloom.service 2>/dev/null || true)" in
+            active | deactivating | reloading) ;;
+            *) return 0 ;;
+        esac
+        i=$((i + 1))
+        sleep 1
+    done
+    systemctl kill --kill-whom=all -s SIGKILL meshloom.service || true
+}
+
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     # PathChanged= is edge-triggered: a leftover request file cannot start an
     # apply, so the watcher can start right away.
     systemctl stop meshloom-update.path || true
     systemctl start meshloom-update.path || true
-    # Deb: $1=configure $2=old-version. RPM %post: $1>=2 on upgrade.
     # Fresh install leaves meshloom off so the operator can set the radio first.
-    if { [ "$1" = "configure" ] && [ -n "$2" ]; } || [ "$1" = "2" ] || [ "$1" = "upgrade" ]; then
+    if is_upgrade "$@"; then
         systemctl enable meshloom || true
-        # In-app 4.13.4 POST is blocked on systemctl start. SIGTERM lets uvicorn
-        # finish that request as job.failed + "See systemctl status…".
-        # kill -s SIGKILL is immediate and does not depend on a drop-in reload.
-        # https://www.freedesktop.org/software/systemd/man/latest/systemctl.html
-        systemctl kill --kill-whom=all -s SIGKILL meshloom.service || true
+        stop_old_server
         systemctl reset-failed meshloom.service || true
         systemctl start meshloom || true
         i=0
@@ -209,6 +253,11 @@ if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     fi
 fi
 
-echo "==> Choose USB, TCP, or Bluetooth in the web UI (Settings > Radio)."
-echo "==> Start Meshloom with: sudo systemctl enable --now meshloom"
+# An upgrade keeps the radio and starts the service: nothing to do then.
+if ! is_upgrade "$@"; then
+    echo "==> Choose USB, TCP, or Bluetooth in the web UI (Settings > Radio)."
+    if ! { command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet meshloom 2>/dev/null; }; then
+        echo "==> Start Meshloom with: sudo systemctl enable --now meshloom"
+    fi
+fi
 echo "==> UI: http://localhost:8000"

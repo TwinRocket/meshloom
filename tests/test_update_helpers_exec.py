@@ -506,13 +506,21 @@ def test_apply_update_dnf_uses_only_the_signed_repo(dnf_host) -> None:
 
 
 def test_apply_update_dnf_adds_bubblewrap_from_the_system_repos(dnf_host) -> None:
-    """The meshloom-only transaction cannot pull the weak dependency."""
+    """The meshloom-only transaction cannot pull the weak dependency.
+
+    Installed before it: the package's %post restarts the server, which picks its
+    plugin isolation once at start, so bubblewrap must already be there.
+    """
     root, log, env = dnf_host
     (root / "etc/yum.repos.d/meshloom.repo").write_text(_GOOD_REPO)
     env["STUB_BWRAP"] = "0"
     assert _run(APPLY_UPDATE, env).returncode == 0
     dnf = [line for line in log.read_text().splitlines() if line.startswith("dnf ")]
-    assert dnf[1:] == ["dnf -y --setopt=install_weak_deps=False install bubblewrap"]
+    assert dnf == [
+        "dnf -y --setopt=install_weak_deps=False install bubblewrap",
+        "dnf -y --refresh --disablerepo=* --enablerepo=meshloom --setopt=meshloom.gpgcheck=1 "
+        "--setopt=meshloom.repo_gpgcheck=1 upgrade meshloom",
+    ]
 
 
 def test_apply_update_dnf_succeeds_when_bubblewrap_cannot_be_installed(dnf_host) -> None:

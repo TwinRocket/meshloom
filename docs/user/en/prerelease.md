@@ -34,7 +34,7 @@ Run the same command again. **Settings > Updates** only looks at stable releases
 - **Docker:** the update pins that final release, and from then on the machine follows stable releases.
 - **`apt` or `dnf` package:** the machine stays on the pre-release package source. An update, from **Settings > Updates** or with `apt upgrade` or `dnf upgrade`, installs what that source serves. If a later pre-release is already out, you get that one, even though the page offered the final release.
 
-So with a package, run the usual install command once the final is out. It goes back to the stable source. It also installs the final release if the machine is still on a pre-release, with `apt` and with `dnf` (the stable installer upgrades an installed `rpm` package and installs `bubblewrap` if it is missing, so extensions keep their isolation):
+So with a package, run the usual install command once the final is out, not before: until then `get.meshloom.app` serves the 4.18 installer (see below). Stay on the pre-release meanwhile; running `get.meshloom.app/next` again keeps it up to date. Once the final is out, the usual install command goes back to the stable source. It also installs the final release if the machine is still on a pre-release, with `apt` and with `dnf` (the stable installer upgrades an installed `rpm` package and installs `bubblewrap` if it is missing, so extensions keep their isolation):
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -47,4 +47,4 @@ Two ways:
 - Use a new instance, and keep this one as it is.
 - Restore your own copy of the data on a fresh 4.18 install: the steps are in [Going back to 4.18](/en/docs/upgrade-4-18/#going-back-to-418).
 
-Never run the 4.18 install script on a machine running a pre-release. It does not know pre-releases, and can start 4.18 on a database it cannot read. Later versions of the installer refuse and change nothing.
+Never run the 4.18 install script on a machine running a pre-release, and until 5.0.0 is out, that is what `get.meshloom.app` serves. It does not know pre-releases: with Docker it offers an "upgrade" to 4.18 and starts it on the migrated database, without asking for the 5.0 account; with a package, run from a `sudo` account, it can rewrite `/etc/meshloom/meshloom.env` and drop the lines you added. Running `get.meshloom.app/next` again puts the pre-release back. Later versions of the installer refuse and change nothing.
