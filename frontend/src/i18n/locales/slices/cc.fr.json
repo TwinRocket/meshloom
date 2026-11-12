@@ -110,7 +110,7 @@
         },
         "reason": {
           "bwrap_missing": "bubblewrap n’est pas installé sur le serveur : installez-le, puis redémarrez Meshloom.",
-          "bwrap_refused": "bubblewrap est installé, mais le système refuse son bac à sable (fréquent sur Ubuntu 24.04 et suivants).",
+          "bwrap_refused": "bubblewrap est installé, mais le système refuse son bac à sable (fréquent sur Ubuntu 24.04 et suivantes).",
           "not_linux": "Un bac à sable demande un serveur Linux."
         },
         "purgeBlocked": {

@@ -100,7 +100,8 @@ BLE_ADDRESS=""
 BLE_PIN=""
 INSTALL_DIR=""
 IN_CHECKOUT=""
-STEP_TOTAL=3
+# Steps are numbered without a total: it depends on choices made on the way
+# (Docker with several USB radios has one more), so "1/3" then "2/2" never shows.
 INSTALL_STEP=3
 UI_CLEAR=1
 UI_COLOR=1
@@ -391,7 +392,7 @@ ui_screen() {
         ui_dim "  $(t tagline)"
         printf '\n'
         if [ -n "$num" ]; then
-            ui_dim "  $(t step) ${num}/${STEP_TOTAL}  ·  ${label}"
+            ui_dim "  $(t step) ${num}  ·  ${label}"
         else
             ui_dim "  ${label}"
         fi
@@ -399,7 +400,7 @@ ui_screen() {
         printf '\n'
     else
         printf '\n== '
-        [ -n "$num" ] && printf '[%s/%s] ' "$num" "$STEP_TOTAL"
+        [ -n "$num" ] && printf '[%s] ' "$num"
         printf '%s ==\n\n' "$label"
     fi
 }
@@ -460,21 +461,11 @@ ui_ask() {
     printf '%s' "$raw"
 }
 
-ui_ask_required() {
-    local prompt="$1" hint="${2:-}" value=""
-    while [ -z "$value" ]; do
-        value="$(ui_ask "$prompt" "" "$hint")"
-        if [ -z "$value" ]; then
-            ui_err "$(t required)"
-        fi
-    done
-    printf '%s' "$value"
-}
-
 ui_menu() {
     local max="$1" default="${2:-1}" ans
     while :; do
-        ans="$(ui_ask "$(t choice) [1-${max}]" "$default")"
+        # ui_ask exits on EOF, but only its subshell: stop here too.
+        ans="$(ui_ask "$(t choice) [1-${max}]" "$default")" || exit 130
         case "$ans" in
             '' | *[!0-9]*) ;;
             *)
@@ -1026,7 +1017,9 @@ lan_ip() {
 
 # ── prompts ───────────────────────────────────────────────────────────────────
 
-ensure_cmd() {
+# Offers to install the packages that provide $1. Returns 1 when $1 is still
+# missing afterwards, so a caller can try something else.
+offer_cmd_install() {
     local cmd="$1" packages="$2" yn
     if command -v "$cmd" >/dev/null 2>&1; then
         return 0
@@ -1034,30 +1027,35 @@ ensure_cmd() {
     ui_warn "$(t missing): ${cmd}"
     if [ "$PKG_MGR" = "apt" ]; then
         printf '  %s %s\n' "$(t how_install)" "$(priv apt-get install -y $packages)"
-        yn="$(ui_ask "$(t offer_install) $(t hint_no)" "n")"
+        yn="$(ui_ask "$(t offer_install) $(t hint_no)" "n")" || exit 130
         case "$(printf '%s' "$yn" | tr 'A-Z' 'a-z')" in
             y | yes | o | oui)
-                apt_get update
+                apt_get update || true
                 # shellcheck disable=SC2086
-                apt_get install -y $packages
+                apt_get install -y $packages || true
                 ;;
         esac
     elif [ "$PKG_MGR" = "dnf" ]; then
         printf '  %s %s\n' "$(t how_install)" "$(priv dnf install -y $packages)"
-        yn="$(ui_ask "$(t offer_install) $(t hint_no)" "n")"
+        yn="$(ui_ask "$(t offer_install) $(t hint_no)" "n")" || exit 130
         case "$(printf '%s' "$yn" | tr 'A-Z' 'a-z')" in
             y | yes | o | oui)
                 # shellcheck disable=SC2086
-                as_root dnf install -y $packages
+                as_root dnf install -y $packages || true
                 ;;
         esac
     else
         printf '  %s your package manager, then re-run this installer.\n' "$(t how_install)"
     fi
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        ui_err "$(t missing): ${cmd}"
-        exit 1
+    command -v "$cmd" >/dev/null 2>&1
+}
+
+ensure_cmd() {
+    if offer_cmd_install "$1" "$2"; then
+        return 0
     fi
+    ui_err "$(t missing): $1"
+    exit 1
 }
 
 ensure_uv() {
@@ -1067,7 +1065,7 @@ ensure_uv() {
     fi
     ui_warn "$(t missing): uv"
     printf '  %s curl -LsSf https://astral.sh/uv/install.sh | sh\n' "$(t how_install)"
-    yn="$(ui_ask "$(t offer_install) $(t hint_no)" "n")"
+    yn="$(ui_ask "$(t offer_install) $(t hint_no)" "n")" || exit 130
     case "$(printf '%s' "$yn" | tr 'A-Z' 'a-z')" in
         y | yes | o | oui)
             curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -1082,15 +1080,45 @@ ensure_uv() {
     fi
 }
 
+# Ubuntu or a derivative (Linux Mint, Pop!_OS...), from /etc/os-release.
+is_ubuntu_like() {
+    (
+        # shellcheck disable=SC1091
+        . /etc/os-release 2>/dev/null || exit 1
+        case " ${ID:-} ${ID_LIKE:-} " in
+            *" ubuntu "*) exit 0 ;;
+        esac
+        exit 1
+    )
+}
+
+# Ubuntu names the Compose v2 package docker-compose-v2 (its docker-compose is
+# v1 on 24.04); Debian and Raspberry Pi OS have no such package and ship Compose
+# as docker-compose (v2 from Debian 13; Debian 12's v1 also works through
+# compose_cmd). Runs before `apt-get update`: when the lists know neither
+# package (a fresh cloud or container image), /etc/os-release decides.
+docker_packages() {
+    if [ "$PKG_MGR" = "dnf" ]; then
+        printf '%s' "docker docker-compose"
+        return 0
+    fi
+    if apt-cache show --no-all-versions docker-compose-v2 >/dev/null 2>&1; then
+        printf '%s' "docker.io docker-compose-v2"
+    elif apt-cache show --no-all-versions docker-compose >/dev/null 2>&1; then
+        printf '%s' "docker.io docker-compose"
+    elif is_ubuntu_like; then
+        printf '%s' "docker.io docker-compose-v2"
+    else
+        printf '%s' "docker.io docker-compose"
+    fi
+}
+
 ensure_docker() {
-    ensure_cmd docker "docker.io docker-compose-v2" || true
-    if ! command -v docker >/dev/null 2>&1; then
-        if [ "$PKG_MGR" = "dnf" ]; then
-            ensure_cmd docker "docker docker-compose"
-        else
-            echo "See https://docs.docker.com/engine/install/"
-            exit 1
-        fi
+    if ! command -v docker >/dev/null 2>&1 \
+        && ! offer_cmd_install docker "$(docker_packages)"; then
+        ui_err "$(t missing): docker"
+        echo "See https://docs.docker.com/engine/install/"
+        exit 1
     fi
     if docker compose version >/dev/null 2>&1; then
         return 0
@@ -1123,7 +1151,7 @@ choose_language() {
     ui_option 1 "English" "Continue in English."
     ui_option 2 "Français" "Continuer en français."
     while :; do
-        ans="$(ui_ask "Language / Langue [1-2]" "$default")"
+        ans="$(ui_ask "Language / Langue [1-2]" "$default")" || exit 130
         case "$(printf '%s' "$ans" | tr 'A-Z' 'a-z')" in
             2 | fr | fra | français | francais | french)
                 ML_LANG="fr"
@@ -1180,7 +1208,7 @@ choose_install_mode() {
     fi
     ui_option "$i" "$(t opt_browser)" "$(t opt_browser_desc)"
     BROWSER_IDX="$i"
-    choice="$(ui_menu "$i" 1)"
+    choice="$(ui_menu "$i" 1)" || exit 130
     if [ -n "$SERVICE_IDX" ] && [ "$choice" = "$SERVICE_IDX" ]; then
         INSTALL_MODE="service"
     elif [ -n "$DOCKER_IDX" ] && [ "$choice" = "$DOCKER_IDX" ]; then
@@ -1287,7 +1315,7 @@ choose_serial_among_found() {
     done
     ui_option "$n" "$(t opt_no_map)" "$(t opt_no_map_desc)"
     idx_none="$n"
-    choice="$(ui_menu "$n" 1)"
+    choice="$(ui_menu "$n" 1)" || exit 130
     if [ "$choice" = "$idx_none" ]; then
         TRANSPORT="ui"
         SERIAL_PORT=""
@@ -1307,7 +1335,6 @@ prepare_docker_mappings() {
     SERIAL_PORT=""
     SERIAL_COMPOSE_HOST_PATH=""
     DBUS_SOCKET=""
-    STEP_TOTAL=2
     INSTALL_STEP=2
 
     if ! docker_allows_usb; then
@@ -1326,7 +1353,6 @@ prepare_docker_mappings() {
         fi
         return 0
     fi
-    STEP_TOTAL=3
     INSTALL_STEP=3
     choose_serial_among_found
 }
@@ -2250,7 +2276,7 @@ ensure_clone() {
         return 0
     fi
     local default="${HOME}/meshloom" tag
-    INSTALL_DIR="$(ui_ask "$(t prompt_dir)" "$default")"
+    INSTALL_DIR="$(ui_ask "$(t prompt_dir)" "$default")" || exit 130
     INSTALL_DIR="${INSTALL_DIR:-$default}"
     if [ -f "${INSTALL_DIR}/app/main.py" ]; then
         return 0
@@ -2642,7 +2668,7 @@ install_docker_stack() {
     if [ -n "$saved" ]; then
         ui_dim "  $(t compose_found) ${saved}"
     fi
-    INSTALL_DIR="$(ui_ask "$(t prompt_dir)" "$default")"
+    INSTALL_DIR="$(ui_ask "$(t prompt_dir)" "$default")" || exit 130
     INSTALL_DIR="${INSTALL_DIR:-$default}"
     case "$INSTALL_DIR" in
         /*) ;;
@@ -2753,7 +2779,6 @@ install_docker_stack() {
 }
 
 show_browser_only() {
-    STEP_TOTAL=2
     ui_screen "$(t step_browser)" 2
     ui_wrap 2 70 "$(t browser_body)"
     printf '\n'
@@ -2917,7 +2942,6 @@ if [ -n "$INSTALLER_PRERELEASE" ]; then
 fi
 
 if [ "$INSTALL_MODE" = "service" ]; then
-    STEP_TOTAL=2
     INSTALL_STEP=2
     TRANSPORT="ui"
     install_native_service
