@@ -2,16 +2,26 @@
 
 ### Fixed
 
+- **Settings → Updates on the pre-release source.** Until the final release is out, the page no longer asks you to run the installer from get.meshloom.app, which still installs 4.18: the machine keeps getting release candidates, and the page says to run it once the final version is out.
+- **Upgrade on a nearly full disk.** What an interrupted copy of the database left behind is removed at the next start instead of counting against the free space. The refusal for lack of space links to the section about the copy and, on a Linux package, gives the command that starts Meshloom again.
+- **Extensions.** When bubblewrap is installed but the system refuses its sandbox (Ubuntu 24.04 and later), **Settings → Extensions** and the log say so, instead of asking to install it.
+- **Logs.** A radio that cannot be reached logs one line per attempt instead of a full traceback. The warning about the 4.x Basic variables says it once, and only that they can be removed once an account exists.
+- **Docker.** The first 5.0 start no longer sets off the update helper on a stack that once asked for an update from 4.18.
 - **Installer.** Choosing Docker on Debian or Raspberry Pi OS without Docker now installs it: the installer asked for a package that only Ubuntu has, and stopped. When its input ends at a question, it now cancels instead of asking again forever, and its steps no longer show a total that changes on the way.
-- **Linux packages.** With `dnf`, the in-app update installs `bubblewrap` before it restarts Meshloom, so extensions are isolated right away rather than after the next restart. An upgrade lets the running server stop cleanly before it starts the new one, and no longer prints the lines meant for a fresh install or a removal.
+- **Linux packages.** With `dnf`, the in-app update installs `bubblewrap` before it restarts Meshloom, so extensions are isolated right away rather than after the next restart. An upgrade lets the running server stop cleanly before it starts the new one, and no longer prints the lines meant for a fresh install. Upgrades from 5.0.0 on no longer print the removal message either.
 - **Upgrade docs.** `apt-get upgrade` keeps Meshloom on 4.18 without an error, because 5.0 recommends a new package: the docs give commands that work, also for scripts. After `sudo dnf install bubblewrap`, restart Meshloom. On a pre-release, wait for 5.0.0 before running the usual installer.
 
 ### Français
 
 #### Corrections
 
+- **Réglages → Mises à jour sur la source des pré-versions.** Tant que la version finale n'est pas sortie, la page ne demande plus de lancer l'installeur de get.meshloom.app, qui installe encore la 4.18 : la machine continue de recevoir les versions candidates, et la page dit de le lancer une fois la version finale sortie.
+- **Mise à jour sur un disque presque plein.** Ce qu'une copie interrompue de la base a laissé est supprimé au démarrage suivant au lieu de compter dans la place libre. Le refus pour manque de place renvoie à la section sur la copie et, avec un paquet Linux, donne la commande qui redémarre Meshloom.
+- **Extensions.** Quand bubblewrap est installé mais que le système refuse son bac à sable (Ubuntu 24.04 et suivantes), **Réglages → Extensions** et le journal le disent, au lieu de demander de l'installer.
+- **Journaux.** Une radio injoignable écrit une ligne par tentative au lieu d'une trace d'erreur complète. L'avertissement sur les variables Basic de la 4.x le dit une seule fois, et seulement qu'elles peuvent être retirées une fois un compte créé.
+- **Docker.** Le premier démarrage de la 5.0 ne déclenche plus l'assistant de mise à jour sur une pile qui avait demandé une mise à jour depuis la 4.18.
 - **Installeur.** Choisir Docker sous Debian ou Raspberry Pi OS sans Docker l'installe maintenant : l'installeur demandait un paquet que seul Ubuntu propose, et s'arrêtait. Quand son entrée se termine sur une question, il s'annule au lieu de la reposer sans fin, et ses étapes n'affichent plus un total qui change en route.
-- **Paquets Linux.** Avec `dnf`, la mise à jour depuis l'application installe `bubblewrap` avant de redémarrer Meshloom : les extensions sont isolées tout de suite, et non après le redémarrage suivant. Une mise à niveau laisse le serveur en cours s'arrêter proprement avant de démarrer le nouveau, et n'affiche plus les lignes prévues pour une première installation ou une désinstallation.
+- **Paquets Linux.** Avec `dnf`, la mise à jour depuis l'application installe `bubblewrap` avant de redémarrer Meshloom : les extensions sont isolées tout de suite, et non après le redémarrage suivant. Une mise à niveau laisse le serveur en cours s'arrêter proprement avant de démarrer le nouveau, et n'affiche plus les lignes prévues pour une première installation. À partir de la 5.0.0, les mises à niveau n'affichent plus non plus le message de désinstallation.
 - **Doc de mise à jour.** `apt-get upgrade` garde Meshloom en 4.18 sans erreur, parce que la 5.0 recommande un nouveau paquet : la doc donne des commandes qui fonctionnent, aussi pour les scripts. Après `sudo dnf install bubblewrap`, redémarrez Meshloom. Sur une pré-version, attendez la 5.0.0 avant de lancer l'installeur habituel.
 
 ---

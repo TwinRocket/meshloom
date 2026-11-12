@@ -1098,3 +1098,43 @@ class TestPollCadence:
         ):
             await oss_updates._oss_update_loop()
         assert waits == [6 * 3600]
+
+
+class TestStableReachesCurrent:
+    """Settings → Updates only sends a pre-release host to the stable installer when it
+    would not go back to an older version (G2: 4.18.3 over a 5.0 database)."""
+
+    @pytest.mark.parametrize(
+        ("latest", "current", "expected"),
+        [
+            ("4.18.3", "5.0.0-rc.5", False),
+            ("5.0.0", "5.0.0-rc.5", True),
+            ("5.0.0", "5.0.0", True),
+            ("5.0.1", "5.0.0", True),
+            ("5.0.0-rc.6", "5.0.0-rc.5", False),
+            (None, "5.0.0-rc.5", False),
+            ("5.0.0", "not-a-version", False),
+        ],
+    )
+    def test_compares_the_community_final_release(self, latest, current, expected):
+        import app.services.oss_updates as oss_updates
+
+        oss_updates._latest_payload = None if latest is None else {"version": latest}
+        with patch(
+            "app.services.oss_updates.get_app_build_info",
+            return_value=_build(current),
+        ):
+            assert get_update_status()["stable_reaches_current"] is expected
+
+    def test_env_pin_never_counts(self, monkeypatch):
+        import app.services.oss_updates as oss_updates
+
+        oss_updates._latest_payload = None
+        monkeypatch.setenv("MESHLOOM_UPDATE_LATEST", "5.0.0")
+        with patch(
+            "app.services.oss_updates.get_app_build_info",
+            return_value=_build("5.0.0-rc.5"),
+        ):
+            status = get_update_status()
+        assert status["latest"] == "5.0.0"
+        assert status["stable_reaches_current"] is False

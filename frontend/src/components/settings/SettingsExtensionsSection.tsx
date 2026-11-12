@@ -23,6 +23,7 @@ import { MigrationBanner } from './extensions/MigrationBanner';
 import { StoreTab } from './extensions/StoreTab';
 import { UpdatesTab } from './extensions/UpdatesTab';
 import type { PluginInstance, PluginPauseState } from './extensions/pluginsTypes';
+import { LearnMoreLink } from './LearnMoreLink';
 import { SettingsGroupHeader } from './settingsPrimitives';
 import { takeRequestedExtensionsTab, usePluginUpdateCount } from '../../stores/pluginUpdatesStore';
 import type { SettingsSection } from './settingsConstants';
@@ -30,6 +31,8 @@ import type { SettingsSection } from './settingsConstants';
 // The lease files of the setuid level (app/plugins/isolation/uid_lease.py, LEASE_DIR_NAME).
 const UID_LEASE_DIR = '/.meshloom-plugin-uids/';
 const ISOLATION_LEVELS = ['bwrap', 'setuid', 'none'] as const;
+// Why the level is `none` (`plugins_isolation_reason`, app/plugins/isolation/selection.py).
+const ISOLATION_NONE_REASONS = ['bwrap_missing', 'bwrap_refused', 'not_linux'] as const;
 
 /**
  * Settings > Extensions: the isolation level, the global pause, then Installed / Store /
@@ -103,6 +106,11 @@ export function SettingsExtensionsSection({
 
   const opened = instances?.find((i) => i.instance_id === openId) ?? null;
   const isolation = health?.plugins_isolation ?? null;
+  const isolationReason =
+    isolation === 'none' &&
+    (ISOLATION_NONE_REASONS as readonly string[]).includes(health?.plugins_isolation_reason ?? '')
+      ? health?.plugins_isolation_reason
+      : null;
   const disabledSource = health?.plugins_disabled_source ?? null;
   // The host lock, the platform or a failed isolation forbid every write; the global
   // pause does not (changes are saved and apply on resume).
@@ -185,6 +193,12 @@ export function SettingsExtensionsSection({
             ? t(`settings.extensions.isolation.explain.${isolation}`)
             : t('settings.extensions.isolation.explain.unknown')}
         </p>
+        {isolationReason ? (
+          <p className="mt-1 text-muted-foreground" data-testid="plugin-isolation-reason">
+            {t(`settings.extensions.isolation.reason.${isolationReason}`)}{' '}
+            <LearnMoreLink page="deep/plugins" />
+          </p>
+        ) : null}
       </div>
 
       {purgeBlocked.length > 0 && isAdmin && (

@@ -14,6 +14,10 @@ is about the other bits:
   written later is opened up again before its child starts
   (`SetuidBackend.prepare_plugin_dir`).
 - `/data/options.json` (the add-on's options) is `0600` when it exists.
+- `request-update` is left alone: the host update helpers watch it with systemd
+  `PathChanged=`, which fires on a mode change too, so a chmod at startup would
+  start an update nobody asked for. It holds no secret (`1`), and the app writes
+  it again under the `077` umask whenever it asks for an update.
 
 Symbolic links are never followed or changed. Applied only when the server is
 root and the `setuid` level is selected; elsewhere the server's own uid owns
@@ -34,6 +38,8 @@ CODE_DIR_MODE = 0o755
 CODE_FILE_MODE = 0o644
 SERVER_UMASK = 0o077
 PLUGINS_DIRNAME = "plugins"
+# Watched by `meshloom-update.path` / `meshloom-compose-update.path` (`PathChanged=`).
+HELPER_TRIGGER_FILES = frozenset({"request-update"})
 EXTRA_PRIVATE_FILES = (Path("/data/options.json"),)
 
 
@@ -75,7 +81,7 @@ def apply(data_dir: Path, extra_private: tuple[Path, ...] = EXTRA_PRIVATE_FILES)
         _chmod(data_dir, DATA_DIR_MODE)
         for entry in os.scandir(data_dir):
             path = Path(entry.path)
-            if entry.is_symlink():
+            if entry.is_symlink() or entry.name in HELPER_TRIGGER_FILES:
                 continue
             if entry.name == PLUGINS_DIRNAME and entry.is_dir():
                 make_tree_readable(path)

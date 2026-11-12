@@ -1119,7 +1119,8 @@ principal without the `send` permission; `realtime=False`, so not to the
 proxy or fanout) and triggers a `health` broadcast. `statuses()` covers every
 instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
-`plugins_disabled`, `plugins_disabled_source`, `plugins_paused_since`,
+`plugins_isolation_reason` (at `none` only: `bwrap_missing`, `bwrap_refused`,
+`not_linux`), `plugins_disabled`, `plugins_disabled_source`, `plugins_paused_since`,
 `plugins_pause_unreadable`, `plugins_purge_blocked` (under `setuid`: temp dirs a uid
 purge could not list, or the lease file of another install holding the uid, MSHL-357;
 the uid kept; empty below admin) and `plugin_statuses`; an

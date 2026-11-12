@@ -84,6 +84,12 @@ export function SettingsUpdatesSection({
   const showInstall = applySupported && updateAvailable && Boolean(onApply);
   const showLegacyHelper = updates?.legacy_update_helper === true;
   const onTestingChannel = kind === 'package' && updates?.package_channel === 'testing';
+  // Until the final release is out, get.meshloom.app serves an older stable version:
+  // never send a pre-release host to it.
+  const testingChannelKey =
+    updates?.stable_reaches_current === true
+      ? 'settings.updates.testingChannel'
+      : 'settings.updates.testingChannelUntilFinal';
   const showJobError =
     Boolean(updates?.job?.error) &&
     updateAvailable &&
@@ -183,7 +189,7 @@ export function SettingsUpdatesSection({
             data-testid="updates-testing-channel"
             className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[0.8125rem] text-foreground"
           >
-            {t('settings.updates.testingChannel')}
+            {t(testingChannelKey)}
           </p>
         ) : null}
       </SettingsGroup>

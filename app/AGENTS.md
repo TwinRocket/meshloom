@@ -1709,7 +1709,11 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   package installs only) from the source `install.sh` wrote
   (`services/install_kind.py`, `package_channel()`); Settings → Updates says when a
   host follows `testing`, whose updates can be release candidates. Running the
-  stable installer once moves it back to `stable`.
+  stable installer once moves it back to `stable`, but the banner says so only when
+  `stable_reaches_current` is true (`oss_updates.stable_release_reaches()`: Community's
+  latest final release, never the `MESHLOOM_UPDATE_LATEST` pin, is at or above the
+  running version). Otherwise get.meshloom.app still serves an older stable script
+  (4.18.3 during the 5.0 pre-release), and the banner says to wait for the final.
 - **Status, root to app.** The helper writes `/var/lib/meshloom-update/status.json`
   (root-owned `StateDirectory`, 0644); the app only reads it. The app keeps its own
   memory in `update-attempt.json`, in its data directory.

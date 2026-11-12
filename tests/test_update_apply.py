@@ -1003,6 +1003,39 @@ def test_package_channel_is_reported_for_packages_only(
     ):
         status = asyncio.run(build_update_status())
     assert status.package_channel == expected
+    assert status.stable_reaches_current is False
+
+
+def test_stable_reaches_current_is_passed_through(
+    job_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from app.routers.updates import build_update_status
+
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    monkeypatch.setattr("app.routers.updates.package_channel", lambda: "testing")
+    settings = SimpleNamespace(
+        auto_update=False,
+        auto_update_window_start="00:00",
+        auto_update_window_end="00:00",
+        auto_update_weekdays=[0, 1, 2, 3, 4, 5, 6],
+    )
+    catalogue = {
+        "current": "5.0.0-rc.5",
+        "latest": "5.0.0",
+        "update_available": True,
+        "html_url": None,
+        "stable_reaches_current": True,
+    }
+    with (
+        patch("app.routers.updates.get_update_status", return_value=catalogue),
+        patch(
+            "app.routers.updates.AppSettingsRepository.get", new=AsyncMock(return_value=settings)
+        ),
+    ):
+        status = asyncio.run(build_update_status())
+    assert status.stable_reaches_current is True
 
 
 @pytest.mark.asyncio

@@ -851,6 +851,49 @@ class TestReconnectLock:
         )
 
 
+class TestReconnectLogging:
+    """G2: an unreachable TCP radio logged a 30-line traceback every 5 s."""
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_radio_logs_one_line_and_the_traceback_at_debug(self, caplog):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm._transport_snapshot = _snapshot(transport="tcp", tcp_host="127.0.0.1", tcp_port=1)
+        rm.connect = AsyncMock(
+            side_effect=ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 1)")
+        )
+        caplog.set_level(logging.DEBUG, logger="app.radio")
+        with patch("app.websocket.broadcast_health"), patch("app.websocket.broadcast_error"):
+            for _ in range(3):
+                assert await rm.reconnect(broadcast_on_success=False) is False
+
+        warnings = [
+            r for r in caplog.records if r.levelno == logging.WARNING and r.name == "app.radio"
+        ]
+        assert len(warnings) == 3
+        assert all(r.exc_info is None for r in warnings)
+        assert all("ConnectionRefusedError" in r.getMessage() for r in warnings)
+        assert all("Connect call failed ('127.0.0.1', 1)" in r.getMessage() for r in warnings)
+        assert "TCP 127.0.0.1:1" in warnings[0].getMessage()
+        assert "keeps retrying" in warnings[0].getMessage()
+        assert all("keeps retrying" not in r.getMessage() for r in warnings[1:])
+        details = [r for r in caplog.records if r.levelno == logging.DEBUG and r.exc_info]
+        assert len(details) == 3
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_error_keeps_its_traceback(self, caplog):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm.connect = AsyncMock(side_effect=RuntimeError("radio unavailable"))
+        caplog.set_level(logging.DEBUG, logger="app.radio")
+        with patch("app.websocket.broadcast_health"), patch("app.websocket.broadcast_error"):
+            assert await rm.reconnect(broadcast_on_success=False) is False
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1 and warnings[0].exc_info is not None
+
+
 class TestManualDisconnectCleanup:
     """Tests for manual disconnect teardown behavior."""
 

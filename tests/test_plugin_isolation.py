@@ -208,6 +208,45 @@ def test_none_is_reported_as_hooks_only_and_warned_once(monkeypatch, caplog) -> 
     assert any("bwrap is not installed" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.parametrize(
+    ("platform", "bwrap", "reason", "hint"),
+    [
+        ("linux", None, "bwrap_missing", "Install bubblewrap"),
+        ("linux", "/usr/bin/bwrap", "bwrap_refused", "bubblewrap is installed but the system"),
+        ("darwin", None, "not_linux", "OS isolation needs Linux"),
+    ],
+)
+def test_none_names_its_real_cause(platform, bwrap, reason, hint, caplog) -> None:
+    """G2: bwrap installed but refused (Ubuntu 24.04 AppArmor) still logged "Install bubblewrap"."""
+    chosen = selection.detect(
+        platform=platform,
+        geteuid=lambda: 998,
+        capabilities=lambda: 0,
+        getpwnam=_getpwnam(None),
+        which=lambda name: bwrap,
+        bwrap_probe=lambda path: (None, ("bwrap self-test failed: Creating new namespace failed",)),
+    )
+    assert chosen.level == "none" and chosen.reason == reason
+    with caplog.at_level(logging.INFO, logger="app.plugins.isolation.selection"):
+        selection.log_selection(chosen)
+    last = caplog.records[-1].getMessage()
+    assert "hooks only" in last and hint in last
+    if reason == "bwrap_refused":
+        assert "Install bubblewrap" not in last
+
+
+def test_a_working_backend_has_no_reason() -> None:
+    chosen = selection.detect(
+        platform="linux",
+        geteuid=lambda: 998,
+        capabilities=lambda: 0,
+        getpwnam=_getpwnam(None),
+        which=lambda name: "/usr/bin/bwrap",
+        bwrap_probe=lambda path: (BwrapBackend(path), ()),
+    )
+    assert chosen.level == "bwrap" and chosen.reason is None
+
+
 def test_hardening_left_out_is_warned_but_keeps_the_level(caplog) -> None:
     note = "bwrap 0.6.1 has no --disable-userns (0.8 or later)"
     chosen = selection.detect(
@@ -408,6 +447,24 @@ def test_file_permissions_model(tmp_path: Path) -> None:
     assert _mode(code) == 0o644
     assert _mode(outside) == 0o644  # a link is never followed
     assert _mode(options) == 0o600
+
+
+def test_the_update_trigger_is_left_alone(tmp_path: Path) -> None:
+    """G2: chmod of a 4.18 `request-update` fired the compose helper's PathChanged=."""
+    data = tmp_path / "data"
+    data.mkdir()
+    trigger = data / "request-update"
+    trigger.write_text("1\n")
+    os.chmod(trigger, 0o644)
+    before = os.stat(trigger)
+    old = os.umask(0o022)
+    try:
+        permissions.apply(data, extra_private=())
+    finally:
+        os.umask(old)
+    after = os.stat(trigger)
+    assert _mode(trigger) == 0o644
+    assert after.st_ctime_ns == before.st_ctime_ns
 
 
 # --- integration: arbitrary code under each backend --------------------------------

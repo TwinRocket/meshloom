@@ -19,7 +19,11 @@ One backend per server process, detected once (`selection.current()`, logged:
 INFO for the level, WARNING for each fallback and once for hooks only). Wire
 values `bwrap`, `setuid`, `none` (`policy.ISOLATION_LEVELS`), in `/api/health`
 (`plugins_isolation`) and `plugin.init` (`isolation`); `LEVEL_LABELS` names them
-"isolated by bubblewrap", "dedicated uid", "hooks only".
+"isolated by bubblewrap", "dedicated uid", "hooks only". At `none`, `Selection.reason`
+says why (`bwrap_missing`, `bwrap_refused` when bwrap is installed but its self-test
+fails, `not_linux`): the hooks-only warning names that cause, `/api/health` reports it
+as `plugins_isolation_reason`, and Settings → Extensions shows one sentence for it with
+a link to the user docs.
 
 | Server | Level | Fallback |
 |---|---|---|
@@ -256,7 +260,9 @@ each file in it, `0700` on each subdirectory but `plugins/`, whose tree is
 `0755`/`0644`; the server's umask becomes `077`, so later files are born
 private, and each plugin directory is opened up again (`0755`/`0644`) right
 before its child starts. `/data/options.json` (the add-on's options) becomes
-`0600`. Symbolic links are never followed.
+`0600`. Symbolic links are never followed. `request-update` is skipped
+(`HELPER_TRIGGER_FILES`): the host helpers watch it with `PathChanged=`, which a
+chmod fires too, so the first 5.0 start on a 4.18 stack would start the helper.
 
 ### Known limits of the OS layer
 

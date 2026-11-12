@@ -440,6 +440,8 @@ export interface HealthStatus {
   converted_bots?: { converted: number; attention: number } | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
   plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
+  /** Level `none` only: bubblewrap missing or refused by the system, or not Linux. */
+  plugins_isolation_reason?: 'bwrap_missing' | 'bwrap_refused' | 'not_linux' | null;
   /** True whenever no plugin may run: the host lock, the platform, isolation, or the pause. */
   plugins_disabled?: boolean;
   /** `env`, `platform` and `isolation` are host locks and win over `paused`. */
@@ -2678,6 +2680,8 @@ export interface OssUpdateStatus {
   legacy_update_helper?: boolean;
   /** Package installs: the signed repository suite (`testing` after the pre-release installer). */
   package_channel?: 'stable' | 'testing' | null;
+  /** Community's latest final release is this version or newer (the stable installer would not go back). */
+  stable_reaches_current?: boolean;
   /** Where `latest` came from: Community, or an env pin. */
   latest_source?: 'community' | 'env' | null;
   /** Community asks not to auto-apply this update; a manual install stays available. */

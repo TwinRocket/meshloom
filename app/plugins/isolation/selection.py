@@ -10,7 +10,9 @@
 
 Detected once per process (`current()`), never silently: the level is logged at
 INFO, every fallback at WARNING with its reason, and `none` with one warning
-that plugins run with hooks only.
+that plugins run with hooks only, naming the cause (`Selection.reason`: bubblewrap
+missing, or installed but refused by the system), which `/api/health` reports as
+`plugins_isolation_reason`.
 """
 
 import logging
@@ -21,6 +23,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from app.plugins.isolation import bwrap as bwrap_backend
 from app.plugins.isolation.base import IsolationBackend
@@ -28,6 +31,10 @@ from app.plugins.isolation.none import NoneBackend
 from app.plugins.isolation.setuid import ACCOUNT, SetuidBackend
 
 logger = logging.getLogger(__name__)
+
+# Why the level is `none`, as `/api/health` reports it (`plugins_isolation_reason`):
+# Settings → Extensions maps it to one sentence. None for any other level.
+NoneReason = Literal["not_linux", "bwrap_missing", "bwrap_refused"]
 
 
 @dataclass(frozen=True)
@@ -38,6 +45,8 @@ class Selection:
     # Hardening the chosen backend runs without, and why (bwrap too old for
     # `--disable-userns`, no seccomp table): logged at WARNING too.
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    # Level `none` only: bubblewrap missing, or installed but refused by the system.
+    reason: NoneReason | None = None
 
     @property
     def level(self) -> str:
@@ -101,7 +110,7 @@ def detect(
 ) -> Selection:
     """Pick the backend for this machine. Every probe is injectable for the tests."""
     if not platform.startswith("linux"):
-        return Selection(NoneBackend(), ("OS isolation needs Linux",))
+        return Selection(NoneBackend(), ("OS isolation needs Linux",), reason="not_linux")
     fallbacks: list[str] = []
     if geteuid() == 0:
         account = _account(getpwnam)
@@ -125,12 +134,22 @@ def detect(
     path = which("bwrap")
     if path is None:
         fallbacks.append("bwrap is not installed")
-    else:
-        backend, notes = bwrap_probe(path)
-        if backend is not None:
-            return Selection(backend, tuple(fallbacks), notes)
-        fallbacks.extend(notes)
-    return Selection(NoneBackend(), tuple(fallbacks))
+        return Selection(NoneBackend(), tuple(fallbacks), reason="bwrap_missing")
+    backend, notes = bwrap_probe(path)
+    if backend is not None:
+        return Selection(backend, tuple(fallbacks), notes)
+    fallbacks.extend(notes)
+    return Selection(NoneBackend(), tuple(fallbacks), reason="bwrap_refused")
+
+
+_NONE_HINTS: dict[NoneReason | None, str] = {
+    "not_linux": "OS isolation needs Linux",
+    "bwrap_missing": "Install bubblewrap, or run the image as root with the {account} account, "
+    "to isolate them",
+    "bwrap_refused": "bubblewrap is installed but the system refused its sandbox (user "
+    "namespaces restricted, as by AppArmor on Ubuntu 24.04 and later, or disabled in the "
+    "kernel; the line above has its own error)",
+}
 
 
 def log_selection(selection: Selection) -> None:
@@ -139,11 +158,11 @@ def log_selection(selection: Selection) -> None:
     for reason in selection.warnings:
         logger.warning("Plugin isolation hardening: %s", reason)
     if selection.level == "none":
+        hint = _NONE_HINTS.get(selection.reason, _NONE_HINTS["bwrap_missing"])
         logger.warning(
             "Plugin isolation: none (hooks only, no OS isolation): a hostile plugin could "
-            "read the database and the code. Install bubblewrap, or run the image as root "
-            "with the %s account, to isolate them (docs/user/en/deep/plugins.md).",
-            ACCOUNT,
+            "read the database and the code. %s (docs/user/en/deep/plugins.md).",
+            hint.format(account=ACCOUNT),
         )
     else:
         logger.info("Plugin isolation: %s (%s)", selection.level, selection.backend.label)

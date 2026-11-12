@@ -222,7 +222,11 @@ describe('SettingsUpdatesSection', () => {
   it('says when a package install follows the pre-release channel', () => {
     const { rerender } = render(
       <SettingsUpdatesSection
-        updates={status({ install_kind: 'package', package_channel: 'testing' })}
+        updates={status({
+          install_kind: 'package',
+          package_channel: 'testing',
+          stable_reaches_current: true,
+        })}
       />
     );
     expect(screen.getByTestId('updates-testing-channel')).toHaveTextContent(
@@ -234,5 +238,26 @@ describe('SettingsUpdatesSection', () => {
       />
     );
     expect(screen.queryByTestId('updates-testing-channel')).not.toBeInTheDocument();
+  });
+
+  it('does not send a pre-release host to an older stable installer', () => {
+    for (const stable of [false, undefined]) {
+      const { unmount } = render(
+        <SettingsUpdatesSection
+          updates={status({
+            current: '5.0.0-rc.5',
+            latest: '4.18.3',
+            update_available: false,
+            install_kind: 'package',
+            package_channel: 'testing',
+            stable_reaches_current: stable,
+          })}
+        />
+      );
+      expect(screen.getByTestId('updates-testing-channel')).toHaveTextContent(
+        i18n.t('settings.updates.testingChannelUntilFinal')
+      );
+      unmount();
+    }
   });
 });

@@ -1069,3 +1069,29 @@ async def test_websocket_health_hides_plugin_errors_below_admin():
     assert "boom" not in sent["viewer"][0]
     manager.broadcast_nowait("plugin_status", {"instance_id": "a", "last_error": "boom"})
     assert len(sent["viewer"]) == 1 and len(sent["member"]) == 1 and len(sent["admin"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("reason", "level"),
+    [("bwrap_refused", "none"), (None, "bwrap")],
+)
+def test_health_reports_why_the_level_is_none(monkeypatch, reason, level) -> None:
+    """G2: isolation `none` with bubblewrap installed showed no cause in Settings."""
+    from app.plugins.isolation import selection
+    from app.plugins.isolation.bwrap import BwrapBackend
+    from app.plugins.isolation.none import NoneBackend
+
+    chosen = (
+        selection.Selection(NoneBackend(), reason=reason)
+        if level == "none"
+        else selection.Selection(BwrapBackend("/usr/bin/bwrap"))
+    )
+    monkeypatch.setattr(selection, "detect", lambda: chosen)
+    monkeypatch.setattr(host_module.plugin_manager, "disabled_source", lambda: None)
+    selection.reset_for_tests()
+    try:
+        fields = lifecycle.health_fields()
+    finally:
+        selection.reset_for_tests()
+    assert fields["plugins_isolation"] == level
+    assert fields["plugins_isolation_reason"] == reason

@@ -169,6 +169,12 @@ def _format_reconnect_failure(
             )
             return (message, message, False)
 
+    if isinstance(exc, OSError):
+        # Radio off, unplugged or out of reach (refused, reset, timeout, unknown host):
+        # expected while it stays away, so one line every few seconds, not a traceback.
+        text = str(exc) or type(exc).__name__
+        return (f"Reconnection failed: {type(exc).__name__}: {text}", text, False)
+
     return (f"Reconnection failed: {exc}", str(exc), True)
 
 
@@ -635,6 +641,17 @@ class RadioManager:
         self.clear_expected_reboot()
         await self.disconnect()
 
+    def _transport_target(self) -> str:
+        """Where the next connect goes, for a log line: the stored transport, else the last one."""
+        snapshot = self._transport_snapshot
+        if snapshot is not None and snapshot.configured:
+            if snapshot.transport == "tcp":
+                return f"TCP {snapshot.tcp_host}:{snapshot.tcp_port}"
+            if snapshot.transport == "ble":
+                return f"BLE {snapshot.ble_address}"
+            return f"serial {snapshot.serial_port or 'auto-detect'}"
+        return self._connection_info or "unknown"
+
     def _reset_reconnect_error_broadcasts(self) -> None:
         self._frontend_reconnect_error_broadcasts = 0
 
@@ -981,8 +998,17 @@ class RadioManager:
                 )
                 if self.expected_reboot is not None:
                     logger.info("Radio not back yet after its expected reboot: %s", log_message)
+                elif include_traceback:
+                    logger.warning(log_message, exc_info=True)
                 else:
-                    logger.warning(log_message, exc_info=include_traceback)
+                    if self._frontend_reconnect_error_broadcasts == 0:
+                        # The first failure since the last success says what happens next.
+                        log_message = (
+                            f"{log_message} (target {self._transport_target()}; Meshloom keeps "
+                            "retrying, the traceback is logged at DEBUG)"
+                        )
+                    logger.warning(log_message)
+                    logger.debug("Reconnection failure details", exc_info=True)
                 self._broadcast_reconnect_error_if_needed(frontend_detail)
                 return False
 

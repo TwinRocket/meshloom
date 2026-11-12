@@ -46,6 +46,9 @@ there is nothing to protect, and the next start takes no copy, as long as the ta
 
 ``<db>.copy-in-progress.lock`` keeps a second process off the temporary file (where
 ``flock`` exists: not Windows). That second process is refused, not made to wait.
+Under that lock, what an interrupted copy left (``<db>.copy-in-progress`` and its
+``-journal``, ``-wal``, ``-shm``, ``.key``) is removed before the disk check, so it never
+counts against the free space.
 
 Copies are ``0600``, and carry every secret of the database, unscrubbed. The full
 backup is built from database sections and never reads the data folder; the Home
@@ -82,6 +85,9 @@ _FRESH_MARKER = "fresh"
 FINGERPRINT_MAX_ROWS = 20_000
 USER_DATA_TABLES = ("messages", "raw_packets", "contacts", "fanout_configs", "users", "plugins")
 DOCS_URL = "https://meshloom.app/en/docs/deep/install-paths/#going-back-to-an-older-version"
+# The size rule and "If the copy fails": what a refused copy needs.
+COPY_DOCS_URL = "https://meshloom.app/en/docs/deep/install-paths/#the-copy-made-before-an-upgrade"
+_TEMPORARY_SUFFIXES = ("", "-wal", "-shm", "-journal", ".key")
 
 
 class StartupRefused(RuntimeError):
@@ -142,8 +148,56 @@ def _remove_copy(copy: Path) -> None:
 
 
 def _remove_temporary(temporary: Path) -> None:
-    for suffix in ("", "-wal", "-shm", "-journal", ".key"):
+    for suffix in _TEMPORARY_SUFFIXES:
         temporary.with_name(temporary.name + suffix).unlink(missing_ok=True)
+
+
+def _remove_leftover_temporary(db_path: Path) -> Path | None:
+    """Remove what an interrupted copy left (power cut, kill), before the disk check.
+
+    Called under ``_copy_lock``, so no other process is writing it. Returns the
+    temporary's path when something could not be removed, for the refusal to name.
+    """
+    temporary = _temporary_path(db_path)
+    leftover = []
+    for suffix in _TEMPORARY_SUFFIXES:
+        path = temporary.with_name(temporary.name + suffix)
+        try:
+            leftover.append((path, path.stat().st_size))
+        except OSError:
+            continue
+    if not leftover:
+        return None
+    logger.info(
+        "Removing %s, left by an interrupted copy (%d MB)",
+        temporary.name,
+        sum(size for _path, size in leftover) // MIB,
+    )
+    try:
+        for path, _size in leftover:
+            path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("The leftover %s could not be removed: %s", temporary.name, exc)
+        return temporary
+    return None
+
+
+def _start_again_hint() -> str:
+    """How to start again once fixed: systemd stops restarting after StartLimitBurst."""
+    under_systemd = bool(os.environ.get("INVOCATION_ID"))
+    if not under_systemd:
+        try:
+            from app.services.install_kind import detect_install_kind
+
+            under_systemd = detect_install_kind()[0] == "package"
+        except Exception:  # noqa: BLE001 - a hint never stops the refusal
+            under_systemd = False
+    if not under_systemd:
+        return "start again"
+    return (
+        "start again (as a service: sudo systemctl reset-failed meshloom && "
+        "sudo systemctl start meshloom)"
+    )
 
 
 def _way_back(copies: list[DatabaseCopy]) -> DatabaseCopy | None:
@@ -293,7 +347,8 @@ def _copy_lock(db_path: Path) -> Iterator[None]:
     except OSError as exc:
         raise CopyFailedError(
             f"The database could not be copied before migrating it: {exc}. Nothing was "
-            f"migrated and Meshloom will not start. Fix the cause and start again. {DOCS_URL}"
+            f"migrated and Meshloom will not start. Fix the cause and {_start_again_hint()}. "
+            f"{COPY_DOCS_URL}"
         ) from exc
     try:
         try:
@@ -304,7 +359,7 @@ def _copy_lock(db_path: Path) -> Iterator[None]:
             else:
                 raise CopyFailedError(
                     "Another Meshloom process is copying this database. Nothing was migrated "
-                    f"and this one will not start. {DOCS_URL}"
+                    f"and this one will not start. {COPY_DOCS_URL}"
                 ) from exc
         yield
     finally:
@@ -364,7 +419,7 @@ def _make_copy(
         raise CopyFailedError(
             f"The database could not be copied before migrating it from schema {source_schema} "
             f"to {latest}: {exc}. Nothing was migrated and Meshloom will not start, because "
-            f"migrating is one way. Fix the cause and start again. {DOCS_URL}"
+            f"migrating is one way. Fix the cause and {_start_again_hint()}. {COPY_DOCS_URL}"
         ) from exc
     finally:
         # A leftover -wal or -shm next to a temporary that was renamed.
@@ -375,7 +430,11 @@ def _make_copy(
 
 
 def _check_disk_space(
-    db_path: Path, total_bytes: int, removable: list[DatabaseCopy], way_back: DatabaseCopy | None
+    db_path: Path,
+    total_bytes: int,
+    removable: list[DatabaseCopy],
+    way_back: DatabaseCopy | None,
+    leftover: Path | None = None,
 ) -> None:
     needed = total_bytes + max(MIN_HEADROOM_BYTES, total_bytes // HEADROOM_DIVISOR)
     try:
@@ -386,16 +445,18 @@ def _check_disk_space(
     if free >= needed:
         return
     hint = ""
+    if leftover is not None:
+        hint += f" {leftover.name} is left from an interrupted copy and can be deleted."
     if way_back is not None:
-        hint = (
+        hint += (
             f" The older copy {way_back.path.name} can be deleted if you no longer need to go "
             "back to that version."
         )
     raise CopyFailedError(
         f"Not enough free disk space to copy the database before migrating it: {needed // MIB} MB "
         f"needed, {free // MIB} MB free in {db_path.parent}. Nothing was changed and Meshloom "
-        f"will not start, because migrating is one way. Free some space and start again.{hint} "
-        f"{DOCS_URL}"
+        f"will not start, because migrating is one way. Free some space and "
+        f"{_start_again_hint()}.{hint} {COPY_DOCS_URL}"
     )
 
 
@@ -465,7 +526,8 @@ def _copy_with_retention(
     marker = marker_path(db_path)
     way_back = _way_back(copies)
     removable = [copy for copy in copies if copy != way_back]
-    _check_disk_space(db_path, total_bytes, removable, way_back)
+    leftover = _remove_leftover_temporary(db_path)
+    _check_disk_space(db_path, total_bytes, removable, way_back, leftover)
     try:
         for old in removable:
             logger.info("Removing the older database copy %s", old.path.name)
@@ -490,7 +552,8 @@ def _copy_with_retention(
     except OSError as exc:
         raise CopyFailedError(
             f"The marker of the migration could not be written ({exc}). Nothing was migrated "
-            f"and Meshloom will not start. Fix the cause and start again. {DOCS_URL}"
+            f"and Meshloom will not start. Fix the cause and {_start_again_hint()}. "
+            f"{COPY_DOCS_URL}"
         ) from exc
     return copy
 

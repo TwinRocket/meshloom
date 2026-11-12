@@ -289,6 +289,25 @@ async def refresh_oss_update_cache() -> dict[str, Any] | None:
     return payload
 
 
+def stable_release_reaches(current: str) -> bool:
+    """True when Community's latest release is a final release at or above ``current``.
+
+    Then the stable installer (get.meshloom.app) installs this version or a newer
+    one, never an older one over a database it cannot read. The operator's
+    ``MESHLOOM_UPDATE_LATEST`` pin is not a published release, so it never counts.
+    """
+    version = _payload_version(_latest_payload)
+    if version is None:
+        return False
+    parsed = Version(version)
+    if parsed.is_prerelease:
+        return False
+    try:
+        return parsed >= Version(_strip_leading_v(current))
+    except InvalidVersion:
+        return False
+
+
 def get_update_status() -> dict[str, Any]:
     current = get_app_build_info().version
     env_latest, env_html = _env_latest_override()
@@ -313,6 +332,7 @@ def get_update_status() -> dict[str, Any]:
         "source": "env" if env_latest else _payload_source(_latest_payload),
         "auto_update_held": held,
         "auto_update_hold_reason": hold_reason,
+        "stable_reaches_current": stable_release_reaches(current),
         # The operator's pin does not depend on Community answering.
         "check_stale": _last_check_failed and not env_latest,
     }

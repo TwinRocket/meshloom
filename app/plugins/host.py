@@ -231,6 +231,11 @@ def isolation_level() -> str:
     return isolation.current().level
 
 
+def isolation_reason() -> str | None:
+    """Why the level is `none` (`Selection.reason`); None at any other level."""
+    return isolation.current().reason
+
+
 def message_bytes_limit() -> int:
     """The smallest text allowance a plugin may meet: a channel message's, after
     the `"<radio name>: "` prefix (10-byte fallback when the name is unknown)."""

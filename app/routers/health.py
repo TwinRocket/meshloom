@@ -159,6 +159,8 @@ class HealthResponse(BaseModel):
     converted_bots: dict[str, int] | None = None
     # The plugin host (app/plugins/lifecycle.py): None when the system is off.
     plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
+    # Level "none" only: why (app/plugins/isolation/selection.py, `NoneReason`).
+    plugins_isolation_reason: Literal["not_linux", "bwrap_missing", "bwrap_refused"] | None = None
     # Off or held: the host lock, the platform and the isolation take precedence
     # over the global pause ("paused", app/plugins/pause.py).
     plugins_disabled: bool = False

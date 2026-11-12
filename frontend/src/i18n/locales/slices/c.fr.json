@@ -827,7 +827,8 @@
       "checkFailed": "La dernière vérification des versions n’a pas abouti. Meshloom réessaiera d’ici 6 heures.",
       "manualHelp": "Comment mettre à jour",
       "legacyHelper": "Relancez l’installeur Meshloom sur l’hôte pour passer à l’assistant de mise à jour signé.",
-      "testingChannel": "Cette installation suit le canal des pré-versions : les mises à jour peuvent installer des versions candidates. Pour revenir aux versions stables, lancez une fois l’installeur de get.meshloom.app."
+      "testingChannel": "Cette installation suit le canal des pré-versions : les mises à jour peuvent installer des versions candidates. Pour revenir aux versions stables, lancez une fois l’installeur de get.meshloom.app.",
+      "testingChannelUntilFinal": "Cette installation suit le canal des pré-versions et continue de recevoir les versions candidates. Dès la sortie de la version finale, relancez l’installeur de get.meshloom.app pour revenir aux versions stables."
     },
     "common": {
       "storedOnRadio": "Écrit sur la radio",
