@@ -102,7 +102,8 @@ Turning Community off makes Meshloom forget the proofs it holds.
 - if your radio's adverts broadcast its position, it stays visible on the map like any other node heard on the mesh;
 - Meshloom Remote and link and file sharing pause too (see [Features that need Community](#features-that-need-community));
 - the confidential record of the proofs given for Remote and sharing is kept for one year after each proof ends (see [Proof for Remote and sharing](#proof-for-remote-and-sharing));
-- to have everything deleted, write to [privacy@meshloom.app](mailto:privacy@meshloom.app).
+- Community keeps an archive of what it received from your radio (packets, status messages, positions). It is never public and is kept for one year. Leaving stops the collection at that moment: what was received before stays in the archive until a year after it was received;
+- to have everything deleted, archive included, write to [privacy@meshloom.app](mailto:privacy@meshloom.app).
 
 You can also say why you leave (privacy, not useful, technical issue, other); this is optional. Once you confirm, Meshloom sends one last request to Community to record the opt-out, with the reason if you gave one: Community deletes your radio's position, clears its status on the broker (at once, or shortly after) and refuses this radio until it joins again. Then Meshloom cuts everything, as described below.
 
