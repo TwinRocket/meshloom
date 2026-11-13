@@ -104,7 +104,8 @@ Désactiver Community fait oublier à Meshloom les preuves qu’il détient.
 - si les annonces de votre radio diffusent sa position, elle reste visible sur la carte comme celle de tout autre nœud entendu sur le mesh ;
 - Meshloom Remote et le partage de liens et de fichiers se mettent aussi en pause (voir [Fonctions qui ont besoin de Community](#fonctions-qui-ont-besoin-de-community)) ;
 - le registre confidentiel des preuves données pour Remote et le partage est gardé un an après la fin de chaque preuve (voir [Preuve pour Remote et le partage](#preuve-pour-remote-et-le-partage)) ;
-- pour tout faire supprimer, écrivez à [privacy@meshloom.app](mailto:privacy@meshloom.app).
+- Community garde une archive de ce qu’il a reçu de votre radio (paquets, messages d’état, positions). Elle n’est jamais publique et elle est gardée un an. Le départ arrête la collecte à ce moment-là : ce qui a été reçu avant reste dans l’archive jusqu’à un an après sa réception ;
+- pour tout faire supprimer, archive comprise, écrivez à [privacy@meshloom.app](mailto:privacy@meshloom.app).
 
 Vous pouvez aussi indiquer pourquoi vous partez (vie privée, pas utile, problème technique, autre) ; c’est facultatif. Une fois le départ confirmé, Meshloom envoie une dernière requête à Community pour enregistrer la désinscription, avec la raison si vous en avez donné une : Community supprime la position de votre radio, efface son état sur le broker (aussitôt, ou peu après) et refuse cette radio jusqu’à ce qu’elle rejoigne de nouveau. Meshloom coupe ensuite tout, comme décrit ci-dessous.
 

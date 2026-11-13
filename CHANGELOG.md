@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Changed
+
+- **Community docs: the archive.** Leaving Community now says that Community keeps an archive of what it received from your radio (packets, status messages, positions), never public, for one year. Leaving stops the collection at that moment, and what was received before stays until a year after it was received. To have it deleted, write to privacy@meshloom.app ([Leaving](https://meshloom.app/en/docs/deep/community/#leaving)).
+
+### Français
+
+#### Changements
+
+- **Doc de Community : l'archive.** Quitter Community indique maintenant que Community garde une archive de ce qu'il a reçu de votre radio (paquets, messages d'état, positions), jamais publique, pendant un an. Le départ arrête la collecte à ce moment-là, et ce qui a été reçu avant reste jusqu'à un an après sa réception. Pour la faire supprimer, écrivez à privacy@meshloom.app ([Quitter Community](https://meshloom.app/docs/deep/community/#quitter-community)).
+
 ---
 
 ## [5.0.0-rc.6] - 2026-11-12
